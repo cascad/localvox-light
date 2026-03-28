@@ -1,0 +1,104 @@
+# Сборка release-бинарников: Linux x64/ARM64, Windows x64, macOS Intel/Apple Silicon.
+# Нативная libvosk качается в vosk-lib/ (как у разработчика); модель в CI не нужна.
+
+name: Build binaries
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "src/**"
+      - "build.rs"
+      - ".github/workflows/build-binaries.yml"
+      - "scripts/setup-vosk.sh"
+      - "scripts/setup-vosk.ps1"
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: read
+  actions: write # upload-artifact
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            artifact: localvox-light-x86_64-unknown-linux-gnu
+            bin: localvox-light
+            vosk_preset: linux-x86_64
+
+          - name: linux-aarch64
+            os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            artifact: localvox-light-aarch64-unknown-linux-gnu
+            bin: localvox-light
+            vosk_preset: linux-aarch64
+
+          - name: windows-x86_64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact: localvox-light-x86_64-pc-windows-msvc
+            bin: localvox-light.exe
+            vosk_preset: ""
+
+          - name: macos-x86_64
+            os: macos-13
+            target: x86_64-apple-darwin
+            artifact: localvox-light-x86_64-apple-darwin
+            bin: localvox-light
+            vosk_preset: darwin
+
+          - name: macos-aarch64
+            os: macos-14
+            target: aarch64-apple-darwin
+            artifact: localvox-light-aarch64-apple-darwin
+            bin: localvox-light
+            vosk_preset: darwin
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux build deps (ALSA / cpal)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev pkg-config
+
+      - name: Install Vosk native library (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          chmod +x scripts/setup-vosk.sh
+          ./scripts/setup-vosk.sh --skip-model --preset=${{ matrix.vosk_preset }}
+
+      - name: Install Vosk native library (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/setup-vosk.ps1 -SkipModel
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cargo build
+        shell: bash
+        env:
+          RUSTFLAGS: -L native=${{ github.workspace }}/vosk-lib
+        run: cargo build --release --locked --target ${{ matrix.target }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: target/${{ matrix.target }}/release/${{ matrix.bin }}
+          if-no-files-found: error

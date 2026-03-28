@@ -13,6 +13,23 @@ target
 # Contains mutation testing data
 **/mutants.out*/
 
+# Vosk: нативные библиотеки и модели (scripts/setup-vosk.*)
+vosk-lib/**
+!vosk-lib/.gitkeep
+models/
+
+# localvox-light: сессии (wav, transcript.jsonl), см. LOCALVOX_LIGHT_AUDIO_DIR
+localvox-audio/
+
+# Экспорт транскрипта из TUI [e], см. LOCALVOX_LIGHT_TRANSCRIPT_DUMP_DIR
+transcript-dumps/
+
+# Устройства из TUI F2 / LOCALVOX_LIGHT_CONFIG
+localvox-light-config.json
+
+# Локальные секреты и пути (копия из .env.example)
+.env
+
 # RustRover
 #  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
 #  be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore

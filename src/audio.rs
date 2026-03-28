@@ -1,0 +1,364 @@
+//! Audio capture: microphone and loopback (system sound).
+//! Sends 16 kHz mono i16 PCM chunks to the pipeline via crossbeam channel.
+
+#[cfg(windows)]
+use std::collections::VecDeque;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::thread;
+use std::time::Duration;
+
+use anyhow::{Context, Result};
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use crossbeam_channel::{Sender, TrySendError};
+
+use crate::events::UiMsg;
+
+pub const SAMPLE_RATE: u32 = 16000;
+pub const CHUNK_FRAMES: usize = 512;
+
+pub struct PcmChunk {
+    pub source_id: u8,
+    pub samples: Vec<i16>,
+}
+
+/// RMS → 0..1 для шкалы из 8 блоков (как client-reliable: `rms/32768*12`, min 1.0).
+pub fn pcm_level_i16(samples: &[i16]) -> f32 {
+    if samples.is_empty() {
+        return 0.0;
+    }
+    let rms: f64 = (samples.iter().map(|&s| (s as f64).powi(2)).sum::<f64>()
+        / samples.len() as f64)
+        .sqrt();
+    (rms / 32768.0 * 12.0).min(1.0) as f32
+}
+
+/// Строка для отображения устройства (имя + производитель + id) — как в client-reliable.
+pub fn format_device_display(dev: &cpal::Device, name: &str, extra: &str) -> String {
+    let id_str = dev
+        .id()
+        .map(|id| format!("{id}"))
+        .unwrap_or_else(|_| "?".into());
+    let mut parts = vec![name.to_string()];
+    if let Ok(desc) = dev.description() {
+        if let Some(mfr) = desc.manufacturer() {
+            let mfr = mfr.trim();
+            if !mfr.is_empty() && mfr != name {
+                parts.push(mfr.to_string());
+            }
+        }
+    }
+    parts.push(format!("id:{id_str}"));
+    if !extra.is_empty() {
+        parts.push(extra.to_string());
+    }
+    parts.join(" | ")
+}
+
+pub fn collect_input_devices() -> Vec<(cpal::Device, String)> {
+    let host = cpal::default_host();
+    host.input_devices()
+        .unwrap_or_else(|_| panic!("input_devices"))
+        .filter_map(|dev| {
+            let name = dev.description().ok()?.name().to_string();
+            #[cfg(target_os = "macos")]
+            if name.contains("Cpal loopback") || name.contains("cpal output recorder") {
+                return None;
+            }
+            Some((dev, name))
+        })
+        .collect()
+}
+
+pub fn list_output_device_names() -> Vec<(usize, String)> {
+    #[cfg(windows)]
+    {
+        let enumerator = match wasapi::DeviceEnumerator::new() {
+            Ok(e) => e,
+            Err(_) => return vec![],
+        };
+        let collection = match enumerator.get_device_collection(&wasapi::Direction::Render) {
+            Ok(c) => c,
+            Err(_) => return vec![],
+        };
+        let mut list: Vec<(usize, String)> = collection
+            .into_iter()
+            .enumerate()
+            .filter_map(|(i, r)| {
+                let dev = r.ok()?;
+                dev.get_friendlyname().ok().map(|n| (i + 1, n))
+            })
+            .collect();
+        list.insert(0, (0, "default-output".to_string()));
+        list
+    }
+    #[cfg(not(windows))]
+    {
+        let devices = match cpal::default_host().output_devices() {
+            Ok(d) => d,
+            Err(_) => return vec![],
+        };
+        let mut list: Vec<(usize, String)> = devices
+            .enumerate()
+            .filter_map(|(i, dev)| {
+                dev.description()
+                    .ok()
+                    .map(|d| (i + 1, d.name().to_string()))
+            })
+            .collect();
+        list.insert(0, (0, "default-output".to_string()));
+        list
+    }
+}
+
+pub fn resolve_mic(query: &str) -> Result<cpal::Device> {
+    if query.eq_ignore_ascii_case("default") {
+        return cpal::default_host()
+            .default_input_device()
+            .context("No default input device");
+    }
+    let devices = collect_input_devices();
+    if let Ok(idx) = query.parse::<usize>() {
+        return devices
+            .into_iter()
+            .nth(idx)
+            .map(|(d, _)| d)
+            .context(format!("Input device index {idx} not found"));
+    }
+    let needle = query.to_lowercase();
+    devices
+        .into_iter()
+        .find(|(_, name)| name.to_lowercase().contains(&needle))
+        .map(|(d, _)| d)
+        .context(format!("Input device '{query}' not found"))
+}
+
+fn to_mono(data: &[f32], channels: u16) -> Vec<f32> {
+    if channels == 1 {
+        return data.to_vec();
+    }
+    let ch = channels as usize;
+    data.chunks_exact(ch)
+        .map(|frame| frame.iter().sum::<f32>() / ch as f32)
+        .collect()
+}
+
+fn resample(src: &[f32], src_rate: u32) -> Vec<f32> {
+    if src_rate == SAMPLE_RATE {
+        return src.to_vec();
+    }
+    let ratio = src_rate as f64 / SAMPLE_RATE as f64;
+    let out_len = (src.len() as f64 / ratio).ceil() as usize;
+    (0..out_len)
+        .map(|i| {
+            let pos = i as f64 * ratio;
+            let idx = pos as usize;
+            let frac = (pos - idx as f64) as f32;
+            let a = src[idx.min(src.len() - 1)];
+            let b = src[(idx + 1).min(src.len() - 1)];
+            a + (b - a) * frac
+        })
+        .collect()
+}
+
+/// Capture from a cpal input device (mic). Resamples to 16 kHz mono.
+pub fn mic_capture(
+    device: cpal::Device,
+    source_id: u8,
+    tx: Sender<PcmChunk>,
+    running: Arc<AtomicBool>,
+    level_ui: Option<Sender<UiMsg>>,
+) -> Result<()> {
+    let supported = device.default_input_config()?;
+    let native_rate = supported.sample_rate();
+    let native_channels = supported.channels();
+    let config = cpal::StreamConfig {
+        channels: native_channels,
+        sample_rate: native_rate,
+        buffer_size: cpal::BufferSize::Default,
+    };
+
+    let mut pcm_buf: Vec<i16> = Vec::with_capacity(CHUNK_FRAMES * 4);
+    let tx2 = tx.clone();
+    let running2 = running.clone();
+    let level2 = level_ui.clone();
+
+    let stream = device.build_input_stream(
+        &config,
+        move |data: &[f32], _: &cpal::InputCallbackInfo| {
+            if !running2.load(Ordering::Relaxed) {
+                return;
+            }
+            let mono = to_mono(data, native_channels);
+            let resampled = resample(&mono, native_rate);
+            let samples: Vec<i16> = resampled
+                .iter()
+                .map(|&s| (s * 32767.0).clamp(-32768.0, 32767.0) as i16)
+                .collect();
+            pcm_buf.extend_from_slice(&samples);
+            while pcm_buf.len() >= CHUNK_FRAMES {
+                let chunk: Vec<i16> = pcm_buf.drain(..CHUNK_FRAMES).collect();
+                if let Some(ref u) = level2 {
+                    let level = pcm_level_i16(&chunk);
+                    let _ = u.send(UiMsg::AudioLevel { source_id, level });
+                }
+                match tx2.try_send(PcmChunk {
+                    source_id,
+                    samples: chunk,
+                }) {
+                    Ok(()) => {}
+                    Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {}
+                }
+            }
+        },
+        |err| tracing::warn!("audio stream error: {err}"),
+        None,
+    )?;
+    stream.play()?;
+    while running.load(Ordering::Relaxed) {
+        thread::sleep(Duration::from_millis(100));
+    }
+    let _ = stream.pause();
+    drop(stream);
+    Ok(())
+}
+
+/// Capture system audio via WASAPI loopback (Windows).
+#[cfg(windows)]
+pub fn loopback_capture(
+    device_query: &str,
+    tx: Sender<PcmChunk>,
+    running: Arc<AtomicBool>,
+    level_ui: Option<Sender<UiMsg>>,
+) -> Result<()> {
+    wasapi::initialize_mta()
+        .ok()
+        .context("COM init failed in loopback thread")?;
+
+    let device = resolve_output_device_wasapi(device_query)?;
+    let mut audio_client = device
+        .get_iaudioclient()
+        .map_err(|e| anyhow::anyhow!("get_iaudioclient: {e:?}"))?;
+
+    let desired_format = wasapi::WaveFormat::new(
+        16, 16,
+        &wasapi::SampleType::Int,
+        SAMPLE_RATE as usize, 1, None,
+    );
+    let (_, min_time) = audio_client
+        .get_device_period()
+        .map_err(|e| anyhow::anyhow!("get_device_period: {e:?}"))?;
+
+    audio_client
+        .initialize_client(
+            &desired_format,
+            &wasapi::Direction::Capture,
+            &wasapi::StreamMode::EventsShared {
+                autoconvert: true,
+                buffer_duration_hns: min_time,
+            },
+        )
+        .map_err(|e| anyhow::anyhow!("initialize_client loopback: {e:?}"))?;
+
+    let h_event = audio_client
+        .set_get_eventhandle()
+        .map_err(|e| anyhow::anyhow!("set_get_eventhandle: {e:?}"))?;
+    let capture_client = audio_client
+        .get_audiocaptureclient()
+        .map_err(|e| anyhow::anyhow!("get_audiocaptureclient: {e:?}"))?;
+    audio_client
+        .start_stream()
+        .map_err(|e| anyhow::anyhow!("start_stream: {e:?}"))?;
+
+    let blockalign = desired_format.get_blockalign() as usize;
+    let chunk_bytes = CHUNK_FRAMES * blockalign;
+    let mut sample_queue: VecDeque<u8> = VecDeque::with_capacity(chunk_bytes * 8);
+
+    while running.load(Ordering::Relaxed) {
+        capture_client
+            .read_from_device_to_deque(&mut sample_queue)
+            .map_err(|e| anyhow::anyhow!("read_from_device: {e:?}"))?;
+
+        while sample_queue.len() >= chunk_bytes {
+            let mut pcm = Vec::with_capacity(CHUNK_FRAMES);
+            for _ in 0..CHUNK_FRAMES {
+                let lo = sample_queue.pop_front().unwrap();
+                let hi = sample_queue.pop_front().unwrap();
+                pcm.push(i16::from_le_bytes([lo, hi]));
+            }
+            if let Some(ref u) = level_ui {
+                let level = pcm_level_i16(&pcm);
+                let _ = u.send(UiMsg::AudioLevel {
+                    source_id: 1,
+                    level,
+                });
+            }
+            match tx.try_send(PcmChunk {
+                source_id: 1,
+                samples: pcm,
+            }) {
+                Ok(()) => {}
+                Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {}
+            }
+        }
+        if h_event.wait_for_event(100).is_err() {}
+    }
+
+    audio_client
+        .stop_stream()
+        .map_err(|e| anyhow::anyhow!("stop_stream: {e:?}"))?;
+    Ok(())
+}
+
+#[cfg(windows)]
+fn resolve_output_device_wasapi(query: &str) -> Result<wasapi::Device> {
+    let enumerator =
+        wasapi::DeviceEnumerator::new().map_err(|e| anyhow::anyhow!("DeviceEnumerator: {e:?}"))?;
+    if query.eq_ignore_ascii_case("default-output") || query.eq_ignore_ascii_case("default") {
+        return enumerator
+            .get_default_device(&wasapi::Direction::Render)
+            .map_err(|e| anyhow::anyhow!("get_default_device: {e:?}"));
+    }
+    if let Ok(idx) = query.parse::<usize>() {
+        if idx == 0 {
+            return enumerator
+                .get_default_device(&wasapi::Direction::Render)
+                .map_err(|e| anyhow::anyhow!("get_default_device: {e:?}"));
+        }
+        let collection = enumerator
+            .get_device_collection(&wasapi::Direction::Render)
+            .map_err(|e| anyhow::anyhow!("get_device_collection: {e:?}"))?;
+        return collection
+            .into_iter()
+            .nth(idx - 1)
+            .context(format!("Output device index {idx} not found"))?
+            .map_err(|e| anyhow::anyhow!("device error: {e:?}"));
+    }
+    let needle = query.to_lowercase();
+    let collection = enumerator
+        .get_device_collection(&wasapi::Direction::Render)
+        .map_err(|e| anyhow::anyhow!("get_device_collection: {e:?}"))?;
+    for dev_result in collection.into_iter() {
+        let dev = dev_result.map_err(|e| anyhow::anyhow!("device error: {e:?}"))?;
+        if dev
+            .get_friendlyname()
+            .unwrap_or_default()
+            .to_lowercase()
+            .contains(&needle)
+        {
+            return Ok(dev);
+        }
+    }
+    anyhow::bail!("Output device '{query}' not found")
+}
+
+#[cfg(not(windows))]
+pub fn loopback_capture(
+    device_query: &str,
+    tx: Sender<PcmChunk>,
+    running: Arc<AtomicBool>,
+    level_ui: Option<Sender<UiMsg>>,
+) -> Result<()> {
+    let device = resolve_mic(device_query)?;
+    mic_capture(device, 1, tx, running, level_ui)
+}
