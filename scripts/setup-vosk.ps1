@@ -77,7 +77,7 @@ if (-not $SkipModel) {
             New-Item -ItemType Directory -Path $modelsRoot -Force | Out-Null
             Expand-Archive -Path $mz -DestinationPath $modelsRoot -Force
             if (-not (Test-Path $finalMdl)) {
-                throw "После распаковки не найден final.mdl в $dest"
+                throw "После распаковки не найден $dest\am\final.mdl (нужен полный архив модели Vosk)"
             }
             Write-Host "Модель -> $dest"
         } finally {
