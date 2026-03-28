@@ -52,15 +52,16 @@ jobs:
             bin: localvox-light.exe
             vosk_preset: ""
 
+          # macos-13 снят с GitHub (2025); Intel — отдельный образ.
           - name: macos-x86_64
-            os: macos-13
+            os: macos-15-intel
             target: x86_64-apple-darwin
             artifact: localvox-light-x86_64-apple-darwin
             bin: localvox-light
             vosk_preset: darwin
 
           - name: macos-aarch64
-            os: macos-14
+            os: macos-15
             target: aarch64-apple-darwin
             artifact: localvox-light-aarch64-apple-darwin
             bin: localvox-light
