@@ -30,6 +30,8 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  # До полного перехода GitHub на Node 24 по умолчанию — убирает варнинги для actions на Node 20.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 permissions:
   contents: read
@@ -79,7 +81,7 @@ jobs:
             vosk_preset: darwin
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install Linux build deps (ALSA / cpal)
         if: runner.os == 'Linux'
@@ -109,7 +111,7 @@ jobs:
         run: cargo build --release --locked -p localvox-light --target ${{ matrix.target }}
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: ${{ matrix.artifact }}
           path: target/${{ matrix.target }}/release/${{ matrix.bin }}
@@ -123,12 +125,12 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
       - name: Download all build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           path: dist
 
