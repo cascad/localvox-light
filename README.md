@@ -27,21 +27,21 @@
 
 Скрипты **`install-release.ps1`** / **`install-release.sh`** качают бинарник с **последнего GitHub Release** (и `setup-vosk` с raw). Пока релиза нет, сначала выполните шаг выше. Дополнительно артефакты по-прежнему лежат во вкладке **Actions** у каждого прогона.
 
-**Windows (PowerShell):** скачайте `scripts/install-release.ps1` с raw GitHub и выполните (или задайте каталог):
+**Windows (PowerShell)** — одной строкой (по умолчанию каталог **`.\localvox-light`** относительно текущей папки; внутри создаётся **`.env`** с путём к модели и подкаталог **`vosk-lib/`**; бинарник подхватывает это сам). Релиз **`latest`**:
 
 ```powershell
-.\install-release.ps1 -InstallDir "$env:USERPROFILE\localvox-light"
+$u='https://raw.githubusercontent.com/cascad/localvox-light/main/scripts/install-release.ps1'; $p="$env:TEMP\lv-install.ps1"; Invoke-WebRequest -Uri $u -OutFile $p; & $p
 ```
 
-**Linux / macOS:** нужны `curl`, `unzip`, **`jq`**.
+Другой каталог или конкретный релиз: `& $p -InstallDir D:\apps\lv -Tag v0.1.0`
+
+**Linux / macOS:** `curl`, `unzip`, **`jq`**. Одна строка:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/cascad/localvox-light/main/scripts/install-release.sh | bash
-# или свой каталог:
-LOCALVOX_LIGHT_INSTALL_DIR=~/localvox-light bash install-release.sh
 ```
 
-Переменные: `LOCALVOX_LIGHT_REPO` (по умолчанию `cascad/localvox-light`), `LOCALVOX_LIGHT_TAG` (`latest` или тег), `LOCALVOX_LIGHT_BRANCH` (ветка для скачивания `setup-vosk` с raw, по умолчанию `main`). Флаги только в `.sh`: `--skip-vosk`, `--skip-binary`.
+Свой каталог / тег: `bash install-release.sh --install-dir=~/lv --tag=v0.1.0` (скрипт можно сначала скачать). Флаги: `--skip-vosk`, `--skip-binary`, `--repo=`, `--branch=`.
 
 ## Разработка: модель + `vosk-lib` в репозитории
 
@@ -67,7 +67,7 @@ chmod +x scripts/setup-vosk.sh
 
 После установки:
 
-- В **Windows** при сборке `build.rs` копирует все `*.dll` из `vosk-lib` в `target/release/` (или `target/debug/`) рядом с `localvox-light.exe`, чтобы `cargo run` работал без PATH. Для **готового exe вне этого каталога** добавьте `vosk-lib` в **PATH** или положите те же DLL рядом с бинарником.
+- В **Windows** при сборке `build.rs` копирует все `*.dll` из `vosk-lib` в `target/release/` (или `target/debug/`) рядом с `localvox-light.exe`, чтобы `cargo run` работал без PATH. **Портативный** exe из `install-release` ищет **`vosk-lib`** рядом с бинарником и временно добавляет его в `PATH`; при необходимости задайте путь к модели в **`.env`** рядом с exe (скрипт создаёт файл автоматически).
 - В **Linux** при необходимости: `export LD_LIBRARY_PATH="/path/to/repo/vosk-lib:$LD_LIBRARY_PATH"`.
 - В **macOS** при необходимости: `export DYLD_LIBRARY_PATH="/path/to/repo/vosk-lib:$DYLD_LIBRARY_PATH"`.
 

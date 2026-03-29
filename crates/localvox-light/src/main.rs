@@ -1,5 +1,6 @@
 //! Точка входа бинарника `localvox-light`. Ядро — крейт `localvox_light_core`.
 
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -24,8 +25,57 @@ use localvox_light_core::events::UiMsg;
 #[cfg(feature = "tui")]
 use localvox_light_core::light_config;
 
+/// Портативная папка: `.env` рядом с exe; подкаталог `vosk-lib/` — в начало поиска нативных библиотек
+/// (Windows: `PATH`, Linux: `LD_LIBRARY_PATH`, macOS: `DYLD_LIBRARY_PATH`).
+fn portable_env_bootstrap() {
+    let Some(exe_dir) = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+    else {
+        let _ = dotenvy::dotenv().ok();
+        return;
+    };
+    let dotenv_path = exe_dir.join(".env");
+    if dotenv_path.is_file() {
+        let _ = dotenvy::from_path(&dotenv_path).ok();
+    } else {
+        let _ = dotenvy::dotenv().ok();
+    }
+    let vosk_lib = exe_dir.join("vosk-lib");
+    if vosk_lib.is_dir() {
+        prepend_native_lib_search_path(&vosk_lib);
+    }
+}
+
+#[cfg(windows)]
+fn prepend_native_lib_search_path(dir: &Path) {
+    let dir = dir.to_string_lossy();
+    match std::env::var("PATH") {
+        Ok(cur) => std::env::set_var("PATH", format!("{dir};{cur}")),
+        Err(_) => std::env::set_var("PATH", dir.as_ref()),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn prepend_native_lib_search_path(dir: &Path) {
+    let dir = dir.to_string_lossy();
+    match std::env::var("DYLD_LIBRARY_PATH") {
+        Ok(cur) => std::env::set_var("DYLD_LIBRARY_PATH", format!("{dir}:{cur}")),
+        Err(_) => std::env::set_var("DYLD_LIBRARY_PATH", dir.as_ref()),
+    }
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn prepend_native_lib_search_path(dir: &Path) {
+    let dir = dir.to_string_lossy();
+    match std::env::var("LD_LIBRARY_PATH") {
+        Ok(cur) => std::env::set_var("LD_LIBRARY_PATH", format!("{dir}:{cur}")),
+        Err(_) => std::env::set_var("LD_LIBRARY_PATH", dir.as_ref()),
+    }
+}
+
 fn main() -> Result<()> {
-    let _ = dotenvy::dotenv().ok();
+    portable_env_bootstrap();
     let mut cli = Cli::parse();
     merge_env_bools(&mut cli);
     if cli.list_devices {
