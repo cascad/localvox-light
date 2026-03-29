@@ -1,0 +1,33 @@
+[package]
+name = "localvox-light-core"
+version.workspace = true
+edition.workspace = true
+description = "Local audio capture → VAD → Vosk ASR → transcript.jsonl (library)."
+
+[lib]
+name = "localvox_light_core"
+path = "src/lib.rs"
+
+[dependencies]
+anyhow.workspace = true
+chrono.workspace = true
+clap.workspace = true
+crossbeam-channel.workspace = true
+cpal.workspace = true
+hound.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+uuid.workspace = true
+vosk.workspace = true
+webrtc-vad.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+wasapi.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

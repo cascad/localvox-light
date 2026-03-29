@@ -21,11 +21,12 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap};
 use ratatui::Terminal;
 
-use crate::audio::{collect_input_devices, format_device_display, list_output_device_names};
-use crate::events::{StructuredLog, UiMsg};
-use crate::transcript::export_sorted_jsonl;
+use localvox_light_core::audio::{collect_input_devices, format_device_display, list_output_device_names};
+use localvox_light_core::events::{StructuredLog, UiMsg};
+use localvox_light_core::light_config::LightDeviceConfig;
+use localvox_light_core::transcript::export_sorted_jsonl;
+
 use crate::keys::key_matches;
-use crate::light_config::LightDeviceConfig;
 
 /// Файл transcript.jsonl не ограничен — буфер TUI должен быть большим, иначе «в файле больше строк».
 const MAX_TRANSCRIPT_LINES: usize = 50_000;
@@ -948,4 +949,34 @@ pub fn run(
     execute!(terminal.backend_mut(), DisableMouseCapture, LeaveAlternateScreen)?;
     terminal::disable_raw_mode()?;
     Ok(())
+}
+
+#[cfg(test)]
+mod layout_tests {
+    use super::{row_visual_height, status_wrapped_row_count, TranscriptRow};
+    use ratatui::text::Line;
+
+    #[test]
+    fn status_wrapped_empty_is_one_row() {
+        assert_eq!(status_wrapped_row_count(&[], 80), 1);
+    }
+
+    #[test]
+    fn status_wrapped_narrow_width_splits_line() {
+        let line = Line::from("abcdefghij");
+        assert_eq!(status_wrapped_row_count(&[line], 4), 3);
+    }
+
+    #[test]
+    fn row_visual_height_transcript_row() {
+        let row = TranscriptRow {
+            ts: "12:34:56".into(),
+            source_id: 0,
+            text: "abc".into(),
+        };
+        assert_eq!(row_visual_height(&row, 100), 1);
+        let w = "12:34:56 ".len() + "mic ".len() + "abc".len();
+        assert_eq!(row_visual_height(&row, w), 1);
+        assert_eq!(row_visual_height(&row, w - 1), 2);
+    }
 }

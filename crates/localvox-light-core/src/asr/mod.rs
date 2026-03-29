@@ -91,3 +91,21 @@ pub fn trim_to_speech(samples: &[f32], pad_ms: u32) -> Option<Vec<f32>> {
     }
     if result.is_empty() { None } else { Some(result) }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn speech_ratio_short_buffer_is_one() {
+        let s = vec![0.0f32; 100];
+        assert_eq!(speech_ratio(&s), 1.0);
+    }
+
+    #[test]
+    fn trim_to_speech_short_returns_clone() {
+        let s = vec![0.0f32; 100];
+        let t = trim_to_speech(&s, 300).expect("some");
+        assert_eq!(t.len(), s.len());
+    }
+}

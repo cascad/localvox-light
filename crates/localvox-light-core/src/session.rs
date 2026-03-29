@@ -156,3 +156,68 @@ pub fn wav_stem_sort_key(stem: &str) -> Option<(u8, u32)> {
 fn fallback_sort_key() -> (u8, u32) {
     (255, u32::MAX)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn wav_stem_sort_key_examples() {
+        assert_eq!(wav_stem_sort_key("src0_000001"), Some((0, 1)));
+        assert_eq!(wav_stem_sort_key("src1_000010"), Some((1, 10)));
+        assert_eq!(wav_stem_sort_key("nope"), None);
+    }
+
+    #[test]
+    fn workspace_queue_stats_counts_unprocessed() {
+        let dir = tempdir().unwrap();
+        let w = dir.path();
+        std::fs::write(w.join("src0_000001.wav"), [0u8; 100]).unwrap();
+        std::fs::write(w.join("transcript.jsonl"), "").unwrap();
+        let (n, umb, smb) = workspace_queue_stats(w);
+        assert_eq!(n, 1);
+        assert!((umb - 100.0 / (1024.0 * 1024.0)).abs() < 1e-6);
+        assert!((smb - 100.0 / (1024.0 * 1024.0)).abs() < 1e-6);
+        let line = r#"{"seg_id":"src0_000001","source_id":0,"text":"x","duration_sec":1.0,"timestamp":"2026-01-01T00:00:00+00:00"}"#;
+        std::fs::write(w.join("transcript.jsonl"), format!("{line}\n")).unwrap();
+        let (n2, _, _) = workspace_queue_stats(w);
+        assert_eq!(n2, 0);
+    }
+
+    #[test]
+    fn recover_unprocessed_sorted_order() {
+        let dir = tempdir().unwrap();
+        let w = dir.path();
+        std::fs::write(w.join("src0_000003.wav"), b"x").unwrap();
+        std::fs::write(w.join("src0_000001.wav"), b"x").unwrap();
+        std::fs::write(w.join("src1_000001.wav"), b"x").unwrap();
+        std::fs::write(w.join("transcript.jsonl"), "").unwrap();
+        let pending = recover_unprocessed(w);
+        assert_eq!(pending.len(), 3);
+        assert_eq!(pending[0].0.file_name().unwrap(), "src0_000001.wav");
+        assert_eq!(pending[1].0.file_name().unwrap(), "src0_000003.wav");
+        assert_eq!(pending[2].0.file_name().unwrap(), "src1_000001.wav");
+    }
+
+    #[test]
+    fn max_segment_seq_includes_wav_and_part() {
+        let dir = tempdir().unwrap();
+        let w = dir.path();
+        std::fs::write(w.join("src0_000007.wav"), b"a").unwrap();
+        std::fs::write(w.join("src0_000002.part"), b"b").unwrap();
+        assert_eq!(super::max_segment_seq_on_disk(w, 0), 7);
+        assert_eq!(super::max_segment_seq_on_disk(w, 1), 0);
+    }
+
+    #[test]
+    fn remove_orphan_part_files_deletes_part_only() {
+        let dir = tempdir().unwrap();
+        let w = dir.path();
+        std::fs::write(w.join("keep.wav"), b"x").unwrap();
+        std::fs::write(w.join("orphan.part"), b"x").unwrap();
+        remove_orphan_part_files(w);
+        assert!(w.join("keep.wav").exists());
+        assert!(!w.join("orphan.part").exists());
+    }
+}

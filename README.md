@@ -44,13 +44,16 @@ chmod +x scripts/setup-vosk.sh
 
 1. Скопировать `.env.example` в `.env` при необходимости; после `setup-vosk` модель уже в `models/vosk-model-ru-0.42` (дефолт бинарника).
 2. Сборка: `cargo build --release`
-3. Запуск с TUI:
+3. Запуск из корня репозитория (workspace): **`cargo run`** или **`cargo run -p localvox-light`** — это бинарник приложения. Пакет **`localvox-light-tui`** — только библиотека для TUI, у неё нет `bin`, поэтому **`cargo run -p localvox-light-tui`** выдаст ошибку.
+4. Запуск с TUI:
 
    ```bash
    ./target/release/localvox-light --tui
    ```
 
-4. Без TUI — тот же бинарник без `--tui`; логи в stderr (`RUST_LOG`, `--debug`).
+   Либо в dev: `cargo run -- --tui`
+
+5. Без TUI — тот же бинарник без `--tui`; логи в stderr (`RUST_LOG`, `--debug`).
 
 Список устройств: `--list-devices`. Устройства можно задать флагами, `.env` или `localvox-light-config.json` в cwd (см. `.env.example`).
 

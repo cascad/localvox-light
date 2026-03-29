@@ -10,8 +10,7 @@ on:
     paths:
       - "Cargo.toml"
       - "Cargo.lock"
-      - "src/**"
-      - "build.rs"
+      - "crates/**"
       - ".github/workflows/build-binaries.yml"
       - "scripts/setup-vosk.sh"
       - "scripts/setup-vosk.ps1"
@@ -95,7 +94,8 @@ jobs:
         shell: bash
         env:
           RUSTFLAGS: -L native=${{ github.workspace }}/vosk-lib
-        run: cargo build --release --locked --target ${{ matrix.target }}
+        # Workspace: собираем только бинарник (localvox-light-core / localvox-light-tui — зависимости).
+        run: cargo build --release --locked -p localvox-light --target ${{ matrix.target }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

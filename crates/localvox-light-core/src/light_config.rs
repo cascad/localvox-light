@@ -58,3 +58,47 @@ pub fn save_path_for_write() -> PathBuf {
         .or_else(cwd_config_path)
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")).join(FILE_NAME))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn save_load_roundtrip() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("cfg.json");
+        let cfg = LightDeviceConfig {
+            mic: "2".into(),
+            loopback: true,
+            loopback_device: "Speakers".into(),
+        };
+        cfg.save(&path).unwrap();
+        let loaded = LightDeviceConfig::load(&path).unwrap();
+        assert_eq!(loaded, cfg);
+    }
+
+    #[test]
+    fn explicit_config_path_prefers_cli() {
+        let dir = tempdir().unwrap();
+        let p = dir.path().join("explicit.json");
+        assert_eq!(
+            explicit_config_path(&Some(p.clone())),
+            Some(p)
+        );
+    }
+
+    #[test]
+    fn explicit_config_path_ignores_empty_path() {
+        assert!(explicit_config_path(&Some(PathBuf::new())).is_none());
+    }
+
+    #[test]
+    fn default_loopback_device_in_json() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("c.json");
+        std::fs::write(&path, r#"{"mic":"0","loopback":false}"#).unwrap();
+        let c = LightDeviceConfig::load(&path).unwrap();
+        assert_eq!(c.loopback_device, "default-output");
+    }
+}

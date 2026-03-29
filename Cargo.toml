@@ -1,34 +1,36 @@
-[package]
-name = "localvox-light"
+[workspace]
+resolver = "2"
+members = [
+    "crates/localvox-light-core",
+    "crates/localvox-light-tui",
+    "crates/localvox-light",
+]
+default-members = ["crates/localvox-light"]
+
+[workspace.package]
 version = "0.1.0"
 edition = "2021"
-description = "Standalone local transcription: audio capture → VAD → Vosk ASR → transcript. No server needed."
 
-[[bin]]
-name = "localvox-light"
-path = "src/main.rs"
-
-[dependencies]
+[workspace.dependencies]
+anyhow = "1"
+chrono = "0.4"
+clap = { version = "4", features = ["derive", "env"] }
+crossbeam-channel = "0.5"
+crossterm = "0.28"
+ctrlc = "3"
 cpal = "0.17"
-webrtc-vad = "0.4"
+dotenvy = "0.15"
 hound = "3"
-vosk = "0.3"
+libc = "0.2"
+localvox-light-core = { path = "crates/localvox-light-core" }
+localvox-light-tui = { path = "crates/localvox-light-tui" }
+ratatui = "0.29"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-clap = { version = "4", features = ["derive", "env"] }
-anyhow = "1"
-crossbeam-channel = "0.5"
-chrono = "0.4"
+tempfile = "3"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
-ratatui = "0.29"
-crossterm = "0.28"
 uuid = { version = "1", features = ["v7"] }
-ctrlc = "3"
-dotenvy = "0.15"
-
-[target.'cfg(unix)'.dependencies]
-libc = "0.2"
-
-[target.'cfg(windows)'.dependencies]
+vosk = "0.3"
 wasapi = "0.22"
+webrtc-vad = "0.4"

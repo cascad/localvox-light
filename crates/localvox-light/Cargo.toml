@@ -1,0 +1,25 @@
+[package]
+name = "localvox-light"
+version.workspace = true
+edition.workspace = true
+description = "Standalone local transcription: audio capture → VAD → Vosk ASR → transcript. No server needed."
+default-run = "localvox-light"
+
+[[bin]]
+name = "localvox-light"
+path = "src/main.rs"
+
+[features]
+default = ["tui"]
+tui = ["dep:localvox-light-tui"]
+
+[dependencies]
+localvox-light-core.workspace = true
+localvox-light-tui = { workspace = true, optional = true }
+anyhow.workspace = true
+clap.workspace = true
+ctrlc.workspace = true
+crossbeam-channel.workspace = true
+dotenvy.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true

@@ -1,0 +1,17 @@
+[package]
+name = "localvox-light-tui"
+version.workspace = true
+edition.workspace = true
+description = "Ratatui terminal UI for localvox-light-core."
+
+[lib]
+name = "localvox_light_tui"
+path = "src/lib.rs"
+
+[dependencies]
+localvox-light-core.workspace = true
+anyhow.workspace = true
+chrono.workspace = true
+crossbeam-channel.workspace = true
+crossterm.workspace = true
+ratatui.workspace = true

@@ -1,16 +1,4 @@
-//! localvox-light: standalone local transcription.
-//! Audio capture → VAD segmentation → disk → Vosk ASR → transcript.jsonl
-//! No server, no network. Durable: survives crashes via WAV-on-disk queue.
-
-mod asr;
-mod audio;
-mod events;
-mod keys;
-mod light_config;
-mod pipeline;
-mod session;
-mod transcript;
-mod tui;
+//! Захват → пайплайн → Vosk ASR → `transcript.jsonl`. Общая логика для TUI и headless.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -19,376 +7,23 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
-use clap::Parser;
-use cpal::traits::DeviceTrait;
 use crossbeam_channel::Sender;
 use hound::WavReader;
 use tracing::{debug, info};
-use tracing_subscriber::prelude::*;
-use tracing_subscriber::EnvFilter;
+use cpal::traits::DeviceTrait;
 
-use std::sync::mpsc;
+use crate::asr::{speech_ratio, trim_to_speech, AsrEngine};
+use crate::audio;
+use crate::cli::{normalized_model_path, Cli};
+use crate::events::{StructuredLog, UiMsg};
+use crate::light_config::LightDeviceConfig;
+use crate::pipeline::{PipelineConfig, SegmentReady};
+use crate::session;
+use crate::transcript::{TranscriptEntry, TranscriptWriter};
 
-use asr::{speech_ratio, trim_to_speech, AsrEngine};
-use events::{StructuredLog, UiMsg};
-use pipeline::{PipelineConfig, SegmentReady};
-use transcript::{TranscriptEntry, TranscriptWriter};
-
-/// Ждёт поток движка не дольше `max_wait`. Если не успел — `process::exit(0)`:
-/// необработанные WAV в рабочей папке без строки в `transcript.jsonl` подхватит `recover` при следующем запуске.
-fn join_engine_thread(handle: thread::JoinHandle<()>, max_wait: Duration) {
-    let (done_tx, done_rx) = mpsc::sync_channel(0);
-    thread::spawn(move || {
-        let _ = handle.join();
-        let _ = done_tx.send(());
-    });
-    match done_rx.recv_timeout(max_wait) {
-        Ok(()) => {}
-        Err(mpsc::RecvTimeoutError::Timeout) => {
-            eprintln!(
-                "localvox-light: движок не завершился за {} с — выход. WAV без строки в transcript доработаются при следующем запуске.",
-                max_wait.as_secs()
-            );
-            std::process::exit(0);
-        }
-        Err(mpsc::RecvTimeoutError::Disconnected) => {}
-    }
-}
-
-#[derive(Parser, Clone)]
-#[command(name = "localvox-light", about = "Local audio transcription (no server)")]
-struct Cli {
-    /// Microphone device (name, index, or "default"). Перекрывает значение из конфига устройств.
-    #[arg(long, env = "LOCALVOX_LIGHT_MIC")]
-    mic: Option<String>,
-
-    /// Enable system audio capture (loopback)
-    #[arg(long)]
-    loopback: bool,
-
-    /// Отключить loopback даже если включён в localvox-light-config.json
-    #[arg(long)]
-    no_loopback: bool,
-
-    /// Loopback device (name, index, or "default-output")
-    #[arg(long, env = "LOCALVOX_LIGHT_LOOPBACK_DEVICE")]
-    loopback_device: Option<String>,
-
-    /// JSON с полями mic, loopback, loopback_device (сохраняется из TUI F2). Иначе ищется localvox-light-config.json в cwd.
-    #[arg(long, env = "LOCALVOX_LIGHT_CONFIG")]
-    config: Option<std::path::PathBuf>,
-
-    /// Каталог модели Vosk (как качает scripts/setup-vosk.* → models/vosk-model-ru-0.42)
-    #[arg(
-        long,
-        default_value = "models/vosk-model-ru-0.42",
-        env = "LOCALVOX_LIGHT_MODEL"
-    )]
-    model: String,
-
-    /// Рабочий каталог: WAV, transcript.jsonl (переопределение через LOCALVOX_LIGHT_AUDIO_DIR)
-    #[arg(long, default_value = "localvox-audio", env = "LOCALVOX_LIGHT_AUDIO_DIR")]
-    audio_dir: String,
-
-    /// Каталог экспорта по `e` в TUI: отсортированный `transcript_dump_*.jsonl`. Пустая строка — экспорт недоступен.
-    #[arg(long, default_value = "./transcript-dumps", env = "LOCALVOX_LIGHT_TRANSCRIPT_DUMP_DIR")]
-    transcript_dump_dir: PathBuf,
-
-    /// Max segment duration (seconds)
-    #[arg(long, default_value = "10", env = "LOCALVOX_LIGHT_MAX_CHUNK_SEC")]
-    max_chunk_sec: f64,
-
-    /// Min segment duration before VAD can split (seconds)
-    #[arg(long, default_value = "1.5", env = "LOCALVOX_LIGHT_MIN_CHUNK_SEC")]
-    min_chunk_sec: f64,
-
-    /// VAD silence duration to trigger segment split (seconds)
-    #[arg(long, default_value = "0.8", env = "LOCALVOX_LIGHT_VAD_SILENCE_SEC")]
-    vad_silence_sec: f64,
-
-    /// Speech-ratio threshold for noise gate (0 = disabled)
-    #[arg(long, default_value = "0.15", env = "LOCALVOX_LIGHT_NOISE_GATE")]
-    noise_gate: f32,
-
-    /// List audio devices and exit
-    #[arg(long)]
-    list_devices: bool,
-
-    /// Full-screen TUI (транскрипт + таблица этапов)
-    #[arg(long)]
-    tui: bool,
-
-    /// Подробные логи в stderr (tracing), как без TUI
-    #[arg(long)]
-    debug: bool,
-
-    /// Подробные строки этапов в TUI (панель Debug: segment / gate / asr / load …)
-    #[arg(long)]
-    verbose: bool,
-
-    /// Parallel ASR worker threads (>1 helps when mic + loopback segments overlap)
-    #[arg(long, default_value = "2", env = "LOCALVOX_LIGHT_ASR_WORKERS")]
-    asr_workers: usize,
-}
-
-fn long_flag_in_argv(long: &str) -> bool {
-    let eq = format!("{long}=");
-    std::env::args().any(|a| a == long || a.starts_with(&eq))
-}
-
-fn env_truthy(name: &str) -> Option<bool> {
-    std::env::var(name).ok().map(|v| {
-        matches!(
-            v.to_ascii_lowercase().as_str(),
-            "1" | "true" | "yes" | "on"
-        )
-    })
-}
-
-/// Булевы флаги из `.env` / окружения, если соответствующий `--long` не передан в argv.
-fn merge_env_bools(cli: &mut Cli) {
-    if !long_flag_in_argv("--loopback") {
-        if let Some(t) = env_truthy("LOCALVOX_LIGHT_LOOPBACK") {
-            cli.loopback = t;
-        }
-    }
-    if !long_flag_in_argv("--no-loopback") {
-        if let Some(t) = env_truthy("LOCALVOX_LIGHT_NO_LOOPBACK") {
-            cli.no_loopback = t;
-        }
-    }
-    if !long_flag_in_argv("--tui") {
-        if let Some(t) = env_truthy("LOCALVOX_LIGHT_TUI") {
-            cli.tui = t;
-        }
-    }
-    if !long_flag_in_argv("--debug") {
-        if let Some(t) = env_truthy("LOCALVOX_LIGHT_DEBUG") {
-            cli.debug = t;
-        }
-    }
-    if !long_flag_in_argv("--verbose") {
-        if let Some(t) = env_truthy("LOCALVOX_LIGHT_VERBOSE") {
-            cli.verbose = t;
-        }
-    }
-    if !long_flag_in_argv("--list-devices") {
-        if let Some(t) = env_truthy("LOCALVOX_LIGHT_LIST_DEVICES") {
-            cli.list_devices = t;
-        }
-    }
-}
-
-/// CLI + optional `localvox-light-config.json` / `--config` (как устройства в client-reliable).
-fn resolve_audio_from_cli_and_file(cli: &Cli) -> light_config::LightDeviceConfig {
-    let path = light_config::explicit_config_path(&cli.config).or_else(light_config::cwd_config_path);
-    let file_cfg = path
-        .as_ref()
-        .and_then(|p| light_config::LightDeviceConfig::load(p).ok());
-
-    let mut mic = file_cfg
-        .as_ref()
-        .map(|c| c.mic.clone())
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "default".into());
-    let mut loopback = file_cfg.as_ref().map(|c| c.loopback).unwrap_or(false);
-    let mut loopback_device = file_cfg
-        .as_ref()
-        .map(|c| c.loopback_device.clone())
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "default-output".into());
-
-    if let Some(ref m) = cli.mic {
-        mic = m.clone();
-    }
-    if cli.loopback {
-        loopback = true;
-    }
-    if cli.no_loopback {
-        loopback = false;
-    }
-    if let Some(ref d) = cli.loopback_device {
-        loopback_device = d.clone();
-    }
-
-    light_config::LightDeviceConfig {
-        mic,
-        loopback,
-        loopback_device,
-    }
-}
-
-fn init_tracing(debug: bool, tui: bool) {
-    let filter = if tui && !debug {
-        // Подробные этапы — в панели TUI с --verbose; в stderr без --debug только error+.
-        EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| EnvFilter::new("error"))
-    } else if debug {
-        EnvFilter::try_from_default_env().unwrap_or_else(|_| {
-            EnvFilter::new("debug,localvox_light=debug,localvox_light::pipeline=debug")
-        })
-    } else {
-        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"))
-    };
-    let _ = tracing_subscriber::registry()
-        .with(filter)
-        .with(
-            tracing_subscriber::fmt::layer()
-                .with_writer(std::io::stderr)
-                .with_ansi(true),
-        )
-        .try_init();
-}
-
-fn format_entry_time_local(rfc: &str) -> String {
-    chrono::DateTime::parse_from_rfc3339(rfc.trim())
-        .map(|dt| dt.with_timezone(&chrono::Local).format("%H:%M:%S").to_string())
-        .unwrap_or_else(|_| chrono::Local::now().format("%H:%M:%S").to_string())
-}
-
-fn ui_log(tx: Option<&Sender<UiMsg>>, log: StructuredLog) {
-    if let Some(t) = tx {
-        let _ = t.send(UiMsg::Log(log));
-    }
-}
-
-/// Путь из CLI / `.env`: trim и снятие одной пары кавычек `"…"` / `'…'` (частая ошибка в .env).
-fn normalized_model_path(cli: &Cli) -> String {
-    let s = cli.model.trim();
-    let b = s.as_bytes();
-    let unquoted = if s.len() >= 2 {
-        let first = b[0];
-        let last = b[s.len() - 1];
-        if (first == b'"' && last == b'"') || (first == b'\'' && last == b'\'') {
-            &s[1..s.len() - 1]
-        } else {
-            s
-        }
-    } else {
-        s
-    };
-    unquoted.trim().to_string()
-}
-
-/// До захвата аудио и TUI: модель нужна для записи (не для `--list-devices`).
-fn validate_vosk_model(cli: &Cli) -> Result<()> {
-    let path_str = normalized_model_path(cli);
-    if path_str.is_empty() {
-        anyhow::bail!(
-            "LOCALVOX_LIGHT_MODEL пустой. Задайте каталог модели или удалите переменную (дефолт: models/vosk-model-ru-0.42)."
-        );
-    }
-    let p = Path::new(&path_str);
-    if !p.exists() {
-        anyhow::bail!(
-            "Модель Vosk: каталог не найден: {}. По умолчанию ожидается models/vosk-model-ru-0.42 после scripts/setup-vosk.* (или укажите --model).",
-            p.display()
-        );
-    }
-    if !p.is_dir() {
-        anyhow::bail!(
-            "Модель Vosk: ожидается каталог с распакованной моделью, не файл: {}",
-            p.display()
-        );
-    }
-    // Стандартный архив с alphacephei.com: корень вида vosk-model-ru-0.42/ с am/, conf/, graph/
-    let am = p.join("am");
-    if !am.is_dir() {
-        anyhow::bail!(
-            "Модель Vosk: в {} нет каталога am/. Укажите корень распакованной модели (не родительскую папку и не conf/graph внутри). Внутри должны быть am/, conf/, graph/.",
-            p.display()
-        );
-    }
-    if !am.join("final.mdl").is_file() {
-        anyhow::bail!(
-            "Модель Vosk: нет am/final.mdl в {} — архив модели неполный или повреждён.",
-            p.display()
-        );
-    }
-    Ok(())
-}
-
-fn main() -> Result<()> {
-    let _ = dotenvy::dotenv().ok();
-    let mut cli = Cli::parse();
-    merge_env_bools(&mut cli);
-    if cli.list_devices {
-        let _ = tracing_subscriber::fmt::try_init();
-        print_devices();
-        return Ok(());
-    }
-
-    validate_vosk_model(&cli)?;
-
-    init_tracing(cli.debug, cli.tui);
-
-    let running = Arc::new(AtomicBool::new(true));
-    {
-        let r = running.clone();
-        ctrlc::set_handler(move || {
-            eprintln!("\nStopping...");
-            r.store(false, Ordering::SeqCst);
-        })?;
-    }
-
-    let audio_devices = resolve_audio_from_cli_and_file(&cli);
-
-    if cli.tui {
-        let (ui_tx, ui_rx) = crossbeam_channel::unbounded::<UiMsg>();
-        let (reset_tx, reset_rx) = crossbeam_channel::unbounded::<()>();
-        let record_pcm = Arc::new(AtomicBool::new(true));
-        let tui_verbose = cli.verbose;
-        let cli_engine = cli.clone();
-        let dev_engine = audio_devices.clone();
-        let r_engine = running.clone();
-        let r_tui = running.clone();
-        let record_engine = Arc::clone(&record_pcm);
-        let record_tui = Arc::clone(&record_pcm);
-        let engine_handle = thread::Builder::new()
-            .name("engine".into())
-            .spawn(move || {
-                if let Err(e) = run_engine(
-                    cli_engine,
-                    dev_engine,
-                    Some(ui_tx),
-                    reset_rx,
-                    r_engine,
-                    record_engine,
-                ) {
-                    tracing::error!("Engine stopped: {e:#}");
-                }
-            })?;
-        let cfg_path = light_config::save_path_for_write();
-        tui::run(
-            &ui_rx,
-            reset_tx,
-            r_tui,
-            record_tui,
-            "localvox-light".into(),
-            audio_devices,
-            cfg_path,
-            tui_verbose,
-        )?;
-        join_engine_thread(engine_handle, Duration::from_secs(2));
-        info!("Session finished.");
-        return Ok(());
-    }
-
-    let (_noop_reset_tx, noop_reset_rx) = crossbeam_channel::unbounded::<()>();
-    run_engine(
-        cli,
-        audio_devices,
-        None,
-        noop_reset_rx,
-        running,
-        Arc::new(AtomicBool::new(true)),
-    )?;
-    Ok(())
-}
-
-fn run_engine(
+pub fn run_engine(
     cli: Cli,
-    audio_devices: light_config::LightDeviceConfig,
+    audio_devices: LightDeviceConfig,
     ui_tx: Option<Sender<UiMsg>>,
     reset_rx: crossbeam_channel::Receiver<()>,
     running: Arc<AtomicBool>,
@@ -458,7 +93,8 @@ fn run_engine(
 
     let (pcm_tx, pcm_rx) = crossbeam_channel::bounded::<audio::PcmChunk>(1024);
     let (seg_tx, seg_rx) = crossbeam_channel::unbounded::<SegmentReady>();
-    let (engine_tx, engine_rx) = crossbeam_channel::bounded::<Result<asr::vosk::VoskEngine, String>>(1);
+    let (engine_tx, engine_rx) =
+        crossbeam_channel::bounded::<Result<crate::asr::vosk::VoskEngine, String>>(1);
 
     // Recovery: все необработанные WAV с диска → в канал ДО пайплайна (отсортированные по src/seq).
     let recovery = session::recover_unprocessed(&work_dir);
@@ -503,7 +139,7 @@ fn run_engine(
     let pipeline_handle = thread::Builder::new()
         .name("pipeline".into())
         .spawn(move || {
-            pipeline::run(
+            crate::pipeline::run(
                 pipeline_cfg,
                 pcm_rx,
                 pipeline_seg_tx,
@@ -529,7 +165,7 @@ fn run_engine(
                 }));
             }
             let t0 = Instant::now();
-            let r = asr::vosk::VoskEngine::new(&model_path_buf).map_err(|e| e.to_string());
+            let r = crate::asr::vosk::VoskEngine::new(&model_path_buf).map_err(|e| e.to_string());
             let proc = t0.elapsed().as_secs_f64();
             if let Some(ref t) = ui_load {
                 match &r {
@@ -648,7 +284,7 @@ fn run_engine(
 /// Recovery-файлы уже в канале (отправлены в run_engine до старта пайплайна).
 #[allow(clippy::too_many_arguments)]
 fn asr_worker_pool(
-    engine_rx: crossbeam_channel::Receiver<Result<asr::vosk::VoskEngine, String>>,
+    engine_rx: crossbeam_channel::Receiver<Result<crate::asr::vosk::VoskEngine, String>>,
     noise_gate: f32,
     seg_rx: crossbeam_channel::Receiver<SegmentReady>,
     work_dir: PathBuf,
@@ -757,7 +393,7 @@ fn asr_worker_pool(
 #[allow(clippy::too_many_arguments)]
 fn asr_thread_loop(
     id: usize,
-    engine: Arc<asr::vosk::VoskEngine>,
+    engine: Arc<crate::asr::vosk::VoskEngine>,
     seg_rx: crossbeam_channel::Receiver<SegmentReady>,
     tw: Arc<Mutex<TranscriptWriter>>,
     running: Arc<AtomicBool>,
@@ -808,12 +444,13 @@ fn asr_thread_loop(
                     &running,
                 ) {
                     if let Some(ref t) = ui_tx {
-                        if t.send(UiMsg::Transcript {
-                            source_id: entry.source_id,
-                            text: entry.text.clone(),
-                            time: None,
-                        })
-                        .is_err()
+                        if t
+                            .send(UiMsg::Transcript {
+                                source_id: entry.source_id,
+                                text: entry.text.clone(),
+                                time: None,
+                            })
+                            .is_err()
                         {
                             tracing::warn!("TUI channel closed; строка только в transcript.jsonl");
                         }
@@ -837,7 +474,19 @@ fn asr_thread_loop(
     debug!("asr-{id} stopped");
 }
 
-fn wav_duration_sec(path: &std::path::Path) -> Option<f64> {
+fn format_entry_time_local(rfc: &str) -> String {
+    chrono::DateTime::parse_from_rfc3339(rfc.trim())
+        .map(|dt| dt.with_timezone(&chrono::Local).format("%H:%M:%S").to_string())
+        .unwrap_or_else(|_| chrono::Local::now().format("%H:%M:%S").to_string())
+}
+
+fn ui_log(tx: Option<&Sender<UiMsg>>, log: StructuredLog) {
+    if let Some(t) = tx {
+        let _ = t.send(UiMsg::Log(log));
+    }
+}
+
+fn wav_duration_sec(path: &Path) -> Option<f64> {
     let r = WavReader::open(path).ok()?;
     let spec = r.spec();
     let n = r.len();
@@ -849,7 +498,7 @@ fn wav_duration_sec(path: &std::path::Path) -> Option<f64> {
 
 fn process_segment(
     engine: &impl AsrEngine,
-    path: &std::path::Path,
+    path: &Path,
     source_id: u8,
     noise_gate: f32,
     ui_tx: Option<&Sender<UiMsg>>,
@@ -1015,7 +664,7 @@ fn process_segment(
     })
 }
 
-fn wav_to_f32(path: &std::path::Path) -> Result<Vec<f32>> {
+fn wav_to_f32(path: &Path) -> Result<Vec<f32>> {
     let reader = WavReader::open(path)?;
     let spec = reader.spec();
     if spec.channels != 1 || spec.bits_per_sample != 16 {
@@ -1033,13 +682,28 @@ fn wav_to_f32(path: &std::path::Path) -> Result<Vec<f32>> {
     Ok(samples)
 }
 
-fn print_devices() {
-    println!("=== Input devices (microphones) ===");
-    for (i, (_dev, name)) in audio::collect_input_devices().iter().enumerate() {
-        println!("  [{i}] {name}");
-    }
-    println!("\n=== Output devices (for loopback) ===");
-    for (i, name) in audio::list_output_device_names() {
-        println!("  [{i}] {name}");
+#[cfg(test)]
+mod tests {
+    use super::wav_duration_sec;
+    use hound::{SampleFormat, WavSpec, WavWriter};
+    use tempfile::tempdir;
+
+    #[test]
+    fn wav_duration_sec_mono_16k() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("t.wav");
+        let spec = WavSpec {
+            channels: 1,
+            sample_rate: 16_000,
+            bits_per_sample: 16,
+            sample_format: SampleFormat::Int,
+        };
+        let mut w = WavWriter::create(&path, spec).unwrap();
+        for _ in 0..8000 {
+            w.write_sample(0i16).unwrap();
+        }
+        w.finalize().unwrap();
+        let d = wav_duration_sec(&path).expect("duration");
+        assert!((d - 0.5).abs() < 1e-6);
     }
 }

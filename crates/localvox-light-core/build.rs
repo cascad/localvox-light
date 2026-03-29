@@ -4,7 +4,7 @@ fn profile_bin_dir() -> PathBuf {
     let manifest = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
     let target_root = std::env::var("CARGO_TARGET_DIR")
         .map(PathBuf::from)
-        .unwrap_or_else(|_| manifest.join("target"));
+        .unwrap_or_else(|_| manifest.join("../../target"));
     let profile = std::env::var("PROFILE").unwrap();
     let target_triple = std::env::var("TARGET").unwrap();
     let host = std::env::var("HOST").unwrap();
@@ -34,9 +34,13 @@ fn copy_vosk_dlls(vosk_lib: &Path, dest: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
+fn workspace_vosk_lib(manifest_dir: &Path) -> PathBuf {
+    manifest_dir.join("..").join("..").join("vosk-lib")
+}
+
 fn main() {
-    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
-    let vosk_lib = Path::new(&manifest_dir).join("vosk-lib");
+    let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
+    let vosk_lib = workspace_vosk_lib(&manifest_dir);
     if vosk_lib.exists() {
         println!("cargo:rustc-link-search=native={}", vosk_lib.display());
     }

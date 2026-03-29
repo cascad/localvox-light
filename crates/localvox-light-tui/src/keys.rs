@@ -41,3 +41,21 @@ pub fn key_matches(key: KeyCode, expected: char) -> bool {
         _ => false,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn physical_key_ru_to_latin() {
+        assert_eq!(physical_key('й'), 'q');
+        assert_eq!(physical_key('К'), 'r');
+    }
+
+    #[test]
+    fn key_matches_respects_physical_layout() {
+        assert!(key_matches(KeyCode::Char('к'), 'r'));
+        assert!(!key_matches(KeyCode::Char('z'), 'r'));
+        assert!(!key_matches(KeyCode::Enter, 'r'));
+    }
+}
