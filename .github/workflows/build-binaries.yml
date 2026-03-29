@@ -1,12 +1,23 @@
-# Сборка release-бинарников: Linux x64/ARM64, Windows x64, macOS Intel/Apple Silicon.
-# Нативная libvosk качается в vosk-lib/ (как у разработчика); модель в CI не нужна.
+# Сборка release-бинарников + опционально GitHub Release с вложениями.
+# Триггеры: push в main (по paths), push тега v*, ручной запуск.
 
 name: Build binaries
 
 on:
   workflow_dispatch:
+    inputs:
+      publish_release:
+        description: "После сборки опубликовать GitHub Release с бинарниками"
+        type: boolean
+        default: false
+      release_tag:
+        description: "Имя тега, например v0.1.0 (нужно, если publish_release)"
+        type: string
+        required: false
+        default: ""
   push:
     branches: [main, master]
+    tags: ["v*"]
     paths:
       - "Cargo.toml"
       - "Cargo.lock"
@@ -14,13 +25,15 @@ on:
       - ".github/workflows/build-binaries.yml"
       - "scripts/setup-vosk.sh"
       - "scripts/setup-vosk.ps1"
+      - "scripts/install-release.sh"
+      - "scripts/install-release.ps1"
 
 env:
   CARGO_TERM_COLOR: always
 
 permissions:
   contents: read
-  actions: write # upload-artifact
+  actions: write
 
 jobs:
   build:
@@ -51,7 +64,6 @@ jobs:
             bin: localvox-light.exe
             vosk_preset: ""
 
-          # macos-13 снят с GitHub (2025); Intel — отдельный образ.
           - name: macos-x86_64
             os: macos-15-intel
             target: x86_64-apple-darwin
@@ -94,7 +106,6 @@ jobs:
         shell: bash
         env:
           RUSTFLAGS: -L native=${{ github.workspace }}/vosk-lib
-        # Workspace: собираем только бинарник (localvox-light-core / localvox-light-tui — зависимости).
         run: cargo build --release --locked -p localvox-light --target ${{ matrix.target }}
 
       - name: Upload artifact
@@ -103,3 +114,57 @@ jobs:
           name: ${{ matrix.artifact }}
           path: target/${{ matrix.target }}/release/${{ matrix.bin }}
           if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    if: ${{ needs.build.result == 'success' && (startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish_release == 'true' && github.event.inputs.release_tag != '')) }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Flatten assets (unique names for install-release.*)
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          for dir in dist/*/; do
+            [ -d "$dir" ] || continue
+            base=$(basename "$dir")
+            bin=$(find "$dir" -type f \( -name '*.exe' -o -name 'localvox-light' \) | head -1)
+            if [[ -z "$bin" ]]; then
+              bin=$(find "$dir" -type f ! -name '.*' | head -1)
+            fi
+            if [[ "$bin" == *.exe ]]; then
+              cp "$bin" "release-assets/${base}.exe"
+            else
+              cp "$bin" "release-assets/${base}"
+            fi
+          done
+          ls -la release-assets/
+
+      - name: Set release tag name
+        id: tag
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            echo "name=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=${{ github.event.inputs.release_tag }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.name }}
+          name: ${{ steps.tag.outputs.name }}
+          files: release-assets/*
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

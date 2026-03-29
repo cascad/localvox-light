@@ -5,24 +5,26 @@
 #   ./scripts/setup-vosk.sh
 #   ./scripts/setup-vosk.sh --skip-model
 #   ./scripts/setup-vosk.sh --preset=linux-x86_64   # явная архитектура (см. также setup-vosk-linux-*.sh)
+#   ./scripts/setup-vosk.sh --install-root=/opt/localvox   # vosk-lib + models в этой папке (для install-release.sh)
 #
 # Переменные: LOCALVOX_VOSK_API_TAG (по умолчанию v0.3.42), LOCALVOX_SETUP_MODEL_URL, LOCALVOX_SETUP_FORCE=1
 
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VOSK_TAG="${LOCALVOX_VOSK_API_TAG:-v0.3.42}"
 VER="${VOSK_TAG#v}"
 MODEL_URL="${LOCALVOX_SETUP_MODEL_URL:-https://alphacephei.com/vosk/models/vosk-model-ru-0.42.zip}"
 SKIP_MODEL=0
 FORCE=0
 PRESET=""
+INSTALL_ROOT=""
 
 for a in "$@"; do
   case "$a" in
     --skip-model) SKIP_MODEL=1 ;;
     --force) FORCE=1 ;;
     --preset=*) PRESET="${a#*=}" ;;
+    --install-root=*) INSTALL_ROOT="${a#*=}" ;;
     *)
       echo "Неизвестный аргумент: $a" >&2
       exit 1
@@ -33,6 +35,14 @@ done
 if [ -n "${LOCALVOX_SETUP_FORCE:-}" ] && [ "$LOCALVOX_SETUP_FORCE" != "0" ]; then
   FORCE=1
 fi
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -n "$INSTALL_ROOT" ]; then
+  ROOT="$(cd "$INSTALL_ROOT" && pwd)"
+else
+  ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+fi
+VOSK_LIB_DIR="$ROOT/vosk-lib"
 
 detect_zip() {
   if [ -n "$PRESET" ]; then
@@ -82,9 +92,9 @@ install_native() {
     echo "Неверная структура архива vosk" >&2
     exit 1
   fi
-  rm -rf "$ROOT/vosk-lib"
-  mkdir -p "$ROOT/vosk-lib"
-  cp -R "$inner/"* "$ROOT/vosk-lib/" 2>/dev/null || true
+  rm -rf "$VOSK_LIB_DIR"
+  mkdir -p "$VOSK_LIB_DIR"
+  cp -R "$inner/"* "$VOSK_LIB_DIR/" 2>/dev/null || true
   # на случай скрытых файлов в корне архива
   (
     shopt -s dotglob nullglob
@@ -92,12 +102,12 @@ install_native() {
       [ ! -e "$f" ] && continue
       base="$(basename "$f")"
       [[ "$base" == "." || "$base" == ".." ]] && continue
-      cp -R "$f" "$ROOT/vosk-lib/"
+      cp -R "$f" "$VOSK_LIB_DIR/"
     done
   )
-  touch "$ROOT/vosk-lib/.gitkeep"
-  printf '%s\n%s\n' "$VOSK_TAG" "$zip" >"$ROOT/vosk-lib/.vosk_native_version"
-  echo "Нативная библиотека -> $ROOT/vosk-lib"
+  touch "$VOSK_LIB_DIR/.gitkeep"
+  printf '%s\n%s\n' "$VOSK_TAG" "$zip" >"$VOSK_LIB_DIR/.vosk_native_version"
+  echo "Нативная библиотека -> $VOSK_LIB_DIR"
 }
 
 model_dir_name() {
@@ -137,5 +147,5 @@ echo "--- Дальше ---"
 echo "В .env:"
 echo "  LOCALVOX_LIGHT_MODEL=$ROOT/models/$(model_dir_name)"
 echo "Перед запуском бинарника (если линкер не находит libvosk):"
-echo "  export LD_LIBRARY_PATH=\"$ROOT/vosk-lib:\$LD_LIBRARY_PATH\""
+echo "  export LD_LIBRARY_PATH=\"$VOSK_LIB_DIR:\$LD_LIBRARY_PATH\""
 echo "(macOS при необходимости: DYLD_LIBRARY_PATH)"

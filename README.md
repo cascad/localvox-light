@@ -6,11 +6,46 @@
 
 - Rust toolchain (edition 2021).
 - Каталог с [моделью Vosk](https://alphacephei.com/vosk/models); по умолчанию **`models/vosk-model-ru-0.42`** (как качает `setup-vosk`). Переопределение: `--model` / `LOCALVOX_LIGHT_MODEL`.
-- При необходимости: нативная библиотека Vosk в `vosk-lib/` репозитория — `build.rs` добавляет `rustc-link-search` к этой папке.
+- Для **разработки** (сборка из исходников): нативная библиотека Vosk в **`vosk-lib/`** в корне репозитория — `build.rs` добавляет `rustc-link-search`.
 
-## Первичная установка (модель + `vosk-lib`)
+## Как выпустить GitHub Release
 
-**curl** и **unzip** (Linux/macOS), **PowerShell 5+** (Windows). Скрипты качают архив с [релизов vosk-api](https://github.com/alphacep/vosk-api/releases) в `vosk-lib/` и модель в `models/` (каталоги в `.gitignore`).
+После пуша в `main` workflow **Build binaries** собирает артефакты. Чтобы появился **Release** с пятью бинарниками:
+
+1. **Через тег** (обычный способ): на нужном коммите в `main`:
+   ```bash
+   git tag v0.1.0
+   git push origin v0.1.0
+   ```
+   Тег должен совпадать с форматом `v*` (например `v0.1.0`). После успешной сборки всех платформ job **Publish GitHub Release** создаст релиз с файлами вроде `localvox-light-x86_64-pc-windows-msvc.exe`.
+
+2. **Вручную в Actions**: откройте **Actions → Build binaries → Run workflow**, включите **publish_release**, укажите **release_tag** (например `v0.1.0`) и запустите. Тег создастся на текущем `main`, если его ещё нет.
+
+Имеет смысл держать версию в `Cargo.toml` и имя тега согласованными.
+
+## Установка без сборки (готовый бинарник + Vosk + модель)
+
+Скрипты **`install-release.ps1`** / **`install-release.sh`** качают бинарник с **последнего GitHub Release** (и `setup-vosk` с raw). Пока релиза нет, сначала выполните шаг выше. Дополнительно артефакты по-прежнему лежат во вкладке **Actions** у каждого прогона.
+
+**Windows (PowerShell):** скачайте `scripts/install-release.ps1` с raw GitHub и выполните (или задайте каталог):
+
+```powershell
+.\install-release.ps1 -InstallDir "$env:USERPROFILE\localvox-light"
+```
+
+**Linux / macOS:** нужны `curl`, `unzip`, **`jq`**.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/cascad/localvox-light/main/scripts/install-release.sh | bash
+# или свой каталог:
+LOCALVOX_LIGHT_INSTALL_DIR=~/localvox-light bash install-release.sh
+```
+
+Переменные: `LOCALVOX_LIGHT_REPO` (по умолчанию `cascad/localvox-light`), `LOCALVOX_LIGHT_TAG` (`latest` или тег), `LOCALVOX_LIGHT_BRANCH` (ветка для скачивания `setup-vosk` с raw, по умолчанию `main`). Флаги только в `.sh`: `--skip-vosk`, `--skip-binary`.
+
+## Разработка: модель + `vosk-lib` в репозитории
+
+**curl** и **unzip** (Linux/macOS), **PowerShell 5+** (Windows). `setup-vosk.*` кладёт **`vosk-lib/`** и **`models/`** в **корень клонированного репозитория** (каталоги в `.gitignore`). Запуск из клона: `./scripts/setup-vosk.sh` / `.\scripts\setup-vosk.ps1`. Для произвольной папки (как в `install-release`): в PowerShell **`-InstallRoot`**, в bash **`--install-root=/path`**.
 
 ```bash
 # Linux / macOS — автоопределение ОС и архитектуры
