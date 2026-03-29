@@ -1,6 +1,6 @@
 ﻿# Portable bundle under ONE directory (default: .\localvox-light in current folder):
 #   localvox-light.exe  .env  vosk-lib\  models\
-# .env sets LOCALVOX_LIGHT_MODEL; the binary loads .env from its folder and prepends vosk-lib to PATH.
+# .env sets LOCALVOX_LIGHT_MODEL; Vosk *.dll are copied next to the exe (Windows loader resolves them before main — PATH alone is too late).
 #
 #   cd D:\apps
 #   .\install-release.ps1
@@ -101,6 +101,12 @@ if (-not $SkipBinary) {
     if ($mainExe.FullName -ne $targetExe) {
         if (Test-Path -LiteralPath $targetExe) { Remove-Item -LiteralPath $targetExe -Force }
         Move-Item -LiteralPath $mainExe.FullName -Destination $targetExe -Force
+    }
+
+    $voskLib = Join-Path $InstallDir "vosk-lib"
+    if (Test-Path -LiteralPath $voskLib) {
+        Get-ChildItem -Path $voskLib -Filter "*.dll" -File -ErrorAction SilentlyContinue |
+            ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination $InstallDir -Force }
     }
 
     $modelDir = Get-ChildItem -Path (Join-Path $InstallDir "models") -Directory -ErrorAction SilentlyContinue |

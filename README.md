@@ -75,7 +75,7 @@ chmod +x scripts/setup-vosk.sh
 
 После установки:
 
-- В **Windows** при сборке `build.rs` копирует все `*.dll` из `vosk-lib` в `target/release/` (или `target/debug/`) рядом с `localvox-light.exe`, чтобы `cargo run` работал без PATH. **Портативный** exe из `install-release` ищет **`vosk-lib`** рядом с бинарником и временно добавляет его в `PATH`; при необходимости задайте путь к модели в **`.env`** рядом с exe (скрипт создаёт файл автоматически).
+- В **Windows** нативная `libvosk.dll` подхватывается загрузчиком **до** `main()`: она должна лежать **в той же папке, что и `localvox-light.exe`** (или в системном `PATH` до запуска). `build.rs` копирует `*.dll` из `vosk-lib` в `target/release/`. Скрипт **`install-release.ps1`** дублирует `vosk-lib\*.dll` рядом с exe. Если копируете только exe в другую папку — скопируйте и все `*.dll` из `vosk-lib` (или из `target\release\`) в каталог с exe. Дополнительно приложение добавляет `vosk-lib` в `PATH` для прочих нативных зависимостей. Путь к модели — **`.env`** рядом с exe.
 - В **Linux** при необходимости: `export LD_LIBRARY_PATH="/path/to/repo/vosk-lib:$LD_LIBRARY_PATH"`.
 - В **macOS** при необходимости: `export DYLD_LIBRARY_PATH="/path/to/repo/vosk-lib:$DYLD_LIBRARY_PATH"`.
 

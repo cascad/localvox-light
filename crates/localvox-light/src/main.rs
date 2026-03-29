@@ -26,8 +26,9 @@ use localvox_light_core::events::UiMsg;
 #[cfg(feature = "tui")]
 use localvox_light_core::light_config;
 
-/// Портативная папка: `.env` рядом с exe; подкаталог `vosk-lib/` — в начало поиска нативных библиотек
-/// (Windows: `PATH`, Linux: `LD_LIBRARY_PATH`, macOS: `DYLD_LIBRARY_PATH`).
+/// Портативная папка: `.env` рядом с exe; `vosk-lib/` в начало поиска нативных библиотек
+/// (Linux `LD_LIBRARY_PATH`, macOS `DYLD_LIBRARY_PATH`, Windows `PATH` — после старта процесса).
+/// На Windows основная `libvosk.dll` должна быть рядом с exe (загрузчик до `main`); см. build.rs / install-release.
 fn portable_env_bootstrap() {
     let Some(exe_dir) = std::env::current_exe()
         .ok()
