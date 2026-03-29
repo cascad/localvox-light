@@ -1,8 +1,8 @@
 //! Захват → пайплайн → Vosk ASR → `transcript.jsonl`. Общая логика для TUI и headless.
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -23,11 +23,12 @@ use crate::transcript::{TranscriptEntry, TranscriptWriter};
 
 pub fn run_engine(
     cli: Cli,
-    audio_devices: LightDeviceConfig,
+    audio_devices: Arc<RwLock<LightDeviceConfig>>,
     ui_tx: Option<Sender<UiMsg>>,
     reset_rx: crossbeam_channel::Receiver<()>,
     running: Arc<AtomicBool>,
     record_pcm: Arc<AtomicBool>,
+    reload_gen: Arc<AtomicU64>,
 ) -> Result<()> {
     let work_dir = PathBuf::from(&cli.audio_dir);
     std::fs::create_dir_all(&work_dir)?;
@@ -214,51 +215,116 @@ pub fn run_engine(
             );
         })?;
 
-    let mic_device = audio::resolve_mic(&audio_devices.mic).map_err(|e| {
-        let msg = format!("Микрофон: {e:#}");
-        if let Some(ref t) = ui_tx {
-            let _ = t.send(UiMsg::EngineFatal {
-                message: msg.clone(),
-            });
-        }
-        eprintln!("localvox-light: {msg}");
-        running.store(false, Ordering::SeqCst);
-        e
-    })?;
-    let mic_name = mic_device
-        .description()
-        .map(|d| d.name().to_string())
-        .unwrap_or_else(|_| "unknown".into());
-    info!("Mic: {mic_name}");
+    {
+        let cfg = audio_devices
+            .read()
+            .map_err(|e| anyhow::anyhow!("устройства: блокировка повреждена: {e}"))?;
+        let _ = audio::resolve_mic(&cfg.mic).map_err(|e| {
+            let msg = format!("Микрофон: {e:#}");
+            if let Some(ref t) = ui_tx {
+                let _ = t.send(UiMsg::EngineFatal {
+                    message: msg.clone(),
+                });
+            }
+            eprintln!("localvox-light: {msg}");
+            running.store(false, Ordering::SeqCst);
+            e
+        })?;
+    }
 
     let mic_tx = pcm_tx.clone();
     let mic_running = running.clone();
     let mic_ui = ui_tx.clone();
+    let devices_mic = Arc::clone(&audio_devices);
+    let reload_mic = Arc::clone(&reload_gen);
     let mic_handle = thread::Builder::new()
         .name("mic-capture".into())
         .spawn(move || {
-            if let Err(e) = audio::mic_capture(mic_device, 0, mic_tx, mic_running, mic_ui) {
-                tracing::error!("Mic capture error: {e}");
+            while mic_running.load(Ordering::Relaxed) {
+                let cfg = match devices_mic.read() {
+                    Ok(g) => g.clone(),
+                    Err(_) => break,
+                };
+                let mic_device = match audio::resolve_mic(&cfg.mic) {
+                    Ok(d) => d,
+                    Err(e) => {
+                        let msg = format!("Микрофон: {e:#}");
+                        if let Some(ref t) = mic_ui {
+                            let _ = t.send(UiMsg::EngineFatal {
+                                message: msg.clone(),
+                            });
+                        }
+                        eprintln!("localvox-light: {msg}");
+                        mic_running.store(false, Ordering::SeqCst);
+                        break;
+                    }
+                };
+                let mic_name = mic_device
+                    .description()
+                    .map(|d| d.name().to_string())
+                    .unwrap_or_else(|_| "unknown".into());
+                info!("Mic: {mic_name}");
+                let g = reload_mic.load(Ordering::SeqCst);
+                if let Err(e) = audio::mic_capture(
+                    mic_device,
+                    0,
+                    mic_tx.clone(),
+                    mic_running.clone(),
+                    mic_ui.clone(),
+                    Some(Arc::clone(&reload_mic)),
+                    g,
+                ) {
+                    tracing::error!("Mic capture error: {e}");
+                    eprintln!("localvox-light: микрофон — ошибка захвата: {e:#}");
+                    thread::sleep(Duration::from_millis(400));
+                }
+                if !mic_running.load(Ordering::Relaxed) {
+                    break;
+                }
             }
         })?;
 
-    let loopback_handle = if audio_devices.loopback {
-        let lb_query = audio_devices.loopback_device.clone();
-        let lb_tx = pcm_tx.clone();
-        let lb_running = running.clone();
-        let lb_ui = ui_tx.clone();
-        Some(
-            thread::Builder::new()
-                .name("loopback-capture".into())
-                .spawn(move || {
-                    if let Err(e) = audio::loopback_capture(&lb_query, lb_tx, lb_running, lb_ui) {
-                        tracing::error!("Loopback capture error: {e}");
+    let lb_tx = pcm_tx.clone();
+    let lb_running = running.clone();
+    let lb_ui = ui_tx.clone();
+    let devices_lb = Arc::clone(&audio_devices);
+    let reload_lb = Arc::clone(&reload_gen);
+    let loopback_handle = thread::Builder::new()
+        .name("loopback-capture".into())
+        .spawn(move || {
+            while lb_running.load(Ordering::Relaxed) {
+                let cfg = match devices_lb.read() {
+                    Ok(g) => g.clone(),
+                    Err(_) => break,
+                };
+                if !cfg.loopback {
+                    let base = reload_lb.load(Ordering::SeqCst);
+                    while lb_running.load(Ordering::Relaxed)
+                        && reload_lb.load(Ordering::SeqCst) == base
+                    {
+                        thread::sleep(Duration::from_millis(100));
                     }
-                })?,
-        )
-    } else {
-        None
-    };
+                    continue;
+                }
+                let q = cfg.loopback_device.clone();
+                let g = reload_lb.load(Ordering::SeqCst);
+                if let Err(e) = audio::loopback_capture(
+                    &q,
+                    lb_tx.clone(),
+                    lb_running.clone(),
+                    lb_ui.clone(),
+                    Some(Arc::clone(&reload_lb)),
+                    g,
+                ) {
+                    tracing::error!("Loopback capture error: {e}");
+                    eprintln!("localvox-light: loopback — ошибка захвата: {e:#}");
+                    thread::sleep(Duration::from_millis(400));
+                }
+                if !lb_running.load(Ordering::Relaxed) {
+                    break;
+                }
+            }
+        })?;
 
     drop(pcm_tx);
     info!("Recording (WAV → disk); Vosk loads in parallel. Ctrl+C to stop.");
@@ -271,9 +337,7 @@ pub fn run_engine(
     // Сначала pipeline: дренаж pcm до отпускания всех Sender в mic/loopback (иначе bounded send в колбэке cpal зависает).
     pipeline_handle.join().ok();
     mic_handle.join().ok();
-    if let Some(h) = loopback_handle {
-        h.join().ok();
-    }
+    loopback_handle.join().ok();
     asr_handle.join().ok();
 
     info!("Workspace saved: {}", work_dir.display());

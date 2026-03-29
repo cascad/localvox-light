@@ -1,8 +1,8 @@
 //! Terminal UI: транскрипт + лог (как client-reliable: цвета, хоткеи по физ. клавишам, F2 — устройства).
 
 use std::io;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 use std::path::PathBuf;
 
@@ -31,6 +31,14 @@ use crate::keys::key_matches;
 /// Файл transcript.jsonl не ограничен — буфер TUI должен быть большим, иначе «в файле больше строк».
 const MAX_TRANSCRIPT_LINES: usize = 50_000;
 const MAX_LOG_LINES: usize = 800;
+
+/// 8 сегментов уровня: только ASCII (`#` / `-`), чтобы PowerShell и старые шрифты не показывали ▮▯ как.
+fn level_meter_ascii8(level: f32) -> String {
+    let n = (level * 8.0).clamp(0.0, 8.0) as usize;
+    let filled = n.min(8);
+    let empty = 8_usize.saturating_sub(filled);
+    format!("{}{}", "#".repeat(filled), "-".repeat(empty))
+}
 
 fn src_prefix_chars(source_id: u8) -> usize {
     match source_id {
@@ -175,6 +183,8 @@ pub fn run(
     session_hint: String,
     mut device_config: LightDeviceConfig,
     config_save_path: PathBuf,
+    devices_shared: Arc<RwLock<LightDeviceConfig>>,
+    reload_gen: Arc<AtomicU64>,
     verbose: bool,
 ) -> Result<()> {
     terminal::enable_raw_mode()?;
@@ -269,7 +279,17 @@ pub fn run(
                                 let path = &config_save_path;
                                 st.saved_msg = Some(match device_config.save(path) {
                                     Ok(_) => {
-                                        format!("Сохранено: {}. Перезапустите localvox-light.", path.display())
+                                        {
+                                            let mut w = devices_shared
+                                                .write()
+                                                .unwrap_or_else(|e| e.into_inner());
+                                            *w = device_config.clone();
+                                        }
+                                        reload_gen.fetch_add(1, Ordering::SeqCst);
+                                        format!(
+                                            "Сохранено: {}. Захват переключается без перезапуска.",
+                                            path.display()
+                                        )
                                     }
                                     Err(e) => format!("Ошибка: {e}"),
                                 });
@@ -692,18 +712,14 @@ pub fn run(
             // Длинная справка — только если терминал достаточно большой (после ресайза пересчитается).
             let show_status_help = area.height >= 28 && area.width >= 72;
             let rec_on = record_pcm.load(Ordering::Relaxed);
-            let rec_icon = if rec_on { "● REC" } else { "○ STOP" };
+            let rec_icon = if rec_on { "* REC" } else { "- STOP" };
             let rec_color = if rec_on { Color::Red } else { Color::DarkGray };
             let lb_on = device_config.loopback;
-            let lb_icon = if lb_on { "●" } else { "○" };
+            let lb_icon = if lb_on { "[+]" } else { "[ ]" };
             let lb_color = if lb_on { Color::Cyan } else { Color::DarkGray };
-            let level_bars = (audio_level * 8.0) as usize;
-            let level_str: String =
-                "▮".repeat(level_bars.min(8)) + &"▯".repeat(8_usize.saturating_sub(level_bars));
+            let level_str = level_meter_ascii8(audio_level);
             let level2_src = if lb_on { audio_level2 } else { 0.0 };
-            let level2_bars = (level2_src * 8.0) as usize;
-            let level2_str: String =
-                "▮".repeat(level2_bars.min(8)) + &"▯".repeat(8_usize.saturating_sub(level2_bars));
+            let level2_str = level_meter_ascii8(level2_src);
             let line1 = Line::from(vec![
                 Span::styled(rec_icon, Style::default().fg(rec_color)),
                 Span::raw("  "),

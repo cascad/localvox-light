@@ -3,7 +3,7 @@
 
 #[cfg(windows)]
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
@@ -70,16 +70,29 @@ pub fn collect_input_devices() -> Vec<(cpal::Device, String)> {
         .collect()
 }
 
+fn fallback_output_list_default_only() -> Vec<(usize, String)> {
+    vec![(0, "default-output".to_string())]
+}
+
 pub fn list_output_device_names() -> Vec<(usize, String)> {
     #[cfg(windows)]
     {
+        // CoCreateInstance(MMDeviceEnumerator) падает без CoInitializeEx на этом потоке;
+        // loopback в отдельном потоке вызывает initialize_mta, главный поток TUI — нет.
+        let _ = wasapi::initialize_mta();
         let enumerator = match wasapi::DeviceEnumerator::new() {
             Ok(e) => e,
-            Err(_) => return vec![],
+            Err(e) => {
+                tracing::warn!(error = ?e, "WASAPI DeviceEnumerator (список loopback)");
+                return fallback_output_list_default_only();
+            }
         };
         let collection = match enumerator.get_device_collection(&wasapi::Direction::Render) {
             Ok(c) => c,
-            Err(_) => return vec![],
+            Err(e) => {
+                tracing::warn!(error = ?e, "WASAPI EnumAudioEndpoints Render");
+                return fallback_output_list_default_only();
+            }
         };
         let mut list: Vec<(usize, String)> = collection
             .into_iter()
@@ -96,7 +109,10 @@ pub fn list_output_device_names() -> Vec<(usize, String)> {
     {
         let devices = match cpal::default_host().output_devices() {
             Ok(d) => d,
-            Err(_) => return vec![],
+            Err(e) => {
+                tracing::warn!(error = ?e, "cpal output_devices");
+                return fallback_output_list_default_only();
+            }
         };
         let mut list: Vec<(usize, String)> = devices
             .enumerate()
@@ -162,12 +178,15 @@ fn resample(src: &[f32], src_rate: u32) -> Vec<f32> {
 }
 
 /// Capture from a cpal input device (mic). Resamples to 16 kHz mono.
+/// При `reload_gen`: выход из потока, если счётчик стал ≠ `reload_snapshot` (смена устройства из TUI).
 pub fn mic_capture(
     device: cpal::Device,
     source_id: u8,
     tx: Sender<PcmChunk>,
     running: Arc<AtomicBool>,
     level_ui: Option<Sender<UiMsg>>,
+    reload_gen: Option<Arc<AtomicU64>>,
+    reload_snapshot: u64,
 ) -> Result<()> {
     let supported = device.default_input_config()?;
     let native_rate = supported.sample_rate();
@@ -216,6 +235,11 @@ pub fn mic_capture(
     )?;
     stream.play()?;
     while running.load(Ordering::Relaxed) {
+        if let Some(ref rg) = reload_gen {
+            if rg.load(Ordering::SeqCst) != reload_snapshot {
+                break;
+            }
+        }
         thread::sleep(Duration::from_millis(100));
     }
     let _ = stream.pause();
@@ -230,6 +254,8 @@ pub fn loopback_capture(
     tx: Sender<PcmChunk>,
     running: Arc<AtomicBool>,
     level_ui: Option<Sender<UiMsg>>,
+    reload_gen: Option<Arc<AtomicU64>>,
+    reload_snapshot: u64,
 ) -> Result<()> {
     wasapi::initialize_mta()
         .ok()
@@ -275,6 +301,11 @@ pub fn loopback_capture(
     let mut sample_queue: VecDeque<u8> = VecDeque::with_capacity(chunk_bytes * 8);
 
     while running.load(Ordering::Relaxed) {
+        if let Some(ref rg) = reload_gen {
+            if rg.load(Ordering::SeqCst) != reload_snapshot {
+                break;
+            }
+        }
         capture_client
             .read_from_device_to_deque(&mut sample_queue)
             .map_err(|e| anyhow::anyhow!("read_from_device: {e:?}"))?;
@@ -358,7 +389,17 @@ pub fn loopback_capture(
     tx: Sender<PcmChunk>,
     running: Arc<AtomicBool>,
     level_ui: Option<Sender<UiMsg>>,
+    reload_gen: Option<Arc<AtomicU64>>,
+    reload_snapshot: u64,
 ) -> Result<()> {
     let device = resolve_mic(device_query)?;
-    mic_capture(device, 1, tx, running, level_ui)
+    mic_capture(
+        device,
+        1,
+        tx,
+        running,
+        level_ui,
+        reload_gen,
+        reload_snapshot,
+    )
 }

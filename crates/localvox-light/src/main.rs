@@ -1,8 +1,9 @@
 //! Точка входа бинарника `localvox-light`. Ядро — крейт `localvox_light_core`.
 
+use std::io::{self, IsTerminal};
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, RwLock};
 
 #[cfg(feature = "tui")]
 use std::thread;
@@ -37,7 +38,14 @@ fn portable_env_bootstrap() {
     };
     let dotenv_path = exe_dir.join(".env");
     if dotenv_path.is_file() {
-        let _ = dotenvy::from_path(&dotenv_path).ok();
+        // from_path НЕ перезаписывает уже заданные в ОС переменные — портативный .env тогда «не работает».
+        // from_path_override: значения из .env рядом с exe имеют приоритет; явные аргументы CLI по-прежнему сильнее clap.
+        if let Err(e) = dotenvy::from_path_override(&dotenv_path) {
+            eprintln!(
+                "localvox-light: не удалось загрузить {}: {e}",
+                dotenv_path.display()
+            );
+        }
     } else {
         let _ = dotenvy::dotenv().ok();
     }
@@ -78,6 +86,31 @@ fn main() -> Result<()> {
     portable_env_bootstrap();
     let mut cli = Cli::parse();
     merge_env_bools(&mut cli);
+    if cli.no_tui {
+        cli.tui = false;
+    }
+    // Портативная установка без LOCALVOX_LIGHT_TUI в .env: в обычном терминале по умолчанию открываем TUI.
+    #[cfg(feature = "tui")]
+    if !cli.no_tui
+        && io::stdout().is_terminal()
+        && std::env::var("LOCALVOX_LIGHT_TUI").is_err()
+        && !cli.tui
+    {
+        cli.tui = true;
+    }
+
+    #[cfg(feature = "tui")]
+    if cli.tui && !io::stdout().is_terminal() {
+        anyhow::bail!(
+            "Запрошен TUI (--tui, LOCALVOX_LIGHT_TUI=1 или интерактивный терминал по умолчанию), но stdout не TTY.\n\
+             Запустите из Windows Terminal / PowerShell / cmd; для режима только логов: {} --no-tui",
+            std::env::current_exe()
+                .ok()
+                .and_then(|p| p.file_name().map(|s| s.to_string_lossy().into_owned()))
+                .unwrap_or_else(|| "localvox-light".into())
+        );
+    }
+
     if cli.list_devices {
         let _ = tracing_subscriber::fmt::try_init();
         print_devices();
@@ -87,6 +120,16 @@ fn main() -> Result<()> {
     validate_vosk_model(&cli)?;
 
     init_tracing(cli.debug, cli.tui);
+
+    if !cli.tui {
+        eprintln!(
+            "localvox-light: режим без TUI — запись и логи (Ctrl+C — выход). Для интерфейса: {} --tui",
+            std::env::current_exe()
+                .ok()
+                .and_then(|p| p.file_name().map(|s| s.to_string_lossy().into_owned()))
+                .unwrap_or_else(|| "localvox-light".into())
+        );
+    }
 
     let running = Arc::new(AtomicBool::new(true));
     {
@@ -98,6 +141,8 @@ fn main() -> Result<()> {
     }
 
     let audio_devices = resolve_audio_from_cli_and_file(&cli);
+    let devices_shared = Arc::new(RwLock::new(audio_devices.clone()));
+    let reload_gen = Arc::new(AtomicU64::new(0));
 
     if cli.tui {
         #[cfg(feature = "tui")]
@@ -107,7 +152,8 @@ fn main() -> Result<()> {
             let record_pcm = Arc::new(AtomicBool::new(true));
             let tui_verbose = cli.verbose;
             let cli_engine = cli.clone();
-            let dev_engine = audio_devices.clone();
+            let dev_engine = Arc::clone(&devices_shared);
+            let rg_engine = Arc::clone(&reload_gen);
             let r_engine = running.clone();
             let r_tui = running.clone();
             let record_engine = Arc::clone(&record_pcm);
@@ -122,6 +168,7 @@ fn main() -> Result<()> {
                         reset_rx,
                         r_engine,
                         record_engine,
+                        rg_engine,
                     ) {
                         tracing::error!("Engine stopped: {e:#}");
                     }
@@ -135,6 +182,8 @@ fn main() -> Result<()> {
                 "localvox-light".into(),
                 audio_devices,
                 cfg_path,
+                Arc::clone(&devices_shared),
+                Arc::clone(&reload_gen),
                 tui_verbose,
             )?;
             join_engine_thread(engine_handle, Duration::from_secs(2));
@@ -152,11 +201,12 @@ fn main() -> Result<()> {
     let (_noop_reset_tx, noop_reset_rx) = crossbeam_channel::unbounded::<()>();
     run_engine(
         cli,
-        audio_devices,
+        devices_shared,
         None,
         noop_reset_rx,
         running,
         Arc::new(AtomicBool::new(true)),
+        reload_gen,
     )?;
     Ok(())
 }

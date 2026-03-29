@@ -33,7 +33,15 @@
 $u='https://raw.githubusercontent.com/cascad/localvox-light/main/scripts/install-release.ps1'; $p="$env:TEMP\lv-install.ps1"; Invoke-WebRequest -Uri $u -OutFile $p; & $p
 ```
 
-Другой каталог или конкретный релиз: `& $p -InstallDir D:\apps\lv -Tag v0.1.0`
+Параметры **`-Tag`**, **`-InstallDir`** и остальные из шапки скрипта передаются **только** вызову `& $p …`, не `Invoke-WebRequest` (у `iwr`/`Invoke-WebRequest` нет `-Tag`).
+
+Конкретный релиз, одной строкой:
+
+```powershell
+$u='https://raw.githubusercontent.com/cascad/localvox-light/main/scripts/install-release.ps1'; $p="$env:TEMP\lv-install.ps1"; Invoke-WebRequest -Uri $u -OutFile $p; & $p -Tag v0.1.1
+```
+
+Другой каталог: добавьте к `& $p`, например `& $p -InstallDir D:\apps\lv -Tag v0.1.0`.
 
 **Linux / macOS:** `curl`, `unzip`, **`jq`**. Одна строка:
 
@@ -80,15 +88,9 @@ chmod +x scripts/setup-vosk.sh
 1. Скопировать `.env.example` в `.env` при необходимости; после `setup-vosk` модель уже в `models/vosk-model-ru-0.42` (дефолт бинарника).
 2. Сборка: `cargo build --release`
 3. Запуск из корня репозитория (workspace): **`cargo run`** или **`cargo run -p localvox-light`** — это бинарник приложения. Пакет **`localvox-light-tui`** — только библиотека для TUI, у неё нет `bin`, поэтому **`cargo run -p localvox-light-tui`** выдаст ошибку.
-4. Запуск с TUI:
+4. Запуск с TUI: в **интерактивном** терминале достаточно `./target/release/localvox-light` (или `cargo run -p localvox-light`) — TUI включается сам, если в окружении **не** задан `LOCALVOX_LIGHT_TUI`. Явно: `--tui` или `LOCALVOX_LIGHT_TUI=1`.
 
-   ```bash
-   ./target/release/localvox-light --tui
-   ```
-
-   Либо в dev: `cargo run -- --tui`
-
-5. Без TUI — тот же бинарник без `--tui`; логи в stderr (`RUST_LOG`, `--debug`).
+5. Только логи в stderr, без TUI: `--no-tui` или `LOCALVOX_LIGHT_NO_TUI=1` (в т.ч. когда в `.env` не нужен авто-TUI).
 
 Список устройств: `--list-devices`. Устройства можно задать флагами, `.env` или `localvox-light-config.json` в cwd (см. `.env.example`).
 
@@ -128,7 +130,7 @@ chmod +x scripts/setup-vosk.sh
 
 **F2 — устройства**
 
-Два списка: микрофон и loopback (первая строка loopback — «нет»). `Tab` — смена списка, `S` — сохранить в `localvox-light-config.json` (путь как при сохранении в проекте), `Esc` — назад. После сохранения нужен **перезапуск** приложения.
+Два списка: микрофон и loopback (первая строка loopback — «нет»). `Tab` — смена списка, `S` — сохранить в `localvox-light-config.json` (путь как при сохранении в проекте), `Esc` — назад. После сохранения захват **переключается сразу**, без перезапуска.
 
 При старте TUI подгружает историю из существующего `transcript.jsonl` в рабочем каталоге.
 

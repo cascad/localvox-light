@@ -96,6 +96,10 @@ pub struct Cli {
     #[arg(long)]
     pub tui: bool,
 
+    /// Не открывать TUI (только логи в stderr), даже в интерактивном терминале
+    #[arg(long)]
+    pub no_tui: bool,
+
     /// Подробные логи в stderr (tracing), как без TUI
     #[arg(long)]
     pub debug: bool,
@@ -138,6 +142,11 @@ pub fn merge_env_bools(cli: &mut Cli) {
     if !long_flag_in_argv("--tui") {
         if let Some(t) = env_truthy("LOCALVOX_LIGHT_TUI") {
             cli.tui = t;
+        }
+    }
+    if !long_flag_in_argv("--no-tui") {
+        if let Some(t) = env_truthy("LOCALVOX_LIGHT_NO_TUI") {
+            cli.no_tui = t;
         }
     }
     if !long_flag_in_argv("--debug") {

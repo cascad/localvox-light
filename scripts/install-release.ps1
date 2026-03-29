@@ -8,8 +8,10 @@
 #
 # One-liner (installs to .\localvox-light where you run it — cd first if needed):
 #   cd $HOME\Desktop; $u='https://raw.githubusercontent.com/cascad/localvox-light/main/scripts/install-release.ps1'; $p="$env:TEMP\lv-install.ps1"; iwr -useb $u -OutFile $p; & $p
+# Release tag / other script params go AFTER & $p only (not on Invoke-WebRequest — it has no -Tag):
+#   ... iwr -useb $u -OutFile $p; & $p -Tag v0.1.1
 #
-# Optional: -InstallDir D:\lv  -Tag v0.1.0  -Repo owner/repo  -Branch main  -SkipVosk  -SkipBinary
+# Optional (for & $p): -InstallDir D:\lv  -Tag v0.1.0  -Repo owner/repo  -Branch main  -SkipVosk  -SkipBinary
 #
 # setup-vosk.ps1 is fetched once to populate vosk-lib + models (same layout as dev).
 

@@ -30,8 +30,6 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  # До полного перехода GitHub на Node 24 по умолчанию — убирает варнинги для actions на Node 20.
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 permissions:
   contents: read
@@ -81,7 +79,7 @@ jobs:
             vosk_preset: darwin
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Install Linux build deps (ALSA / cpal)
         if: runner.os == 'Linux'
@@ -111,7 +109,7 @@ jobs:
         run: cargo build --release --locked -p localvox-light --target ${{ matrix.target }}
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact }}
           path: target/${{ matrix.target }}/release/${{ matrix.bin }}
@@ -125,12 +123,12 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Download all build artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           path: dist
 
@@ -162,11 +160,17 @@ jobs:
             echo "name=${{ github.event.inputs.release_tag }}" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.tag.outputs.name }}
-          name: ${{ steps.tag.outputs.name }}
-          files: release-assets/*
-          generate_release_notes: true
+      # Вместо softprops/action-gh-release (в его action.yml всё ещё node20 — снова предупреждение в логе).
+      - name: Create GitHub Release (gh)
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.tag.outputs.name }}"
+          shopt -s nullglob
+          assets=(release-assets/*)
+          if [ ${#assets[@]} -eq 0 ]; then
+            echo "No files in release-assets/" >&2
+            exit 1
+          fi
+          gh release create "$TAG" "${assets[@]}" --title "$TAG" --generate-notes
