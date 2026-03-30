@@ -28,7 +28,8 @@ use localvox_light_core::light_config;
 
 /// Портативная папка: `.env` рядом с exe; `vosk-lib/` в начало поиска нативных библиотек
 /// (Linux `LD_LIBRARY_PATH`, macOS `DYLD_LIBRARY_PATH`, Windows `PATH` — после старта процесса).
-/// На Windows основная `libvosk.dll` должна быть рядом с exe (загрузчик до `main`); см. build.rs / install-release.
+/// На Windows и macOS основная нативная либа Vosk должна лежать рядом с exe (загрузчик до `main`);
+/// `install-release` копирует DLL / `.dylib` из `vosk-lib/`. См. build.rs / install-release.
 fn portable_env_bootstrap() {
     let Some(exe_dir) = std::env::current_exe()
         .ok()

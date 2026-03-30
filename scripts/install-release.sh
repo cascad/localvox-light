@@ -3,6 +3,7 @@
 # Requires: bash, curl, unzip; jq for JSON (brew install jq / apt install jq).
 # One self-contained folder (default ./localvox-light under current directory):
 #   localvox-light  .env  vosk-lib/  models/
+# macOS/Windows: нативные либы Vosk копируются рядом с бинарником (dyld/loader до main — DYLD_LIBRARY_PATH из процесса не помогает).
 #
 #   cd ~/apps && bash install-release.sh
 #   ./localvox-light/localvox-light --tui
@@ -121,6 +122,32 @@ if [ -z "${SKIP_BINARY:-}" ]; then
     mv -f "$BIN_PATH" "$TARGET"
   fi
   chmod +x "$TARGET"
+
+  # macOS: dyld resolves libvosk.dylib до вызова main() — как на Windows с DLL, кладём *.dylib рядом с бинарником.
+  # Linux: при отсутствии RPATH $ORIGIN то же самое для загрузки по LD_LIBRARY_PATH из окружения до exec;
+  # дублируем *.so рядом с exe на случай сборки с rpath к каталогу исполняемого файла.
+  if [ -z "${SKIP_VOSK:-}" ] && [ -d "$INSTALL_DIR/vosk-lib" ]; then
+    case "$(uname -s)" in
+      Darwin)
+        shopt -s nullglob
+        for f in "$INSTALL_DIR/vosk-lib"/*.dylib; do
+          cp -f "$f" "$INSTALL_DIR/"
+        done
+        shopt -u nullglob
+        if [ ! -f "$INSTALL_DIR/libvosk.dylib" ]; then
+          echo "Warning: libvosk.dylib not next to binary after copy from vosk-lib; check $INSTALL_DIR/vosk-lib" >&2
+        fi
+        ;;
+      Linux)
+        shopt -s nullglob
+        for f in "$INSTALL_DIR/vosk-lib"/*.so "$INSTALL_DIR/vosk-lib"/*.so.*; do
+          [ -f "$f" ] || continue
+          cp -f "$f" "$INSTALL_DIR/"
+        done
+        shopt -u nullglob
+        ;;
+    esac
+  fi
 
   MDL_FILE=""
   if [ -d "$INSTALL_DIR/models" ]; then

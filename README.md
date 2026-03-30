@@ -77,7 +77,7 @@ chmod +x scripts/setup-vosk.sh
 
 - В **Windows** нативная `libvosk.dll` подхватывается загрузчиком **до** `main()`: она должна лежать **в той же папке, что и `localvox-light.exe`** (или в системном `PATH` до запуска). `build.rs` копирует `*.dll` из `vosk-lib` в `target/release/`. Скрипт **`install-release.ps1`** дублирует `vosk-lib\*.dll` рядом с exe. Если копируете только exe в другую папку — скопируйте и все `*.dll` из `vosk-lib` (или из `target\release\`) в каталог с exe. Дополнительно приложение добавляет `vosk-lib` в `PATH` для прочих нативных зависимостей. Путь к модели — **`.env`** рядом с exe.
 - В **Linux** при необходимости: `export LD_LIBRARY_PATH="/path/to/repo/vosk-lib:$LD_LIBRARY_PATH"`.
-- В **macOS** при необходимости: `export DYLD_LIBRARY_PATH="/path/to/repo/vosk-lib:$DYLD_LIBRARY_PATH"`.
+- В **macOS** скрипт **`install-release.sh`** копирует `*.dylib` из `vosk-lib/` **рядом с бинарником** (как DLL на Windows): `dyld` грузит `libvosk.dylib` до `main()`, переменные из кода процесса не помогают. Вручную: положите `libvosk.dylib` в каталог с `localvox-light` или `export DYLD_LIBRARY_PATH="/path/to/vosk-lib:$DYLD_LIBRARY_PATH"` **до** запуска из shell.
 
 Путь к модели в `.env` нужен только если не подходит дефолт `models/vosk-model-ru-0.42` (запуск из корня репозитория).
 
