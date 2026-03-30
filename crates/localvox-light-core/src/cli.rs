@@ -267,7 +267,7 @@ pub fn validate_vosk_model(cli: &Cli) -> Result<()> {
             p.display()
         );
     }
-    // Стандартный архив с alphacephei.com: корень вида vosk-model-ru-0.42/ с am/, conf/, graph/
+    // Стандартный архив модели: корень вида vosk-model-ru-0.42/ с am/, conf/, graph/
     let am = p.join("am");
     if !am.is_dir() {
         anyhow::bail!(

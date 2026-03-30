@@ -13,7 +13,7 @@ set -euo pipefail
 
 VOSK_TAG="${LOCALVOX_VOSK_API_TAG:-v0.3.42}"
 VER="${VOSK_TAG#v}"
-MODEL_URL="${LOCALVOX_SETUP_MODEL_URL:-https://alphacephei.com/vosk/models/vosk-model-ru-0.42.zip}"
+MODEL_URL="${LOCALVOX_SETUP_MODEL_URL:-https://huggingface.co/mychen76/vosk-models/resolve/main/ru/vosk-model-ru-0.42.zip}"
 SKIP_MODEL=0
 FORCE=0
 PRESET=""

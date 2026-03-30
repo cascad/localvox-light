@@ -5,7 +5,7 @@
 ## Требования
 
 - Rust toolchain (edition 2021).
-- Каталог с [моделью Vosk](https://alphacephei.com/vosk/models); по умолчанию **`models/vosk-model-ru-0.42`** (как качает `setup-vosk`). Переопределение: `--model` / `LOCALVOX_LIGHT_MODEL`.
+- Каталог с моделью Vosk; по умолчанию **`models/vosk-model-ru-0.42`** (так кладёт `setup-vosk`). Официальный каталог моделей и описания: **[alphacephei.com/vosk/models](https://alphacephei.com/vosk/models)**. Скрипты `setup-vosk.*` по умолчанию скачивают русскую модель с Hugging Face (зеркало того же архива `vosk-model-ru-0.42.zip`); другой URL можно задать через **`LOCALVOX_SETUP_MODEL_URL`**. Переопределение пути к уже распакованной модели: `--model` / `LOCALVOX_LIGHT_MODEL`.
 - Для **разработки** (сборка из исходников): нативная библиотека Vosk в **`vosk-lib/`** в корне репозитория — `build.rs` добавляет `rustc-link-search`.
 
 ## Как выпустить GitHub Release

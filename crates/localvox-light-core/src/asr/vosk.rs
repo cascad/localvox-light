@@ -13,7 +13,7 @@ impl VoskEngine {
         let am_dir = model_dir.join("am");
         if !am_dir.is_dir() {
             anyhow::bail!(
-                "Нет каталога am/ в {} — укажите корень модели Vosk (после распаковки zip: папка с am/, conf/, graph/). Скачать: https://alphacephei.com/vosk/models",
+                "Нет каталога am/ в {} — укажите корень модели Vosk (после распаковки zip: папка с am/, conf/, graph/). Скачать: https://huggingface.co/mychen76/vosk-models/resolve/main/ru/vosk-model-ru-0.42.zip",
                 model_dir.display()
             );
         }

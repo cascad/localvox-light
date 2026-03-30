@@ -1,4 +1,4 @@
-﻿# Dev: vosk-lib + models under repo root (run from clone: .\scripts\setup-vosk.ps1).
+# Dev: vosk-lib + models under repo root (run from clone: .\scripts\setup-vosk.ps1).
 # Standalone copy of this file: same folder as script becomes root (e.g. F:\kit\vosk-lib).
 # User bundle: use install-release.ps1 with -InstallRoot, or -InstallRoot here.
 #
@@ -33,7 +33,7 @@ if ($InstallRoot) {
 $VoskTag = if ($env:LOCALVOX_VOSK_API_TAG) { $env:LOCALVOX_VOSK_API_TAG } else { "v0.3.42" }
 $Ver = $VoskTag.TrimStart("v")
 $ModelUrl = if ($env:LOCALVOX_SETUP_MODEL_URL) { $env:LOCALVOX_SETUP_MODEL_URL } else {
-    "https://alphacephei.com/vosk/models/vosk-model-ru-0.42.zip"
+    "https://huggingface.co/mychen76/vosk-models/resolve/main/ru/vosk-model-ru-0.42.zip"
 }
 if ($env:LOCALVOX_SETUP_FORCE -match "^(1|true|yes|on)$") { $Force = $true }
 
