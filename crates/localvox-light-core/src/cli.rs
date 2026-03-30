@@ -48,7 +48,7 @@ pub struct Cli {
     #[arg(long)]
     pub no_loopback: bool,
 
-    /// Loopback: Windows — имя/индекс/default-output (WASAPI). macOS/Linux — CPAL id или `lbidx:N` из --list-devices, плюс legacy-имена.
+    /// Loopback: Windows — имя/индекс/default-output (WASAPI). macOS — id/`lbidx:N` **выхода** (динамики). Linux — monitor-вход, id из --list-devices.
     #[arg(long, env = "LOCALVOX_LIGHT_LOOPBACK_DEVICE")]
     pub loopback_device: Option<String>,
 
@@ -300,8 +300,18 @@ pub fn print_devices() {
     }
     #[cfg(not(windows))]
     {
-        println!("(macOS/Linux: в конфиг и --loopback-device лучше подставлять id, не имя из настроек ОС)");
-        for (i, (dev, name)) in audio::list_loopback_capture_devices().iter().enumerate() {
+        #[cfg(target_os = "macos")]
+        println!("(macOS: **выходы** для loopback по CPAL; в конфиг копируйте id)");
+        #[cfg(not(target_os = "macos"))]
+        println!("(Linux и др.: monitor-входы; в конфиг копируйте id)");
+        let lb = audio::list_loopback_capture_devices();
+        #[cfg(target_os = "macos")]
+        if lb.is_empty() {
+            if let Some(hint) = audio::macos_loopback_empty_hint() {
+                println!("  ! {hint}");
+            }
+        }
+        for (i, (dev, name)) in lb.iter().enumerate() {
             let id = audio::device_id_save_token(dev).unwrap_or_else(|| format!("lbidx:{i}"));
             println!("  [{i}] {name}  |  id: {id}");
         }

@@ -130,10 +130,70 @@ pub fn list_output_device_names() -> Vec<(usize, String)> {
     }
 }
 
-/// Виртуальные входы «захват с выхода» (macOS: CPAL loopback; Linux: только имена с подстрокой `monitor`).
-/// Порядок = порядок перечисления CPAL (между запусками может слегка меняться — для конфига лучше `device.id()`).
-/// Не смешивать с `collect_input_devices`: на macOS loopback скрыты из списка микрофона.
-#[cfg(not(windows))]
+/// Источники для захвата «системного» звука (не Windows).
+///
+/// **macOS (CPAL ≥ 0.17, Sequoia+):** loopback — это не отдельный вход в списке, а `build_input_stream`
+/// на **output**-устройстве (динамики). Поэтому здесь перечисляются **выходы** с `supports_output()`;
+/// приоритет — устройства **без** физического входа (`!supports_input()`), иначе CPAL откроет микрофон, а не tap.
+///
+/// **Linux:** виртуальные входы monitor (PipeWire/Pulse), подстрока `monitor` в имени.
+///
+/// Порядок перечисления может слегка меняться — в конфиг лучше сохранять `device.id()`.
+#[cfg(all(not(windows), target_os = "macos"))]
+pub fn list_loopback_capture_devices() -> Vec<(cpal::Device, String)> {
+    let host = cpal::default_host();
+    let Ok(iter) = host.output_devices() else {
+        return Vec::new();
+    };
+    // Не отбрасывать устройство, если description() временно пустой — иначе список «loopback» может
+    // стать пустым при живых выходах (редко, но на отдельных сборках/OS встречалось).
+    let outs: Vec<(cpal::Device, String)> = iter
+        .map(|dev| {
+            let name = dev
+                .description()
+                .map(|d| d.name().to_string())
+                .unwrap_or_else(|_| {
+                    dev.id()
+                        .map(|id| format!("(имя недоступно) {id}"))
+                        .unwrap_or_else(|_| "(устройство без имени)".into())
+                });
+            (dev, name)
+        })
+        .collect();
+    // Предпочитаем чистые выходы: иначе CPAL на combo-устройстве откроет микрофон, а не tap с выхода.
+    let output_only: Vec<(cpal::Device, String)> = outs
+        .iter()
+        .filter(|(d, _)| !d.supports_input())
+        .cloned()
+        .collect();
+    if !output_only.is_empty() {
+        return output_only;
+    }
+    outs
+}
+
+/// Если `list_loopback_capture_devices` пуста при `--list-devices` на macOS — краткая подсказка.
+#[cfg(all(not(windows), target_os = "macos"))]
+pub fn macos_loopback_empty_hint() -> Option<String> {
+    let host = cpal::default_host();
+    match host.output_devices() {
+        Err(e) => Some(format!(
+            "cpal не смог перечислить выходы: {e}. Обычно это не про «имя устройства», а окружение (sandbox, нет GUI-сессии) или ограничения доступа. Для записи системного звука на macOS 14.6+ у терминала/IDE часто нужно разрешение «Микрофон» (Настройки → Конфиденциальность и безопасность)."
+        )),
+        Ok(iter) => {
+            let n = iter.count();
+            if n == 0 {
+                Some(
+                    "CoreAudio вернул 0 выходов (при этом входы могут быть видны). Проверьте: не SSH без аудио-сессии, не обрезанная VM; встроенные динамики в «Звук» включены.".into(),
+                )
+            } else {
+                None
+            }
+        }
+    }
+}
+
+#[cfg(all(not(windows), not(target_os = "macos")))]
 pub fn list_loopback_capture_devices() -> Vec<(cpal::Device, String)> {
     let host = cpal::default_host();
     let Ok(iter) = host.input_devices() else {
@@ -142,21 +202,10 @@ pub fn list_loopback_capture_devices() -> Vec<(cpal::Device, String)> {
     iter.filter_map(|dev| {
         let name = dev.description().ok()?.name().to_string();
         let n = name.to_lowercase();
-        #[cfg(target_os = "macos")]
-        {
-            if n.contains("cpal loopback") || n.contains("cpal output recorder") {
-                Some((dev, name))
-            } else {
-                None
-            }
-        }
-        #[cfg(not(target_os = "macos"))]
-        {
-            if n.contains("monitor") {
-                Some((dev, name))
-            } else {
-                None
-            }
+        if n.contains("monitor") {
+            Some((dev, name))
+        } else {
+            None
         }
     })
     .collect()
@@ -179,6 +228,16 @@ fn resolve_input_device_by_id_str(id_str: &str) -> Result<cpal::Device> {
         "Устройство {id_str} не поддерживает ввод (input)"
     );
     Ok(dev)
+}
+
+/// Для loopback: на macOS id относится к **выходу** (динамики), `supports_input` не требуется.
+#[cfg(not(windows))]
+fn resolve_device_by_id_for_loopback(id_str: &str) -> Result<cpal::Device> {
+    let host = cpal::default_host();
+    let id = DeviceId::from_str(id_str.trim())
+        .with_context(|| format!("Invalid CPAL device id: {id_str}"))?;
+    host.device_by_id(&id)
+        .with_context(|| format!("No device for id {id_str} (отключено или другое имя хоста)"))
 }
 
 pub fn resolve_mic(query: &str) -> Result<cpal::Device> {
@@ -222,12 +281,16 @@ fn resolve_loopback_input(query: &str) -> Result<cpal::Device> {
     let q = query.trim();
 
     if q.eq_ignore_ascii_case("default-output") || q.eq_ignore_ascii_case("default") {
+        #[cfg(target_os = "macos")]
+        if let Some(dev) = cpal::default_host().default_output_device() {
+            return Ok(dev);
+        }
         let lb = list_loopback_capture_devices();
         if let Some((d, _)) = lb.into_iter().next() {
             return Ok(d);
         }
         anyhow::bail!(
-            "No loopback capture device for default output. On macOS, allow microphone access for the app; in TUI use F2 and pick a loopback line, or disable loopback (--no-loopback)."
+            "No loopback capture device for default output. On macOS, check output devices / permissions; on Linux, need a *monitor* input; or disable loopback (--no-loopback)."
         );
     }
 
@@ -243,7 +306,7 @@ fn resolve_loopback_input(query: &str) -> Result<cpal::Device> {
     }
 
     if DeviceId::from_str(q).is_ok() {
-        return resolve_input_device_by_id_str(q);
+        return resolve_device_by_id_for_loopback(q);
     }
 
     if let Ok(idx) = q.parse::<usize>() {
@@ -279,7 +342,7 @@ fn resolve_loopback_input(query: &str) -> Result<cpal::Device> {
     // совпадение имени могло бы открыть микрофон как «sys», что семантически неверно.
     anyhow::bail!(
         "Loopback device '{q}' not found. Use CPAL id from `--list-devices`, or `lbidx:N`, or `default-output`. \
-         On Linux, loopback list is built from inputs whose name contains \"monitor\" (PipeWire/Pulse); other stacks may need another filter."
+         macOS: id — выход (динамики); Linux: обычно monitor-вход с подстрокой \"monitor\" в имени."
     );
 }
 
@@ -322,7 +385,16 @@ pub fn mic_capture(
     reload_gen: Option<Arc<AtomicU64>>,
     reload_snapshot: u64,
 ) -> Result<()> {
-    let supported = device.default_input_config()?;
+    // CPAL macOS loopback: output-only device → default_output_config + build_input_stream (см. examples/record_wav.rs).
+    let supported = if device.supports_input() {
+        device
+            .default_input_config()
+            .context("default_input_config")?
+    } else {
+        device
+            .default_output_config()
+            .context("default_output_config (захват с выхода / loopback)")?
+    };
     let native_rate = supported.sample_rate();
     let native_channels = supported.channels();
     let config = cpal::StreamConfig {
