@@ -8,8 +8,11 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
+use std::str::FromStr;
+
 use anyhow::{Context, Result};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use cpal::DeviceId;
 use crossbeam_channel::{Sender, TrySendError};
 
 use crate::events::UiMsg;
@@ -127,26 +130,157 @@ pub fn list_output_device_names() -> Vec<(usize, String)> {
     }
 }
 
+/// Виртуальные входы «захват с выхода» (macOS: CPAL loopback; Linux: только имена с подстрокой `monitor`).
+/// Порядок = порядок перечисления CPAL (между запусками может слегка меняться — для конфига лучше `device.id()`).
+/// Не смешивать с `collect_input_devices`: на macOS loopback скрыты из списка микрофона.
+#[cfg(not(windows))]
+pub fn list_loopback_capture_devices() -> Vec<(cpal::Device, String)> {
+    let host = cpal::default_host();
+    let Ok(iter) = host.input_devices() else {
+        return Vec::new();
+    };
+    iter.filter_map(|dev| {
+        let name = dev.description().ok()?.name().to_string();
+        let n = name.to_lowercase();
+        #[cfg(target_os = "macos")]
+        {
+            if n.contains("cpal loopback") || n.contains("cpal output recorder") {
+                Some((dev, name))
+            } else {
+                None
+            }
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            if n.contains("monitor") {
+                Some((dev, name))
+            } else {
+                None
+            }
+        }
+    })
+    .collect()
+}
+
+/// Стабильный идентификатор CPAL для сохранения в конфиг (не зависит от языка ОС).
+pub fn device_id_save_token(dev: &cpal::Device) -> Option<String> {
+    dev.id().ok().map(|id| id.to_string())
+}
+
+fn resolve_input_device_by_id_str(id_str: &str) -> Result<cpal::Device> {
+    let host = cpal::default_host();
+    let id = DeviceId::from_str(id_str.trim())
+        .with_context(|| format!("Invalid CPAL device id: {id_str}"))?;
+    let dev = host
+        .device_by_id(&id)
+        .with_context(|| format!("No device for id {id_str} (отключено или другое имя хоста)"))?;
+    anyhow::ensure!(
+        dev.supports_input(),
+        "Устройство {id_str} не поддерживает ввод (input)"
+    );
+    Ok(dev)
+}
+
 pub fn resolve_mic(query: &str) -> Result<cpal::Device> {
-    if query.eq_ignore_ascii_case("default") {
+    let q = query.trim();
+    if q.eq_ignore_ascii_case("default") {
         return cpal::default_host()
             .default_input_device()
             .context("No default input device");
     }
+    if DeviceId::from_str(q).is_ok() {
+        return resolve_input_device_by_id_str(q);
+    }
+    if let Some(rest) = q.strip_prefix("micidx:") {
+        let idx: usize = rest
+            .parse()
+            .with_context(|| format!("micidx: ожидалось число, получено {rest}"))?;
+        return collect_input_devices()
+            .into_iter()
+            .nth(idx)
+            .map(|(d, _)| d)
+            .with_context(|| format!("micidx:{idx} — нет такого индекса в списке микрофонов"));
+    }
     let devices = collect_input_devices();
-    if let Ok(idx) = query.parse::<usize>() {
+    if let Ok(idx) = q.parse::<usize>() {
         return devices
             .into_iter()
             .nth(idx)
             .map(|(d, _)| d)
             .context(format!("Input device index {idx} not found"));
     }
-    let needle = query.to_lowercase();
+    let needle = q.to_lowercase();
     devices
         .into_iter()
         .find(|(_, name)| name.to_lowercase().contains(&needle))
         .map(|(d, _)| d)
         .context(format!("Input device '{query}' not found"))
+}
+
+#[cfg(not(windows))]
+fn resolve_loopback_input(query: &str) -> Result<cpal::Device> {
+    let q = query.trim();
+
+    if q.eq_ignore_ascii_case("default-output") || q.eq_ignore_ascii_case("default") {
+        let lb = list_loopback_capture_devices();
+        if let Some((d, _)) = lb.into_iter().next() {
+            return Ok(d);
+        }
+        anyhow::bail!(
+            "No loopback capture device for default output. On macOS, allow microphone access for the app; in TUI use F2 and pick a loopback line, or disable loopback (--no-loopback)."
+        );
+    }
+
+    if let Some(rest) = q.strip_prefix("lbidx:") {
+        let idx: usize = rest
+            .parse()
+            .with_context(|| format!("lbidx: ожидалось число, получено {rest}"))?;
+        return list_loopback_capture_devices()
+            .into_iter()
+            .nth(idx)
+            .map(|(d, _)| d)
+            .with_context(|| format!("lbidx:{idx} — нет такого loopback-входа"));
+    }
+
+    if DeviceId::from_str(q).is_ok() {
+        return resolve_input_device_by_id_str(q);
+    }
+
+    if let Ok(idx) = q.parse::<usize>() {
+        let outputs = list_output_device_names();
+        if let Some((_, out_name)) = outputs.iter().find(|(i, _)| *i == idx) {
+            let lb = list_loopback_capture_devices();
+            if out_name.eq_ignore_ascii_case("default-output") {
+                if let Some((d, _)) = lb.into_iter().next() {
+                    return Ok(d);
+                }
+            } else {
+                let needle = out_name.to_lowercase();
+                if let Some((d, _)) = lb
+                    .into_iter()
+                    .find(|(_, n)| n.to_lowercase().contains(&needle))
+                {
+                    return Ok(d);
+                }
+            }
+        }
+    }
+
+    let needle = q.to_lowercase();
+    let lb = list_loopback_capture_devices();
+    if let Some((d, _)) = lb
+        .into_iter()
+        .find(|(_, n)| n.to_lowercase().contains(&needle))
+    {
+        return Ok(d);
+    }
+
+    // Не вызываем resolve_mic: на macOS микрофонные входы — отдельные устройства; подстрочное
+    // совпадение имени могло бы открыть микрофон как «sys», что семантически неверно.
+    anyhow::bail!(
+        "Loopback device '{q}' not found. Use CPAL id from `--list-devices`, or `lbidx:N`, or `default-output`. \
+         On Linux, loopback list is built from inputs whose name contains \"monitor\" (PipeWire/Pulse); other stacks may need another filter."
+    );
 }
 
 fn to_mono(data: &[f32], channels: u16) -> Vec<f32> {
@@ -392,7 +526,7 @@ pub fn loopback_capture(
     reload_gen: Option<Arc<AtomicU64>>,
     reload_snapshot: u64,
 ) -> Result<()> {
-    let device = resolve_mic(device_query)?;
+    let device = resolve_loopback_input(device_query)?;
     mic_capture(
         device,
         1,

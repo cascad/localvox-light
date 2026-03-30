@@ -292,12 +292,14 @@ pub fn run_engine(
     let loopback_handle = thread::Builder::new()
         .name("loopback-capture".into())
         .spawn(move || {
+            let mut lb_fail_streak: u32 = 0;
             while lb_running.load(Ordering::Relaxed) {
                 let cfg = match devices_lb.read() {
                     Ok(g) => g.clone(),
                     Err(_) => break,
                 };
                 if !cfg.loopback {
+                    lb_fail_streak = 0;
                     let base = reload_lb.load(Ordering::SeqCst);
                     while lb_running.load(Ordering::Relaxed)
                         && reload_lb.load(Ordering::SeqCst) == base
@@ -308,7 +310,7 @@ pub fn run_engine(
                 }
                 let q = cfg.loopback_device.clone();
                 let g = reload_lb.load(Ordering::SeqCst);
-                if let Err(e) = audio::loopback_capture(
+                match audio::loopback_capture(
                     &q,
                     lb_tx.clone(),
                     lb_running.clone(),
@@ -316,9 +318,28 @@ pub fn run_engine(
                     Some(Arc::clone(&reload_lb)),
                     g,
                 ) {
-                    tracing::error!("Loopback capture error: {e}");
-                    eprintln!("localvox-light: loopback — ошибка захвата: {e:#}");
-                    thread::sleep(Duration::from_millis(400));
+                    Ok(()) => lb_fail_streak = 0,
+                    Err(e) => {
+                        let es = format!("{e:#}");
+                        if lb_fail_streak == 0 {
+                            tracing::warn!("Loopback capture error: {es}");
+                            eprintln!("localvox-light: loopback — ошибка захвата: {es}");
+                            if let Some(ref t) = lb_ui {
+                                let _ = t.send(UiMsg::Status(
+                                    "Loopback: ошибка захвата (повторы без спама в stderr). F2 — устройство или выключите loopback; --no-loopback"
+                                        .into(),
+                                ));
+                            }
+                        } else if lb_fail_streak == 1 || lb_fail_streak.is_power_of_two() {
+                            tracing::debug!(target: "localvox_light_core::loopback", "loopback capture still failing: {es}");
+                        }
+                        lb_fail_streak = lb_fail_streak.saturating_add(1);
+                        let ms = (600u64)
+                            .saturating_mul(lb_fail_streak as u64)
+                            .min(12_000)
+                            .max(500);
+                        thread::sleep(Duration::from_millis(ms));
+                    }
                 }
                 if !lb_running.load(Ordering::Relaxed) {
                     break;

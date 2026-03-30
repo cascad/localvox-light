@@ -36,7 +36,7 @@ pub fn join_engine_thread(handle: thread::JoinHandle<()>, max_wait: Duration) {
 #[derive(Parser, Clone)]
 #[command(name = "localvox-light", about = "Local audio transcription (no server)")]
 pub struct Cli {
-    /// Microphone device (name, index, or "default"). Перекрывает значение из конфига устройств.
+    /// Микрофон: индекс, подстрока имени, `micidx:N` или стабильный CPAL id `host:…` (см. --list-devices).
     #[arg(long, env = "LOCALVOX_LIGHT_MIC")]
     pub mic: Option<String>,
 
@@ -48,7 +48,7 @@ pub struct Cli {
     #[arg(long)]
     pub no_loopback: bool,
 
-    /// Loopback device (name, index, or "default-output")
+    /// Loopback: Windows — имя/индекс/default-output (WASAPI). macOS/Linux — CPAL id или `lbidx:N` из --list-devices, плюс legacy-имена.
     #[arg(long, env = "LOCALVOX_LIGHT_LOOPBACK_DEVICE")]
     pub loopback_device: Option<String>,
 
@@ -286,12 +286,25 @@ pub fn validate_vosk_model(cli: &Cli) -> Result<()> {
 
 pub fn print_devices() {
     println!("=== Input devices (microphones) ===");
-    for (i, (_dev, name)) in audio::collect_input_devices().iter().enumerate() {
-        println!("  [{i}] {name}");
+    for (i, (dev, name)) in audio::collect_input_devices().iter().enumerate() {
+        let id = audio::device_id_save_token(dev).unwrap_or_else(|| "—".into());
+        println!("  [{i}] {name}  |  id: {id}");
     }
-    println!("\n=== Output devices (for loopback) ===");
-    for (i, name) in audio::list_output_device_names() {
-        println!("  [{i}] {name}");
+    println!("\n=== Loopback / system audio ===");
+    #[cfg(windows)]
+    {
+        println!("(Windows: имена выходов для WASAPI loopback)");
+        for (i, name) in audio::list_output_device_names() {
+            println!("  [{i}] {name}");
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        println!("(macOS/Linux: в конфиг и --loopback-device лучше подставлять id, не имя из настроек ОС)");
+        for (i, (dev, name)) in audio::list_loopback_capture_devices().iter().enumerate() {
+            let id = audio::device_id_save_token(dev).unwrap_or_else(|| format!("lbidx:{i}"));
+            println!("  [{i}] {name}  |  id: {id}");
+        }
     }
 }
 

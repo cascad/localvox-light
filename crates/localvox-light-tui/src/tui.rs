@@ -21,7 +21,11 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap};
 use ratatui::Terminal;
 
-use localvox_light_core::audio::{collect_input_devices, format_device_display, list_output_device_names};
+#[cfg(not(windows))]
+use localvox_light_core::audio::list_loopback_capture_devices;
+use localvox_light_core::audio::{
+    collect_input_devices, device_id_save_token, format_device_display, list_output_device_names,
+};
 use localvox_light_core::events::{StructuredLog, UiMsg};
 use localvox_light_core::light_config::LightDeviceConfig;
 use localvox_light_core::transcript::export_sorted_jsonl;
@@ -88,6 +92,9 @@ enum TuiMode {
 
 struct SettingsState {
     input_devices: Vec<(usize, String)>,
+    /// Токены для `LightDeviceConfig.mic` / `loopback_device` (CPAL `host:…`, иначе `micidx:` / `lbidx:`).
+    mic_save_tokens: Vec<String>,
+    loopback_save_tokens: Vec<String>,
     output_devices: Vec<(usize, String)>,
     input_state: ListState,
     output_state: ListState,
@@ -110,7 +117,21 @@ fn format_log_line(log: &StructuredLog) -> String {
     )
 }
 
-fn input_selected_index(mic_query: &str, devices: &[(usize, String)]) -> usize {
+fn input_selected_index(
+    mic_query: &str,
+    devices: &[(usize, String)],
+    save_tokens: &[String],
+) -> usize {
+    if let Some(pos) = save_tokens.iter().position(|t| t == mic_query) {
+        return pos;
+    }
+    if let Some(rest) = mic_query.strip_prefix("micidx:") {
+        if let Ok(idx) = rest.parse::<usize>() {
+            if idx < devices.len() {
+                return idx;
+            }
+        }
+    }
     if let Ok(idx) = mic_query.parse::<usize>() {
         if idx < devices.len() {
             return idx;
@@ -124,12 +145,18 @@ fn input_selected_index(mic_query: &str, devices: &[(usize, String)]) -> usize {
 }
 
 /// Индекс в `output_devices` (без строки «— нет —»).
-fn output_device_row_index(loopback_device: &str, outputs: &[(usize, String)]) -> usize {
+fn output_device_row_index(
+    loopback_device: &str,
+    outputs: &[(usize, String)],
+    save_tokens: &[String],
+) -> usize {
+    if let Some(pos) = save_tokens.iter().position(|t| t == loopback_device) {
+        return pos;
+    }
     if let Ok(idx) = loopback_device.parse::<usize>() {
-        return outputs
-            .iter()
-            .position(|(i, _)| *i == idx)
-            .unwrap_or(0);
+        if let Some(pos) = outputs.iter().position(|(i, _)| *i == idx) {
+            return pos;
+        }
     }
     let needle = loopback_device.to_lowercase();
     outputs
@@ -141,20 +168,51 @@ fn output_device_row_index(loopback_device: &str, outputs: &[(usize, String)]) -
 }
 
 fn build_settings_state(current: &LightDeviceConfig) -> SettingsState {
+    let mut mic_save_tokens = Vec::new();
     let input_devices: Vec<_> = collect_input_devices()
         .into_iter()
         .enumerate()
-        .map(|(i, (dev, n))| (i, format_device_display(&dev, &n, "")))
+        .map(|(i, (dev, n))| {
+            mic_save_tokens.push(
+                device_id_save_token(&dev).unwrap_or_else(|| format!("micidx:{i}")),
+            );
+            (i, format_device_display(&dev, &n, ""))
+        })
         .collect();
-    let output_devices = list_output_device_names();
-    let input_sel = input_selected_index(&current.mic, &input_devices)
+
+    #[cfg(windows)]
+    let (output_devices, loopback_save_tokens) = {
+        let od = list_output_device_names();
+        let tok: Vec<String> = od.iter().map(|(_, n)| n.clone()).collect();
+        (od, tok)
+    };
+    #[cfg(not(windows))]
+    let (output_devices, loopback_save_tokens) = {
+        let mut od = Vec::new();
+        let mut tok = Vec::new();
+        for (i, (dev, raw)) in list_loopback_capture_devices().into_iter().enumerate() {
+            od.push((i + 1, format_device_display(&dev, &raw, "loopback")));
+            tok.push(
+                device_id_save_token(&dev).unwrap_or_else(|| format!("lbidx:{i}")),
+            );
+        }
+        (od, tok)
+    };
+
+    let input_sel = input_selected_index(&current.mic, &input_devices, &mic_save_tokens)
         .min(input_devices.len().saturating_sub(1));
-    // Строка 0 в списке — «— нет —» (без loopback), дальше как в client-reliable.
+    // Строка 0 в списке — «— нет —» (без loopback), дальше устройства loopback.
     let output_sel = if !current.loopback {
         0
+    } else if output_devices.is_empty() {
+        0
     } else {
-        let row = output_device_row_index(&current.loopback_device, &output_devices)
-            .min(output_devices.len().saturating_sub(1));
+        let row = output_device_row_index(
+            &current.loopback_device,
+            &output_devices,
+            &loopback_save_tokens,
+        )
+        .min(output_devices.len().saturating_sub(1));
         (1 + row).min(output_devices.len())
     };
 
@@ -165,6 +223,8 @@ fn build_settings_state(current: &LightDeviceConfig) -> SettingsState {
 
     SettingsState {
         input_devices,
+        mic_save_tokens,
+        loopback_save_tokens,
         output_devices,
         input_state,
         output_state,
@@ -256,18 +316,27 @@ pub fn run(
                             code if key_matches(code, 's') => {
                                 let input_idx = st.input_state.selected().unwrap_or(0);
                                 let mic = st
-                                    .input_devices
+                                    .mic_save_tokens
                                     .get(input_idx)
-                                    .map(|(i, _)| format!("{i}"))
-                                    .or_else(|| st.input_devices.first().map(|(i, _)| format!("{i}")))
+                                    .cloned()
+                                    .or_else(|| {
+                                        st.input_devices
+                                            .get(input_idx)
+                                            .map(|(i, _)| format!("{i}"))
+                                    })
+                                    .or_else(|| {
+                                        st.input_devices
+                                            .first()
+                                            .map(|(i, _)| format!("{i}"))
+                                    })
                                     .unwrap_or_default();
                                 let loopback_sel = st.output_state.selected().unwrap_or(0);
                                 let (loopback, loopback_device) = if loopback_sel == 0 {
                                     (false, "default-output".into())
-                                } else if let Some((_, name)) =
-                                    st.output_devices.get(loopback_sel.saturating_sub(1))
+                                } else if let Some(tok) =
+                                    st.loopback_save_tokens.get(loopback_sel.saturating_sub(1))
                                 {
-                                    (true, name.clone())
+                                    (true, tok.clone())
                                 } else {
                                     (false, "default-output".into())
                                 };
