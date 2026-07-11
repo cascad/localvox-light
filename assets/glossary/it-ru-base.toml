@@ -1,0 +1,125 @@
+# Глоссарий IT-терминов — базовый seed (2026-07-11)
+# Источник: реальные искажения ASR из UAT-встречи (docs: transcript_uat_processed.md §1)
+# + частые термины. Дополняется по ходу (майнинг архива, per-slot глоссарии).
+#
+# canonical          — каноническое написание в processed-тексте
+# variants           — однозначные искажения: можно заменять детерминированно
+# ambiguous_variants — совпадают с обычной русской речью: автозамена ЗАПРЕЩЕНА,
+#                      только пометка + подсказка LLM-арбитру (контекст решает)
+
+[[term]]
+canonical = "capacity"
+variants = ["капасити", "капаштет"]
+ambiguous_variants = ["как посетит"]
+
+[[term]]
+canonical = "story points"
+variants = ["сторик понты", "история поинт", "истории пойнты", "стори поинты"]
+
+[[term]]
+canonical = "Jira"
+variants = ["джира", "джире"]
+ambiguous_variants = ["жира", "жирным", "жиро"]
+
+[[term]]
+canonical = "диаграмма Ганта"
+variants = ["гант", "ганта", "гантом"]
+ambiguous_variants = ["кант", "кантом"]
+
+[[term]]
+canonical = "drag-and-drop"
+variants = ["драган дробь", "дракон троп", "драг энд дроп", "драгндроп"]
+
+[[term]]
+canonical = "checkbox"
+variants = ["чекбокс", "таньча бокс", "чек бокс"]
+
+[[term]]
+canonical = "sidebar"
+variants = ["сайдбар", "сайд бар"]
+
+[[term]]
+canonical = "read-only"
+variants = ["ридонли", "рид онли"]
+ambiguous_variants = ["придонная"]
+
+[[term]]
+canonical = "UAT"
+variants = ["юат"]
+ambiguous_variants = ["йота"]
+
+[[term]]
+canonical = "Excel"
+variants = ["эксель", "эксельках", "эксель льках"]
+
+[[term]]
+canonical = "техдолг"
+variants = ["тех долг"]
+
+[[term]]
+canonical = "hardcoded"
+variants = ["хардкод", "хардкоженый", "захардкожено"]
+ambiguous_variants = ["харт кожаный", "закрыт кожаная"]
+
+[[term]]
+canonical = "React-компонент"
+ambiguous_variants = ["джек компонент"]
+
+[[term]]
+canonical = "Staff"
+ambiguous_variants = ["настав", "став", "стаф", "состав"]
+
+[[term]]
+canonical = "фронтенд"
+variants = ["фронт енд", "фронтед"]
+ambiguous_variants = ["фронты", "фронте"]
+
+[[term]]
+canonical = "бэкенд"
+variants = ["бекенд", "бэк енд", "бекэнд"]
+
+[[term]]
+canonical = "суперадмин"
+variants = ["супер админ"]
+
+# --- частые термины вне UAT (стартовый минимум) ---
+
+[[term]]
+canonical = "pipeline"
+variants = ["пайплайн", "пайп лайн", "пиплайн"]
+
+[[term]]
+canonical = "деплой"
+variants = ["диплой", "деплоймент"]
+
+[[term]]
+canonical = "Docker"
+variants = ["докер", "доккер"]
+
+[[term]]
+canonical = "Kubernetes"
+variants = ["кубернетес", "кубернетис", "кубер"]
+
+[[term]]
+canonical = "API"
+variants = ["апи", "эй пи ай"]
+
+[[term]]
+canonical = "merge request"
+variants = ["мердж реквест", "мёрж реквест", "мр"]
+
+[[term]]
+canonical = "коммит"
+variants = ["комит"]
+
+[[term]]
+canonical = "бэклог"
+variants = ["беклог", "бек лог"]
+
+[[term]]
+canonical = "ретроспектива"
+ambiguous_variants = ["ретро"]
+
+[[term]]
+canonical = "Confluence"
+variants = ["конфлюенс", "конфлюэнс"]
