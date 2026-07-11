@@ -1,0 +1,18 @@
+[package]
+name = "localvox-light-youtube"
+version.workspace = true
+edition.workspace = true
+description = "CLI: скачать аудио YouTube (yt-dlp + ffmpeg) и транскрибировать через Vosk локально."
+
+[[bin]]
+name = "localvox-youtube"
+path = "src/main.rs"
+
+[dependencies]
+localvox-light-core.workspace = true
+localvox-light-ingest.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+dotenvy.workspace = true
+url.workspace = true
+indicatif.workspace = true

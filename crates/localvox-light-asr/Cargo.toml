@@ -1,0 +1,18 @@
+[package]
+name = "localvox-light-asr"
+version.workspace = true
+edition.workspace = true
+description = "CLI для офлайн-транскрипции через ONNX-модели (GigaAM v3 и т.п.); ingestion общий с localvox-light-youtube."
+
+[[bin]]
+name = "localvox-asr"
+path = "src/main.rs"
+
+[dependencies]
+localvox-light-core = { workspace = true, features = ["onnx"] }
+localvox-light-ingest.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+dotenvy.workspace = true
+url.workspace = true
+indicatif.workspace = true

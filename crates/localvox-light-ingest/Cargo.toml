@@ -1,0 +1,12 @@
+[package]
+name = "localvox-light-ingest"
+version.workspace = true
+edition.workspace = true
+description = "Локальная и URL-ingestion для localvox-light: yt-dlp + ffmpeg → PCM 16k mono f32, прогресс, резолверы путей."
+
+[dependencies]
+anyhow.workspace = true
+indicatif.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+tracing.workspace = true

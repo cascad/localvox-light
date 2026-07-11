@@ -4,6 +4,9 @@
 
 pub mod vosk;
 
+#[cfg(feature = "onnx")]
+pub mod onnx;
+
 use anyhow::Result;
 use webrtc_vad::{SampleRate, Vad, VadMode};
 

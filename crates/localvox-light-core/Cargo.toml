@@ -23,6 +23,17 @@ uuid.workspace = true
 vosk.workspace = true
 webrtc-vad.workspace = true
 
+# Опциональные зависимости: ONNX-движки (GigaAM v3 и т.п.).
+ndarray = { workspace = true, optional = true }
+ort = { workspace = true, optional = true }
+realfft = { workspace = true, optional = true }
+
+[features]
+default = []
+# Включает `asr::onnx::*`: trait OnnxAdapter, OnnxEngine + адаптеры (GigaAM v3 и др.).
+# Тащит `ort` (onnxruntime, CPU-провайдер по умолчанию), `ndarray`, `realfft`.
+onnx = ["dep:ndarray", "dep:ort", "dep:realfft"]
+
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
 

@@ -246,15 +246,8 @@ pub fn normalized_model_path(cli: &Cli) -> String {
     unquoted.trim().to_string()
 }
 
-/// До захвата аудио и TUI: модель нужна для записи (не для `--list-devices`).
-pub fn validate_vosk_model(cli: &Cli) -> Result<()> {
-    let path_str = normalized_model_path(cli);
-    if path_str.is_empty() {
-        anyhow::bail!(
-            "LOCALVOX_LIGHT_MODEL пустой. Задайте каталог модели или удалите переменную (дефолт: models/vosk-model-ru-0.42)."
-        );
-    }
-    let p = Path::new(&path_str);
+/// Проверка каталога распакованной модели Vosk (`am/`, `conf/`, `graph/`).
+pub fn validate_vosk_model_dir(p: &Path) -> Result<()> {
     if !p.exists() {
         anyhow::bail!(
             "Модель Vosk: каталог не найден: {}. По умолчанию ожидается models/vosk-model-ru-0.42 после scripts/setup-vosk.* (или укажите --model).",
@@ -282,6 +275,17 @@ pub fn validate_vosk_model(cli: &Cli) -> Result<()> {
         );
     }
     Ok(())
+}
+
+/// До захвата аудио и TUI: модель нужна для записи (не для `--list-devices`).
+pub fn validate_vosk_model(cli: &Cli) -> Result<()> {
+    let path_str = normalized_model_path(cli);
+    if path_str.is_empty() {
+        anyhow::bail!(
+            "LOCALVOX_LIGHT_MODEL пустой. Задайте каталог модели или удалите переменную (дефолт: models/vosk-model-ru-0.42)."
+        );
+    }
+    validate_vosk_model_dir(Path::new(&path_str))
 }
 
 pub fn print_devices() {

@@ -16,8 +16,8 @@ pub mod session;
 pub mod transcript;
 
 pub use cli::{
-    init_tracing, join_engine_thread, merge_env_bools, print_devices,
-    resolve_audio_from_cli_and_file, validate_vosk_model, Cli,
+    init_tracing, join_engine_thread, merge_env_bools, normalized_model_path, print_devices,
+    resolve_audio_from_cli_and_file, validate_vosk_model, validate_vosk_model_dir, Cli,
 };
 pub use engine::run_engine;
 pub use events::UiMsg;
