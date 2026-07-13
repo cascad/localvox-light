@@ -1,13 +1,14 @@
-//! ONNX-based ASR engine. CPU-friendly, поддерживает разные архитектуры через адаптеры.
+//! ONNX-based ASR engine. CPU-friendly, supports different architectures via adapters.
 //!
-//! Слои:
-//! * [`mel`] — log-mel препроцессор (HTK-шкала, NeMo-совместимые параметры).
-//! * [`ctc`] — жадное CTC-декодирование.
-//! * [`vocab`] — загрузка `vocab.txt` формата onnx-asr и SentencePiece-детокенизация.
-//! * [`adapter`] — trait [`OnnxAdapter`] описывает конкретную модель.
-//! * [`engine`] — [`OnnxEngine`] оборачивает `ort::Session` + адаптер,
-//!   реализует общий [`crate::asr::AsrEngine`].
-//! * [`adapters`] — реализации адаптеров (GigaAM v3 и др.).
+//! The layers:
+//! * [`mel`] — the log-mel preprocessor (HTK scale, NeMo-compatible parameters).
+//! * [`ctc`] — greedy CTC decoding.
+//! * [`vocab`] — loading a `vocab.txt` in the onnx-asr format and SentencePiece
+//!   detokenization.
+//! * [`adapter`] — the trait [`OnnxAdapter`] describes a concrete model.
+//! * [`engine`] — [`OnnxEngine`] wraps an `ort::Session` + an adapter and implements the
+//!   common [`crate::asr::AsrEngine`].
+//! * [`adapters`] — the adapter implementations (GigaAM v3 and others).
 
 pub mod adapter;
 pub mod adapters;

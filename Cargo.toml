@@ -7,6 +7,12 @@ members = [
     "crates/localvox-light-youtube",
     "crates/localvox-light-ingest",
     "crates/localvox-light-asr",
+    "crates/localvox-light-llm",
+    "crates/localvox-light-search",
+    "crates/localvox-light-integrations",
+    "crates/localvox-light-voice",
+    "crates/localvox-light-api",
+    "crates/localvox-light-bench",
 ]
 default-members = ["crates/localvox-light"]
 
@@ -28,13 +34,40 @@ indicatif = "0.17"
 libc = "0.2"
 localvox-light-core = { path = "crates/localvox-light-core" }
 localvox-light-ingest = { path = "crates/localvox-light-ingest" }
+localvox-light-llm = { path = "crates/localvox-light-llm" }
 localvox-light-tui = { path = "crates/localvox-light-tui" }
+toml = "0.8"
+# Морфология и близость строк — берём библиотеки, а не самописные эвристики:
+# rust-stemmers (Snowball ru) вместо «первые 5 символов», strsim вместо своего
+# Левенштейна, deunicode вместо самодельной таблицы транслита.
+rust-stemmers = "1"
+strsim = "0.11"
+deunicode = "1"
+
+# Язык записи: определение — whatlang (статистика по n-граммам, офлайн),
+# коды языков — isolang (полная таблица ISO-639), а не наш список из двух строк.
+whatlang = "0.16"
+isolang = "2"
+
+# Ресемплинг микрофона 48k→16k. Своя линейная интерполяция БЕЗ фильтра заворачивала
+# всё выше 8 кГц обратно в слышимый диапазон (алиасинг — та самая «грязь на фоне»)
+# и не помнила состояния между колбэками (щелчки на стыках). Это работа для
+# библиотеки, а не для двадцати строк на глазок.
+rubato = "0.16"
+
+# Токенизатор HuggingFace — ТА ЖЕ реализация на Rust, что и в Python: tokenizer.json
+# грузится байт-в-байт, никакого Python в рантайме. Нужен NER-модели (GLiNER).
+tokenizers = { version = "0.21", default-features = false, features = ["onig"] }
+ureq = { version = "2", features = ["json"] }
 ndarray = "0.16"
 ort = "=2.0.0-rc.12"
 ratatui = "0.29"
 realfft = "3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# stopwords: без него поиск находит записи по «и» и «на» — совпадение есть, а смысла в нём нет
+tantivy = { version = "0.24", features = ["stopwords"] }
+tiny_http = "0.12"
 tempfile = "3"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }

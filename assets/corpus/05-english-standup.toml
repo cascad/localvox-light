@@ -1,0 +1,57 @@
+name = "English stand-up: пересказ против выдумки"
+lang = "en"
+
+# Английская запись. На ней проверяется самое опасное свойство: на латинице
+# КАЖДОЕ слово — латиница, и наивная проверка объявляла выдумкой любой пересказ.
+transcript = """
+So we discussed the release timeline and agreed to postpone the rollout to next
+week because the tests are still failing. Sarah will take the migration, and we
+need to update the onboarding docs before the demo. We have about two hundred open
+tickets in the backlog, most of them small.
+"""
+
+[[case]]
+name = "честный пересказ — не выдумка"
+verdict = "clean"
+# «rollout» → «deployment», «next week» → «the following week», «tests» → «test
+# suite» — всё это ЗАКОННЫЙ пересказ. Раньше он давал шесть обвинений подряд.
+answer = """
+## Key points
+The team decided to delay deployment until the following week, since the test suite
+remains unstable. Documentation for onboarding must be refreshed before the demo.
+
+## Details
+The backlog currently holds 200 open tickets. Sarah owns the migration.
+"""
+
+[[case]]
+name = "выдуманный человек в начале фразы"
+verdict = "flagged"
+# Без NER-модели это НЕ ЛОВИТСЯ: имя стоит в начале фразы (заглавная буква там
+# ничего не значит) или спрятано за омонимом. Списком имён такое не решается.
+needs_ner = true
+names = ["marcus"]
+# Заглавная буква в начале фразы не значит НИЧЕГО — без NER это не ловится.
+answer = """
+## Tasks
+Marcus will ship the feature on Friday.
+"""
+
+[[case]]
+name = "перенесённый день недели"
+verdict = "flagged"
+names = ["friday"]
+# В записи «next week», а не «Friday». Модель перенесла срок.
+answer = """
+## Tasks
+Sarah will finish the migration by Friday.
+"""
+
+[[case]]
+name = "выдуманное количество"
+verdict = "flagged"
+numbers = ["500"]
+answer = """
+## Details
+The backlog holds 500 open tickets.
+"""

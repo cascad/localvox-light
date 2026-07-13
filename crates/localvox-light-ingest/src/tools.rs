@@ -1,4 +1,4 @@
-//! Поиск yt-dlp / ffmpeg / JS-runtime + опциональный settings.json.
+//! Locating yt-dlp / ffmpeg / the JS runtime + an optional settings.json.
 
 use anyhow::{Context, Result};
 use serde::Deserialize;
@@ -15,12 +15,13 @@ pub struct Settings {
     pub js_runtime: Option<String>,
     #[serde(default)]
     pub js_runtime_path: Option<String>,
-    /// Каталог для результатов по умолчанию.
+    /// The default directory for the results.
     #[serde(default)]
     pub output_dir: Option<String>,
 }
 
-/// Кандидаты для поиска settings-файла: каждое имя ищется и рядом с exe, и в cwd.
+/// Candidates for finding the settings file: every name is looked for both next to the
+/// exe and in the cwd.
 fn settings_candidates(filenames: &[&str]) -> Vec<PathBuf> {
     let mut out = Vec::new();
     if let Ok(exe) = std::env::current_exe() {
@@ -38,13 +39,15 @@ fn settings_candidates(filenames: &[&str]) -> Vec<PathBuf> {
     out
 }
 
-/// Загрузить `Settings` из первого найденного `settings.json` (рядом с exe или в cwd).
+/// Load `Settings` from the first `settings.json` that is found (next to the exe or in
+/// the cwd).
 pub fn load_settings() -> Settings {
     load_settings_named(&["settings.json"])
 }
 
-/// Та же логика, но с явным списком имён-файлов. Используйте, чтобы дать
-/// бинарнику собственное имя (`localvox-onnx-settings.json`, …) до общего `settings.json`.
+/// The same logic, but with an explicit list of file names. Use it to give a binary a
+/// name of its own (`localvox-onnx-settings.json`, …) ahead of the common
+/// `settings.json`.
 pub fn load_settings_named(filenames: &[&str]) -> Settings {
     for path in settings_candidates(filenames) {
         if path.is_file() {
@@ -206,7 +209,7 @@ pub fn resolve_ffmpeg_location_for_ytdlp(ffmpeg_path: &str) -> Option<String> {
     Some(dir.to_string_lossy().to_string())
 }
 
-/// Быстрая проверка до загрузки модели: yt-dlp в PATH или по явному пути.
+/// A fast check before the model is loaded: yt-dlp in PATH or at an explicit path.
 pub fn verify_yt_dlp(executable: &str) -> Result<()> {
     let status = Command::new(executable)
         .args(["--version"])
@@ -216,11 +219,11 @@ pub fn verify_yt_dlp(executable: &str) -> Result<()> {
         .status()
         .with_context(|| {
             format!(
-                "yt-dlp («{executable}»): не удалось запустить — установите https://github.com/yt-dlp/yt-dlp или задайте путь через CLI/env"
+                "yt-dlp («{executable}»): failed to start — install https://github.com/yt-dlp/yt-dlp or set the path through the CLI/env"
             )
         })?;
     if !status.success() {
-        anyhow::bail!("yt-dlp («{executable}»): команда --version завершилась с ошибкой");
+        anyhow::bail!("yt-dlp («{executable}»): the --version command exited with an error");
     }
     Ok(())
 }
@@ -234,16 +237,17 @@ pub fn verify_ffmpeg(executable: &str) -> Result<()> {
         .status()
         .with_context(|| {
             format!(
-                "ffmpeg («{executable}»): не удалось запустить — добавьте в PATH или задайте путь через CLI/env"
+                "ffmpeg («{executable}»): failed to start — add it to PATH or set the path through the CLI/env"
             )
         })?;
     if !status.success() {
-        anyhow::bail!("ffmpeg («{executable}»): команда -version завершилась с ошибкой");
+        anyhow::bail!("ffmpeg («{executable}»): the -version command exited with an error");
     }
     Ok(())
 }
 
-/// Только явный путь в формате `node:C:\\…\\node.exe` / `deno:…`; голый `node` не проверяем.
+/// Only an explicit path in the form `node:C:\\…\\node.exe` / `deno:…`; a bare `node` is
+/// not checked.
 pub fn verify_js_runtime_path_if_explicit(js_runtime: Option<&str>) -> Result<()> {
     let Some(rt) = js_runtime.map(str::trim).filter(|s| !s.is_empty()) else {
         return Ok(());
@@ -263,7 +267,7 @@ pub fn verify_js_runtime_path_if_explicit(js_runtime: Option<&str>) -> Result<()
         return Ok(());
     }
     anyhow::bail!(
-        "js-runtime: для «{rt}» ожидается существующий файл: {}",
+        "js-runtime: «{rt}» is expected to point at an existing file: {}",
         p.display()
     );
 }

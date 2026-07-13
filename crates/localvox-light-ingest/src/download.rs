@@ -1,4 +1,4 @@
-//! yt-dlp + ffmpeg → PCM s16le 16 kHz mono (как в youtube-transcribe).
+//! yt-dlp + ffmpeg → PCM s16le 16 kHz mono (as in youtube-transcribe).
 
 use anyhow::{Context, Result};
 use std::io::Read;
@@ -6,8 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 pub fn pcm_s16le_to_f32(pcm: &[u8]) -> Vec<f32> {
-    pcm
-        .chunks_exact(2)
+    pcm.chunks_exact(2)
         .map(|c| {
             let v = i16::from_le_bytes([c[0], c[1]]);
             f32::from(v) / 32768.0
@@ -50,9 +49,11 @@ pub fn download_audio(
         cmd.stdout(std::process::Stdio::null());
         cmd.stderr(std::process::Stdio::null());
     }
-    let status = cmd.status().context("yt-dlp (установите: https://github.com/yt-dlp/yt-dlp)")?;
+    let status = cmd
+        .status()
+        .context("yt-dlp (install it: https://github.com/yt-dlp/yt-dlp)")?;
     if !status.success() {
-        anyhow::bail!("yt-dlp завершился с ошибкой (без --verbose stderr скрыт)");
+        anyhow::bail!("yt-dlp exited with an error (without --verbose its stderr is hidden)");
     }
     for ext in ["webm", "m4a", "opus", "ogg", "mp3"] {
         let p = base.with_extension(ext);
@@ -60,7 +61,7 @@ pub fn download_audio(
             return Ok(p);
         }
     }
-    anyhow::bail!("yt-dlp не создал ожидаемый файл рядом с {:?}", base)
+    anyhow::bail!("yt-dlp did not create the expected file next to {:?}", base)
 }
 
 pub fn convert_to_pcm_s16le(ffmpeg: &str, input: &Path, verbose: bool) -> Result<Vec<u8>> {
@@ -80,13 +81,15 @@ pub fn convert_to_pcm_s16le(ffmpeg: &str, input: &Path, verbose: bool) -> Result
     if !verbose {
         cmd.stderr(std::process::Stdio::null());
     }
-    let mut child = cmd.spawn().context("ffmpeg (нужен в PATH или рядом с exe)")?;
+    let mut child = cmd
+        .spawn()
+        .context("ffmpeg (needed in PATH or next to the exe)")?;
     let mut stdout = child.stdout.take().context("ffmpeg stdout")?;
     let mut pcm = Vec::new();
     stdout.read_to_end(&mut pcm)?;
     let st = child.wait()?;
     if !st.success() {
-        anyhow::bail!("ffmpeg завершился с ошибкой");
+        anyhow::bail!("ffmpeg exited with an error");
     }
     Ok(pcm)
 }

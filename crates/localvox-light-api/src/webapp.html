@@ -1,0 +1,892 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#3b6ea5">
+<title>localvox — архив</title>
+<style>
+:root { --bg:#fff; --fg:#1a1a1a; --mut:#777; --line:#e3e3e3; --acc:#3b6ea5; --card:#f7f7f7; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg:#161719; --fg:#e8e8e8; --mut:#9a9a9a; --line:#333; --acc:#7aa7d4; --card:#202124; }
+}
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--fg);
+  font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; }
+main { max-width:980px; margin:0 auto; padding:12px; }
+/* Шапка (поиск + вкладки) ЛИПКАЯ: иначе, читая длинную расшифровку, приходится
+   долистывать наверх ради каждого перехода. */
+.sticky-top { position:sticky; top:0; z-index:5; background:var(--bg);
+  padding-top:.4rem; border-bottom:1px solid var(--line); margin-bottom:.6rem; }
+/* Кнопки самой сессии прилипают ПОД шапкой, а не под верх страницы: иначе они
+   уезжают ей за спину и остаётся узкая полоса, которой не попасть. Высота шапки
+   МЕРЯЕТСЯ (--top-h) — угадывать её в CSS значит промахиваться на каждом шрифте. */
+.session-bar { position:sticky; top:var(--top-h, 0px); z-index:4; background:var(--bg);
+  padding-top:.3rem; margin-bottom:.4rem; }
+h1 { font-size:1.2rem; margin:.3rem 0 .8rem; }
+h1 small { color:var(--mut); font-weight:normal; }
+input,textarea,button,select { font:inherit; color:inherit; background:var(--card);
+  border:1px solid var(--line); border-radius:8px; padding:.5rem .7rem; }
+button { cursor:pointer; }
+button.primary { background:var(--acc); color:#fff; border-color:var(--acc); }
+.row { display:flex; gap:.5rem; margin-bottom:.6rem; }
+.row input[type=search], .row input[type=password] { flex:1; min-width:0; }
+.tabs { display:flex; gap:.4rem; margin:.6rem 0; flex-wrap:wrap; }
+.tabs button[aria-selected=true] { background:var(--acc); color:#fff; border-color:var(--acc); }
+.card { background:var(--card); border:1px solid var(--line); border-radius:10px;
+  padding:.6rem .8rem; margin-bottom:.5rem; cursor:pointer; }
+.card .meta { color:var(--mut); font-size:.85rem; }
+.line { padding:.15rem 0; }
+.line .t { color:var(--mut); font-size:.8rem; margin-right:.4rem; }
+.line .who { color:var(--acc); font-size:.8rem; margin-right:.4rem; }
+button.play { padding:0 .35rem; margin-right:.35rem; font-size:.7rem; line-height:1.4;
+  border-radius:5px; color:var(--acc); background:transparent; border:1px solid var(--line); }
+button.play:hover { background:var(--card); }
+pre { white-space:pre-wrap; word-wrap:break-word; background:var(--card);
+  border:1px solid var(--line); border-radius:10px; padding:.7rem; font-size:.9rem; }
+.warn { color:#c07a00; }
+button.warn { border-color:#c07a00; }
+.md-head { display:flex; justify-content:flex-end; margin-bottom:.35rem; }
+button.copy { display:inline-flex; align-items:center; gap:.35rem; font-size:.85rem; }
+button.copy svg { flex:none; }
+.mut { color:var(--mut); }
+.err { color:#c0392b; }
+/* Что происходит с записью. Жёлтое — «мы этим заняты»: обработка идёт, ждать. */
+.busy { color:#c07a00; }
+.rec { color:#c0392b; }
+/* Что именно нашёл поиск. Без этого результат выглядел случайным: индекс ищет со
+   стеммингом, и слова запроса в строке может не быть в том же виде. */
+mark { background:#fff2a8; color:inherit; padding:0 .1em; border-radius:2px; }
+#note-form textarea { width:100%; min-height:4rem; margin-bottom:.4rem; }
+#route-hints { display:flex; gap:.4rem; flex-wrap:wrap; margin:.2rem 0; }
+button.hint { background:var(--card); border:1px solid var(--acc); color:var(--acc);
+  border-radius:14px; padding:.2rem .6rem; font-size:.85rem; }
+.hidden { display:none; }
+/* Плеер записи ЦЕЛИКОМ — сбоку и ЛИПКИЙ. Он нужен, чтобы «пошариться» по звуку, пока
+   читаешь расшифровку; уезжая вверх вместе со страницей, он заставлял листать туда-сюда.
+   На узком экране (телефон) колонки нет — плеер уходит вниз, как раньше. */
+.player { position:sticky; top:calc(var(--top-h, 0px) + .6rem); align-self:start;
+  width:240px; flex:none; max-height:calc(100vh - var(--top-h, 0px) - 2rem); overflow:auto;
+  background:var(--card); border:1px solid var(--line); border-radius:10px; padding:.6rem; }
+.player .pl-title { font-size:.85rem; margin-bottom:.4rem; }
+.player audio { width:100%; height:2.2rem; }
+.player .pl-nav { display:flex; gap:.4rem; margin-top:.5rem; }
+.player .pl-nav button { flex:1; font-size:.8rem; padding:.3rem; }
+#view-session { display:flex; gap:1rem; align-items:flex-start; }
+#view-session > .session-main { flex:1; min-width:0; }
+@media (max-width:700px) {
+  #view-session { display:block; }
+  .player { position:static; width:auto; margin-top:.8rem; }
+}
+a.back { color:var(--acc); text-decoration:none; display:inline-block; margin-bottom:.4rem; }
+</style>
+</head>
+<body>
+<main>
+  <div class="sticky-top">
+  <h1>localvox <small id="status">архив</small></h1>
+
+  <div class="row">
+    <input id="q" type="search" placeholder="Поиск по архиву…" autocomplete="off">
+    <select id="q-mode" title="Режим поиска">
+      <option value="">точный</option>
+      <option value="semantic">по смыслу</option>
+      <option value="hybrid">гибрид</option>
+    </select>
+    <button class="primary" onclick="doSearch()">Найти</button>
+    <button title="Токен доступа" onclick="toggleToken()">🔑</button>
+  </div>
+  <div class="row hidden" id="token-row">
+    <input id="token" type="password" placeholder="Токен (Authorization: Bearer …)">
+    <button onclick="saveToken()">Сохранить</button>
+  </div>
+
+  <div class="tabs">
+    <button id="tab-list" aria-selected="true" onclick="showList()">Сессии</button>
+    <button id="tab-ask" aria-selected="false" onclick="showAsk()" title="Вопрос по вашим записям: ответ строится только по ним и ссылается на них">Спросить у записей</button>
+    <button id="tab-note" aria-selected="false" onclick="showNote()">Заметка</button>
+    <button id="meeting" type="button" onclick="startMeeting()" title="Пометить встречу: текущая запись закроется, новая начнётся с названием">🎙 Новая встреча</button>
+    <button id="finish" type="button" onclick="finishSession()" title="Закрыть текущую запись — варка начнётся сразу">⏹ Завершить сессию</button>
+    <span id="finish-out" class="mut"></span>
+  </div>
+  </div>
+
+  <section id="view-list"></section>
+
+  <!-- Вопрос к архиву. Ответ строится ТОЛЬКО по найденным фрагментам и несёт
+       ссылки на них: без источников это было бы не «что было у меня», а «что
+       обычно бывает» — правдоподобная выдумка, которую человек примет за факт. -->
+  <section id="view-ask" class="hidden">
+    <form id="ask-form" onsubmit="return askArchive(event)">
+      <div class="row">
+        <input id="ask-q" type="search" placeholder="Например: что решили по миграции?" autocomplete="off" required>
+        <button class="primary">Спросить</button>
+      </div>
+      <p class="mut">Вопрос по всем вашим записям. Ответ строится ТОЛЬКО по ним и ссылается на конкретные
+        фрагменты — их можно открыть и послушать. Чего в записях нет, того не будет и в ответе:
+        если ничего похожего не нашлось, модель даже не вызывается.</p>
+    </form>
+    <div id="ask-out"></div>
+  </section>
+
+  <section id="view-note" class="hidden">
+    <form id="note-form" onsubmit="return sendNote(event)">
+      <textarea id="note-text" placeholder="Текст заметки…" required></textarea>
+      <div class="row">
+        <!-- выбор из НАСТРОЕННЫХ слотов: опечатка в имени молча уводила заметку
+             в слот по умолчанию, и человек не понимал, куда она делась -->
+        <select id="note-slot"><option value="">Слот по умолчанию</option></select>
+        <button type="button" onclick="suggestRoute()" title="Куда занести? (LLM)">🧭</button>
+        <button class="primary">Записать</button>
+      </div>
+      <div id="route-hints"></div>
+      <div id="note-out" class="mut"></div>
+    </form>
+    <p class="mut" id="slots-where"></p>
+  </section>
+
+  <section id="view-session" class="hidden"></section>
+</main>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"]/g,
+  c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const mmss = s => { s = Math.floor(s||0); return String(Math.floor(s/60)).padStart(2,"0") + ":" + String(s%60).padStart(2,"0"); };
+
+// Фрагмент — это ОТРЕЗОК, а не момент. Показывать одно начало значит скрывать, что
+// именно сыграет «▶» и когда оно кончится: строка расшифровки — это окно в 8–15
+// секунд, и человек имеет право видеть его границы.
+const clipSpan = (from, to) => {
+  const a = mmss(from);
+  if (to == null || !(to > from)) return a;
+  return a + "–" + mmss(to) + " (" + Math.round(to - from) + " с)";
+};
+
+// Подсветка найденного. Сперва ЭКРАНИРУЕМ текст записи, потом вставляем <mark> —
+// иначе расшифровка, в которой человек произнёс «меньше скрипт больше», внесла бы
+// в страницу разметку. Слова приходят от сервера уже с учётом морфологии: индекс
+// ищет со стеммингом, и подсветка обязана совпадать с тем, что он нашёл.
+function mark(text, terms) {
+  let out = esc(text);
+  // Длинные слова первыми: иначе короткое совпадение разрежет длинное пополам.
+  const uniq = [...new Set((terms || []).filter(Boolean))].sort((a, b) => b.length - a.length);
+  // Метим совпадения служебными символами, а не сразу тегом: иначе следующее слово
+  // нашлось бы ВНУТРИ уже вставленного «<mark>» и разметка разъехалась бы.
+  const OPEN = "\u0001", CLOSE = "\u0002";
+  for (const t of uniq) {
+    const safe = esc(t).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    out = out.replace(new RegExp(safe, "gi"), m => OPEN + m + CLOSE);
+  }
+  return out.split(OPEN).join("<mark>").split(CLOSE).join("</mark>");
+}
+
+// Высота липкой шапки — ИЗМЕРЕННАЯ, а не зашитая в CSS. Кнопки переносятся на вторую
+// строку при узком окне, шрифт у всех свой — угаданное число промахнётся, и всё, что
+// прилипает ниже, уедет шапке за спину (владелец: «проигрыватель почти уезжает,
+// остаётся узкая полоса»). ResizeObserver держит число верным всегда.
+function trackTopHeight() {
+  const top = document.querySelector(".sticky-top");
+  if (!top) return;
+  const apply = () => document.documentElement.style.setProperty(
+    "--top-h", Math.ceil(top.getBoundingClientRect().height) + "px");
+  apply();
+  if (window.ResizeObserver) new ResizeObserver(apply).observe(top);
+  window.addEventListener("resize", apply);
+}
+trackTopHeight();
+
+function headers() {
+  const t = localStorage.getItem("lv-token");
+  return t ? { "Authorization": "Bearer " + t } : {};
+}
+async function api(path, opts = {}) {
+  let r;
+  const { timeoutMs = 15000, ...rest } = opts;
+  try {
+    r = await fetch(path, {
+      signal: AbortSignal.timeout(timeoutMs),
+      ...rest,
+      headers: { ...headers(), ...(rest.headers||{}) },
+    });
+  } catch (e) {
+    throw new Error(e.name === "TimeoutError" ? "сервер не отвечает (таймаут)" : "сеть недоступна");
+  }
+  const j = await r.json().catch(() => ({}));
+  if (r.status === 401) throw new Error("нет доступа — задайте токен (🔑)");
+  if (r.status === 403) throw new Error("доступ запрещён (открывайте через localhost, не по имени)");
+  if (!r.ok) throw new Error(j.error || ("HTTP " + r.status));
+  return j;
+}
+function setStatus(s, err) {
+  const el = $("status"); el.textContent = s; el.className = err ? "err" : "";
+}
+
+function toggleToken() {
+  $("token-row").classList.toggle("hidden");
+  $("token").value = localStorage.getItem("lv-token") || "";
+}
+function saveToken() {
+  const v = $("token").value.trim();
+  if (v) localStorage.setItem("lv-token", v); else localStorage.removeItem("lv-token");
+  $("token-row").classList.add("hidden");
+  loadSessions();
+}
+
+function switchView(name) {
+  stopAudio(); // уход с экрана — глушим клип и освобождаем blob
+  for (const v of ["list","note","session","ask"]) $("view-"+v).classList.toggle("hidden", v !== name);
+  $("tab-list").setAttribute("aria-selected", name === "list");
+  $("tab-note").setAttribute("aria-selected", name === "note");
+  $("tab-ask").setAttribute("aria-selected", name === "ask");
+}
+function showList() { switchView("list"); loadSessions(); }
+function showAsk() { switchView("ask"); $("ask-q").focus(); }
+
+// Вопрос к архиву. Таймаут ДЛИННЫЙ: модель читает тысячи знаков найденных
+// фрагментов, и оборвать её на полуслове через 15 секунд значит показать «сервер
+// не отвечает» там, где он честно думает.
+async function askArchive(ev) {
+  ev.preventDefault();
+  const q = $("ask-q").value.trim();
+  if (!q) return false;
+  const out = $("ask-out");
+  out.innerHTML = '<p class="mut">ищу в записях и думаю…</p>';
+  try {
+    const a = await api("/api/ask", {
+      method: "POST",
+      body: JSON.stringify({ question: q }),
+      timeoutMs: 180000,
+    });
+    const warn = (a.ungrounded && a.ungrounded.length)
+      ? '<p class="err">не подтверждено записями: ' + esc(a.ungrounded.join(", ")) +
+        ' — проверьте по источникам ниже</p>'
+      : "";
+    const sources = (a.sources || []).map(s => `
+      <div class="line">
+        <button class="play" data-session="${esc(s.session)}" title="Открыть запись">↗</button>
+        <span class="t">[${s.n}] ${s.start_sec == null ? esc(s.kind) : mmss(s.start_sec)}</span>
+        ${esc(s.text)}
+      </div>`).join("");
+    out.innerHTML = "<pre></pre>" + warn +
+      (sources ? '<p class="mut">Источники:</p>' + sources
+               : '<p class="mut">Ответ ни на что не сослался — верить ему не за что.</p>');
+    out.querySelector("pre").textContent = a.text;   // текст модели — только textContent
+    out.querySelectorAll("button[data-session]").forEach(b => {
+      b.addEventListener("click", () => openSession(b.dataset.session));
+    });
+  } catch (e) {
+    out.innerHTML = '<p class="err">' + esc(e.message) + "</p>";
+  }
+  return false;
+}
+async function showNote() {
+  switchView("note");
+  // Слоты — из конфига, а не из головы: список того, куда заметку ВООБЩЕ можно
+  // положить, плюс подсказка, где эти файлы лежат.
+  try {
+    const j = await api("/api/slots");
+    const sel = $("note-slot");
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">Слот по умолчанию</option>' +
+      (j.slots || []).map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join("");
+    sel.value = cur;
+    $("slots-where").textContent = (j.slots || []).length
+      ? "Слоты настраиваются в slots.toml; заметки ложатся в указанные там файлы."
+      : "Слоты не настроены — заведите slots.toml (см. docs/integrations.md).";
+  } catch (e) { $("slots-where").textContent = "слоты недоступны: " + e.message; }
+}
+
+// «Завершить сессию»: закрыть текущую запись, чтобы варка началась сразу, —
+// а не убивать демон ради сводки.
+async function finishSession() {
+  const out = $("finish-out");
+  if (!confirm("Закрыть текущую запись?\n\nЗапись продолжится в НОВОЙ сессии, а эта уйдёт в варку.")) return;
+  out.textContent = "закрываю…";
+  try {
+    const r = await api("/api/session/finish", { method: "POST", body: "{}" });
+    out.textContent = "закрыта: " + r.session;
+    setTimeout(() => { out.textContent = ""; loadSessions(); }, 2500);
+  } catch (e) { out.textContent = e.message; }
+}
+
+// Видимость автопилота: что варится прямо сейчас / сколько в очереди.
+async function jobsLine() {
+  try {
+    const j = await api("/api/jobs");
+    if (j.running) return " · ⚙ варится " + (j.current || "") + (j.pending ? ` (+${j.pending} в очереди)` : "");
+    if (j.pending) return ` · ⚙ в очереди: ${j.pending}`;
+    if (j.failed) return ` · ⚠ упало: ${j.failed}`;
+    return "";
+  } catch { return ""; }
+}
+
+let showEmpty = false;
+function toggleEmpty() { showEmpty = !showEmpty; loadSessions(); }
+
+// «13 июля, 00:34–00:52 · 18 мин» вместо «20260713_003440». Длительность —
+// ВСЯ запись, включая паузы и тишину: это и есть время, что шёл диктофон.
+function sessionTitle(s) {
+  const started = s.started_at ? new Date(s.started_at) : null;
+  // Название, которое дал человек, — главное: ради него он и жал кнопку.
+  const named = s.title ? s.title + " · " : (s.meeting ? "Встреча · " : "");
+  if (!started || isNaN(started)) return named + s.name;
+  const hhmm = d => String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+  const day = started.toLocaleDateString("ru-RU", { day: "numeric", month: "long" });
+  const end = s.duration_sec > 0 ? new Date(started.getTime() + s.duration_sec * 1000) : null;
+  const span = end ? `${hhmm(started)}–${hhmm(end)}` : hhmm(started);
+  const mins = Math.round(s.duration_sec / 60);
+  const dur = s.duration_sec >= 60 ? ` · ${mins} мин` : (s.duration_sec > 0 ? ` · ${Math.round(s.duration_sec)} с` : "");
+  return `${named}${day}, ${span}${dur}`;
+}
+
+// «Это встреча». Автодетект видит звонок в приложении, но очную планёрку за столом
+// он не увидит НИКОГДА — для системы это тот же фоновый шум, что и весь день.
+// Поэтому у человека есть кнопка, и его слово важнее любой догадки.
+async function startMeeting() {
+  const title = prompt("Название встречи (можно пусто):", "");
+  if (title === null) return;
+  const out = $("finish-out");
+  out.textContent = "начинаю…";
+  try {
+    const r = await api("/api/session/meeting", {
+      method: "POST", body: JSON.stringify({ title: title.trim() }),
+    });
+    out.textContent = r.msg;
+    // Новая запись должна появиться в списке СРАЗУ — иначе непонятно, куда
+    // теперь пишется звук.
+    setTimeout(loadSessions, 1200);
+  } catch (e) { out.textContent = "не вышло: " + e.message; }
+}
+
+async function loadSessions() {
+  setStatus("загрузка…");
+  try {
+    const list = await api("/api/sessions?limit=50");
+    // Запоминаем карточки: вкладки сессии рисуются по РЕАЛЬНОМУ наличию файлов,
+    // а не «всегда» — иначе черновик читаемого текста был недостижим, а вкладка
+    // черновика висела у сессий, где его нет.
+    sessionInfo = Object.fromEntries(list.map(s => [s.name, s]));
+    const drafts = s => (s.summary_doubts || s.processed_doubts)
+      ? ' · <span class="warn">⚠ стоит перепроверить</span>' : "";
+
+    // ЧТО С ЗАПИСЬЮ. «Пусто» и «не обработано» — РАЗНЫЕ вещи, и путать их нельзя:
+    // необработанная запись, спрятанная как пустая, для человека просто пропала.
+    const state = s => {
+      if (s.recording) return '<span class="rec">● идёт запись</span>';
+      if (s.job === "running") return '<span class="busy">⚙ обрабатывается</span>';
+      if (s.job === "pending") return '<span class="busy">⏳ в очереди</span>';
+      if (s.job === "failed")  return '<span class="err">⚠ обработка сорвалась</span>';
+      if (!s.cooked) return '<span class="busy">не обработана</span>';
+      if (s.empty) return "речь не распознана";
+      return "расшифрована";
+    };
+    // Прячем ТОЛЬКО обработанные и пустые: в них правда нечего смотреть (а удалять
+    // нельзя — аудио есть, вдруг переварить). Всё остальное видно всегда.
+    const shown = showEmpty ? list
+      : list.filter(s => s.recording || s.job || !s.cooked || !s.empty);
+    const hidden = list.length - shown.length;
+    $("view-list").innerHTML = (shown.length ? shown.map(s => `
+      <div class="card" data-session="${esc(s.name)}">
+        <div>${esc(sessionTitle(s))}</div>
+        <div class="meta">${state(s)}${s.has_summary ? " · сводка" : ""}${s.has_processed ? " · читаемый текст" : ""}${s.stopped_reason ? " · остановлена " + esc(s.stopped_reason) : ""}${drafts(s)}</div>
+      </div>`).join("") : '<p class="mut">Сессий пока нет.</p>')
+      + (hidden ? `<p class="mut"><button type="button" onclick="toggleEmpty()">Показать пустые — речь не распознана (${hidden})</button></p>`
+                : (showEmpty ? '<p class="mut"><button type="button" onclick="toggleEmpty()">Скрыть пустые</button></p>' : ""));
+    setStatus("архив" + await jobsLine());
+  } catch (e) { setStatus(e.message, true); }
+}
+
+async function doSearch() {
+  const q = $("q").value.trim();
+  if (!q) return showList();
+  switchView("list");
+  setStatus("поиск…");
+  try {
+    const mode = $("q-mode").value;
+    const hits = await api("/api/search?q=" + encodeURIComponent(q) + "&limit=25" + (mode ? "&mode=" + mode : ""));
+    // Хит с таймкодом (строка транскрипта) можно слушать прямо из выдачи —
+    // «нашёл → послушал» без захода в сессию.
+    $("view-list").innerHTML = hits.length ? hits.map(h => `
+      <div class="card" data-session="${esc(h.session)}">
+        <div>${h.start_sec != null
+            ? `<button class="play" data-hit-session="${esc(h.session)}" data-hit-start="${h.start_sec}" title="Прослушать фрагмент">▶</button>`
+            : ""}${mark(h.snippet, h.matched)}</div>
+        <div class="meta">${esc(h.session)} · ${esc(h.kind)}${h.start_sec != null ? " · " + clipSpan(h.start_sec, h.end_sec) : ""}
+          · <span title="Почему эта запись здесь">${esc(h.why || "слова")}</span>${
+            h.score != null
+              ? ` · <span title="Близость по смыслу: 1.0 — то же самое, ниже порога отсечения записи не показываются">похожесть ${h.score.toFixed(2)}</span>`
+              : ""}${
+            (h.matched && h.matched.length)
+              ? ""
+              : ' · <span title="Слов запроса здесь нет — запись нашлась по смыслу">без совпадений по словам</span>'}</div>
+      </div>`).join("")
+      : '<p class="mut">Ничего не найдено. По смыслу тоже: ни одна запись не оказалась достаточно близка к запросу.</p>';
+    setStatus("найдено: " + hits.length);
+  } catch (e) { setStatus(e.message, true); }
+}
+$("q").addEventListener("keydown", e => { if (e.key === "Enter") doSearch(); });
+
+// Делегированный клик по карточкам (имя сессии — из data-, не из разметки:
+// в HTML-код имя не попадает как исполняемое, класс XSS через JS-строку снят).
+$("view-list").addEventListener("click", e => {
+  const play = e.target.closest("button.play[data-hit-session]");
+  if (play) {
+    e.stopPropagation(); // ▶ слушает фрагмент, не открывает сессию
+    currentSession = play.dataset.hitSession;
+    const start = parseFloat(play.dataset.hitStart);
+    // источник неизвестен из выдачи: пробуем свой микрофон, при 404 — собеседников
+    playClip({ source_id: 0, start_sec: start, end_sec: start + 25 }, true);
+    return;
+  }
+  const card = e.target.closest(".card[data-session]");
+  if (card) openSession(card.dataset.session);
+});
+
+let currentSession = null;
+let currentLines = [];
+let audioEl = null;
+let playSeq = 0;
+// Ответ на устаревший запрос не должен перетирать экран: без этого клик по
+// другой сессии, пока грузится расшифровка, подсовывал плееру таймкоды одной
+// сессии и аудио другой.
+let artifactSeq = 0;
+let sessionInfo = {};
+
+function stopAudio() {
+  if (audioEl) { audioEl.pause(); URL.revokeObjectURL(audioEl.src); audioEl = null; }
+  // Плеер записи целиком — тоже: blob держит десятки мегабайт, и уход с экрана
+  // обязан их отпустить.
+  plSeq++;
+  const a = $("pl-audio");
+  if (a && a.src) { a.pause(); URL.revokeObjectURL(a.src); a.removeAttribute("src"); }
+}
+
+// Плеер: ▶ на строке транскрипта → клип фрагмента (WAV с сервера) → проигрываем.
+$("view-session").addEventListener("click", e => {
+  const b = e.target.closest("button.play[data-i]");
+  if (b && currentLines[+b.dataset.i]) playClip(currentLines[+b.dataset.i]);
+});
+
+async function playClip(line, trySecondSource) {
+  const seq = ++playSeq; // защита от гонки: играет позже НАЖАТЫЙ, не позже ответивший
+  try {
+    const dur = Math.max(1, Math.min((line.end_sec - line.start_sec) || 30, 120));
+    const src = line.source_id ?? 0;
+    const clipUrl = s => "/api/sessions/" + encodeURIComponent(currentSession) + "/clip?" +
+      new URLSearchParams({ source: s, start: line.start_sec, dur });
+    let r = await fetch(clipUrl(src), { headers: headers(), signal: AbortSignal.timeout(20000) });
+    // В выдаче поиска источник реплики неизвестен: если у своего микрофона
+    // на этом таймкоде тишины нет — пробуем дорожку собеседников.
+    if (!r.ok && trySecondSource) {
+      r = await fetch(clipUrl(1 - src), { headers: headers(), signal: AbortSignal.timeout(20000) });
+    }
+    if (!r.ok) {
+      const reason = await r.json().then(j => j.error).catch(() => "");
+      throw new Error(reason || "фрагмент недоступен");
+    }
+    const blob = await r.blob();
+    if (seq !== playSeq) return; // устаревший ответ — не перебиваем свежий клик
+    stopAudio();
+    audioEl = new Audio(URL.createObjectURL(blob));
+    audioEl.play();
+    setStatus("▶ " + mmss(line.start_sec));
+  } catch (e) { if (seq === playSeq) setStatus("аудио: " + e.message, true); }
+}
+
+function openSession(name) {
+  currentSession = name;
+  switchView("session");
+  const info = sessionInfo[name] || {};
+  // Черновиков больше НЕТ: документ пишется всегда. Проверка сверяет буквально и
+  // ошибается (на живой записи она объявила выдумками «Сергей» и «муж», которые были
+  // сказаны вслух), поэтому она только ПОМЕЧАЕТ — «стоит перепроверить», — а решает
+  // человек. Пометку снимает одна кнопка.
+  const v = $("view-session");
+  v.innerHTML = `<div class="session-main">
+    <a class="back" href="#" id="back-link">← к сессиям</a>
+    <h1></h1>
+    <div class="session-bar">
+    <div class="tabs">
+      <button data-kind="transcript">Расшифровка</button>
+      <button data-kind="processed">Читаемый текст</button>
+      <button data-kind="summary">Сводка</button>
+      <button data-kind="speakers">Голоса</button>
+      <button data-kind="versions">Версии</button>
+    </div>
+    <div class="tabs">
+      <button id="recook" type="button" title="Выбросить сводку и расшифровку и сварить заново из аудио">♻ Переварить заново</button>
+      <label class="mut" for="lang">Язык:</label>
+      <select id="lang" title="Язык записи. Смена языка обесценивает расшифровку и сводку — сессия будет сварена заново">
+        <option value="auto">авто${info.lang_detected ? " (" + esc(info.lang_detected) + ")" : ""}</option>
+      </select>
+      <span id="recook-out" class="mut"></span>
+    </div>
+    </div>
+    <div id="artifact"></div>
+    </div>
+    <!-- Плеер записи ЦЕЛИКОМ: обе дорожки в смеси (слушать половину диалога
+         бессмысленно). Сбоку и липкий — чтобы шариться по звуку, не листая страницу. -->
+    <aside id="player" class="player hidden">
+      <div class="pl-title">Запись целиком</div>
+      <audio id="pl-audio" class="hidden" controls preload="auto"></audio>
+      <div id="pl-state" class="mut">загружаю аудио…</div>
+      <div id="pl-range" class="mut"></div>
+      <div class="pl-nav hidden" id="pl-nav">
+        <button id="pl-prev" type="button" title="Предыдущие 10 минут">⏮ раньше</button>
+        <button id="pl-next" type="button" title="Следующие 10 минут">позже ⏭</button>
+      </div>
+    </aside>`;
+  v.querySelector("h1").textContent = info.started_at ? sessionTitle(info) : name;
+  setupPlayer(name, info.duration_sec || 0);
+  v.querySelector("#back-link").addEventListener("click", ev => { ev.preventDefault(); showList(); });
+  const tabs = v.querySelector(".tabs");
+  tabs.addEventListener("click", ev => {
+    const b = ev.target.closest("button[data-kind]");
+    if (b) loadArtifact(name, b.dataset.kind, b);
+  });
+  v.querySelector("#recook").addEventListener("click", () => recook(name));
+  fillLangs(v.querySelector("#lang"), name, info.lang);
+  loadArtifact(name, "transcript", tabs.querySelector("button"));
+}
+
+// Плеер записи целиком. ОКНАМИ, а не одним куском: час записи — это 115 МБ, и
+// собирать их в памяти сервера ради «мало ли послушаю» нечестно по отношению к
+// машине. Окно кончилось — само подхватывается следующее, слушать можно подряд.
+const PL_WINDOW = 600;
+let plName = null, plStart = 0, plTotal = 0, plSeq = 0;
+
+function setupPlayer(name, duration) {
+  plName = name; plStart = 0; plTotal = duration;
+  const box = $("player");
+  // Записи без аудио (импорт текста, чистка ретеншеном) — плеера нет: кнопка,
+  // которая ничего не играет, хуже отсутствующей.
+  box.classList.toggle("hidden", !(duration > 0));
+  if (!(duration > 0)) return;
+  $("pl-audio").classList.add("hidden");
+  $("pl-prev").onclick = () => plSeek(plStart - PL_WINDOW);
+  $("pl-next").onclick = () => plSeek(plStart + PL_WINDOW);
+  const a = $("pl-audio");
+  a.onended = () => { if (plStart + PL_WINDOW < plTotal) { plSeek(plStart + PL_WINDOW, true); } };
+  plSeek(0);
+}
+
+async function plSeek(start, autoplay) {
+  if (!plName || plTotal <= 0) return;
+  plStart = Math.max(0, Math.min(start, Math.max(0, plTotal - 1)));
+  const dur = Math.min(PL_WINDOW, plTotal - plStart);
+  const a = $("pl-audio");
+  // Кнопки перемотки по окнам показываем, ТОЛЬКО если окон больше одного. Иначе на
+  // короткой записи висела отключённая «◀», неотличимая от сломанного «плей» — человек
+  // жал её и не понимал, почему ничего не происходит. Кнопка, которая ничего не делает,
+  // хуже отсутствующей.
+  const many = plTotal > PL_WINDOW;
+  $("pl-nav").classList.toggle("hidden", !many);
+  $("pl-prev").disabled = plStart <= 0;
+  $("pl-next").disabled = plStart + PL_WINDOW >= plTotal;
+  $("pl-range").textContent = many
+    ? mmss(plStart) + "–" + mmss(plStart + dur) + " из " + mmss(plTotal)
+    : "вся запись, " + mmss(plTotal);
+
+  // Не `<audio src=…>`: тег не умеет слать заголовок авторизации, и при
+  // настроенном токене плеер молча не играл бы. Тянем сами и отдаём blob.
+  //
+  // И пока аудио не пришло, самого плеера НЕ ПОКАЗЫВАЕМ: пустой <audio> браузер
+  // рисует серым прямоугольником, который ничего не делает и выглядит поломкой.
+  const seq = ++plSeq;
+  const name = plName;
+  const a2 = $("pl-audio");
+  const st = $("pl-state");
+  a2.classList.add("hidden");
+  st.classList.remove("hidden");
+  st.textContent = "загружаю аудио…";
+  try {
+    const url = "/api/sessions/" + encodeURIComponent(name) + "/clip?" +
+      new URLSearchParams({ start: plStart.toFixed(0), dur: Math.ceil(dur) });
+    const r = await fetch(url, { headers: headers(), signal: AbortSignal.timeout(120000) });
+    if (!r.ok) throw new Error(await r.json().then(j => j.error).catch(() => "аудио недоступно"));
+    const blob = await r.blob();
+    if (seq !== plSeq || name !== currentSession) return; // ушли с экрана / перемотали
+    if (a2.src) URL.revokeObjectURL(a2.src);
+    a2.src = URL.createObjectURL(blob);
+    a2.classList.remove("hidden");
+    st.classList.add("hidden");
+    if (autoplay) a2.play().catch(() => {});
+  } catch (e) {
+    if (seq !== plSeq) return;
+    a2.classList.add("hidden");
+    st.classList.remove("hidden");
+    st.textContent = "аудио недоступно: " + e.message;
+  }
+}
+
+async function loadArtifact(name, kind, btn) {
+  if (btn) {
+    for (const b of btn.parentElement.children) b.setAttribute("aria-selected", "false");
+    btn.setAttribute("aria-selected", "true");
+  }
+  const seq = ++artifactSeq;      // ответ на устаревший запрос экран не трогает
+  const stale = () => seq !== artifactSeq || name !== currentSession;
+  $("artifact").innerHTML = '<p class="mut">загрузка…</p>';
+  try {
+    const base = "/api/sessions/" + encodeURIComponent(name) + "/";
+    if (kind === "transcript") {
+      const doc = await api(base + "transcript");
+      if (stale()) return;        // иначе плеер получит таймкоды чужой сессии
+      const out = $("artifact");
+      out.innerHTML = (doc.lines || []).map((l, i) => `
+        <div class="line">
+          <button class="play" data-i="${i}" title="Прослушать">▶</button>
+          <span class="t" title="Начало–конец фрагмента">${clipSpan(l.start_sec, l.end_sec)}</span><span class="who">${esc(l.who)}</span>${esc(l.text)}
+        </div>`).join("")
+        || '<p class="mut">пусто</p>';
+      currentLines = doc.lines || [];
+    } else if (kind === "versions") {
+      const doc = await api(base + "versions");
+      if (stale()) return;
+      const out = $("artifact");
+      // Не «×7», а что это за версии: чем сварено, когда, какая рабочая.
+      // От рабочей считаются сводка, поиск и экспорт — её и переключаем.
+      out.innerHTML = (doc.versions || []).slice().reverse().map(v => `
+        <div class="line">
+          ${v.best ? '<span class="who">рабочая</span>' : `<button class="play" data-best="${v.id}" title="Сделать рабочей">↑</button>`}
+          <span class="t">v${String(v.id).padStart(3, "0")}</span>
+          ${esc(v.derived ? "причёсано LLM" : "сварено из аудио")} ·
+          ${esc(v.model)} · ${esc((v.created_at || "").slice(0, 16).replace("T", " "))} ·
+          ${v.lines} строк
+        </div>`).join("") || '<p class="mut">версий нет</p>';
+      out.querySelectorAll("button[data-best]").forEach(b => {
+        b.addEventListener("click", () => setBest(name, Number(b.dataset.best)));
+      });
+    } else if (kind === "speakers") {
+      const doc = await api(base + "speakers");
+      if (stale()) return;
+      const out = $("artifact");
+      const people = doc.speakers || [];
+      // Пусто — это ответ, а не поломка: голосов либо не считали (нет модели),
+      // либо не нашли. Придумывать участников мы не станем.
+      out.innerHTML = people.length ? people.map(s => `
+        <div class="line">
+          <span class="who">${esc(s.label)}</span>
+          <span class="t">${mmss(s.speech_sec)}</span>
+          ${s.owner ? '<span class="mut">это вы</span>' : `<button class="play" data-name="${esc(s.label)}" title="Назвать этот голос">✎ назвать</button>`}
+        </div>`).join("")
+        : '<p class="mut">говорящие не размечены: либо нет модели диаризации, либо в записи не нашлось разборчивой речи</p>';
+      out.querySelectorAll("button[data-name]").forEach(b => {
+        b.addEventListener("click", () => nameSpeaker(name, b.dataset.name));
+      });
+    } else {
+      const doc = await api(base + kind);
+      if (stale()) return;
+      const out = $("artifact");
+      // Пометка «стоит перепроверить» — это ПРИМЕЧАНИЕ, а не приговор: документ здесь,
+      // его можно читать и править. Проверка сверяет буквально и ошибается (на живой
+      // записи она объявила выдумками «Сергей» и «муж», сказанные вслух, и «Санкт-
+      // Петербург» — синоним прозвучавшего «Питера»). Решает человек: он может послушать
+      // запись, машина не может. Кнопка снимает пометку НАВСЕГДА — предупреждение,
+      // которое возвращается после ответа, перестают читать вообще.
+      const info = sessionInfo[name] || {};
+      const doubts = kind === "summary" ? info.summary_doubts
+                   : kind === "processed" ? info.processed_doubts : null;
+      const note = doubts
+        ? `<p class="warn">⚠ Стоит перепроверить: ${esc(doubts)} — этого нет в расшифровке
+             (или сказано другими словами). Может быть враньё или неточность.
+             <button type="button" id="ok-doubts">✓ Всё верно</button></p>`
+        : "";
+      out.innerHTML = `<div class="md-head"><button class="copy" type="button" title="Скопировать в буфер">
+          <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none"
+               stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="9" y="9" width="11" height="11" rx="2"></rect>
+            <path d="M5 15V5a2 2 0 0 1 2-2h10"></path>
+          </svg><span>Копировать</span></button></div>${note}<pre></pre>`;
+      // текст — только через textContent: markdown из LLM в innerHTML не пускаем
+      out.querySelector("pre").textContent = doc.markdown;
+      const okBtn = out.querySelector("#ok-doubts");
+      if (okBtn) okBtn.addEventListener("click", () => confirmDoubts(name, kind));
+      const copyBtn = out.querySelector(".copy");
+      copyBtn.addEventListener("click", () => copyText(doc.markdown, copyBtn));
+    }
+  } catch (e) {
+    if (stale()) return;
+    $("artifact").innerHTML = '<p class="err">' + esc(e.message) + "</p>";
+  }
+}
+
+// «Участник 2 — это Иван». Голос запомнится, строки переподпишутся, сводка
+// пересоберётся. Звук не переваривается: он не изменился.
+async function nameSpeaker(session, label) {
+  const who = prompt("Как зовут «" + label + "»?\n\nГолос запомнится, и в следующих записях он узнается сам.");
+  if (!who || !who.trim()) return;
+  try {
+    const r = await api("/api/sessions/" + encodeURIComponent(session) + "/speakers",
+      { method: "POST", body: JSON.stringify({ speaker: label, name: who.trim() }) });
+    alert(r.msg);
+    loadArtifact(session, "speakers", null);
+  } catch (e) { alert("не вышло: " + e.message); }
+}
+
+// «Всё верно» — антоним «переварить заново». Там человек говорит «машина ошиблась,
+// переделай», здесь — «машина придирается, всё нормально». Его слово весомее: он читал
+// документ и может послушать запись.
+async function confirmDoubts(session, kind) {
+  try {
+    const r = await api("/api/sessions/" + encodeURIComponent(session) + "/confirm",
+      { method: "POST", body: JSON.stringify({ artifact: kind }) });
+    const info = sessionInfo[session];
+    if (info) { if (kind === "summary") info.summary_doubts = null; else info.processed_doubts = null; }
+    setStatus(r.msg);
+    loadArtifact(session, kind, null);
+  } catch (e) { alert("не вышло: " + e.message); }
+}
+
+// Сделать версию рабочей: от неё считаются сводка, поиск и экспорт.
+async function setBest(name, id) {
+  try {
+    await api("/api/sessions/" + encodeURIComponent(name) + "/best",
+      { method: "POST", body: JSON.stringify({ id }) });
+    loadArtifact(name, "versions", null);
+  } catch (e) { alert("не вышло: " + e.message); }
+}
+
+// «Модель наврала — перевари». Выбрасываем производное (сводка, читаемый
+// текст, черновики) и варим заново из аудио. Аудио не трогается — оно первично.
+async function recook(name) {
+  const out = $("recook-out");
+  if (!confirm("Выбросить сводку и расшифровку этой сессии и сварить заново из аудио?\n\nАудиозапись не пострадает.")) return;
+  out.textContent = "ставлю в очередь…";
+  try {
+    const r = await api("/api/sessions/" + encodeURIComponent(name) + "/recook", { method: "POST", body: "{}" });
+    out.textContent = r.msg || "поставлено на переварку";
+  } catch (e) {
+    out.textContent = "не вышло: " + e.message;
+  }
+}
+
+const LANG_NAMES = { ru: "русский", en: "английский", de: "немецкий", fr: "французский", es: "испанский", uk: "украинский" };
+
+// Предлагаем ТОЛЬКО те языки, для которых есть модель. Предложить язык, которым
+// мы не умеем распознавать, — значит обещать невыполнимое: смена языка стирает
+// сводку, а варка потом падает на «нет модели», и вернуть её нечем.
+async function fillLangs(sel, name, current) {
+  if (!sel) return;
+  let langs = [];
+  try {
+    langs = (await api("/api/langs")).langs || [];
+  } catch (e) { /* модели не видны — оставим только «авто» */ }
+  // Уже выбранный язык показываем всегда, даже если модель потом пропала:
+  // иначе селектор молча соврёт, что язык другой.
+  if (current && !langs.includes(current)) langs.push(current);
+  for (const code of langs) {
+    const o = document.createElement("option");
+    o.value = code;
+    o.textContent = LANG_NAMES[code] || code;
+    sel.appendChild(o);
+  }
+  sel.value = current || "auto";
+  sel.dataset.was = sel.value;   // чтобы вернуть выбор, если человек передумал
+  sel.addEventListener("change", () => setLang(name, sel.value));
+}
+
+// Язык записи. Отдельной кнопки «сбросить производное» нет и не нужно: язык
+// входит в рецепт, поэтому смена языка сама делает расшифровку и сводку
+// устаревшими, и сессия уходит на переварку.
+async function setLang(name, value) {
+  const out = $("recook-out");
+  const human = value === "auto" ? "автоопределение" : value;
+  if (!confirm(`Язык записи: ${human}.\n\nРасшифровка и сводка будут сварены заново — они зависят от языка.\nАудиозапись не пострадает.`)) {
+    const sel = $("lang");
+    if (sel) sel.value = sel.dataset.was || "auto";
+    return;
+  }
+  out.textContent = "меняю язык…";
+  try {
+    const r = await api("/api/sessions/" + encodeURIComponent(name) + "/lang",
+      { method: "POST", body: JSON.stringify({ lang: value }) });
+    out.textContent = r.msg || "язык изменён";
+    const sel = $("lang");
+    if (sel) sel.dataset.was = value;
+  } catch (e) {
+    out.textContent = "не вышло: " + e.message;
+    const sel = $("lang");     // язык не сменился — не ври селектором, что сменился
+    if (sel) sel.value = sel.dataset.was || "auto";
+  }
+}
+
+async function copyText(text, btn) {
+  const label = btn.querySelector("span");
+  try {
+    // clipboard API есть только на https/localhost — иначе (телефон по IP) фолбэк
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.left = "-9999px";   // не opacity: iOS не копирует невидимое
+      document.body.appendChild(ta);
+      ta.select();
+      ta.setSelectionRange(0, text.length);
+      // execCommand возвращает false, а не бросает: без проверки кнопка
+      // рапортовала «Скопировано» при пустом буфере.
+      const ok = document.execCommand("copy");
+      ta.remove();
+      if (!ok) throw new Error("буфер недоступен");
+    }
+    label.textContent = "Скопировано";
+  } catch (e) {
+    label.textContent = "Не вышло — выдели вручную";
+  }
+  setTimeout(() => { label.textContent = "Копировать"; }, 1800);
+}
+
+async function sendNote(ev) {
+  ev.preventDefault();
+  const out = $("note-out");
+  out.textContent = "запись…";
+  try {
+    const slot = $("note-slot").value.trim();
+    const j = await api("/api/notes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: $("note-text").value, ...(slot ? { slot } : {}) }),
+    });
+    out.textContent = j.dest || "Записано.";
+    $("note-text").value = "";
+    $("route-hints").innerHTML = "";
+  } catch (e) { out.textContent = "ошибка: " + e.message; out.className = "err"; }
+  return false;
+}
+
+// F5: «куда занести?» — LLM предлагает слоты; клик по подсказке заполняет поле.
+async function suggestRoute() {
+  const text = $("note-text").value.trim();
+  const hints = $("route-hints");
+  if (!text) { hints.innerHTML = ""; return; }
+  hints.innerHTML = '<span class="mut">думаю…</span>';
+  try {
+    const j = await api("/api/route", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    const list = j.suggestions || [];
+    hints.innerHTML = "";
+    if (!list.length) { hints.innerHTML = '<span class="mut">нет подсказок</span>'; return; }
+    for (const s of list) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "hint";
+      b.textContent = s.slot;
+      b.title = s.reason || "";
+      b.onclick = () => { $("note-slot").value = s.slot; };
+      hints.appendChild(b);
+    }
+  } catch (e) { hints.innerHTML = '<span class="err">' + esc(e.message) + "</span>"; }
+}
+
+loadSessions();
+</script>
+</body>
+</html>

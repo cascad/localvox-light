@@ -1,4 +1,4 @@
-//! Сохранение устройств из TUI (F2), как client-config в client-reliable.
+//! Persisting the devices chosen in the TUI (F2), like client-config in client-reliable.
 
 use std::path::{Path, PathBuf};
 
@@ -33,7 +33,7 @@ impl LightDeviceConfig {
     }
 }
 
-/// Явный путь из `--config` или env `LOCALVOX_LIGHT_CONFIG_FILE`.
+/// Explicit path from `--config` or the `LOCALVOX_LIGHT_CONFIG_FILE` env var.
 pub fn explicit_config_path(cli_path: &Option<PathBuf>) -> Option<PathBuf> {
     if let Some(p) = cli_path {
         if !p.as_os_str().is_empty() {
@@ -47,7 +47,7 @@ pub fn explicit_config_path(cli_path: &Option<PathBuf>) -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
-/// Файл в cwd, если существует (автозагрузка без `--config`).
+/// The file in cwd, if it exists (auto-load without `--config`).
 pub fn cwd_config_path() -> Option<PathBuf> {
     let p = std::env::current_dir().ok()?.join(FILE_NAME);
     p.is_file().then_some(p)
@@ -56,7 +56,11 @@ pub fn cwd_config_path() -> Option<PathBuf> {
 pub fn save_path_for_write() -> PathBuf {
     explicit_config_path(&None)
         .or_else(cwd_config_path)
-        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")).join(FILE_NAME))
+        .unwrap_or_else(|| {
+            std::env::current_dir()
+                .unwrap_or_else(|_| PathBuf::from("."))
+                .join(FILE_NAME)
+        })
 }
 
 #[cfg(test)]
@@ -82,10 +86,7 @@ mod tests {
     fn explicit_config_path_prefers_cli() {
         let dir = tempdir().unwrap();
         let p = dir.path().join("explicit.json");
-        assert_eq!(
-            explicit_config_path(&Some(p.clone())),
-            Some(p)
-        );
+        assert_eq!(explicit_config_path(&Some(p.clone())), Some(p));
     }
 
     #[test]

@@ -1,0 +1,23 @@
+[package]
+name = "localvox-light-api"
+version.workspace = true
+edition.workspace = true
+description = "F6: interfaces to the session archive. MCP server (stdio) for external agents and a local HTTP API + embedded web archive: search, transcripts, summaries, notes into slots."
+
+[dependencies]
+localvox-light-core.workspace = true
+localvox-light-integrations = { path = "../localvox-light-integrations" }
+localvox-light-llm = { path = "../localvox-light-llm" }
+localvox-light-search = { path = "../localvox-light-search" }
+anyhow.workspace = true
+clap.workspace = true
+dotenvy.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tiny_http.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+ureq.workspace = true

@@ -1,0 +1,62 @@
+{
+  "model": "3dspeaker_speech_eres2net_base_200k_sv_zh-cn_16k-common.onnx",
+  "model_sha256": "e2d2048292e055f7b61cdec3db010503f35369b245bf0b3bbad021c9a91e4053",
+  "model_url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_eres2net_base_200k_sv_zh-cn_16k-common.onnx",
+  "input_wav": "00016.wav",
+  "input_wav_sha256": "adda3e2b2ff797d722bf9efc1f2ad8376e6a2cf57fc81e306590a77c90a71dab",
+  "num_samples": 85440,
+  "duration_sec": 5.34,
+  "fbank_shape": [
+    534,
+    80
+  ],
+  "fbank_dtype": "f32 little-endian, row-major [T, 80], AFTER CMN",
+  "embedding_shape": [
+    512
+  ],
+  "embedding_dtype": "f32 little-endian",
+  "embedding_l2_norm": 21.97430992126465,
+  "graph_input": {
+    "name": "x",
+    "shape": [
+      "N",
+      "T",
+      80
+    ],
+    "dtype": "f32"
+  },
+  "graph_output": {
+    "name": "embedding",
+    "shape": [
+      "N",
+      512
+    ],
+    "dtype": "f32"
+  },
+  "feature_config": {
+    "sample_rate": 16000,
+    "num_mel_bins": 80,
+    "frame_length_ms": 25.0,
+    "frame_shift_ms": 10.0,
+    "dither": 0.0,
+    "preemph_coeff": 0.97,
+    "remove_dc_offset": true,
+    "window_type": "povey",
+    "round_to_power_of_two": true,
+    "snip_edges": false,
+    "low_freq": 20.0,
+    "high_freq": -400.0,
+    "use_energy": false,
+    "energy_floor": 0.0,
+    "log_floor": "FLT_EPSILON (1.1920929e-7) -> log = -15.9424",
+    "sample_scale": 1.0,
+    "cmn": "subtract mean over TIME axis, per mel bin (feature_normalize_type=global-mean)"
+  },
+  "mel_bins_at_log_floor_pct": 35.65,
+  "assertions_for_rust_test": {
+    "fbank_MAE": "< 1e-3",
+    "fbank_max_abs_diff": "< 1e-2",
+    "embedding_cosine": ">= 0.999"
+  },
+  "reference_impl": "C++ kaldi-native-fbank (pip kaldi_native_fbank) + onnxruntime CPU"
+}

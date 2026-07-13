@@ -26,7 +26,7 @@ impl VoskEngine {
         let am_dir = model_dir.join("am");
         if !am_dir.is_dir() {
             anyhow::bail!(
-                "Нет каталога am/ в {} — укажите корень модели Vosk (после распаковки zip: папка с am/, conf/, graph/). Скачать: https://huggingface.co/mychen76/vosk-models/resolve/main/ru/vosk-model-ru-0.42.zip",
+                "No am/ directory in {} — point at the root of the Vosk model (after unpacking the zip: the folder with am/, conf/, graph/). Download: https://huggingface.co/mychen76/vosk-models/resolve/main/ru/vosk-model-ru-0.42.zip",
                 model_dir.display()
             );
         }
@@ -41,12 +41,12 @@ impl VoskEngine {
         })
     }
 
-    /// 16 kHz mono `f32` PCM произвольной длины: потоковая подача в Vosk (несколько финализированных фраз).
+    /// 16 kHz mono `f32` PCM of arbitrary length: streamed into Vosk (several finalized phrases).
     pub fn transcribe_pcm_16k_mono_f32(&self, samples: &[f32]) -> Result<String> {
         self.transcribe_pcm_16k_mono_f32_with_progress(samples, |_, _| {})
     }
 
-    /// Как [`Self::transcribe_pcm_16k_mono_f32`], после каждого чанка вызывается `progress(done_samples, total_samples)`.
+    /// Like [`Self::transcribe_pcm_16k_mono_f32`], but `progress(done_samples, total_samples)` is called after every chunk.
     pub fn transcribe_pcm_16k_mono_f32_with_progress(
         &self,
         samples: &[f32],

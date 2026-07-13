@@ -1,16 +1,16 @@
 //! Log-mel spectrogram preprocessor.
 //!
-//! Совместим с `gigaam.preprocess.FeatureExtractor` / NeMo `FilterbankFeatures`
-//! при следующих параметрах (см. [`MelConfig::GIGAAM_V3`]):
+//! Compatible with `gigaam.preprocess.FeatureExtractor` / NeMo `FilterbankFeatures` with
+//! the following parameters (see [`MelConfig::GIGAAM_V3`]):
 //! * sample_rate = 16000, n_mels = 64
 //! * n_fft = win_length = 320, hop_length = 160
 //! * mel_scale = HTK, mel_norm = null, center = false
-//! * окно — периодический Hann (PyTorch default)
+//! * the window is a periodic Hann (the PyTorch default)
 
 use realfft::num_complex::Complex;
 use realfft::RealFftPlanner;
 
-/// Параметры mel-спектрограммы.
+/// The parameters of the mel spectrogram.
 #[derive(Clone, Debug)]
 pub struct MelConfig {
     pub sample_rate: u32,
@@ -18,17 +18,19 @@ pub struct MelConfig {
     pub n_fft: usize,
     pub win_length: usize,
     pub hop_length: usize,
-    /// `false` — окна выровнены от первого сэмпла (NeMo `center=false`).
-    /// `true` — librosa-style центрирование (padding `n_fft/2` слева/справа). Пока не реализовано.
+    /// `false` — the windows are aligned from the first sample (NeMo `center=false`).
+    /// `true` — librosa-style centring (padding of `n_fft/2` on the left/right). Not
+    /// implemented yet.
     pub center: bool,
-    /// HTK-формула шкалы mel (`2595 * log10(1 + f/700)`).
+    /// The HTK formula for the mel scale (`2595 * log10(1 + f/700)`).
     pub use_htk: bool,
-    /// Epsilon под `ln(mel + eps)` (стабилизирует логарифм).
+    /// The epsilon under `ln(mel + eps)` (stabilizes the logarithm).
     pub log_eps: f32,
 }
 
 impl MelConfig {
-    /// Параметры всего семейства GigaAM v3 (одни и те же для `v3_ctc`, `v3_e2e_ctc`, `v3_rnnt` и т.п.).
+    /// The parameters of the whole GigaAM v3 family (the same for `v3_ctc`, `v3_e2e_ctc`,
+    /// `v3_rnnt` and so on).
     pub const GIGAAM_V3: Self = Self {
         sample_rate: 16_000,
         n_mels: 64,
@@ -41,26 +43,27 @@ impl MelConfig {
     };
 }
 
-/// Результат: log-mel-спектрограмма в row-major (frame-major) укладке.
+/// The result: a log-mel spectrogram in a row-major (frame-major) layout.
 #[derive(Clone, Debug)]
 pub struct MelSpectrogram {
-    /// `[n_frames * n_mels]`. Для frame t индекс m: `data[t * n_mels + m]`.
+    /// `[n_frames * n_mels]`. For frame t and index m: `data[t * n_mels + m]`.
     pub data: Vec<f32>,
     pub n_frames: usize,
     pub n_mels: usize,
 }
 
-/// Вычислить log-mel спектрограмму над PCM 16 kHz mono f32.
+/// Compute the log-mel spectrogram over PCM 16 kHz mono f32.
 ///
-/// Реализация: пер-фреймное окно Hann (периодическое) → real-FFT → power-spectrum
-/// → HTK-mel filterbank (без нормализации) → `ln(mel + eps)`.
+/// The implementation: a per-frame Hann window (periodic) → real-FFT → power spectrum →
+/// HTK mel filterbank (without normalization) → `ln(mel + eps)`.
 ///
-/// Возвращает пустой `data` (с `n_frames = 0`), если входных сэмплов меньше окна.
+/// Returns an empty `data` (with `n_frames = 0`) if there are fewer input samples than a
+/// window.
 pub fn log_mel_spectrogram(samples: &[f32], cfg: &MelConfig) -> MelSpectrogram {
-    assert!(!cfg.center, "MelConfig::center=true пока не поддержан");
+    assert!(!cfg.center, "MelConfig::center=true is not supported yet");
     assert!(
         cfg.win_length <= cfg.n_fft,
-        "win_length должен быть <= n_fft"
+        "win_length must be <= n_fft"
     );
 
     if samples.len() < cfg.win_length {
@@ -131,7 +134,7 @@ fn mel_to_hz_htk(mel: f32) -> f32 {
 }
 
 fn mel_filterbank_htk(cfg: &MelConfig) -> Vec<Vec<f32>> {
-    assert!(cfg.use_htk, "Slaney-шкала пока не поддержана");
+    assert!(cfg.use_htk, "the Slaney scale is not supported yet");
     let n_bins = cfg.n_fft / 2 + 1;
     let f_min = 0.0f32;
     let f_max = cfg.sample_rate as f32 / 2.0;
@@ -184,7 +187,7 @@ mod tests {
     #[test]
     fn frame_count_matches_formula() {
         let cfg = MelConfig::GIGAAM_V3;
-        let samples = vec![0.0f32; 16_000]; // 1 секунда
+        let samples = vec![0.0f32; 16_000]; // 1 second
         let r = log_mel_spectrogram(&samples, &cfg);
         let expected = (samples.len() - cfg.win_length) / cfg.hop_length + 1;
         assert_eq!(r.n_frames, expected);
@@ -202,7 +205,7 @@ mod tests {
             .collect();
 
         let r = log_mel_spectrogram(&samples, &cfg);
-        assert!(r.n_frames > 10, "должны быть фреймы");
+        assert!(r.n_frames > 10, "there must be frames");
         let mid = r.n_frames / 2;
         let row = &r.data[mid * cfg.n_mels..(mid + 1) * cfg.n_mels];
 
@@ -215,7 +218,7 @@ mod tests {
             }
         }
 
-        // Ожидаемый центр: mel-bin, чья центральная частота ближе всего к 1 кГц.
+        // The expected centre: the mel bin whose centre frequency is closest to 1 kHz.
         let mel_min = hz_to_mel_htk(0.0);
         let mel_max = hz_to_mel_htk(sr / 2.0);
         let expected_mel = (0..cfg.n_mels)
@@ -232,7 +235,7 @@ mod tests {
 
         assert!(
             (argmax as i32 - expected_mel as i32).abs() <= 1,
-            "argmax {argmax} далеко от ожидаемого {expected_mel}"
+            "argmax {argmax} is far from the expected {expected_mel}"
         );
     }
 }

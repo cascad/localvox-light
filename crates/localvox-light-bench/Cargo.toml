@@ -1,0 +1,24 @@
+[package]
+name = "localvox-light-bench"
+version.workspace = true
+edition.workspace = true
+description = "Measuring ASR quality: WER/CER on reference datasets, sweeps over window parameters, assembling long-form sets."
+
+[[bin]]
+name = "localvox-bench"
+path = "src/main.rs"
+
+[dependencies]
+localvox-light-core = { workspace = true, features = ["onnx"] }
+localvox-light-llm.workspace = true
+anyhow.workspace = true
+# Зонд probe_ner: читает сигнатуру ONNX-графа NER-модели напрямую.
+ort.workspace = true
+clap.workspace = true
+dotenvy.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+hound.workspace = true
+webrtc-vad.workspace = true
+ureq.workspace = true
+toml.workspace = true

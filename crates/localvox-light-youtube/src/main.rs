@@ -1,4 +1,4 @@
-//! Скачивание аудио YouTube (yt-dlp + ffmpeg) и офлайн-транскрипция через Vosk.
+//! Downloading YouTube audio (yt-dlp + ffmpeg) and offline transcription via Vosk.
 
 use std::path::{Path, PathBuf};
 
@@ -21,17 +21,19 @@ enum MediaSource {
 
 #[derive(Parser)]
 #[command(name = "localvox-youtube")]
-#[command(about = "YouTube (yt-dlp) или локальный файл → ffmpeg → транскрипт (Vosk). Нужен ffmpeg; yt-dlp только для URL.")]
+#[command(
+    about = "YouTube (yt-dlp) or a local file → ffmpeg → transcript (Vosk). ffmpeg is required; yt-dlp only for URLs."
+)]
 struct YoutubeCli {
-    /// URL видео (ноль или больше; вместе с --file нужен хотя бы один URL или один файл)
+    /// Video URL (zero or more; together with --file at least one URL or one file is needed)
     #[arg(required = false, value_name = "URL")]
     urls: Vec<String>,
 
-    /// Локальный медиафайл (mp4, mkv, wav, mp3, … — всё, что читает ffmpeg). Можно повторять.
+    /// A local media file (mp4, mkv, wav, mp3, … — anything ffmpeg reads). May be repeated.
     #[arg(long, short = 'f', value_name = "FILE", action = clap::ArgAction::Append)]
     file: Vec<PathBuf>,
 
-    /// Каталог модели Vosk (как у localvox-light)
+    /// The Vosk model directory (as in localvox-light)
     #[arg(
         long,
         default_value = "models/vosk-model-ru-0.42",
@@ -39,15 +41,15 @@ struct YoutubeCli {
     )]
     model: String,
 
-    /// Файл результата при одном источнике (по умолчанию transcript.txt в каталоге из --youtube-output-dir / LOCALVOX_LIGHT_YOUTUBE_OUTPUT_DIR / settings)
+    /// The result file for a single source (by default transcript.txt in the directory from --youtube-output-dir / LOCALVOX_LIGHT_YOUTUBE_OUTPUT_DIR / settings)
     #[arg(short, long)]
     output: Option<PathBuf>,
 
-    /// Каталог для нескольких источников (файлы transcript_001.txt, …)
+    /// The directory for several sources (files transcript_001.txt, …)
     #[arg(long)]
     output_dir: Option<PathBuf>,
 
-    /// Базовый каталог для вывода по умолчанию (один источник → …/transcript.txt; несколько → этот каталог вместо youtube-transcripts/)
+    /// The base directory for the default output (one source → …/transcript.txt; several → this directory instead of youtube-transcripts/)
     #[arg(long, env = "LOCALVOX_LIGHT_YOUTUBE_OUTPUT_DIR")]
     youtube_output_dir: Option<PathBuf>,
 
@@ -57,18 +59,18 @@ struct YoutubeCli {
     #[arg(long, env = "LOCALVOX_LIGHT_YT_FFMPEG")]
     ffmpeg: Option<PathBuf>,
 
-    /// Среда для yt-dlp (`node`, `deno` или `node:C:/path/node.exe`)
+    /// The runtime for yt-dlp (`node`, `deno` or `node:C:/path/node.exe`)
     #[arg(long = "js-runtime", env = "LOCALVOX_LIGHT_YT_JS_RUNTIME")]
     js_runtime: Option<String>,
 
     #[arg(long = "js-runtime-path", env = "LOCALVOX_LIGHT_YT_JS_RUNTIME_PATH")]
     js_runtime_path: Option<String>,
 
-    /// Показывать stderr yt-dlp / ffmpeg
+    /// Show the stderr of yt-dlp / ffmpeg
     #[arg(short, long)]
     verbose: bool,
 
-    /// Логи tracing в stderr
+    /// tracing logs in stderr
     #[arg(long)]
     debug: bool,
 }
@@ -125,18 +127,23 @@ fn main() -> Result<()> {
     let cli = YoutubeCli::parse();
 
     if cli.urls.is_empty() && cli.file.is_empty() {
-        anyhow::bail!("укажите хотя бы один URL или ключ --file / -f с путём к локальному медиафайлу");
+        anyhow::bail!(
+            "pass at least one URL or the --file / -f flag with a path to a local media file"
+        );
     }
 
     for url in &cli.urls {
-        url::Url::parse(url).with_context(|| format!("некорректный URL: {url}"))?;
+        url::Url::parse(url).with_context(|| format!("malformed URL: {url}"))?;
     }
 
     for path in &cli.file {
         let meta = std::fs::metadata(path)
-            .with_context(|| format!("локальный файл не найден: {}", path.display()))?;
+            .with_context(|| format!("local file not found: {}", path.display()))?;
         if !meta.is_file() {
-            anyhow::bail!("--file ожидает обычный файл, не каталог: {}", path.display());
+            anyhow::bail!(
+                "--file expects a regular file, not a directory: {}",
+                path.display()
+            );
         }
     }
 
@@ -153,29 +160,27 @@ fn main() -> Result<()> {
     );
 
     if !cli.urls.is_empty() {
-        verify_yt_dlp(&yt_dlp).context("проверка зависимостей")?;
-        verify_js_runtime_path_if_explicit(js_runtime.as_deref()).context("проверка зависимостей")?;
+        verify_yt_dlp(&yt_dlp).context("checking the dependencies")?;
+        verify_js_runtime_path_if_explicit(js_runtime.as_deref())
+            .context("checking the dependencies")?;
     }
-    verify_ffmpeg(&ffmpeg).context("проверка зависимостей")?;
+    verify_ffmpeg(&ffmpeg).context("checking the dependencies")?;
 
     let model_cli = Cli::try_parse_from(["localvox-light", "--model", cli.model.as_str()])
-        .map_err(|e| anyhow::anyhow!("внутренняя ошибка clap: {e}"))?;
+        .map_err(|e| anyhow::anyhow!("internal clap error: {e}"))?;
     let model_path = PathBuf::from(normalized_model_path(&model_cli));
     validate_vosk_model_dir(&model_path)?;
 
-    let engine = load_vosk_engine_with_spinner(&model_path, cli.debug).context("загрузка Vosk")?;
+    let engine = load_vosk_engine_with_spinner(&model_path, cli.debug).context("loading Vosk")?;
 
-    let output_base = cli
-        .youtube_output_dir
-        .clone()
-        .or_else(|| {
-            settings
-                .output_dir
-                .as_ref()
-                .map(|s| s.trim())
-                .filter(|s| !s.is_empty())
-                .map(PathBuf::from)
-        });
+    let output_base = cli.youtube_output_dir.clone().or_else(|| {
+        settings
+            .output_dir
+            .as_ref()
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .map(PathBuf::from)
+    });
     let out_paths = resolve_output_paths(OutputSpec {
         count: cli.urls.len() + cli.file.len(),
         output: cli.output.as_deref(),
@@ -210,7 +215,7 @@ fn main() -> Result<()> {
                     js_runtime.as_deref(),
                     cli.verbose,
                 )
-                .with_context(|| format!("скачивание: {url}"))?;
+                .with_context(|| format!("downloading: {url}"))?;
                 let pcm = convert_to_pcm_with_progress(
                     cli.debug || cli.verbose,
                     &ffmpeg,
@@ -221,31 +226,21 @@ fn main() -> Result<()> {
                 let _ = std::fs::remove_file(&temp);
                 pcm
             }
-            MediaSource::File(path) => convert_to_pcm_with_progress(
-                cli.debug || cli.verbose,
-                &ffmpeg,
-                path,
-                cli.verbose,
-            )
-            .with_context(|| format!("ffmpeg pcm: {}", path.display()))?,
+            MediaSource::File(path) => {
+                convert_to_pcm_with_progress(cli.debug || cli.verbose, &ffmpeg, path, cli.verbose)
+                    .with_context(|| format!("ffmpeg pcm: {}", path.display()))?
+            }
         };
 
         let f32_pcm = pcm_s16le_to_f32(&pcm);
-        eprintln!(
-            "  аудио {:.1} с",
-            f32_pcm.len() as f64 / 16000.0
-        );
+        eprintln!("  audio {:.1} s", f32_pcm.len() as f64 / 16000.0);
         let text = transcribe_with_progress(&engine, &f32_pcm, cli.debug).context("Vosk")?;
         if let Some(parent) = out_file.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        std::fs::write(out_file, format!("{text}\n")).with_context(|| {
-            format!(
-                "запись {}",
-                out_file.display()
-            )
-        })?;
-        eprintln!("  готово: {}", out_file.display());
+        std::fs::write(out_file, format!("{text}\n"))
+            .with_context(|| format!("writing {}", out_file.display()))?;
+        eprintln!("  done: {}", out_file.display());
     }
 
     Ok(())
@@ -253,17 +248,13 @@ fn main() -> Result<()> {
 
 fn load_vosk_engine_with_spinner(model_path: &Path, hide_ui: bool) -> Result<VoskEngine> {
     let model_path = model_path.to_path_buf();
-    with_spinner("Загрузка модели Vosk…", "cyan", hide_ui, move || {
-        VoskEngine::new(&model_path).context("загрузка Vosk")
+    with_spinner("Loading the Vosk model…", "cyan", hide_ui, move || {
+        VoskEngine::new(&model_path).context("loading Vosk")
     })
 }
 
-/// Полоса по доле обработанных сэмплов (точный процент до 100%).
-fn transcribe_with_progress(
-    engine: &VoskEngine,
-    samples: &[f32],
-    hide_ui: bool,
-) -> Result<String> {
+/// A bar over the share of processed samples (an exact percentage up to 100%).
+fn transcribe_with_progress(engine: &VoskEngine, samples: &[f32], hide_ui: bool) -> Result<String> {
     if hide_ui {
         return engine.transcribe_pcm_16k_mono_f32(samples);
     }
@@ -281,7 +272,7 @@ fn transcribe_with_progress(
         )
         .expect("bar template"),
     );
-    pb.set_message("распознавание Vosk");
+    pb.set_message("Vosk recognition");
 
     let total = samples.len().max(1) as u128;
     let out = engine.transcribe_pcm_16k_mono_f32_with_progress(samples, |done, _| {

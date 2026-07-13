@@ -13,9 +13,18 @@ path = "src/main.rs"
 default = ["tui"]
 tui = ["dep:localvox-light-tui"]
 
+[build-dependencies]
+winres = "0.1"
+
+[target.'cfg(windows)'.dependencies]
+tray-item = "0.10"
+
 [dependencies]
+localvox-light-api = { path = "../localvox-light-api" }
 localvox-light-core.workspace = true
+localvox-light-search = { path = "../localvox-light-search" }
 localvox-light-tui = { workspace = true, optional = true }
+localvox-light-voice = { path = "../localvox-light-voice" }
 anyhow.workspace = true
 clap.workspace = true
 ctrlc.workspace = true

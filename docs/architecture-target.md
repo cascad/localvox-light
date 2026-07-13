@@ -32,7 +32,7 @@ flowchart LR
     subgraph DAEMON["localvox daemon (трей: win/mac/linux, автостарт)"]
         CAP["capture: mic + loopback\n+ ring buffer N минут"]
         VAD["VAD (Silero) → сегменты"]
-        Q[["чанки по VAD-тишине (durable,\nпотоковый flush) + retention N дней"]]
+        Q[["чанки 5 мин (durable,\nпотоковый flush) + retention N дней"]]
         ASR["ASR:\nfast: партиалы Vosk (опц., live + команды)\nslow: варка GigaAM / мульти-модель"]
         WAL[("transcript.jsonl (WAL)")]
         DET["detect: WASAPI-сессии,\nкалендарь (later) → сессии встреч"]
@@ -86,11 +86,11 @@ API-крейт добавляется рядом; выделение демон�
 ```
 data/
   sessions/2026-07-10_1430_weekly-sync/   # сессия = встреча/период
-    audio/chunk_000.flac …                # чанки по границам VAD-тишины (цель
-                                          # 5–10 мин), потоковая запись с частым
-                                          # flush; нахлёст — только аварийный
-                                          # фолбэк; ПЕРВИЧНЫЙ durable-артефакт;
-                                          # retention N дней (принципы данных)
+    audio/chunk_000.flac …                # чанки фикс. длительности (5 мин),
+                                          # потоковая запись с частым flush;
+                                          # склейка сэмпл-в-сэмпл, окна ASR
+                                          # нарезаются на чтении; ПЕРВИЧНЫЙ
+                                          # durable-артефакт; retention N дней
     transcripts/v001-fast.jsonl           # черновик fast lane (если включён)
     transcripts/v002-gigaam-fp32.jsonl    # точный ASR (slow lane)
     transcripts/v003-merged.jsonl         # мерж (родители: v001+v002)

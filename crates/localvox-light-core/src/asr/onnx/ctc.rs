@@ -1,19 +1,41 @@
-//! Жадное CTC-декодирование: argmax по timesteps → collapse-and-strip-blanks.
+//! Greedy CTC decoding: argmax over timesteps → collapse-and-strip-blanks.
 
-/// Декодировать логиты в последовательность id-токенов.
+/// Decode the logits into a sequence of token ids.
 ///
-/// * `logits` — плоский буфер `[n_frames * vocab_size]`, row-major по фреймам.
-/// * `vocab_size` — длина строки logits (включая blank).
-/// * `blank_id` — индекс blank-токена (обычно `0` для SP-вокабов GigaAM v3 E2E,
-///   либо `vocab_size - 1` для char-вокабов NeMo/v3_ctc).
+/// * `logits` — a flat buffer `[n_frames * vocab_size]`, row-major by frames.
+/// * `vocab_size` — the length of a logits row (including the blank).
+/// * `blank_id` — the index of the blank token (usually `0` for the SP vocabs of GigaAM
+///   v3 E2E, or `vocab_size - 1` for the char vocabs of NeMo/v3_ctc).
 ///
-/// Алгоритм: для каждого фрейма берём argmax; затем сжимаем последовательные
-/// повторы (`AAB` → `AB`) и убираем blank-id.
+/// The algorithm: for every frame we take the argmax; then we collapse consecutive
+/// repeats (`AAB` → `AB`) and strip out the blank id.
 pub fn greedy_decode(logits: &[f32], vocab_size: usize, blank_id: usize) -> Vec<usize> {
+    greedy_decode_timed(logits, vocab_size, blank_id)
+        .into_iter()
+        .map(|(id, _frame)| id)
+        .collect()
+}
+
+/// The same, but every token remembers the FRAME NUMBER on which it won.
+///
+/// CTC knows when every token was uttered — that information was simply being thrown
+/// away. Out of it come per-word timecodes, and out of those come turns split by phrase
+/// instead of one line for the whole 30-second window: previously the «▶» in the player
+/// and in the search jumped to the start of the window, that is, it could miss by half a
+/// minute.
+pub fn greedy_decode_timed(
+    logits: &[f32],
+    vocab_size: usize,
+    blank_id: usize,
+) -> Vec<(usize, usize)> {
     if vocab_size == 0 || logits.is_empty() {
         return Vec::new();
     }
-    debug_assert_eq!(logits.len() % vocab_size, 0, "logits.len() кратно vocab_size");
+    debug_assert_eq!(
+        logits.len() % vocab_size,
+        0,
+        "logits.len() is a multiple of vocab_size"
+    );
     let n_frames = logits.len() / vocab_size;
 
     let mut out = Vec::with_capacity(n_frames);
@@ -34,7 +56,7 @@ pub fn greedy_decode(logits: &[f32], vocab_size: usize, blank_id: usize) -> Vec<
         }
         prev = Some(best);
         if best != blank_id {
-            out.push(best);
+            out.push((best, t));
         }
     }
 
@@ -45,7 +67,8 @@ pub fn greedy_decode(logits: &[f32], vocab_size: usize, blank_id: usize) -> Vec<
 mod tests {
     use super::*;
 
-    /// Утилита: построить логиты, где для каждого фрейма t заранее выигрывает токен `winners[t]`.
+    /// A utility: build logits where for every frame t the token `winners[t]` wins by
+    /// construction.
     fn logits_from_winners(winners: &[usize], vocab_size: usize) -> Vec<f32> {
         let mut out = vec![0.0f32; winners.len() * vocab_size];
         for (t, &w) in winners.iter().enumerate() {

@@ -1,15 +1,16 @@
-//! Резолвер путей результата для одного / нескольких источников.
+//! The resolver of result paths for one / several sources.
 
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 
-/// Параметры для [`resolve_output_paths`].
+/// The parameters for [`resolve_output_paths`].
 ///
-/// * Если `count == 1` — возвращается ровно один путь к файлу (`output` или
-///   `output_base/single_filename`, либо `single_filename` в cwd).
-/// * Если `count > 1` — каталог из `output_dir` / `output` (если это каталог) /
-///   `output_base` / `default_multi_dir`, и в нём `<multi_prefix>_001.txt`, …
+/// * If `count == 1` — exactly one path to a file is returned (`output` or
+///   `output_base/single_filename`, or `single_filename` in the cwd).
+/// * If `count > 1` — a directory out of `output_dir` / `output` (if it is a
+///   directory) / `output_base` / `default_multi_dir`, and in it
+///   `<multi_prefix>_001.txt`, …
 pub struct OutputSpec<'a> {
     pub count: usize,
     pub output: Option<&'a Path>,
@@ -40,9 +41,7 @@ pub fn resolve_output_paths(spec: OutputSpec<'_>) -> Result<Vec<PathBuf>> {
             PathBuf::from(single_filename)
         };
         if p.is_dir() {
-            anyhow::bail!(
-                "для одного источника --output — путь к .txt файлу, не каталог"
-            );
+            anyhow::bail!("for a single source --output is a path to a .txt file, not a directory");
         }
         return Ok(vec![p]);
     }
@@ -53,7 +52,7 @@ pub fn resolve_output_paths(spec: OutputSpec<'_>) -> Result<Vec<PathBuf>> {
         (None, Some(o), _) if !o.exists() && o.extension().is_none() => o.to_path_buf(),
         (None, Some(_), _) => {
             anyhow::bail!(
-                "несколько источников: укажите --output-dir КАТАЛОГ (или существующий каталог в --output)"
+                "several sources: pass --output-dir DIRECTORY (or an existing directory in --output)"
             );
         }
         (None, None, Some(d)) => d.to_path_buf(),

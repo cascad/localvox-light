@@ -1,26 +1,26 @@
-//! Загрузка словарей формата `onnx-asr` / GigaAM v3 E2E:
-//! одна строка — `<TOKEN><space><ID>`, при этом TOKEN может быть пустым
-//! (тогда строка — просто `<ID>`, что соответствует blank-токену).
+//! Loading vocabularies in the `onnx-asr` / GigaAM v3 E2E format:
+//! one line is `<TOKEN><space><ID>`, where TOKEN may be empty
+//! (then the line is just `<ID>`, which corresponds to the blank token).
 
 use std::path::Path;
 
 use anyhow::{Context, Result};
 
-/// Префикс-маркер начала слова у SentencePiece (U+2581, `▁`).
+/// The prefix marker of the start of a word in SentencePiece (U+2581, `▁`).
 pub const SP_SPACE: &str = "\u{2581}";
 
 #[derive(Clone, Debug)]
 pub struct Vocab {
-    /// Токены по индексам (`tokens.len() == vocab_size`). Пустая строка означает blank.
+    /// The tokens by index (`tokens.len() == vocab_size`). An empty string means blank.
     pub tokens: Vec<String>,
-    /// Индекс blank-токена.
+    /// The index of the blank token.
     pub blank_id: usize,
 }
 
 impl Vocab {
-    /// Загрузить словарь из текстового файла.
+    /// Load a vocabulary from a text file.
     ///
-    /// Формат файла (как у `istupakov/gigaam-v3-onnx`):
+    /// The file format (as in `istupakov/gigaam-v3-onnx`):
     /// ```text
     /// 0
     /// ▁ 1
@@ -28,36 +28,40 @@ impl Vocab {
     /// е 3
     /// ...
     /// ```
-    /// Первая строка `<пустой токен><space><id>` (визуально просто `<id>`) — это blank.
-    /// Если пустого токена нет — `blank_id` берётся как `tokens.len() - 1` (для char-вокабов,
-    /// где `<blk>` идёт последним).
+    /// The first line `<empty token><space><id>` (visually just `<id>`) is the blank.
+    /// If there is no empty token, `blank_id` is taken as `tokens.len() - 1` (for char
+    /// vocabs, where `<blk>` comes last).
     pub fn load(path: &Path) -> Result<Self> {
         let text = std::fs::read_to_string(path)
-            .with_context(|| format!("чтение vocab {}", path.display()))?;
-        Self::parse(&text).with_context(|| format!("разбор vocab {}", path.display()))
+            .with_context(|| format!("reading vocab {}", path.display()))?;
+        Self::parse(&text).with_context(|| format!("parsing vocab {}", path.display()))
     }
 
-    /// Парсинг словаря из строки (для тестов и in-memory вокабов).
+    /// Parsing a vocabulary from a string (for tests and in-memory vocabs).
     pub fn parse(text: &str) -> Result<Self> {
         let mut entries: Vec<(String, usize)> = Vec::new();
         for (line_no, raw) in text.lines().enumerate() {
             if raw.is_empty() {
                 continue;
             }
-            // Разделяем по ПОСЛЕДНЕМУ пробелу: token + " " + id. Пробельный токен (`▁`) ок,
-            // как и пустой токен (тогда строка — это только `<id>`).
+            // We split at the LAST space: token + " " + id. A whitespace token (`▁`) is ok,
+            // as is an empty token (then the line is only `<id>`).
             let (tok, id_str) = match raw.rsplit_once(' ') {
                 Some((t, i)) => (t, i),
                 None => ("", raw),
             };
             let id: usize = id_str.trim().parse().with_context(|| {
-                format!("vocab line {}: «{}» — не удалось распарсить id", line_no + 1, raw)
+                format!(
+                    "vocab line {}: «{}» — failed to parse the id",
+                    line_no + 1,
+                    raw
+                )
             })?;
             entries.push((tok.to_string(), id));
         }
 
         if entries.is_empty() {
-            anyhow::bail!("vocab пустой");
+            anyhow::bail!("the vocab is empty");
         }
 
         let max_id = entries.iter().map(|(_, i)| *i).max().unwrap_or(0);
@@ -65,14 +69,14 @@ impl Vocab {
         let mut seen = vec![false; max_id + 1];
         for (tok, id) in entries {
             if seen[id] {
-                anyhow::bail!("vocab: дублирующийся id {}", id);
+                anyhow::bail!("vocab: duplicate id {}", id);
             }
             tokens[id] = tok;
             seen[id] = true;
         }
         if !seen.iter().all(|&s| s) {
             let gap = seen.iter().position(|&s| !s).unwrap_or(0);
-            anyhow::bail!("vocab: пропущен id {} (нет такой строки)", gap);
+            anyhow::bail!("vocab: id {} is missing (there is no such line)", gap);
         }
 
         let blank_id = tokens
@@ -83,22 +87,22 @@ impl Vocab {
         Ok(Self { tokens, blank_id })
     }
 
-    /// Получить токен по индексу. `None` — если индекс за границами.
+    /// Get the token by index. `None` — if the index is out of bounds.
     pub fn get(&self, idx: usize) -> Option<&str> {
         self.tokens.get(idx).map(String::as_str)
     }
 }
 
-/// SentencePiece-детокенизация: склеиваем пиесы, заменяем `▁` (U+2581) на пробел,
-/// убираем возможный ведущий пробел.
+/// SentencePiece detokenization: we glue the pieces together, replace `▁` (U+2581) with a
+/// space and strip the possible leading space.
 pub fn sp_detokenize(pieces: &[&str]) -> String {
     let joined: String = pieces.iter().copied().collect();
     let with_spaces = joined.replace(SP_SPACE, " ");
     with_spaces.trim_start().to_string()
 }
 
-/// Простая детокенизация для char-вокабов (NeMo / GigaAM v3 base): токены уже являются
-/// одиночными символами или пробелом — склеиваем как есть.
+/// Simple detokenization for char vocabs (NeMo / GigaAM v3 base): the tokens are already
+/// single characters or a space — we glue them as they are.
 pub fn char_detokenize(pieces: &[&str]) -> String {
     pieces.concat()
 }
@@ -148,6 +152,9 @@ mod tests {
 
     #[test]
     fn char_detokenize_basic() {
-        assert_eq!(char_detokenize(&["п", "р", "и", " ", "в", "е", "т"]), "при вет");
+        assert_eq!(
+            char_detokenize(&["п", "р", "и", " ", "в", "е", "т"]),
+            "при вет"
+        );
     }
 }

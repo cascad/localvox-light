@@ -2,7 +2,7 @@
 name = "localvox-light-youtube"
 version.workspace = true
 edition.workspace = true
-description = "CLI: скачать аудио YouTube (yt-dlp + ffmpeg) и транскрибировать через Vosk локально."
+description = "CLI: download YouTube audio (yt-dlp + ffmpeg) and transcribe it locally with Vosk."
 
 [[bin]]
 name = "localvox-youtube"

@@ -1,8 +1,8 @@
-//! `localvox-asr` — офлайн-транскрипция через ONNX-модели.
+//! `localvox-asr` — offline transcription via ONNX models.
 //!
-//! Сейчас поддерживается один адаптер: **GigaAM v3 E2E CTC** (с пунктуацией
-//! и нормализацией). Скачайте `v3_e2e_ctc.int8.onnx` + `v3_e2e_ctc_vocab.txt`
-//! с `huggingface.co/istupakov/gigaam-v3-onnx` в каталог `--model-dir`.
+//! Right now a single adapter is supported: **GigaAM v3 E2E CTC** (with punctuation
+//! and normalization). Download `v3_e2e_ctc.int8.onnx` + `v3_e2e_ctc_vocab.txt`
+//! from `huggingface.co/istupakov/gigaam-v3-onnx` into the `--model-dir` directory.
 
 use std::path::{Path, PathBuf};
 
@@ -11,18 +11,17 @@ use clap::{Parser, ValueEnum};
 use localvox_light_core::asr::onnx::adapters::GigaamV3E2eCtc;
 use localvox_light_core::asr::onnx::OnnxEngine;
 use localvox_light_ingest::{
-    load_settings_named,
+    load_settings_named, pcm_s16le_to_f32,
     progress::{convert_to_pcm_with_progress, download_audio_with_progress, with_spinner},
-    pcm_s16le_to_f32, resolve_ffmpeg, resolve_ffmpeg_location_for_ytdlp, resolve_js_runtime,
-    resolve_output_paths, resolve_yt_dlp, verify_ffmpeg, verify_js_runtime_path_if_explicit,
-    verify_yt_dlp, OutputSpec,
+    resolve_ffmpeg, resolve_ffmpeg_location_for_ytdlp, resolve_js_runtime, resolve_output_paths,
+    resolve_yt_dlp, verify_ffmpeg, verify_js_runtime_path_if_explicit, verify_yt_dlp, OutputSpec,
 };
 
-/// Поддерживаемые адаптеры.
+/// Supported adapters.
 #[derive(Clone, Copy, Debug, ValueEnum)]
 enum ModelKind {
-    /// GigaAM v3 E2E CTC: текст с пунктуацией и нормализацией.
-    /// Файл модели: `v3_e2e_ctc.onnx` или `v3_e2e_ctc.int8.onnx`. Словарь: `v3_e2e_ctc_vocab.txt`.
+    /// GigaAM v3 E2E CTC: text with punctuation and normalization.
+    /// Model file: `v3_e2e_ctc.onnx` or `v3_e2e_ctc.int8.onnx`. Vocabulary: `v3_e2e_ctc_vocab.txt`.
     #[value(name = "gigaam-v3-e2e-ctc")]
     GigaamV3E2eCtc,
 }
@@ -34,21 +33,23 @@ enum MediaSource {
 
 #[derive(Parser)]
 #[command(name = "localvox-asr")]
-#[command(about = "Офлайн-ASR через ONNX-модели (GigaAM v3 E2E CTC). Ingest: yt-dlp/файл → ffmpeg → PCM → ONNX → текст.")]
+#[command(
+    about = "Offline ASR via ONNX models (GigaAM v3 E2E CTC). Ingest: yt-dlp/file → ffmpeg → PCM → ONNX → text."
+)]
 struct AsrCli {
-    /// URL видео (yt-dlp), можно повторять.
+    /// Video URL (yt-dlp), may be repeated.
     #[arg(required = false, value_name = "URL")]
     urls: Vec<String>,
 
-    /// Локальный медиафайл (mp4, mkv, wav, mp3, …). Можно повторять.
+    /// Local media file (mp4, mkv, wav, mp3, …). May be repeated.
     #[arg(long, short = 'f', value_name = "FILE", action = clap::ArgAction::Append)]
     file: Vec<PathBuf>,
 
-    /// Какой адаптер использовать.
+    /// Which adapter to use.
     #[arg(long, default_value = "gigaam-v3-e2e-ctc", env = "LOCALVOX_ASR_MODEL")]
     model: ModelKind,
 
-    /// Каталог с файлами модели (`*.onnx` + `vocab.txt`). Конкретные имена зависят от адаптера.
+    /// Directory with the model files (`*.onnx` + `vocab.txt`). The exact names depend on the adapter.
     #[arg(
         long = "model-dir",
         env = "LOCALVOX_ASR_MODEL_DIR",
@@ -56,19 +57,19 @@ struct AsrCli {
     )]
     model_dir: PathBuf,
 
-    /// Явный путь к .onnx-файлу. Если не задан — выбирается по конвенции адаптера.
+    /// Explicit path to the .onnx file. If unset — chosen by the adapter's convention.
     #[arg(long = "model-file", env = "LOCALVOX_ASR_MODEL_FILE")]
     model_file: Option<PathBuf>,
 
-    /// Файл результата (один источник).
+    /// Result file (a single source).
     #[arg(short, long)]
     output: Option<PathBuf>,
 
-    /// Каталог результатов (несколько источников → `transcript_001.txt`, …).
+    /// Results directory (several sources → `transcript_001.txt`, …).
     #[arg(long)]
     output_dir: Option<PathBuf>,
 
-    /// Базовый каталог для вывода по умолчанию.
+    /// Base directory for the default output.
     #[arg(long, env = "LOCALVOX_ASR_OUTPUT_DIR")]
     asr_output_dir: Option<PathBuf>,
 
@@ -84,16 +85,16 @@ struct AsrCli {
     #[arg(long = "js-runtime-path", env = "LOCALVOX_LIGHT_YT_JS_RUNTIME_PATH")]
     js_runtime_path: Option<String>,
 
-    /// Показывать stderr yt-dlp / ffmpeg.
+    /// Show the stderr of yt-dlp / ffmpeg.
     #[arg(short, long)]
     verbose: bool,
 
-    /// Логи tracing в stderr.
+    /// tracing logs to stderr.
     #[arg(long)]
     debug: bool,
 
-    /// Только загрузить ONNX-модель и напечатать имена/типы её входов и выходов,
-    /// затем выйти. Полезно, чтобы сверить с константами в адаптере.
+    /// Only load the ONNX model and print the names/types of its inputs and outputs, then exit.
+    /// Useful for cross-checking against the constants in the adapter.
     #[arg(long = "inspect-model")]
     inspect_model: bool,
 }
@@ -121,7 +122,7 @@ fn resolve_model_file(
 ) -> Result<PathBuf> {
     if let Some(p) = override_file {
         if !p.is_file() {
-            anyhow::bail!("--model-file: файл не найден: {}", p.display());
+            anyhow::bail!("--model-file: file not found: {}", p.display());
         }
         return Ok(p.to_path_buf());
     }
@@ -135,7 +136,7 @@ fn resolve_model_file(
         }
     }
     anyhow::bail!(
-        "в каталоге {} не найден ни один из: {} — скачайте модель и положите туда (см. README)",
+        "none of these were found in directory {}: {} — download the model and put it there (see README)",
         model_dir.display(),
         candidates.join(", ")
     )
@@ -150,13 +151,13 @@ fn load_adapter_and_engine(
     let model_dir = model_dir.to_path_buf();
     let model_file = model_file.to_path_buf();
     with_spinner(
-        format!("Загрузка модели ONNX: {}", model_file.display()),
+        format!("Loading the ONNX model: {}", model_file.display()),
         "cyan",
         hide_ui,
         move || {
             let adapter = match kind {
                 ModelKind::GigaamV3E2eCtc => GigaamV3E2eCtc::from_model_dir(&model_dir)
-                    .context("сборка адаптера GigaAM v3 E2E CTC")?,
+                    .context("building the GigaAM v3 E2E CTC adapter")?,
             };
             OnnxEngine::new(&model_file, adapter)
         },
@@ -164,7 +165,7 @@ fn load_adapter_and_engine(
 }
 
 fn inspect_model(model_file: &Path) -> Result<()> {
-    eprintln!("Загрузка ONNX: {}", model_file.display());
+    eprintln!("Loading ONNX: {}", model_file.display());
     let (inputs, outputs) = localvox_light_core::asr::onnx::inspect_model_io(model_file)?;
     println!("inputs:");
     for i in &inputs {
@@ -188,18 +189,21 @@ fn main() -> Result<()> {
 
     if cli.urls.is_empty() && cli.file.is_empty() {
         anyhow::bail!(
-            "укажите хотя бы один URL или ключ --file / -f с путём к локальному медиафайлу"
+            "pass at least one URL, or the --file / -f option with a path to a local media file"
         );
     }
 
     for url in &cli.urls {
-        url::Url::parse(url).with_context(|| format!("некорректный URL: {url}"))?;
+        url::Url::parse(url).with_context(|| format!("malformed URL: {url}"))?;
     }
     for path in &cli.file {
         let meta = std::fs::metadata(path)
-            .with_context(|| format!("локальный файл не найден: {}", path.display()))?;
+            .with_context(|| format!("local file not found: {}", path.display()))?;
         if !meta.is_file() {
-            anyhow::bail!("--file ожидает обычный файл, не каталог: {}", path.display());
+            anyhow::bail!(
+                "--file expects a regular file, not a directory: {}",
+                path.display()
+            );
         }
     }
 
@@ -218,10 +222,11 @@ fn main() -> Result<()> {
     );
 
     if !cli.urls.is_empty() {
-        verify_yt_dlp(&yt_dlp).context("проверка зависимостей")?;
-        verify_js_runtime_path_if_explicit(js_runtime.as_deref()).context("проверка зависимостей")?;
+        verify_yt_dlp(&yt_dlp).context("checking dependencies")?;
+        verify_js_runtime_path_if_explicit(js_runtime.as_deref())
+            .context("checking dependencies")?;
     }
-    verify_ffmpeg(&ffmpeg).context("проверка зависимостей")?;
+    verify_ffmpeg(&ffmpeg).context("checking dependencies")?;
 
     let engine = load_adapter_and_engine(cli.model, &cli.model_dir, &model_file, cli.debug)?;
 
@@ -267,7 +272,7 @@ fn main() -> Result<()> {
                     js_runtime.as_deref(),
                     cli.verbose,
                 )
-                .with_context(|| format!("скачивание: {url}"))?;
+                .with_context(|| format!("downloading: {url}"))?;
                 let pcm = convert_to_pcm_with_progress(
                     cli.debug || cli.verbose,
                     &ffmpeg,
@@ -278,30 +283,27 @@ fn main() -> Result<()> {
                 let _ = std::fs::remove_file(&temp);
                 pcm
             }
-            MediaSource::File(path) => convert_to_pcm_with_progress(
-                cli.debug || cli.verbose,
-                &ffmpeg,
-                path,
-                cli.verbose,
-            )
-            .with_context(|| format!("ffmpeg pcm: {}", path.display()))?,
+            MediaSource::File(path) => {
+                convert_to_pcm_with_progress(cli.debug || cli.verbose, &ffmpeg, path, cli.verbose)
+                    .with_context(|| format!("ffmpeg pcm: {}", path.display()))?
+            }
         };
 
         let f32_pcm = pcm_s16le_to_f32(&pcm);
-        eprintln!("  аудио {:.1} с", f32_pcm.len() as f64 / 16000.0);
-        eprintln!("  распознавание (ONNX)…");
+        eprintln!("  audio {:.1} s", f32_pcm.len() as f64 / 16000.0);
+        eprintln!("  recognition (ONNX)…");
         let t0 = std::time::Instant::now();
         let text = engine
             .transcribe_pcm_16k_mono_f32(&f32_pcm)
             .context("ONNX inference")?;
-        eprintln!("  готово за {:.1} с", t0.elapsed().as_secs_f64());
+        eprintln!("  done in {:.1} s", t0.elapsed().as_secs_f64());
 
         if let Some(parent) = out_file.parent() {
             std::fs::create_dir_all(parent)?;
         }
         std::fs::write(out_file, format!("{text}\n"))
-            .with_context(|| format!("запись {}", out_file.display()))?;
-        eprintln!("  готово: {}", out_file.display());
+            .with_context(|| format!("writing {}", out_file.display()))?;
+        eprintln!("  done: {}", out_file.display());
     }
 
     Ok(())

@@ -1,4 +1,4 @@
-//! Конкретные ONNX-адаптеры. Каждый файл — один адаптер.
+//! The concrete ONNX adapters. One file — one adapter.
 
 pub mod gigaam_v3_e2e_ctc;
 

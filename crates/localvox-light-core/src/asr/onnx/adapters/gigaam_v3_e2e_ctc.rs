@@ -1,9 +1,10 @@
-//! Адаптер для **GigaAM v3 E2E CTC** (`v3_e2e_ctc.onnx` / `.int8.onnx`).
+//! The adapter for **GigaAM v3 E2E CTC** (`v3_e2e_ctc.onnx` / `.int8.onnx`).
 //!
-//! Особенности:
-//! * Mel-конфиг — общий [`MelConfig::GIGAAM_V3`] (64 mel, win/hop 320/160, HTK).
-//! * Словарь — SentencePiece (`v3_e2e_ctc_vocab.txt`, 257 пиесов, blank на индексе 0).
-//! * Текст модели уже с пунктуацией и нормализацией («2024», «,», «.» и т.п.).
+//! The specifics:
+//! * The mel config is the common [`MelConfig::GIGAAM_V3`] (64 mels, win/hop 320/160, HTK).
+//! * The vocabulary is SentencePiece (`v3_e2e_ctc_vocab.txt`, 257 pieces, blank at index 0).
+//! * The model's text already comes with punctuation and normalization («2024», «,», «.»
+//!   and so on).
 
 use std::path::Path;
 use std::sync::Arc;
@@ -14,10 +15,10 @@ use crate::asr::onnx::adapter::{InputLayout, OnnxAdapter};
 use crate::asr::onnx::mel::MelConfig;
 use crate::asr::onnx::vocab::{self, Vocab};
 
-/// Кол-во классов у GigaAM v3 E2E CTC (см. `v3_e2e_ctc.yaml`: `num_classes: 257`).
+/// The number of classes of GigaAM v3 E2E CTC (see `v3_e2e_ctc.yaml`: `num_classes: 257`).
 const EXPECTED_VOCAB_SIZE: usize = 257;
 
-/// Имя файла со словарём в каталоге модели.
+/// The name of the vocabulary file in the model directory.
 pub const VOCAB_FILENAME: &str = "v3_e2e_ctc_vocab.txt";
 
 pub struct GigaamV3E2eCtc {
@@ -26,13 +27,14 @@ pub struct GigaamV3E2eCtc {
 }
 
 impl GigaamV3E2eCtc {
-    /// Создать адаптер по каталогу с моделью; ожидается файл `v3_e2e_ctc_vocab.txt` внутри.
+    /// Create the adapter from a model directory; the file `v3_e2e_ctc_vocab.txt` is
+    /// expected inside.
     pub fn from_model_dir(dir: &Path) -> Result<Arc<dyn OnnxAdapter>> {
         let vocab_path = dir.join(VOCAB_FILENAME);
         let vocab = Vocab::load(&vocab_path)?;
         if vocab.tokens.len() != EXPECTED_VOCAB_SIZE {
             anyhow::bail!(
-                "{}: ожидалось {} классов в словаре, получено {}",
+                "{}: expected {} classes in the vocabulary, got {}",
                 vocab_path.display(),
                 EXPECTED_VOCAB_SIZE,
                 vocab.tokens.len()
@@ -59,18 +61,19 @@ impl OnnxAdapter for GigaamV3E2eCtc {
     }
 
     fn input_name(&self) -> &str {
-        // Имя в экспорте gigaam.to_onnx() — `features`; уточним в Stage 5 при загрузке графа.
+        // The name in the gigaam.to_onnx() export is `features`; we will confirm it in
+        // Stage 5 when loading the graph.
         "features"
     }
 
     fn length_input_name(&self) -> Option<&str> {
-        // По `--inspect-model`: входы — `features` [batch, 64, seq_len] (f32)
-        // и `feature_lengths` [batch] (i64). Множественное число!
+        // According to `--inspect-model`: the inputs are `features` [batch, 64, seq_len]
+        // (f32) and `feature_lengths` [batch] (i64). Plural!
         Some("feature_lengths")
     }
 
     fn output_name(&self) -> &str {
-        // `log_probs` для CTC-варианта.
+        // `log_probs` for the CTC variant.
         "log_probs"
     }
 

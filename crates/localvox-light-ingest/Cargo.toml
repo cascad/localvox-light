@@ -2,7 +2,7 @@
 name = "localvox-light-ingest"
 version.workspace = true
 edition.workspace = true
-description = "Локальная и URL-ingestion для localvox-light: yt-dlp + ffmpeg → PCM 16k mono f32, прогресс, резолверы путей."
+description = "Local and URL ingestion for localvox-light: yt-dlp + ffmpeg -> PCM 16k mono f32, progress, path resolvers."
 
 [dependencies]
 anyhow.workspace = true

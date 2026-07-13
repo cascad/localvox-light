@@ -1,14 +1,16 @@
-//! Источники медиа для localvox-light: yt-dlp + ffmpeg → PCM s16le 16 kHz mono.
+//! Media sources for localvox-light: yt-dlp + ffmpeg → PCM s16le 16 kHz mono.
 //!
-//! Слой полностью ASR-агностичен: возвращает f32-сэмплы (или путь к временному файлу),
-//! а как именно их распознавать — решает крейт-бинарник.
+//! The layer is completely ASR-agnostic: it returns f32 samples (or a path to a
+//! temporary file), and how exactly to recognize them is decided by the binary crate.
 //!
-//! Состав:
-//! * [`tools`] — настройки и резолверы путей к `yt-dlp` / `ffmpeg` / JS-runtime.
-//! * [`download`] — низкоуровневые вызовы `yt-dlp` и `ffmpeg`.
-//! * [`progress`] — обёртки с indicatif-спиннерами поверх [`download`] + универсальный
-//!   [`progress::with_spinner`] для произвольной долгой работы (загрузка ASR-моделей).
-//! * [`output`] — выбор путей результата для одного / нескольких источников.
+//! Contents:
+//! * [`tools`] — settings and resolvers of the paths to `yt-dlp` / `ffmpeg` / the JS
+//!   runtime.
+//! * [`download`] — the low-level calls of `yt-dlp` and `ffmpeg`.
+//! * [`progress`] — wrappers with indicatif spinners on top of [`download`] + the
+//!   universal [`progress::with_spinner`] for any long-running work (loading ASR
+//!   models).
+//! * [`output`] — the choice of result paths for one / several sources.
 
 pub mod download;
 pub mod output;
@@ -23,8 +25,3 @@ pub use tools::{
     resolve_js_runtime, resolve_yt_dlp, verify_ffmpeg, verify_js_runtime_path_if_explicit,
     verify_yt_dlp, Settings,
 };
-
-fn run() {
-    let a = "say my name";
-
-}

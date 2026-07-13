@@ -1,4 +1,4 @@
-//! CLI (`clap`), `.env`, проверка модели Vosk, устройства, tracing.
+//! CLI (`clap`), `.env`, Vosk model validation, devices, tracing.
 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
@@ -12,8 +12,9 @@ use tracing_subscriber::EnvFilter;
 
 use crate::audio;
 
-/// Ждёт поток движка не дольше `max_wait`. Если не успел — `process::exit(0)`:
-/// необработанные WAV в рабочей папке без строки в `transcript.jsonl` подхватит `recover` при следующем запуске.
+/// Waits for the engine thread no longer than `max_wait`. If it does not make it —
+/// `process::exit(0)`: unprocessed WAVs in the workspace with no line in `transcript.jsonl`
+/// are picked up by `recover` on the next run.
 pub fn join_engine_thread(handle: thread::JoinHandle<()>, max_wait: Duration) {
     let (done_tx, done_rx) = mpsc::sync_channel(0);
     thread::spawn(move || {
@@ -24,7 +25,7 @@ pub fn join_engine_thread(handle: thread::JoinHandle<()>, max_wait: Duration) {
         Ok(()) => {}
         Err(mpsc::RecvTimeoutError::Timeout) => {
             eprintln!(
-                "localvox-light: движок не завершился за {} с — выход. WAV без строки в transcript доработаются при следующем запуске.",
+                "localvox-light: the engine did not finish within {} s — exiting. WAVs with no line in the transcript will be processed on the next run.",
                 max_wait.as_secs()
             );
             std::process::exit(0);
@@ -34,9 +35,12 @@ pub fn join_engine_thread(handle: thread::JoinHandle<()>, max_wait: Duration) {
 }
 
 #[derive(Parser, Clone)]
-#[command(name = "localvox-light", about = "Local audio transcription (no server)")]
+#[command(
+    name = "localvox-light",
+    about = "Local audio transcription (no server)"
+)]
 pub struct Cli {
-    /// Микрофон: индекс, подстрока имени, `micidx:N` или стабильный CPAL id `host:…` (см. --list-devices).
+    /// Microphone: index, name substring, `micidx:N`, or a stable CPAL id `host:…` (see --list-devices).
     #[arg(long, env = "LOCALVOX_LIGHT_MIC")]
     pub mic: Option<String>,
 
@@ -44,19 +48,19 @@ pub struct Cli {
     #[arg(long)]
     pub loopback: bool,
 
-    /// Отключить loopback даже если включён в localvox-light-config.json
+    /// Disable loopback even if it is enabled in localvox-light-config.json
     #[arg(long)]
     pub no_loopback: bool,
 
-    /// Loopback: Windows — имя/индекс/default-output (WASAPI). macOS — id/`lbidx:N` **выхода** (динамики). Linux — monitor-вход, id из --list-devices.
+    /// Loopback: Windows — name/index/default-output (WASAPI). macOS — id/`lbidx:N` of an **output** (speakers). Linux — a monitor input, id from --list-devices.
     #[arg(long, env = "LOCALVOX_LIGHT_LOOPBACK_DEVICE")]
     pub loopback_device: Option<String>,
 
-    /// JSON с полями mic, loopback, loopback_device (сохраняется из TUI F2). Иначе ищется localvox-light-config.json в cwd.
+    /// JSON with the fields mic, loopback, loopback_device (saved from the TUI, F2). Otherwise localvox-light-config.json is looked up in cwd.
     #[arg(long, env = "LOCALVOX_LIGHT_CONFIG")]
     pub config: Option<std::path::PathBuf>,
 
-    /// Каталог модели Vosk (как качает scripts/setup-vosk.* → models/vosk-model-ru-0.42)
+    /// Vosk model directory (as downloaded by scripts/setup-vosk.* → models/vosk-model-ru-0.42)
     #[arg(
         long,
         default_value = "models/vosk-model-ru-0.42",
@@ -64,12 +68,20 @@ pub struct Cli {
     )]
     pub model: String,
 
-    /// Рабочий каталог: WAV, transcript.jsonl (переопределение через LOCALVOX_LIGHT_AUDIO_DIR)
-    #[arg(long, default_value = "localvox-audio", env = "LOCALVOX_LIGHT_AUDIO_DIR")]
+    /// Workspace directory: WAV, transcript.jsonl (override via LOCALVOX_LIGHT_AUDIO_DIR)
+    #[arg(
+        long,
+        default_value = "localvox-audio",
+        env = "LOCALVOX_LIGHT_AUDIO_DIR"
+    )]
     pub audio_dir: String,
 
-    /// Каталог экспорта по `e` в TUI: отсортированный `transcript_dump_*.jsonl`. Пустая строка — экспорт недоступен.
-    #[arg(long, default_value = "./transcript-dumps", env = "LOCALVOX_LIGHT_TRANSCRIPT_DUMP_DIR")]
+    /// Export directory for `e` in the TUI: a sorted `transcript_dump_*.jsonl`. An empty string disables export.
+    #[arg(
+        long,
+        default_value = "./transcript-dumps",
+        env = "LOCALVOX_LIGHT_TRANSCRIPT_DUMP_DIR"
+    )]
     pub transcript_dump_dir: PathBuf,
 
     /// Max segment duration (seconds)
@@ -92,25 +104,74 @@ pub struct Cli {
     #[arg(long)]
     pub list_devices: bool,
 
-    /// Full-screen TUI (транскрипт + таблица этапов)
+    /// Full-screen TUI (transcript + stage table)
     #[arg(long)]
     pub tui: bool,
 
-    /// Не открывать TUI (только логи в stderr), даже в интерактивном терминале
+    /// Do not open the TUI (logs to stderr only), even in an interactive terminal
     #[arg(long)]
     pub no_tui: bool,
 
-    /// Подробные логи в stderr (tracing), как без TUI
+    /// Verbose logs to stderr (tracing), as without the TUI
     #[arg(long)]
     pub debug: bool,
 
-    /// Подробные строки этапов в TUI (панель Debug: segment / gate / asr / load …)
+    /// Verbose stage lines in the TUI (Debug panel: segment / gate / asr / load …)
     #[arg(long)]
     pub verbose: bool,
 
     /// Parallel ASR worker threads (>1 helps when mic + loopback segments overlap)
     #[arg(long, default_value = "2", env = "LOCALVOX_LIGHT_ASR_WORKERS")]
     pub asr_workers: usize,
+
+    /// Do not write the continuous session audio chunks (the primary artifact for the slow lane, F8)
+    #[arg(long)]
+    pub no_session_chunks: bool,
+
+    /// Audio chunk duration, sec (file rotation; adjacent chunks join sample-exactly)
+    #[arg(long, default_value = "300", env = "LOCALVOX_LIGHT_CHUNK_SEC")]
+    pub chunk_sec: f64,
+
+    /// Audio chunk retention, days; 0 — keep forever
+    #[arg(
+        long,
+        default_value = "14",
+        env = "LOCALVOX_LIGHT_RETENTION_AUDIO_DAYS"
+    )]
+    pub retention_audio_days: u32,
+
+    /// Recompress closed chunks WAV → FLAC (needs ffmpeg in PATH or LOCALVOX_LIGHT_YT_FFMPEG)
+    #[arg(long)]
+    pub chunk_flac: bool,
+
+    /// Legacy: write fast-lane segments to disk, as before WP-B1 (default is RAM)
+    #[arg(long)]
+    pub segments_to_disk: bool,
+
+    /// Watchdog: warn if the microphone is silent for longer than N sec (0 — disable)
+    #[arg(
+        long,
+        default_value = "15",
+        env = "LOCALVOX_LIGHT_MIC_SILENCE_WARN_SEC"
+    )]
+    pub mic_silence_warn_sec: f64,
+
+    /// Pre-roll: seconds "before" the call is detected to pull into the meeting session (WP-C6)
+    #[arg(long, default_value = "15", env = "LOCALVOX_LIGHT_PREROLL_SEC")]
+    pub preroll_sec: f64,
+
+    /// Ambient sessionization: silence longer than N sec cuts the session into a new one; 0 — never cut
+    #[arg(long, default_value = "0", env = "LOCALVOX_LIGHT_SESSION_GAP_SEC")]
+    pub ambient_gap_sec: f64,
+
+    /// Background mode: a tray icon instead of the TUI (Windows; recording + voice + HTTP API)
+    #[arg(long)]
+    pub tray: bool,
+
+    /// Chdir into this directory before reading any config (set by autostart: its
+    /// cwd = system32, while `.env`, `models/` and slots all depend on the directory)
+    #[arg(long, hide = true)]
+    pub cwd: Option<PathBuf>,
 }
 
 fn long_flag_in_argv(long: &str) -> bool {
@@ -119,15 +180,13 @@ fn long_flag_in_argv(long: &str) -> bool {
 }
 
 fn env_truthy(name: &str) -> Option<bool> {
-    std::env::var(name).ok().map(|v| {
-        matches!(
-            v.to_ascii_lowercase().as_str(),
-            "1" | "true" | "yes" | "on"
-        )
-    })
+    std::env::var(name)
+        .ok()
+        .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
 }
 
-/// Булевы флаги из `.env` / окружения, если соответствующий `--long` не передан в argv.
+/// Boolean flags from `.env` / the environment, if the corresponding `--long` was not passed
+/// in argv.
 pub fn merge_env_bools(cli: &mut Cli) {
     if !long_flag_in_argv("--loopback") {
         if let Some(t) = env_truthy("LOCALVOX_LIGHT_LOOPBACK") {
@@ -164,9 +223,29 @@ pub fn merge_env_bools(cli: &mut Cli) {
             cli.list_devices = t;
         }
     }
+    if !long_flag_in_argv("--no-session-chunks") {
+        if let Some(t) = env_truthy("LOCALVOX_LIGHT_NO_SESSION_CHUNKS") {
+            cli.no_session_chunks = t;
+        }
+    }
+    if !long_flag_in_argv("--chunk-flac") {
+        if let Some(t) = env_truthy("LOCALVOX_LIGHT_CHUNK_FLAC") {
+            cli.chunk_flac = t;
+        }
+    }
+    if !long_flag_in_argv("--segments-to-disk") {
+        if let Some(t) = env_truthy("LOCALVOX_LIGHT_SEGMENTS_DISK") {
+            cli.segments_to_disk = t;
+        }
+    }
+    if !long_flag_in_argv("--tray") {
+        if let Some(t) = env_truthy("LOCALVOX_LIGHT_TRAY") {
+            cli.tray = t;
+        }
+    }
 }
 
-/// CLI + optional `localvox-light-config.json` / `--config` (как устройства в client-reliable).
+/// CLI + optional `localvox-light-config.json` / `--config` (like devices in client-reliable).
 pub fn resolve_audio_from_cli_and_file(cli: &Cli) -> crate::light_config::LightDeviceConfig {
     let path = crate::light_config::explicit_config_path(&cli.config)
         .or_else(crate::light_config::cwd_config_path);
@@ -206,29 +285,121 @@ pub fn resolve_audio_from_cli_and_file(cli: &Cli) -> crate::light_config::LightD
     }
 }
 
+/// Third-party libraries that have nothing to say to a human.
+///
+/// **ONNX Runtime.** The `ort` crate creates the ORT environment at level VERBOSE and
+/// offloads filtering onto `tracing` — that is, onto us. Do not filter it, and on EVERY
+/// inference the log gets showered with internal bookkeeping: "Extended allocation by
+/// 16777216 bytes", "Allocated memory at 000001D0…", "GraphTransformer … modified".
+/// These are neither our events nor the user's: this is somebody else's allocator being
+/// debugged. The useful stuff (model load errors, tensor shape mismatches) arrives at
+/// warn+ and gets through.
+///
+/// Silence here is not concealment: `RUST_LOG=ort=info` brings it all back.
+const QUIET_DEPS: [&str; 1] = ["ort=warn"];
+
+/// Log filter: our own level plus silence for third-party libraries.
+///
+/// The silence is LAYERED ON TOP OF `RUST_LOG`, not substituted for it. This is not a
+/// nitpick: `RUST_LOG=info` (which is set in `.env`) would override the default entirely —
+/// and the whole point would be lost, the log flooded with ORT internals again. That is
+/// exactly how this was caught.
+///
+/// Third-party debug output can be brought back by naming the library explicitly:
+/// `RUST_LOG=info,ort=info`. Then we do not interfere — the human knows what they are asking for.
+pub fn log_filter(default_level: &str) -> EnvFilter {
+    let requested = std::env::var("RUST_LOG").unwrap_or_else(|_| default_level.to_string());
+    let mut filter = EnvFilter::new(&requested);
+    for quiet in quiet_directives(&requested) {
+        if let Ok(d) = quiet.parse() {
+            filter = filter.add_directive(d);
+        }
+    }
+    filter
+}
+
+/// Which third-party libraries to silence for a given request. A separate function so that
+/// the rule is proved by a test, rather than eyeballed in the log.
+fn quiet_directives(requested: &str) -> Vec<&'static str> {
+    QUIET_DEPS
+        .iter()
+        .filter(|q| {
+            let target = q.split('=').next().unwrap_or_default();
+            // The human named the library explicitly — we do not argue, they know what they want.
+            !requested.contains(target)
+        })
+        .copied()
+        .collect()
+}
+
+/// Color goes ONLY to a terminal.
+///
+/// The output of a child cook is captured by the daemon and poured into its own log
+/// (WP-C17). Colorize unconditionally and the log gets raw escape sequences —
+/// `\x1b[2m2026-07-13T…\x1b[0m` instead of a timestamp. A log you have to repair with your
+/// eyes is a log people stop reading.
+fn ansi_ok() -> bool {
+    use std::io::IsTerminal;
+    std::io::stderr().is_terminal()
+}
+
+/// Logs for the tools (`localvox-process`, `localvox-api`, `localvox-mcp`): one call —
+/// and both the filter and the color are decided identically in every binary.
+pub fn init_tracing_tool(default_level: &str) {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(log_filter(default_level))
+        .with_target(false)
+        .with_ansi(ansi_ok())
+        .with_writer(std::io::stderr)
+        .try_init();
+}
+
 pub fn init_tracing(debug: bool, tui: bool) {
     let filter = if tui && !debug {
-        // Подробные этапы — в панели TUI с --verbose; в stderr без --debug только error+.
-        EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| EnvFilter::new("error"))
+        // Verbose stages go to the TUI panel with --verbose; to stderr without --debug only error+.
+        log_filter("error")
     } else if debug {
-        EnvFilter::try_from_default_env().unwrap_or_else(|_| {
-            EnvFilter::new("debug,localvox_light_core=debug,localvox_light_core::pipeline=debug")
-        })
+        // Even under --debug, ORT stays silent: the human is debugging OUR code, not
+        // somebody else's allocator. If they want it too — `RUST_LOG=debug,ort=debug`.
+        log_filter("debug,localvox_light_core=debug,localvox_light_core::pipeline=debug")
     } else {
-        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"))
+        log_filter("info")
     };
     let _ = tracing_subscriber::registry()
         .with(filter)
         .with(
             tracing_subscriber::fmt::layer()
                 .with_writer(std::io::stderr)
-                .with_ansi(true),
+                .with_ansi(ansi_ok()),
         )
         .try_init();
 }
 
-/// Путь из CLI / `.env`: trim и снятие одной пары кавычек `"…"` / `'…'` (частая ошибка в .env).
+#[cfg(test)]
+mod log_tests {
+    use super::*;
+
+    /// THE TRAP THIS WAS CAUGHT ON: `.env` has `RUST_LOG=info`, which overrode the
+    /// default ENTIRELY — and ONNX Runtime internals ("Allocated memory at 000001D0…",
+    /// "Extended allocation by 16777216 bytes") flooded the cook log.
+    /// The silence of third-party libraries is layered ON TOP OF any request.
+    #[test]
+    fn a_plain_rust_log_does_not_bring_back_the_noise_of_other_libraries() {
+        assert_eq!(quiet_directives("info"), ["ort=warn"]);
+        assert_eq!(quiet_directives("debug,localvox_light_core=debug"), ["ort=warn"]);
+    }
+
+    /// But if the human ASKED for third-party debug output — they get it. Silence must not
+    /// turn into an inability to look.
+    #[test]
+    fn asking_for_the_library_explicitly_gives_it_back() {
+        assert!(quiet_directives("info,ort=info").is_empty());
+        assert!(quiet_directives("ort=debug").is_empty());
+    }
+}
+
+/// The path from the CLI / `.env`: trim and strip one pair of quotes `"…"` / `'…'`
+/// (a common mistake in .env).
 pub fn normalized_model_path(cli: &Cli) -> String {
     let s = cli.model.trim();
     let b = s.as_bytes();
@@ -246,43 +417,44 @@ pub fn normalized_model_path(cli: &Cli) -> String {
     unquoted.trim().to_string()
 }
 
-/// Проверка каталога распакованной модели Vosk (`am/`, `conf/`, `graph/`).
+/// Validation of an unpacked Vosk model directory (`am/`, `conf/`, `graph/`).
 pub fn validate_vosk_model_dir(p: &Path) -> Result<()> {
     if !p.exists() {
         anyhow::bail!(
-            "Модель Vosk: каталог не найден: {}. По умолчанию ожидается models/vosk-model-ru-0.42 после scripts/setup-vosk.* (или укажите --model).",
+            "Vosk model: directory not found: {}. By default models/vosk-model-ru-0.42 is expected after scripts/setup-vosk.* (or pass --model).",
             p.display()
         );
     }
     if !p.is_dir() {
         anyhow::bail!(
-            "Модель Vosk: ожидается каталог с распакованной моделью, не файл: {}",
+            "Vosk model: a directory with the unpacked model is expected, not a file: {}",
             p.display()
         );
     }
-    // Стандартный архив модели: корень вида vosk-model-ru-0.42/ с am/, conf/, graph/
+    // The standard model archive: a root like vosk-model-ru-0.42/ with am/, conf/, graph/
     let am = p.join("am");
     if !am.is_dir() {
         anyhow::bail!(
-            "Модель Vosk: в {} нет каталога am/. Укажите корень распакованной модели (не родительскую папку и не conf/graph внутри). Внутри должны быть am/, conf/, graph/.",
+            "Vosk model: there is no am/ directory in {}. Point at the root of the unpacked model (not the parent folder and not conf/graph inside it). It must contain am/, conf/, graph/.",
             p.display()
         );
     }
     if !am.join("final.mdl").is_file() {
         anyhow::bail!(
-            "Модель Vosk: нет am/final.mdl в {} — архив модели неполный или повреждён.",
+            "Vosk model: no am/final.mdl in {} — the model archive is incomplete or corrupted.",
             p.display()
         );
     }
     Ok(())
 }
 
-/// До захвата аудио и TUI: модель нужна для записи (не для `--list-devices`).
+/// Before audio capture and the TUI: the model is needed for recording (not for
+/// `--list-devices`).
 pub fn validate_vosk_model(cli: &Cli) -> Result<()> {
     let path_str = normalized_model_path(cli);
     if path_str.is_empty() {
         anyhow::bail!(
-            "LOCALVOX_LIGHT_MODEL пустой. Задайте каталог модели или удалите переменную (дефолт: models/vosk-model-ru-0.42)."
+            "LOCALVOX_LIGHT_MODEL is empty. Set the model directory or remove the variable (default: models/vosk-model-ru-0.42)."
         );
     }
     validate_vosk_model_dir(Path::new(&path_str))
@@ -297,7 +469,7 @@ pub fn print_devices() {
     println!("\n=== Loopback / system audio ===");
     #[cfg(windows)]
     {
-        println!("(Windows: имена выходов для WASAPI loopback)");
+        println!("(Windows: output names for WASAPI loopback)");
         for (i, name) in audio::list_output_device_names() {
             println!("  [{i}] {name}");
         }
@@ -305,9 +477,9 @@ pub fn print_devices() {
     #[cfg(not(windows))]
     {
         #[cfg(target_os = "macos")]
-        println!("(macOS: **выходы** для loopback по CPAL; в конфиг копируйте id)");
+        println!("(macOS: **outputs** for CPAL loopback; copy the id into the config)");
         #[cfg(not(target_os = "macos"))]
-        println!("(Linux и др.: monitor-входы; в конфиг копируйте id)");
+        println!("(Linux and others: monitor inputs; copy the id into the config)");
         let lb = audio::list_loopback_capture_devices();
         #[cfg(target_os = "macos")]
         if lb.is_empty() {

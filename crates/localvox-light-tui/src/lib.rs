@@ -1,4 +1,4 @@
-//! Полноэкранный TUI поверх [`localvox_light_core`] (транскрипт, лог, настройки).
+//! Full-screen TUI on top of [`localvox_light_core`] (transcript, log, settings).
 
 mod keys;
 mod tui;

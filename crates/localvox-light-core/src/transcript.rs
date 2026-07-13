@@ -29,14 +29,11 @@ pub struct TranscriptWriter {
 impl TranscriptWriter {
     pub fn open(session_dir: &Path) -> anyhow::Result<Self> {
         let path = session_dir.join("transcript.jsonl");
-        let file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&path)?;
+        let file = OpenOptions::new().create(true).append(true).open(&path)?;
         Ok(Self { _path: path, file })
     }
 
-    /// Пересоздать transcript.jsonl пустым (дальнейшие append с начала файла).
+    /// Recreate transcript.jsonl as empty (further appends start from the file's head).
     pub fn reopen_truncated(session_dir: &Path) -> anyhow::Result<Self> {
         let path = session_dir.join("transcript.jsonl");
         let file = OpenOptions::new()
@@ -59,7 +56,7 @@ impl TranscriptWriter {
         Ok(())
     }
 
-    /// Все записи из transcript.jsonl по порядку (для гидратации TUI = файлу на диске).
+    /// All entries from transcript.jsonl in order (to hydrate the TUI = the file on disk).
     pub fn read_all_entries(session_dir: &Path) -> Vec<TranscriptEntry> {
         let path = session_dir.join("transcript.jsonl");
         let file = match File::open(&path) {
@@ -92,7 +89,7 @@ impl TranscriptWriter {
     }
 }
 
-/// Ключ сортировки `src0_000042` → (0, 42); иначе в конец (как `session::wav_stem_sort_key`).
+/// Sort key `src0_000042` → (0, 42); otherwise to the end (like `session::wav_stem_sort_key`).
 fn seg_sort_tuple(seg_id: &str) -> (u8, u32) {
     let Some(rest) = seg_id.strip_prefix("src") else {
         return (255, u32::MAX);
@@ -105,15 +102,19 @@ fn seg_sort_tuple(seg_id: &str) -> (u8, u32) {
     (src, seq)
 }
 
-/// Читает `transcript.jsonl` сессии, сортирует по времени записи (RFC3339), затем по (src, seq),
-/// пишет в `dump_root` файл `transcript_dump_YYYY-MM-DD_HHMMSS.jsonl` (не порядок параллельного ASR).
-pub fn export_sorted_jsonl(session_dir: &Path, dump_root: &Path) -> anyhow::Result<(PathBuf, usize)> {
+/// Reads the session's `transcript.jsonl`, sorts by the write time (RFC3339) and then by
+/// (src, seq), and writes the file `transcript_dump_YYYY-MM-DD_HHMMSS.jsonl` into
+/// `dump_root` (not in the order of the parallel ASR).
+pub fn export_sorted_jsonl(
+    session_dir: &Path,
+    dump_root: &Path,
+) -> anyhow::Result<(PathBuf, usize)> {
     if dump_root.as_os_str().is_empty() {
-        anyhow::bail!("каталог дампа пустой (задайте LOCALVOX_LIGHT_TRANSCRIPT_DUMP_DIR)");
+        anyhow::bail!("the dump directory is empty (set LOCALVOX_LIGHT_TRANSCRIPT_DUMP_DIR)");
     }
     let mut entries = TranscriptWriter::read_all_entries(session_dir);
     if entries.is_empty() {
-        anyhow::bail!("нет строк в transcript.jsonl");
+        anyhow::bail!("no lines in transcript.jsonl");
     }
     entries.sort_by(|a, b| {
         let pa = DateTime::parse_from_rfc3339(a.timestamp.trim()).map(|d| d.with_timezone(&Utc));
@@ -146,7 +147,7 @@ pub fn export_sorted_jsonl(session_dir: &Path, dump_root: &Path) -> anyhow::Resu
         use std::os::unix::io::AsRawFd;
         unsafe { libc::fsync(file.as_raw_fd()) };
     }
-    tracing::info!("[dump] export {n} строк → {}", path.display());
+    tracing::info!("[dump] export {n} lines → {}", path.display());
     Ok((path, n))
 }
 
@@ -217,7 +218,7 @@ mod tests {
         let dump = tempdir().unwrap();
         let p = session.path().join("transcript.jsonl");
         let mut f = File::create(&p).unwrap();
-        // Позже по времени, но меньший seq — должен быть вторым после сортировки по времени
+        // Later in time but with a smaller seq — must come second after sorting by time
         writeln!(
             f,
             r#"{{"seg_id":"src0_000002","source_id":0,"text":"b","duration_sec":1.0,"timestamp":"2026-01-01T00:00:02+00:00"}}"#
@@ -231,7 +232,7 @@ mod tests {
         drop(f);
         let (_path, n) = export_sorted_jsonl(session.path(), dump.path()).unwrap();
         assert_eq!(n, 2);
-        // dump — один файл с непредсказуемым именем; читаем единственный jsonl
+        // the dump is a single file with an unpredictable name; we read the only jsonl
         let files: Vec<_> = std::fs::read_dir(dump.path())
             .unwrap()
             .filter_map(|e| e.ok())

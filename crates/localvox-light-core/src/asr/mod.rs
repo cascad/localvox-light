@@ -41,7 +41,11 @@ pub fn speech_ratio(samples: &[f32]) -> f32 {
             speech += 1;
         }
     }
-    if total == 0 { 1.0 } else { speech as f32 / total as f32 }
+    if total == 0 {
+        1.0
+    } else {
+        speech as f32 / total as f32
+    }
 }
 
 /// Trim f32 samples to speech-only portions with padding.
@@ -92,7 +96,11 @@ pub fn trim_to_speech(samples: &[f32], pad_ms: u32) -> Option<Vec<f32>> {
             result.extend_from_slice(&samples[start..end]);
         }
     }
-    if result.is_empty() { None } else { Some(result) }
+    if result.is_empty() {
+        None
+    } else {
+        Some(result)
+    }
 }
 
 #[cfg(test)]

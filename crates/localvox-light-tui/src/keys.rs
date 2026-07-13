@@ -1,8 +1,8 @@
-//! Физические клавиши (как в client-reliable): раскладка не влияет на хоткеи.
+//! Physical keys (as in client-reliable): the keyboard layout does not affect hotkeys.
 
 use crossterm::event::KeyCode;
 
-/// Физическая клавиша (не зависит от раскладки). Русская ЙЦУКЕН → Latin QWERTY.
+/// Physical key (layout-independent). Russian ЙЦУКЕН → Latin QWERTY.
 pub fn physical_key(c: char) -> char {
     match c {
         'q' | 'Q' | 'й' | 'Й' => 'q',

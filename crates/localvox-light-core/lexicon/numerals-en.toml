@@ -1,0 +1,52 @@
+# English numerals → value. Needed by the grounding check: the model writes
+# "over a hundred and fifty" and that is the same 150 that must be in the
+# recording. Without this table every number in an English summary would look
+# invented, and every honest summary would end up quarantined.
+#
+# Merged with the Russian table into one lexicon: the word sets do not collide,
+# so there is nothing to scope by language.
+#
+# Extend with your own forms via a file in LOCALVOX_LEXICON_DIR.
+
+# "One" alone is an article far more often than a count: "one of the tasks",
+# "One decision was taken". Inside a number ("twenty one", "one hundred") it counts.
+articles = ["one"]
+
+# Connector INSIDE a number: "one hundred and fifty". Must not break the group,
+# otherwise the record would yield 100 and 50, and an honest "150" in the summary
+# would look invented.
+connectors = ["and"]
+
+[forms]
+"zero" = 0
+"one" = 1
+"two" = 2
+"three" = 3
+"four" = 4
+"five" = 5
+"six" = 6
+"seven" = 7
+"eight" = 8
+"nine" = 9
+"ten" = 10
+"eleven" = 11
+"twelve" = 12
+"thirteen" = 13
+"fourteen" = 14
+"fifteen" = 15
+"sixteen" = 16
+"seventeen" = 17
+"eighteen" = 18
+"nineteen" = 19
+"twenty" = 20
+"thirty" = 30
+"forty" = 40
+"fifty" = 50
+"sixty" = 60
+"seventy" = 70
+"eighty" = 80
+"ninety" = 90
+"hundred" = 100
+"thousand" = 1000
+"million" = 1000000
+"billion" = 1000000000

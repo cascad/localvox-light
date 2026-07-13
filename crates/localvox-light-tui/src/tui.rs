@@ -1,10 +1,10 @@
-//! Terminal UI: транскрипт + лог (как client-reliable: цвета, хоткеи по физ. клавишам, F2 — устройства).
+//! Terminal UI: transcript + log (as in client-reliable: colors, hotkeys on physical keys, F2 — devices).
 
 use std::io;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
-use std::path::PathBuf;
 
 use anyhow::Result;
 use chrono::Local;
@@ -32,11 +32,11 @@ use localvox_light_core::transcript::export_sorted_jsonl;
 
 use crate::keys::key_matches;
 
-/// Файл transcript.jsonl не ограничен — буфер TUI должен быть большим, иначе «в файле больше строк».
+/// The transcript.jsonl file is unbounded — the TUI buffer must be large, otherwise «the file has more lines».
 const MAX_TRANSCRIPT_LINES: usize = 50_000;
 const MAX_LOG_LINES: usize = 800;
 
-/// 8 сегментов уровня: только ASCII (`#` / `-`), чтобы PowerShell и старые шрифты не показывали ▮▯ как.
+/// 8 level segments: ASCII only (`#` / `-`), so that PowerShell and old fonts do not mangle ▮▯.
 fn level_meter_ascii8(level: f32) -> String {
     let n = (level * 8.0).clamp(0.0, 8.0) as usize;
     let filled = n.min(8);
@@ -51,19 +51,16 @@ fn src_prefix_chars(source_id: u8) -> usize {
     }
 }
 
-/// Высота в строках терминала после переноса по ширине (как в client-reliable).
+/// Height in terminal rows after wrapping by width (as in client-reliable).
 fn row_visual_height(row: &TranscriptRow, inner_w: usize) -> usize {
     if inner_w == 0 {
         return 1;
     }
-    let n = row.ts.chars().count()
-        + 1
-        + src_prefix_chars(row.source_id)
-        + row.text.chars().count();
+    let n = row.ts.chars().count() + 1 + src_prefix_chars(row.source_id) + row.text.chars().count();
     n.div_ceil(inner_w).max(1)
 }
 
-/// Визуальные строки блока «Статус» с Wrap (оценка по ширине `Line`, как у Paragraph).
+/// Visual rows of the «Статус» block with Wrap (estimated from `Line` width, the way Paragraph does it).
 fn status_wrapped_row_count(lines: &[Line], inner_w: usize) -> usize {
     if lines.is_empty() {
         return 1;
@@ -92,7 +89,7 @@ enum TuiMode {
 
 struct SettingsState {
     input_devices: Vec<(usize, String)>,
-    /// Токены для `LightDeviceConfig.mic` / `loopback_device` (CPAL `host:…`, иначе `micidx:` / `lbidx:`).
+    /// Tokens for `LightDeviceConfig.mic` / `loopback_device` (CPAL `host:…`, otherwise `micidx:` / `lbidx:`).
     mic_save_tokens: Vec<String>,
     loopback_save_tokens: Vec<String>,
     output_devices: Vec<(usize, String)>,
@@ -108,12 +105,7 @@ fn format_log_line(log: &StructuredLog) -> String {
     let src = format!("src{}", log.source_id);
     format!(
         "{} {:<8} {:<4} chunk={:>5.2}s proc={:>5.3}s {}",
-        ts,
-        log.stage,
-        src,
-        log.chunk_sec,
-        log.proc_sec,
-        log.detail
+        ts, log.stage, src, log.chunk_sec, log.proc_sec, log.detail
     )
 }
 
@@ -144,7 +136,7 @@ fn input_selected_index(
         .unwrap_or(0)
 }
 
-/// Индекс в `output_devices` (без строки «— нет —»).
+/// Index into `output_devices` (excluding the «— нет —» row).
 fn output_device_row_index(
     loopback_device: &str,
     outputs: &[(usize, String)],
@@ -173,9 +165,8 @@ fn build_settings_state(current: &LightDeviceConfig) -> SettingsState {
         .into_iter()
         .enumerate()
         .map(|(i, (dev, n))| {
-            mic_save_tokens.push(
-                device_id_save_token(&dev).unwrap_or_else(|| format!("micidx:{i}")),
-            );
+            mic_save_tokens
+                .push(device_id_save_token(&dev).unwrap_or_else(|| format!("micidx:{i}")));
             (i, format_device_display(&dev, &n, ""))
         })
         .collect();
@@ -192,16 +183,14 @@ fn build_settings_state(current: &LightDeviceConfig) -> SettingsState {
         let mut tok = Vec::new();
         for (i, (dev, raw)) in list_loopback_capture_devices().into_iter().enumerate() {
             od.push((i + 1, format_device_display(&dev, &raw, "loopback")));
-            tok.push(
-                device_id_save_token(&dev).unwrap_or_else(|| format!("lbidx:{i}")),
-            );
+            tok.push(device_id_save_token(&dev).unwrap_or_else(|| format!("lbidx:{i}")));
         }
         (od, tok)
     };
 
     let input_sel = input_selected_index(&current.mic, &input_devices, &mic_save_tokens)
         .min(input_devices.len().saturating_sub(1));
-    // Строка 0 в списке — «— нет —» (без loopback), дальше устройства loopback.
+    // Row 0 of the list is «— нет —» (no loopback), the loopback devices come after it.
     let output_sel = if !current.loopback {
         0
     } else if output_devices.is_empty() {
@@ -256,14 +245,14 @@ pub fn run(
     let mut transcript_rows: Vec<TranscriptRow> = Vec::new();
     let mut log_lines: Vec<String> = Vec::new();
     let mut status = session_hint;
-    // (число wav без строки в jsonl, сумма их МБ, МБ всех файлов в рабочем каталоге) — см. блок «Статус».
+    // (number of wavs with no line in the jsonl, sum of their MB, MB of all files in the working directory) — see the «Статус» block.
     let mut queue_pending: Option<(usize, f64, f64)> = None;
-    // Уровень mic (src0) / sys (src1), как в client-reliable.
+    // Level of mic (src0) / sys (src1), as in client-reliable.
     let mut audio_level: f32 = 0.0;
     let mut audio_level2: f32 = 0.0;
     let mut focus_log: bool = false;
     let mut log_scroll: usize = 0;
-    // Смещение по визуальным строкам после wrap (не по записям).
+    // Offset in visual rows after the wrap (not in records).
     let mut t_visual_scroll: usize = 0;
     let mut t_follow_bottom: bool = true;
     let mut t_pending_follow: bool = false;
@@ -275,14 +264,14 @@ pub fn run(
     let mut mode = TuiMode::Main;
     let mut settings_state: Option<SettingsState> = None;
 
-    // Всплывающее уведомление снизу (дамп, F2 и т.д.)
+    // Pop-up notification at the bottom (dump, F2 and so on)
     let mut toast_text: Option<String> = None;
     let mut toast_success: bool = true;
     let mut toast_at: Option<Instant> = None;
 
     let mut engine_workspace_dir: Option<PathBuf> = None;
     let mut engine_dump_dir: Option<PathBuf> = None;
-    // Ошибка движка: не выходим из TUI по running == false, пока пользователь не нажмёт q.
+    // Engine error: we do not leave the TUI on running == false until the user presses q.
     let mut fatal_error: Option<String> = None;
 
     let mut last_draw = Instant::now();
@@ -320,14 +309,10 @@ pub fn run(
                                     .get(input_idx)
                                     .cloned()
                                     .or_else(|| {
-                                        st.input_devices
-                                            .get(input_idx)
-                                            .map(|(i, _)| format!("{i}"))
+                                        st.input_devices.get(input_idx).map(|(i, _)| format!("{i}"))
                                     })
                                     .or_else(|| {
-                                        st.input_devices
-                                            .first()
-                                            .map(|(i, _)| format!("{i}"))
+                                        st.input_devices.first().map(|(i, _)| format!("{i}"))
                                     })
                                     .unwrap_or_default();
                                 let loopback_sel = st.output_state.selected().unwrap_or(0);
@@ -423,14 +408,18 @@ pub fn run(
                                 let (Some(sd), Some(dd)) =
                                     (engine_workspace_dir.as_ref(), engine_dump_dir.as_ref())
                                 else {
-                                    toast_text = Some("Экспорт: нет путей рабочего каталога (внутренняя ошибка)".into());
+                                    toast_text = Some(
+                                        "Экспорт: нет путей рабочего каталога (внутренняя ошибка)"
+                                            .into(),
+                                    );
                                     toast_success = false;
                                     toast_at = Some(Instant::now());
                                     continue;
                                 };
                                 if dd.as_os_str().is_empty() {
                                     toast_text = Some(
-                                        "Экспорт: задайте LOCALVOX_LIGHT_TRANSCRIPT_DUMP_DIR".into(),
+                                        "Экспорт: задайте LOCALVOX_LIGHT_TRANSCRIPT_DUMP_DIR"
+                                            .into(),
                                     );
                                     toast_success = false;
                                     toast_at = Some(Instant::now());
@@ -438,8 +427,12 @@ pub fn run(
                                 }
                                 match export_sorted_jsonl(sd, dd) {
                                     Ok((path, n)) => {
-                                        let detail = format!("[dump] {n} строк → {}", path.display());
-                                        toast_text = Some(format!("Экспорт: {n} строк → {}", path.display()));
+                                        let detail =
+                                            format!("[dump] {n} lines → {}", path.display());
+                                        toast_text = Some(format!(
+                                            "Экспорт: {n} строк → {}",
+                                            path.display()
+                                        ));
                                         toast_success = true;
                                         toast_at = Some(Instant::now());
                                         log_lines.push(format_log_line(&StructuredLog {
@@ -474,8 +467,7 @@ pub fn run(
                                 if focus_log {
                                     log_scroll = log_scroll.saturating_add(1);
                                 } else {
-                                    t_visual_scroll =
-                                        (t_visual_scroll + 1).min(t_scroll_max_hint);
+                                    t_visual_scroll = (t_visual_scroll + 1).min(t_scroll_max_hint);
                                     if t_visual_scroll >= t_scroll_max_hint {
                                         t_follow_bottom = true;
                                     }
@@ -563,8 +555,7 @@ pub fn run(
                         if focus_log {
                             log_scroll = log_scroll.saturating_add(3);
                         } else {
-                            t_visual_scroll =
-                                (t_visual_scroll + 3).min(t_scroll_max_hint);
+                            t_visual_scroll = (t_visual_scroll + 3).min(t_scroll_max_hint);
                             if t_visual_scroll >= t_scroll_max_hint {
                                 t_follow_bottom = true;
                             }
@@ -583,9 +574,8 @@ pub fn run(
                     time,
                 }) => {
                     if !t_suppress_until_clear {
-                        let ts = time.unwrap_or_else(|| {
-                            Local::now().format("%H:%M:%S").to_string()
-                        });
+                        let ts =
+                            time.unwrap_or_else(|| Local::now().format("%H:%M:%S").to_string());
                         transcript_rows.push(TranscriptRow {
                             ts,
                             source_id,
@@ -608,8 +598,9 @@ pub fn run(
                     }
                 }
                 Ok(UiMsg::TranscriptHistory(rows)) => {
-                    // Не зависит от t_suppress_until_clear: иначе гонка с [x] в первом кадре —
-                    // история с диска отбрасывается до ClearTranscript, экран пустой после перезапуска/сброса.
+                    // Does not depend on t_suppress_until_clear: otherwise there is a race with [x] on the
+                    // first frame — the history from disk is dropped before ClearTranscript, and the screen
+                    // stays empty after a restart/reset.
                     transcript_rows = rows
                         .into_iter()
                         .map(|(ts, source_id, text)| TranscriptRow {
@@ -644,11 +635,7 @@ pub fn run(
                     unprocessed_mb,
                     workspace_total_mb,
                 }) => {
-                    queue_pending = Some((
-                        unprocessed_wavs,
-                        unprocessed_mb,
-                        workspace_total_mb,
-                    ));
+                    queue_pending = Some((unprocessed_wavs, unprocessed_mb, workspace_total_mb));
                 }
                 Ok(UiMsg::WorkspacePaths {
                     workspace_dir,
@@ -775,10 +762,11 @@ pub fn run(
 
             let area = f.area();
             let (q_n, q_um, q_sm) = queue_pending.unwrap_or((0, 0.0, 0.0));
-            // Строка со статистикой после первого тика движка (раз в 1 с). Не прячем при пустой очереди:
-            // там же «рабочая папка N MB»; иначе строка всплывала только после [x], когда все wav снова «без jsonl».
+            // The stats line shows up after the engine's first tick (once per 1 s). We do not hide it on an
+            // empty queue: it also carries «рабочая папка N MB»; otherwise the line only surfaced after [x],
+            // when every wav was «without a jsonl line» again.
             let show_queue_line = queue_pending.is_some();
-            // Длинная справка — только если терминал достаточно большой (после ресайза пересчитается).
+            // The long help line — only if the terminal is big enough (recomputed after a resize).
             let show_status_help = area.height >= 28 && area.width >= 72;
             let rec_on = record_pcm.load(Ordering::Relaxed);
             let rec_icon = if rec_on { "* REC" } else { "- STOP" };
@@ -850,8 +838,9 @@ pub fn run(
                 status_lines.push(line_status_help);
             }
 
-            // Не использовать Constraint::Min для статуса — ratatui отдаёт «лишнюю» высоту первому Min,
-            // внутри Paragraph остаются пустые строки, транскрипт сжимается. Считаем строки с переносами.
+            // MUST NOT use Constraint::Min for the status — ratatui gives the «spare» height to the first
+            // Min, empty rows are left inside the Paragraph and the transcript gets squeezed. We count the
+            // rows with wrapping ourselves.
             const LOG_PANEL_H: u16 = 8;
             const TRANSCRIPT_MIN_H: u16 = 5;
             const STATUS_BORDER_H: u16 = 2;
@@ -1031,7 +1020,11 @@ pub fn run(
         })?;
     }
 
-    execute!(terminal.backend_mut(), DisableMouseCapture, LeaveAlternateScreen)?;
+    execute!(
+        terminal.backend_mut(),
+        DisableMouseCapture,
+        LeaveAlternateScreen
+    )?;
     terminal::disable_raw_mode()?;
     Ok(())
 }

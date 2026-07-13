@@ -17,14 +17,21 @@ cpal.workspace = true
 hound.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+# Лексикон (имена, аббревиатуры, числительные) — данные в TOML, не код.
+toml.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 uuid.workspace = true
 vosk.workspace = true
 webrtc-vad.workspace = true
+rubato.workspace = true
+# Язык записи (lang.rs): определение по тексту + коды ISO-639.
+whatlang.workspace = true
+isolang.workspace = true
 
 # Опциональные зависимости: ONNX-движки (GigaAM v3 и т.п.).
 ndarray = { workspace = true, optional = true }
+tokenizers = { workspace = true, optional = true }
 ort = { workspace = true, optional = true }
 realfft = { workspace = true, optional = true }
 
@@ -32,13 +39,14 @@ realfft = { workspace = true, optional = true }
 default = []
 # Включает `asr::onnx::*`: trait OnnxAdapter, OnnxEngine + адаптеры (GigaAM v3 и др.).
 # Тащит `ort` (onnxruntime, CPU-провайдер по умолчанию), `ndarray`, `realfft`.
-onnx = ["dep:ndarray", "dep:ort", "dep:realfft"]
+onnx = ["dep:ndarray", "dep:ort", "dep:realfft", "dep:tokenizers"]
 
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 wasapi.workspace = true
+winreg = "0.52"
 
 [dev-dependencies]
 tempfile.workspace = true

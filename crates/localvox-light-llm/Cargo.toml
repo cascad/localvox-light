@@ -1,0 +1,25 @@
+[package]
+name = "localvox-light-llm"
+version.workspace = true
+edition.workspace = true
+description = "LLM processing of transcripts (F1): OpenAI-compatible client (Ollama/OpenAI/OpenRouter), glossary, templates, cleanup/summary, grounding check."
+
+[dependencies]
+localvox-light-core.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+tracing.workspace = true
+ureq.workspace = true
+# Проверка обоснованности (grounding): морфология и близость строк — библиотеки,
+# а не самописные эвристики.
+rust-stemmers.workspace = true
+strsim.workspace = true
+deunicode.workspace = true
+
+[dev-dependencies]
+# Корпусный тест гоняет проверку С NER-моделью, если она есть на диске.
+# Только для тестов: в прод-графе этого крейта ort нет.
+localvox-light-core = { workspace = true, features = ["onnx"] }
+tempfile.workspace = true

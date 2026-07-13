@@ -51,7 +51,7 @@ fn main() {
         match copy_vosk_dlls(&vosk_lib, &dest) {
             Ok(()) => {}
             Err(e) => println!(
-                "cargo:warning=Не удалось скопировать DLL из vosk-lib в {}: {e}. Добавьте vosk-lib в PATH.",
+                "cargo:warning=could not copy the DLL from vosk-lib into {}: {e}. Add vosk-lib to PATH.",
                 dest.display()
             ),
         }

@@ -2,7 +2,7 @@
 name = "localvox-light-asr"
 version.workspace = true
 edition.workspace = true
-description = "CLI для офлайн-транскрипции через ONNX-модели (GigaAM v3 и т.п.); ingestion общий с localvox-light-youtube."
+description = "CLI for offline transcription with ONNX models (GigaAM v3 and the like); ingestion is shared with localvox-light-youtube."
 
 [[bin]]
 name = "localvox-asr"
@@ -11,8 +11,13 @@ path = "src/main.rs"
 [dependencies]
 localvox-light-core = { workspace = true, features = ["onnx"] }
 localvox-light-ingest.workspace = true
+localvox-light-llm.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 dotenvy.workspace = true
+# Логи. Без подписчика все warn!/error! библиотек уходят в никуда — а именно ими
+# сообщается «диаризация не работает» и «проверка имён выключена».
+tracing.workspace = true
+tracing-subscriber.workspace = true
 url.workspace = true
 indicatif.workspace = true

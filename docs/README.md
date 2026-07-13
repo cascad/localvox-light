@@ -8,6 +8,10 @@
 | [work-plan.md](work-plan.md) | **План работ** | Stage 0 (замеры) + фазы A–D: пакеты работ, задачи, критерии приёмки, риски |
 | [feature-backlog.md](feature-backlog.md) | **Фичи (история)** | Видение, принципы данных, детали F1–F10, идеи-пул, кандидаты из Summit, фазировка, журнал решений |
 | [user-scenarios.md](user-scenarios.md) | **Сценарии** | 11 пользовательских сценариев S1–S11 с привязкой к фичам/фазам и сводкой «что оживает по фазам» |
+| [worklog.md](worklog.md) | **Devlog** | Журнал: проблема/идея → сделано → проверено → сюжет для публичной заметки |
+| [asr-bench.md](asr-bench.md) | **Качество ASR** | `localvox-bench`: WER/CER на эталонных наборах (Golos, Russian LibriSpeech), свип по окнам, сборка long-form; измеренные числа и как перемерить перед релизом |
+| [uat-checklist.md](uat-checklist.md) | **Приёмка** | Ручной чек-лист: трей, автоварка, веб-архив, плеер, поиск, голос, устойчивость |
+| [integrations.md](integrations.md) | **How-to** | Слоты и интеграции: настройка slots.toml (files/папки/MCP), localvox-note |
 | [local-models.md](local-models.md) | **Модели** | Локальные модели по задачам (ASR, LLM, TTS, embeddings, диаризация, VAD, wake-word) с рекомендациями под наш стек |
 | [architecture-target.md](architecture-target.md) | **Архитектура** | Слои ядро/модули/клиенты, целевая топология, крейты, layout данных, конфиг, API-поверхность, кроссплатформенность |
 | [mobile-companion.md](mobile-companion.md) | **Мобильный** | Ярусы 0 (vault-синк) / 1 (PWA) / 2 (натив), удалённый доступ без облака |

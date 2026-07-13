@@ -13,30 +13,62 @@ use std::str::FromStr;
 use anyhow::{Context, Result};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::DeviceId;
-use crossbeam_channel::{Sender, TrySendError};
+use crossbeam_channel::Sender;
 
 use crate::events::UiMsg;
 
 pub const SAMPLE_RATE: u32 = 16000;
 pub const CHUNK_FRAMES: usize = 512;
 
+/// How many samples of each source actually ARRIVED from the device and went into the
+/// channel.
+///
+/// Counted HERE, at the entrance — and that is the whole point. Loss of a recording is a
+/// question about the DEVICE: did the sound reach us at all. Everything past this line is
+/// our own queue, and a queue is a delay, not a loss.
+///
+/// The integrity watchdog used to count on the consumer side, and it lied: when the cook
+/// saturated the cores, the consumer fell behind, the audio piled up in the (unbounded)
+/// channel — and the watchdog shouted «RECORDING LOSS» about audio that was safely sitting
+/// in memory. A warning that cries wolf is worse than no warning: it stops being read.
+///
+/// A process-global counter is honest here: one process records exactly one workspace (the
+/// single-instance lock guarantees it).
+static CAPTURED: [std::sync::atomic::AtomicU64; 2] = [
+    std::sync::atomic::AtomicU64::new(0),
+    std::sync::atomic::AtomicU64::new(0),
+];
+
+/// Samples that came from the device for this source since the process started.
+pub fn captured(source_id: u8) -> u64 {
+    CAPTURED
+        .get(source_id as usize)
+        .map(|c| c.load(std::sync::atomic::Ordering::Relaxed))
+        .unwrap_or(0)
+}
+
+fn count_captured(source_id: u8, n: usize) {
+    if let Some(c) = CAPTURED.get(source_id as usize) {
+        c.fetch_add(n as u64, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
 pub struct PcmChunk {
     pub source_id: u8,
     pub samples: Vec<i16>,
 }
 
-/// RMS → 0..1 для шкалы из 8 блоков (как client-reliable: `rms/32768*12`, min 1.0).
+/// RMS → 0..1 for an 8-block meter (as in client-reliable: `rms/32768*12`, min 1.0).
 pub fn pcm_level_i16(samples: &[i16]) -> f32 {
     if samples.is_empty() {
         return 0.0;
     }
-    let rms: f64 = (samples.iter().map(|&s| (s as f64).powi(2)).sum::<f64>()
-        / samples.len() as f64)
-        .sqrt();
+    let rms: f64 =
+        (samples.iter().map(|&s| (s as f64).powi(2)).sum::<f64>() / samples.len() as f64).sqrt();
     (rms / 32768.0 * 12.0).min(1.0) as f32
 }
 
-/// Строка для отображения устройства (имя + производитель + id) — как в client-reliable.
+/// Display line for a device (name + manufacturer + id) — as in client-reliable.
 pub fn format_device_display(dev: &cpal::Device, name: &str, extra: &str) -> String {
     let id_str = dev
         .id()
@@ -80,13 +112,13 @@ fn fallback_output_list_default_only() -> Vec<(usize, String)> {
 pub fn list_output_device_names() -> Vec<(usize, String)> {
     #[cfg(windows)]
     {
-        // CoCreateInstance(MMDeviceEnumerator) падает без CoInitializeEx на этом потоке;
-        // loopback в отдельном потоке вызывает initialize_mta, главный поток TUI — нет.
+        // CoCreateInstance(MMDeviceEnumerator) fails without CoInitializeEx on this thread;
+        // loopback in its own thread calls initialize_mta, the TUI main thread does not.
         let _ = wasapi::initialize_mta();
         let enumerator = match wasapi::DeviceEnumerator::new() {
             Ok(e) => e,
             Err(e) => {
-                tracing::warn!(error = ?e, "WASAPI DeviceEnumerator (список loopback)");
+                tracing::warn!(error = ?e, "WASAPI DeviceEnumerator (loopback list)");
                 return fallback_output_list_default_only();
             }
         };
@@ -130,23 +162,24 @@ pub fn list_output_device_names() -> Vec<(usize, String)> {
     }
 }
 
-/// Источники для захвата «системного» звука (не Windows).
+/// Sources for capturing "system" sound (non-Windows).
 ///
-/// **macOS (CPAL ≥ 0.17, Sequoia+):** loopback — это не отдельный вход в списке, а `build_input_stream`
-/// на **output**-устройстве (динамики). Поэтому здесь перечисляются **выходы** с `supports_output()`;
-/// приоритет — устройства **без** физического входа (`!supports_input()`), иначе CPAL откроет микрофон, а не tap.
+/// **macOS (CPAL ≥ 0.17, Sequoia+):** loopback is not a separate input in the list, it is
+/// `build_input_stream` on an **output** device (speakers). So what is enumerated here are
+/// **outputs** with `supports_output()`; priority goes to devices **without** a physical
+/// input (`!supports_input()`), otherwise CPAL opens the microphone rather than the tap.
 ///
-/// **Linux:** виртуальные входы monitor (PipeWire/Pulse), подстрока `monitor` в имени.
+/// **Linux:** virtual monitor inputs (PipeWire/Pulse), the substring `monitor` in the name.
 ///
-/// Порядок перечисления может слегка меняться — в конфиг лучше сохранять `device.id()`.
+/// The enumeration order may shift slightly — better to store `device.id()` in the config.
 #[cfg(all(not(windows), target_os = "macos"))]
 pub fn list_loopback_capture_devices() -> Vec<(cpal::Device, String)> {
     let host = cpal::default_host();
     let Ok(iter) = host.output_devices() else {
         return Vec::new();
     };
-    // Не отбрасывать устройство, если description() временно пустой — иначе список «loopback» может
-    // стать пустым при живых выходах (редко, но на отдельных сборках/OS встречалось).
+    // Do not drop a device if description() is temporarily empty — otherwise the "loopback"
+    // list can come out empty while outputs are alive (rare, but seen on some builds/OSes).
     let outs: Vec<(cpal::Device, String)> = iter
         .map(|dev| {
             let name = dev
@@ -154,13 +187,14 @@ pub fn list_loopback_capture_devices() -> Vec<(cpal::Device, String)> {
                 .map(|d| d.name().to_string())
                 .unwrap_or_else(|_| {
                     dev.id()
-                        .map(|id| format!("(имя недоступно) {id}"))
-                        .unwrap_or_else(|_| "(устройство без имени)".into())
+                        .map(|id| format!("(name unavailable) {id}"))
+                        .unwrap_or_else(|_| "(unnamed device)".into())
                 });
             (dev, name)
         })
         .collect();
-    // Предпочитаем чистые выходы: иначе CPAL на combo-устройстве откроет микрофон, а не tap с выхода.
+    // Prefer pure outputs: otherwise on a combo device CPAL opens the microphone, not the
+    // tap from the output.
     let output_only: Vec<(cpal::Device, String)> = outs
         .iter()
         .filter(|(d, _)| !d.supports_input())
@@ -172,19 +206,19 @@ pub fn list_loopback_capture_devices() -> Vec<(cpal::Device, String)> {
     outs
 }
 
-/// Если `list_loopback_capture_devices` пуста при `--list-devices` на macOS — краткая подсказка.
+/// If `list_loopback_capture_devices` is empty under `--list-devices` on macOS — a short hint.
 #[cfg(all(not(windows), target_os = "macos"))]
 pub fn macos_loopback_empty_hint() -> Option<String> {
     let host = cpal::default_host();
     match host.output_devices() {
         Err(e) => Some(format!(
-            "cpal не смог перечислить выходы: {e}. Обычно это не про «имя устройства», а окружение (sandbox, нет GUI-сессии) или ограничения доступа. Для записи системного звука на macOS 14.6+ у терминала/IDE часто нужно разрешение «Микрофон» (Настройки → Конфиденциальность и безопасность)."
+            "cpal could not enumerate outputs: {e}. Usually this is not about the \"device name\" but about the environment (sandbox, no GUI session) or access restrictions. To record system audio on macOS 14.6+, the terminal/IDE often needs the \"Microphone\" permission (Settings → Privacy & Security)."
         )),
         Ok(iter) => {
             let n = iter.count();
             if n == 0 {
                 Some(
-                    "CoreAudio вернул 0 выходов (при этом входы могут быть видны). Проверьте: не SSH без аудио-сессии, не обрезанная VM; встроенные динамики в «Звук» включены.".into(),
+                    "CoreAudio returned 0 outputs (inputs may still be visible). Check: not SSH without an audio session, not a stripped-down VM; the built-in speakers are enabled in \"Sound\".".into(),
                 )
             } else {
                 None
@@ -211,7 +245,7 @@ pub fn list_loopback_capture_devices() -> Vec<(cpal::Device, String)> {
     .collect()
 }
 
-/// Стабильный идентификатор CPAL для сохранения в конфиг (не зависит от языка ОС).
+/// Stable CPAL identifier to store in the config (independent of the OS language).
 pub fn device_id_save_token(dev: &cpal::Device) -> Option<String> {
     dev.id().ok().map(|id| id.to_string())
 }
@@ -222,22 +256,23 @@ fn resolve_input_device_by_id_str(id_str: &str) -> Result<cpal::Device> {
         .with_context(|| format!("Invalid CPAL device id: {id_str}"))?;
     let dev = host
         .device_by_id(&id)
-        .with_context(|| format!("No device for id {id_str} (отключено или другое имя хоста)"))?;
+        .with_context(|| format!("No device for id {id_str} (unplugged, or a different host name)"))?;
     anyhow::ensure!(
         dev.supports_input(),
-        "Устройство {id_str} не поддерживает ввод (input)"
+        "Device {id_str} does not support input"
     );
     Ok(dev)
 }
 
-/// Для loopback: на macOS id относится к **выходу** (динамики), `supports_input` не требуется.
+/// For loopback: on macOS the id refers to an **output** (speakers), `supports_input` is not
+/// required.
 #[cfg(not(windows))]
 fn resolve_device_by_id_for_loopback(id_str: &str) -> Result<cpal::Device> {
     let host = cpal::default_host();
     let id = DeviceId::from_str(id_str.trim())
         .with_context(|| format!("Invalid CPAL device id: {id_str}"))?;
     host.device_by_id(&id)
-        .with_context(|| format!("No device for id {id_str} (отключено или другое имя хоста)"))
+        .with_context(|| format!("No device for id {id_str} (unplugged, or a different host name)"))
 }
 
 pub fn resolve_mic(query: &str) -> Result<cpal::Device> {
@@ -253,12 +288,12 @@ pub fn resolve_mic(query: &str) -> Result<cpal::Device> {
     if let Some(rest) = q.strip_prefix("micidx:") {
         let idx: usize = rest
             .parse()
-            .with_context(|| format!("micidx: ожидалось число, получено {rest}"))?;
+            .with_context(|| format!("micidx: a number was expected, got {rest}"))?;
         return collect_input_devices()
             .into_iter()
             .nth(idx)
             .map(|(d, _)| d)
-            .with_context(|| format!("micidx:{idx} — нет такого индекса в списке микрофонов"));
+            .with_context(|| format!("micidx:{idx} — no such index in the microphone list"));
     }
     let devices = collect_input_devices();
     if let Ok(idx) = q.parse::<usize>() {
@@ -297,12 +332,12 @@ fn resolve_loopback_input(query: &str) -> Result<cpal::Device> {
     if let Some(rest) = q.strip_prefix("lbidx:") {
         let idx: usize = rest
             .parse()
-            .with_context(|| format!("lbidx: ожидалось число, получено {rest}"))?;
+            .with_context(|| format!("lbidx: a number was expected, got {rest}"))?;
         return list_loopback_capture_devices()
             .into_iter()
             .nth(idx)
             .map(|(d, _)| d)
-            .with_context(|| format!("lbidx:{idx} — нет такого loopback-входа"));
+            .with_context(|| format!("lbidx:{idx} — no such loopback input"));
     }
 
     if DeviceId::from_str(q).is_ok() {
@@ -338,11 +373,11 @@ fn resolve_loopback_input(query: &str) -> Result<cpal::Device> {
         return Ok(d);
     }
 
-    // Не вызываем resolve_mic: на macOS микрофонные входы — отдельные устройства; подстрочное
-    // совпадение имени могло бы открыть микрофон как «sys», что семантически неверно.
+    // We do not call resolve_mic: on macOS microphone inputs are separate devices; a substring
+    // name match could open the microphone as "sys", which is semantically wrong.
     anyhow::bail!(
         "Loopback device '{q}' not found. Use CPAL id from `--list-devices`, or `lbidx:N`, or `default-output`. \
-         macOS: id — выход (динамики); Linux: обычно monitor-вход с подстрокой \"monitor\" в имени."
+         macOS: the id is an output (speakers); Linux: usually a monitor input with the substring \"monitor\" in its name."
     );
 }
 
@@ -356,26 +391,81 @@ fn to_mono(data: &[f32], channels: u16) -> Vec<f32> {
         .collect()
 }
 
-fn resample(src: &[f32], src_rate: u32) -> Vec<f32> {
-    if src_rate == SAMPLE_RATE {
-        return src.to_vec();
+/// Microphone resampler → 16 kHz, WITH MEMORY between calls.
+///
+/// **What was wrong.** The previous code interpolated linearly and WITHOUT A FILTER:
+///
+/// * **aliasing.** At 48 → 16 kHz everything above 8 kHz folds back into the audible
+///   range and lands on top of the voice. That is exactly the "artifacts in the
+///   background", and it is the same thing that ruins ASR: the model hears what was
+///   never there.
+/// * **a discontinuity at the seam.** Every callback restarted the interpolation from
+///   position zero — clicks were born on the buffer boundaries.
+///
+/// This is a job for a library, not for twenty lines eyeballed by hand: `rubato` computes
+/// the filter via FFT and keeps the tail between blocks.
+struct Downsampler {
+    inner: rubato::FftFixedIn<f32>,
+    /// The input accumulates: the resampler needs a fixed-length block.
+    pending: Vec<f32>,
+    chunk_in: usize,
+}
+
+impl Downsampler {
+    /// The input block. 1024 frames at 48 kHz is 21 ms: the latency is unnoticeable, while
+    /// the FFT works at a length where it is efficient.
+    const CHUNK_IN: usize = 1024;
+
+    fn new(src_rate: u32) -> Option<Self> {
+        if src_rate == SAMPLE_RATE {
+            return None; // nothing to convert
+        }
+        match rubato::FftFixedIn::<f32>::new(
+            src_rate as usize,
+            SAMPLE_RATE as usize,
+            Self::CHUNK_IN,
+            1, // sub_chunks
+            1, // mono
+        ) {
+            Ok(inner) => Some(Self {
+                inner,
+                pending: Vec::with_capacity(Self::CHUNK_IN * 2),
+                chunk_in: Self::CHUNK_IN,
+            }),
+            Err(e) => {
+                // Silently handing back the raw stream is not an option: it would go into
+                // the file at somebody else's rate and the recording would play at the
+                // wrong speed.
+                tracing::error!("resampler {src_rate}→{SAMPLE_RATE} Hz was not created: {e}");
+                None
+            }
+        }
     }
-    let ratio = src_rate as f64 / SAMPLE_RATE as f64;
-    let out_len = (src.len() as f64 / ratio).ceil() as usize;
-    (0..out_len)
-        .map(|i| {
-            let pos = i as f64 * ratio;
-            let idx = pos as usize;
-            let frac = (pos - idx as f64) as f32;
-            let a = src[idx.min(src.len() - 1)];
-            let b = src[(idx + 1).min(src.len() - 1)];
-            a + (b - a) * frac
-        })
-        .collect()
+
+    /// Returns as many 16 kHz samples as are already ready. The remainder is kept until the
+    /// next call — no seams appear.
+    fn push(&mut self, src: &[f32]) -> Vec<f32> {
+        use rubato::Resampler as _;
+        self.pending.extend_from_slice(src);
+        let mut out = Vec::new();
+        while self.pending.len() >= self.chunk_in {
+            let block: Vec<f32> = self.pending.drain(..self.chunk_in).collect();
+            match self.inner.process(&[block], None) {
+                Ok(mut res) => {
+                    if let Some(ch) = res.pop() {
+                        out.extend(ch);
+                    }
+                }
+                Err(e) => tracing::warn!("resampling: {e}"),
+            }
+        }
+        out
+    }
 }
 
 /// Capture from a cpal input device (mic). Resamples to 16 kHz mono.
-/// При `reload_gen`: выход из потока, если счётчик стал ≠ `reload_snapshot` (смена устройства из TUI).
+/// With `reload_gen`: leave the thread if the counter becomes ≠ `reload_snapshot`
+/// (device changed from the TUI).
 pub fn mic_capture(
     device: cpal::Device,
     source_id: u8,
@@ -385,7 +475,8 @@ pub fn mic_capture(
     reload_gen: Option<Arc<AtomicU64>>,
     reload_snapshot: u64,
 ) -> Result<()> {
-    // CPAL macOS loopback: output-only device → default_output_config + build_input_stream (см. examples/record_wav.rs).
+    // CPAL macOS loopback: output-only device → default_output_config + build_input_stream
+    // (see examples/record_wav.rs).
     let supported = if device.supports_input() {
         device
             .default_input_config()
@@ -393,7 +484,7 @@ pub fn mic_capture(
     } else {
         device
             .default_output_config()
-            .context("default_output_config (захват с выхода / loopback)")?
+            .context("default_output_config (capture from an output / loopback)")?
     };
     let native_rate = supported.sample_rate();
     let native_channels = supported.channels();
@@ -404,6 +495,8 @@ pub fn mic_capture(
     };
 
     let mut pcm_buf: Vec<i16> = Vec::with_capacity(CHUNK_FRAMES * 4);
+    // The resampler lives BETWEEN callback invocations — otherwise every seam clicks.
+    let mut down = Downsampler::new(native_rate);
     let tx2 = tx.clone();
     let running2 = running.clone();
     let level2 = level_ui.clone();
@@ -415,7 +508,10 @@ pub fn mic_capture(
                 return;
             }
             let mono = to_mono(data, native_channels);
-            let resampled = resample(&mono, native_rate);
+            let resampled = match down.as_mut() {
+                Some(d) => d.push(&mono),
+                None => mono, // the device already gives 16 kHz
+            };
             let samples: Vec<i16> = resampled
                 .iter()
                 .map(|&s| (s * 32767.0).clamp(-32768.0, 32767.0) as i16)
@@ -427,12 +523,30 @@ pub fn mic_capture(
                     let level = pcm_level_i16(&chunk);
                     let _ = u.send(UiMsg::AudioLevel { source_id, level });
                 }
-                match tx2.try_send(PcmChunk {
-                    source_id,
-                    samples: chunk,
-                }) {
-                    Ok(()) => {}
-                    Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {}
+                // WE SEND, WE DO NOT TRY. There used to be a `try_send` here, and on a full
+                // queue a piece of the recording was SILENTLY DROPPED.
+                //
+                // That threw away the one thing that is unrecoverable. The transcript, the
+                // summary, the index — all of it can be recreated FROM THE AUDIO. The audio
+                // cannot be recreated from anything.
+                //
+                // Acceptance 13.07.2026, live archive: under load (cook + LLM saturating the
+                // cores) the consumer starved, the 33-second queue filled up — and HALF the
+                // time got recorded. The file came out twice as short as reality: it played
+                // twice as fast, clicked at the seams, and the ASR was fed time-compressed
+                // mush. There was nothing to learn about it from.
+                //
+                // The channel is now unbounded: 32 KB/s per source — even a minute-long
+                // stall is 2 MB. Losing the recording is incomparably more expensive.
+                count_captured(source_id, chunk.len());
+                if tx2
+                    .send(PcmChunk {
+                        source_id,
+                        samples: chunk,
+                    })
+                    .is_err()
+                {
+                    return; // the receiver is gone — nowhere to write
                 }
             }
         },
@@ -473,9 +587,12 @@ pub fn loopback_capture(
         .map_err(|e| anyhow::anyhow!("get_iaudioclient: {e:?}"))?;
 
     let desired_format = wasapi::WaveFormat::new(
-        16, 16,
+        16,
+        16,
         &wasapi::SampleType::Int,
-        SAMPLE_RATE as usize, 1, None,
+        SAMPLE_RATE as usize,
+        1,
+        None,
     );
     let (_, min_time) = audio_client
         .get_device_period()
@@ -506,6 +623,23 @@ pub fn loopback_capture(
     let chunk_bytes = CHUNK_FRAMES * blockalign;
     let mut sample_queue: VecDeque<u8> = VecDeque::with_capacity(chunk_bytes * 8);
 
+    // SILENCE IS ALSO A RECORDING, and it must occupy its real time.
+    //
+    // WASAPI loopback gives NOTHING while not a single application is playing sound — not
+    // silent buffers, simply no packets at all. Without padding, the system-audio track then
+    // becomes SHORTER than reality: 126 seconds of the world turn into 119 seconds of the
+    // file. Everything that comes later stands in the wrong place relative to the microphone,
+    // and the integrity watchdog honestly screams «RECORDING LOSS» — it is right, the audio
+    // really is missing.
+    //
+    // So we top the track up with silence to real time. A pause in a conversation is a fact
+    // of the conversation; a recording in which pauses are cut out is a lie about it.
+    let started = std::time::Instant::now();
+    let mut emitted: u64 = 0;
+    // We only top up when we have fallen behind by more than a quarter of a second: the
+    // device breathes unevenly, and fighting it over every 10 ms would only add jitter.
+    const PAD_AFTER_SAMPLES: u64 = SAMPLE_RATE as u64 / 4;
+
     while running.load(Ordering::Relaxed) {
         if let Some(ref rg) = reload_gen {
             if rg.load(Ordering::SeqCst) != reload_snapshot {
@@ -530,12 +664,39 @@ pub fn loopback_capture(
                     level,
                 });
             }
-            match tx.try_send(PcmChunk {
-                source_id: 1,
-                samples: pcm,
-            }) {
-                Ok(()) => {}
-                Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {}
+            // See the comment in mic_capture: we NEVER drop audio.
+            emitted += pcm.len() as u64;
+            count_captured(1, pcm.len());
+            if tx
+                .send(PcmChunk {
+                    source_id: 1,
+                    samples: pcm,
+                })
+                .is_err()
+            {
+                break; // the receiver is gone
+            }
+        }
+        // Nothing is playing in the system — top the track up with silence so that its time
+        // matches the world's. Otherwise the pause simply falls out of the recording.
+        let expected =
+            (started.elapsed().as_secs_f64() * f64::from(SAMPLE_RATE)) as u64;
+        if expected > emitted + PAD_AFTER_SAMPLES {
+            let mut missing = expected - emitted;
+            while missing > 0 {
+                let n = missing.min(CHUNK_FRAMES as u64) as usize;
+                emitted += n as u64;
+                missing -= n as u64;
+                count_captured(1, n);
+                if tx
+                    .send(PcmChunk {
+                        source_id: 1,
+                        samples: vec![0i16; n],
+                    })
+                    .is_err()
+                {
+                    break;
+                }
             }
         }
         if h_event.wait_for_event(100).is_err() {}
@@ -608,4 +769,91 @@ pub fn loopback_capture(
         reload_gen,
         reload_snapshot,
     )
+}
+
+#[cfg(test)]
+mod resample_tests {
+    use super::*;
+
+    /// Signal energy at frequency `f` (a plain correlation with a sine and a cosine).
+    fn energy_at(samples: &[f32], f: f64, rate: f64) -> f64 {
+        let (mut re, mut im) = (0.0, 0.0);
+        for (n, &s) in samples.iter().enumerate() {
+            let a = 2.0 * std::f64::consts::PI * f * n as f64 / rate;
+            re += f64::from(s) * a.cos();
+            im += f64::from(s) * a.sin();
+        }
+        (re * re + im * im).sqrt() / samples.len() as f64
+    }
+
+    fn sine(freq: f64, rate: f64, n: usize) -> Vec<f32> {
+        (0..n)
+            .map(|i| (2.0 * std::f64::consts::PI * freq * i as f64 / rate).sin() as f32 * 0.5)
+            .collect()
+    }
+
+    /// A continuous sine, cut into blocks. CONTINUOUS is the whole point: generating every
+    /// block from zero phase means tearing the signal at the seams, and then we would be
+    /// measuring our own clicks rather than the filter.
+    fn blocks(freq: f64, rate: f64, block: usize, count: usize) -> Vec<Vec<f32>> {
+        let all = sine(freq, rate, block * count);
+        all.chunks(block).map(<[f32]>::to_vec).collect()
+    }
+
+    /// ALIASING — that very "dirt in the background".
+    ///
+    /// A 12 kHz tone at 48 kHz lies ABOVE the Nyquist frequency for 16 kHz (8 kHz). Without
+    /// a filter it does not disappear, it FOLDS back: 16000 − 12000 = 4 kHz — right into the
+    /// middle of the voice range, on top of the speech. The previous linear interpolation did
+    /// exactly that, and it ruined not only the listening but the ASR too.
+    #[test]
+    fn a_tone_above_nyquist_is_filtered_out_not_folded_onto_the_voice() {
+        let mut d = Downsampler::new(48_000).expect("resampler 48k→16k");
+        let mut out = Vec::new();
+        // several blocks — this also checks that the state lives between calls
+        for b in blocks(12_000.0, 48_000.0, 1024, 8) {
+            out.extend(d.push(&b));
+        }
+        assert!(out.len() > 2000, "the resampler produced nothing: {}", out.len());
+
+        let ghost = energy_at(&out, 4_000.0, 16_000.0); // where the tone would have folded to
+        let full = out.iter().map(|s| f64::from(*s).abs()).sum::<f64>() / out.len() as f64;
+        assert!(
+            ghost < 0.01 && full < 0.05,
+            "the 12 kHz tone folded into the audible range: ghost at 4 kHz = {ghost:.4}, \
+             mean amplitude = {full:.4}"
+        );
+    }
+
+    /// And the voice gets through. The filter must not mute the very thing all of this is for.
+    #[test]
+    fn a_voice_frequency_survives_the_downsample() {
+        let mut d = Downsampler::new(48_000).unwrap();
+        let mut out = Vec::new();
+        for b in blocks(1_000.0, 48_000.0, 1024, 8) {
+            out.extend(d.push(&b));
+        }
+        // The resampler emits the first block with the filter's latency — measure on the tail.
+        let tail = &out[out.len() / 2..];
+        let kept = energy_at(tail, 1_000.0, 16_000.0);
+        assert!(kept > 0.15, "the 1 kHz tone (speech) is lost: {kept:.4}");
+    }
+
+    /// Duration MUST be preserved: as much time went in, as much must come out.
+    /// Otherwise the recording plays at the wrong speed (that is exactly the bug the channel
+    /// had).
+    #[test]
+    fn time_is_preserved_one_to_one() {
+        let mut d = Downsampler::new(48_000).unwrap();
+        let mut out = 0usize;
+        // 48000 samples = exactly 1 second
+        for b in blocks(440.0, 48_000.0, 1024, 48_000 / 1024) {
+            out += d.push(&b).len();
+        }
+        let sec = out as f64 / f64::from(SAMPLE_RATE);
+        assert!(
+            (sec - 1.0).abs() < 0.05,
+            "a second of input produced {sec:.3} s of output — the recording will drift in time"
+        );
+    }
 }
