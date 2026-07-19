@@ -731,6 +731,10 @@ pub fn respond(
                             "label": s.label,
                             "hint": s.hint,
                             "kind": s.kind,
+                            // When it starts working. The screen says this BEFORE the save, per
+                            // field: «требуется перезапуск» over the whole page was a lie in both
+                            // directions — it made live settings look dead and hid the sleeping ones.
+                            "applies": s.applies,
                             "options": options,
                             // A secret is never echoed back — only whether it is set. A token that
                             // travels to the screen on every poll is a token in every log and cache
@@ -782,13 +786,26 @@ pub fn respond(
                     changes.push((k.clone(), value));
                 }
                 let path = localvox_light_core::env_file::save(&changes)?;
+                // The file is the record; the process is what is running. Both, in that order:
+                // if the write fails there is nothing to apply, and a value applied but not
+                // saved would vanish on the next start with no trace of why.
+                let need_restart = localvox_light_core::settings::apply_live(&changes);
+                let msg = if need_restart.is_empty() {
+                    "Сохранено и применено".to_string()
+                } else {
+                    // Named, not counted. «Некоторые настройки требуют перезапуска» sends a
+                    // person to compare the whole screen against their memory.
+                    format!(
+                        "Сохранено. Применится после перезапуска: {}",
+                        need_restart.join(", ")
+                    )
+                };
                 Ok(json!({
                     "ok": true,
                     "path": path.to_string_lossy(),
                     "saved": changes.len(),
-                    // Said plainly, because it is the difference between "did not work" and "not
-                    // yet": these values are read once, when the daemon starts.
-                    "msg": "Сохранено в .env — применится после перезапуска",
+                    "need_restart": need_restart,
+                    "msg": msg,
                 }))
             }
             // A link → a session. The session appears in the archive AT ONCE, empty, carrying

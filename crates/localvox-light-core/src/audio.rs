@@ -1026,3 +1026,49 @@ mod resample_tests {
         );
     }
 }
+
+/// THE LIVE CAPTURE CONTROLS, handed over by the composition root.
+///
+/// The engine already knows how to move capture to another device without a restart: the streams
+/// read `LightDeviceConfig` out of a shared lock and re-open themselves when `reload_gen` moves —
+/// that is how the daemon follows the system default when a headset connects.
+///
+/// What was missing was a caller. The device screen wrote the new name into `.env` and said
+/// «перезапустите демон», while the machinery to do it live sat unused. Registered here by `main`
+/// so that saving a device setting can reach it; nothing below the composition root creates it,
+/// and a process that never registers (the CLI, the tests) simply has no live switch.
+static CAPTURE: std::sync::OnceLock<CaptureControls> = std::sync::OnceLock::new();
+
+pub struct CaptureControls {
+    pub devices: std::sync::Arc<std::sync::RwLock<crate::LightDeviceConfig>>,
+    pub reload_gen: std::sync::Arc<std::sync::atomic::AtomicU64>,
+}
+
+pub fn register_capture(controls: CaptureControls) {
+    let _ = CAPTURE.set(controls);
+}
+
+/// Re-point capture at the devices named in the environment RIGHT NOW, and tell the streams to
+/// re-open. Returns false when there is nothing registered — a CLI run, or a build without the
+/// engine — so the caller can say «после перезапуска» instead of promising a switch that no one
+/// will perform.
+pub fn reload_capture_from_env() -> bool {
+    let Some(c) = CAPTURE.get() else {
+        return false;
+    };
+    let Ok(mut cfg) = c.devices.write() else {
+        return false;
+    };
+    if let Ok(v) = std::env::var("LOCALVOX_LIGHT_MIC") {
+        cfg.mic = v;
+    }
+    if let Ok(v) = std::env::var("LOCALVOX_LIGHT_LOOPBACK_DEVICE") {
+        cfg.loopback_device = v;
+    }
+    drop(cfg);
+    // The supervisors watch this counter; bumping it makes them close the current streams and
+    // open new ones from the config above.
+    c.reload_gen
+        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    true
+}

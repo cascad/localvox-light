@@ -55,7 +55,17 @@ pub const DEFAULT_SILENCE_MS: u32 = 500;
 /// written. The windows are reduced to 15/8 s — by the benchmark that also gives the best
 /// WER on conversational speech (6.13 % against 7.28 % at 30/15), and the line becomes
 /// manageable to look at.
-const COOK_REV: &str = "r6";
+/// r7 (2026-07-19): a hard cut no longer lands mid-word. The ceiling used to cut wherever the
+/// sample counter stood, and on speech without half-second pauses that is everywhere: measured on
+/// the owner's downloaded video, 72 of 76 windows were exactly 15.0 s and 15 of its lines carried
+/// «...» where a word had been sliced in two. The cut now retreats to the middle of the widest
+/// gap between words inside the window, and the remainder is carried into the next one. Re-cooked
+/// with the same parameters, that video went to 9 windows on the ceiling and 2 «...» lines.
+///
+/// The revision HAS to move for this, and forgetting it cost an hour: the recipe is what tells
+/// «cooked the old way» from «already current», so an unchanged stamp made the cook look at a
+/// version cut by the old code, call the session done, and move `best` back onto it.
+const COOK_REV: &str = "r7";
 
 /// The fingerprint of how the transcript was obtained: label + slicing parameters +
 /// algorithm revision. Written into `VersionEntry.params.recipe`; a divergence = it was

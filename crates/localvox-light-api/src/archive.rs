@@ -403,6 +403,28 @@ impl Drop for SemanticGuard {
     }
 }
 
+/// Somebody the text attributes lines to. Assembled from those lines — see `Archive::speakers`.
+#[derive(Serialize)]
+pub struct ParticipantOut {
+    /// As the text says it right now.
+    pub name: String,
+    /// «отдельный голос» / «микрофон» / «системный звук» / «звук из источника» — WHY this entry
+    /// is called what it is called.
+    pub what: String,
+    /// A human (or a profile) has given this one a name; «Участник 2» and «Собеседники» have not.
+    pub named: bool,
+    /// What has to be renamed for this row, and by which mechanism. A voice is renamed by its
+    /// roster label (re-labels the lines and remembers the print); a source by its id (changes
+    /// only the fallback). A merged row carries both, and renaming must do all of them.
+    pub voices: Vec<String>,
+    pub sources: Vec<u8>,
+    /// Measured ON THE LINES of this very document, not on diarization's own segments — the two
+    /// disagree (32.7 min against 18.6 on the owner's video), and the honest number is the one a
+    /// reader can count for themselves.
+    pub speech_sec: f64,
+    pub lines: usize,
+}
+
 /// A voice: a participant of the recording (`owner` — the owner, «Я») or a name we
 /// know.
 #[derive(Serialize)]
@@ -694,15 +716,51 @@ impl Archive {
         Ok(dir)
     }
 
-    /// The transcript is WHAT WAS SAID, not what the model thinks about it. That is
-    /// why in the "Расшифровка"/Transcript tab we show the raw cook, even if `best`
-    /// is switched to `refined`: text combed by the LLM is a derivative, its place is
-    /// in "Cleaned-up text". Acceptance 13.07.2026: the transcript read "Там кратно
-    /// выручка превышает расходы", while the audio said "там кратно превы…" — the
-    /// model made it up, and the recording stopped being evidence.
+    /// The lines of the recording, anchored to the audio: the view for LISTENING and checking a
+    /// fragment against the sound.
+    ///
+    /// It shows the CLEANED wording when there is one, and that is a deliberate reversal. It used
+    /// to insist on the raw cook, because a wording combed by an LLM is a derivative and the
+    /// recording had to stay evidence (acceptance 13.07.2026: the model turned «там кратно превы…»
+    /// into «там кратно выручка превышает расходы»). What made that reversal safe is not a change
+    /// of mind but a change of mechanism: the cleanup no longer composes a document. It rewords
+    /// ONE line at a time, each judged against its OWN original — nothing may be added
+    /// (`grounding::check`) and nothing replaced (`keeps_what_was_said`) — and a line that fails
+    /// keeps the recognizer's words. The evidence is still there, in the version file, untouched:
+    /// this is a rendering of it, and the play button beside every line is the check that matters.
+    ///
+    /// Both views draw from the same join, so «расшифровка» and «читаемый текст» can never
+    /// disagree about what was said. They differ in FORM: lines against the audio here, continuous
+    /// prose there.
     pub fn transcript(&self, session: &str) -> Result<TranscriptDoc> {
         let dir = self.session_dir(session)?;
         let store = VersionStore::open(&dir)?;
+
+        // The cleanup pins the version it read. Serving its wording over any OTHER version would
+        // put one text's cleaning under another text's line numbers.
+        if let Ok(r) = localvox_light_core::readable::load(&dir) {
+            if let Ok(lines) = localvox_light_core::readable::lines(&dir) {
+                let v = store.load().versions.into_iter().find(|v| v.id == r.version_id);
+                return Ok(TranscriptDoc {
+                    session: session.to_string(),
+                    label: v.as_ref().map(|v| v.label.clone()).unwrap_or_default(),
+                    model: v.map(|v| v.model).unwrap_or_default(),
+                    lines: lines
+                        .into_iter()
+                        .map(|l| TranscriptLineOut {
+                            who: l.who,
+                            source_id: l.source_id,
+                            start_sec: l.start_sec,
+                            end_sec: l.end_sec,
+                            text: l.text,
+                        })
+                        .collect(),
+                });
+            }
+        }
+
+        // No cleanup yet — the recognizer's own words, which is the honest state and not a
+        // fallback for compatibility: nothing has cleaned this recording.
         let manifest = store.load();
         let raw = manifest
             .versions
@@ -1032,17 +1090,128 @@ impl Archive {
     /// Empty — either there was no diarization (no model) or no voices were found.
     /// Both are honest: we MUST NOT silently show «Участник 1» where we counted
     /// nobody.
-    pub fn speakers(&self, session: &str) -> Result<Vec<SpeakerOut>> {
+    /// WHO IS IN THIS RECORDING — derived from the lines themselves, never from a register.
+    ///
+    /// It used to come from the diarization roster, and the roster lies by omission in both
+    /// directions. Measured 19.07.2026 on the owner's archive:
+    ///
+    ///   20260718_230541_youtube  roster: «Участник 1» (1.4 мин) + «Арсен Маркарян» (32.7 мин)
+    ///                            text:   «Арсен Маркарян» only. «Участник 1» says NOT ONE LINE.
+    ///   20260716_164443          roster lists «Участник 3»; the text has no such line either,
+    ///                            and has «Собеседники», which the roster knows nothing about.
+    ///
+    /// A phantom in this list is not a cosmetic flaw: the owner is offered a rename for somebody
+    /// who never speaks in their document, and the count of participants is wrong. So the list is
+    /// GROUPED FROM THE LINES. Someone who says nothing cannot appear, because there is nothing to
+    /// group them from.
+    ///
+    /// It also answers the question the old screen could not: «чем «Собеседники» отличается от
+    /// «Участник 1»». Both are attributions in the same text, produced by different mechanisms —
+    /// a voice diarization separated, versus the input the sound arrived through — and each entry
+    /// now says which of the two it is.
+    pub fn speakers(&self, session: &str) -> Result<Vec<ParticipantOut>> {
         let dir = self.session_dir(session)?;
-        Ok(localvox_light_core::diarize::roster::load(&dir)
-            .members
-            .into_iter()
-            .map(|m| SpeakerOut {
-                label: m.label,
-                speech_sec: m.speech_sec,
-                owner: m.owner,
-            })
-            .collect())
+        let store = VersionStore::open(&dir)?;
+        // The very version the document shows, so the list and the text can never disagree.
+        let id = localvox_light_core::readable::load(&dir)
+            .map(|r| r.version_id)
+            .ok()
+            .or_else(|| store.best().map(|v| v.id))
+            .context("у сессии нет транскрипта (сначала localvox-process)")?;
+        let path = store.resolve(id).context("файл версии не найден")?;
+        let lines = read_transcript_lines(&path)?;
+        let meta: localvox_light_core::chunks::SessionMeta = fs::read(dir.join("meta.json"))
+            .ok()
+            .and_then(|b| serde_json::from_slice(&b).ok())
+            .unwrap_or_default();
+
+        // Keyed by what PRODUCED the attribution, not by the name it currently shows: a source
+        // renamed to the same string as a voice is still a different thing, and merging them would
+        // hand one rename to the other.
+        let mut order: Vec<(Option<String>, u8)> = Vec::new();
+        let mut acc: std::collections::HashMap<(Option<String>, u8), (f64, usize)> =
+            std::collections::HashMap::new();
+        for l in &lines {
+            let key = (l.speaker.clone(), l.source_id);
+            let e = acc.entry(key.clone()).or_insert_with(|| {
+                order.push(key.clone());
+                (0.0, 0)
+            });
+            e.0 += (l.end_sec - l.start_sec).max(0.0);
+            e.1 += 1;
+        }
+
+        // ONE ROW PER NAME. The two mechanisms can land on the same name, and then they are one
+        // person as far as anyone reading is concerned. Measured on the owner's video: 73 lines
+        // carried the separated voice «Арсен Маркарян» and 3 more had no voice separated, so they
+        // fell back to the source — which he had renamed to «Арсен Маркарян» too. Listed apart,
+        // that reads as the same man twice, and honest data looks like a defect.
+        //
+        // Merged, the row still states the whole truth in `what`: which mechanisms attributed it.
+        // And it keeps BOTH keys, because renaming «этого человека» has to reach every line the
+        // screen shows under that name — a rename that fixed 73 lines and left 3 behind would be
+        // the same defect wearing a different shape.
+        let mut rows: Vec<ParticipantOut> = Vec::new();
+        for key in order {
+            let (speech_sec, lines) = acc[&key];
+            let (voice, source_id) = key;
+            let (name, what, named) = match &voice {
+                // Diarization separated this voice. «Участник N» means exactly «a voice we could
+                // not put a name to» — an honest answer, and the button asks for one.
+                Some(label) => (
+                    label.clone(),
+                    "отдельный голос",
+                    !label.starts_with("Участник"),
+                ),
+                // No voice was separated — the line is attributed to the INPUT it came through,
+                // and that is all we honestly know about it.
+                None => (
+                    localvox_light_core::chunks::source_label(&meta, source_id),
+                    if source_id == 0 {
+                        if meta.source.is_some() {
+                            "звук из источника"
+                        } else {
+                            "микрофон"
+                        }
+                    } else {
+                        "системный звук"
+                    },
+                    meta.source_names.contains_key(&source_id.to_string()),
+                ),
+            };
+
+            let row = match rows.iter().position(|r| r.name == name) {
+                Some(i) => {
+                    let r = &mut rows[i];
+                    r.speech_sec += speech_sec;
+                    r.lines += lines;
+                    r.named |= named;
+                    if !r.what.split(" · ").any(|p| p == what) {
+                        r.what = format!("{} · {what}", r.what);
+                    }
+                    r
+                }
+                None => {
+                    rows.push(ParticipantOut {
+                        name,
+                        what: what.to_string(),
+                        named,
+                        voices: Vec::new(),
+                        sources: Vec::new(),
+                        speech_sec,
+                        lines,
+                    });
+                    rows.last_mut().unwrap()
+                }
+            };
+            match voice {
+                Some(label) => row.voices.push(label),
+                None => row.sources.push(source_id),
+            }
+        }
+        // Loudest first: the person who carried the recording belongs at the top.
+        rows.sort_by(|a, b| b.speech_sec.total_cmp(&a.speech_sec));
+        Ok(rows)
     }
 
     /// What each audio SOURCE is called in this session — with the name in force right now.
@@ -1116,7 +1285,7 @@ impl Archive {
             );
         }
         Ok(format!(
-            "теперь «{now}» — читаемый текст и расшифровка переподписаны сразу{}",
+            "теперь «{now}» — текст и реплики переподписаны сразу{}",
             if queued {
                 ", сводка пересобирается"
             } else {
@@ -1959,6 +2128,103 @@ mod tests {
             readable::lines(&sess).unwrap()[0].who,
             "Арсен Маркарян",
             "the new name did not reach the text"
+        );
+    }
+
+    /// THE PHANTOM, reported by the owner on 19.07.2026 while looking at his own archive.
+    ///
+    /// The list came from the diarization roster, and the roster holds voices the document never
+    /// shows: on his video it offered to rename a «Участник 1» with not one line in the text, and
+    /// the meeting listed a «Участник 3» the same way. Grouping the LINES makes that structurally
+    /// impossible — somebody who says nothing has nothing to be grouped from.
+    ///
+    /// The second half is what he saw next: the same name reaching the text twice, once through a
+    /// separated voice and once through the source label he had set to the same string. That is
+    /// one person, and one row.
+    #[test]
+    fn participants_come_from_the_lines_not_from_a_register() {
+        let dir = tempfile::tempdir().unwrap();
+        let sess = dir.path().join("sessions/20260719_who");
+        std::fs::create_dir_all(&sess).unwrap();
+        // A link session named by hand — «Я» would be a wrong statement about who spoke.
+        std::fs::write(
+            sess.join("meta.json"),
+            serde_json::json!({
+                "started_at": "t", "sample_rate": 16000, "chunks": [],
+                "source": {"url": "https://example/v", "title": "видео"},
+                "source_names": {"0": "Арсен Маркарян"}
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let line = |start: f64, speaker: Option<&str>| localvox_light_core::versions::TranscriptLine {
+            source_id: 0,
+            start_sec: start,
+            end_sec: start + 10.0,
+            text: "речь".into(),
+            speaker: speaker.map(str::to_owned),
+        };
+        let store = VersionStore::open(&sess).unwrap();
+        let (id, path) = store.next_version("test").unwrap();
+        let lines = [
+            line(0.0, Some("Арсен Маркарян")),
+            line(10.0, Some("Арсен Маркарян")),
+            // No voice separated — attributed to the input, which carries the same name.
+            line(20.0, None),
+        ];
+        std::fs::write(
+            &path,
+            lines
+                .iter()
+                .map(|l| serde_json::to_string(l).unwrap() + "
+")
+                .collect::<String>(),
+        )
+        .unwrap();
+        store
+            .commit(localvox_light_core::versions::VersionEntry {
+                id,
+                label: "test".into(),
+                file: path.file_name().unwrap().to_string_lossy().into(),
+                model: "m".into(),
+                params: serde_json::json!({}),
+                created_at: localvox_light_core::versions::now_rfc3339(),
+                parents: vec![],
+            })
+            .unwrap();
+
+        // The register claims a voice the text never shows.
+        let mut roster = localvox_light_core::diarize::roster::Roster::default();
+        roster.members.push(localvox_light_core::diarize::roster::Member {
+            id: 1,
+            label: "Участник 1".into(),
+            speech_sec: 84.0,
+            owner: false,
+            embedding: vec![],
+        });
+        localvox_light_core::diarize::roster::save(&sess, &roster).unwrap();
+
+        let people = Archive::new(dir.path().to_path_buf())
+            .speakers("20260719_who")
+            .unwrap();
+
+        assert_eq!(
+            people.len(),
+            1,
+            "expected one person; got {:?}",
+            people.iter().map(|p| &p.name).collect::<Vec<_>>()
+        );
+        let p = &people[0];
+        assert_eq!(p.name, "Арсен Маркарян");
+        assert_eq!(p.lines, 3, "the source-attributed line was dropped from the count");
+        // Both keys are kept, or a rename would fix two lines and leave the third behind.
+        assert_eq!(p.voices, vec!["Арсен Маркарян".to_string()]);
+        assert_eq!(p.sources, vec![0]);
+        assert!(
+            p.what.contains("отдельный голос") && p.what.contains("звук из источника"),
+            "the row must say what it is made of: {}",
+            p.what
         );
     }
 

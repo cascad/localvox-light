@@ -2,9 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import {
   api,
   type Line,
+  type Participant,
   type Provenance as Prov,
+  type ReadableLine,
   type Session,
-  type Speaker,
   type Version,
 } from "./api";
 import { ProgressChain } from "./Progress";
@@ -14,8 +15,10 @@ export type Tab = "summary" | "transcript" | "processed" | "speakers" | "version
 
 const TABS: [Tab, string][] = [
   ["summary", "Сводка"],
-  ["transcript", "Расшифровка"],
-  ["processed", "Читаемый текст"],
+  // Named by PURPOSE, which is the only thing that tells them apart now: one is checked against
+  // the sound line by line, the other is read and copied. Both show the same wording.
+  ["transcript", "Реплики"],
+  ["processed", "Текст"],
   ["speakers", "Участники"],
   ["versions", "Версии"],
   ["progress", "Ход"],
@@ -53,7 +56,7 @@ export function DocumentPane({ session, tab, setTab, pos, onSeek, onChanged, say
   };
 
   const recook = async () => {
-    if (!confirm("Выбросить сводку и расшифровку и сварить заново из аудио?\n\nАудиозапись не пострадает."))
+    if (!confirm("Выбросить всё, что сварено из этой записи, и сварить заново?\n\nАудиозапись не пострадает."))
       return;
     try {
       const r = await api.recook(session.name);
@@ -222,7 +225,7 @@ function Article({
         <div className="doubt" data-nocopy>
           <span aria-hidden="true">⚠</span>
           <div className="txt">
-            <b>Стоит перепроверить.</b> В расшифровке этого нет (или сказано другими словами):{" "}
+            <b>Стоит перепроверить.</b> В записи этого нет (или сказано другими словами):{" "}
             <code>{doubts}</code>. Может быть враньё модели, а может — неточность. Решаете вы:
             запись можно послушать.
           </div>
@@ -242,15 +245,139 @@ function Article({
   );
 }
 
-/** The readable text, drawn from DATA rather than from a page.
+/** THE TEXT AS A BOOK. The view for reading and for copying — the one a person forwards.
  *
- *  Nothing here is stored the way it is shown: the daemon joins each line's wording with the
- *  speaker and the timecode on every read. That is why renaming a voice takes effect at once —
- *  there is no name inside the artifact to have gone stale.
+ *  Nothing here is stored the way it is shown: the daemon joins each line's wording with its
+ *  speaker on every read, and this screen turns those lines into continuous prose. Timecodes,
+ *  labels, brackets — none of it exists in the copy, because a page pasted into a letter should
+ *  need no cleaning up. The line-by-line view next door is the one anchored to the audio.
  *
- *  And because the artifact is a delta, the screen can say WHAT THE MODEL DID to each line. An
- *  edited line offers its original — the recognizer's own words — so a person can check the
- *  cleanup instead of trusting it. */
+ *  WHERE PARAGRAPHS COME FROM, and why it is not one rule but three. Transcript lines are cut by
+ *  the recognizer, not by meaning, and their size depends on which version was cleaned. Measured
+ *  19.07.2026 on the owner's archive:
+ *
+ *    20260718_230541_youtube  76 lines, median 247 chars, NOT ONE gap between lines
+ *    20260716_164443         149 lines, median  77 chars, 16 gaps, up to 48 s
+ *    20260714_181036         217 lines, median  64 chars, 54 gaps
+ *
+ *  A refined version has its windows glued, so pauses simply do not exist in it — a pause-only
+ *  rule turned those 76 already-paragraph-sized lines into ONE paragraph of nineteen minutes.
+ *  A meeting is the opposite: short scraps that must be joined or the page reads like a chat log.
+ *
+ *  So: a change of speaker always breaks; a real pause breaks; and a paragraph that has grown to a
+ *  book's length breaks at the end of a sentence.
+ *
+ *  THE LAST RULE IS TYPOGRAPHY AND NOTHING MORE, and it is here because the alternative was
+ *  measured too. Without it, with only speaker changes and real pauses:
+ *
+ *    20260718_230541_youtube   6 paragraphs, the largest 14 952 characters — five unbroken pages
+ *    20260713_220457          28 paragraphs, the largest  8 326
+ *
+ *  A wall like that is not «honest», it is unreadable. But it breaks ONLY at a full stop, and only
+ *  after a paragraph is already book-sized, so it never cuts a thought in half. */
+const PARAGRAPH_PAUSE_SEC = 2;
+/** A book's paragraph. Below this we do not look for a place to break at all. */
+const PARAGRAPH_SOFT_CHARS = 900;
+
+/** The cleanup sometimes returns a line that already opens with a dash — measured on the owner's
+ *  archive, 6 of 76 lines in one session, 8 of 217 in another. Prefixing ours on top of it prints
+ *  «— — текст», and that lands in the clipboard too. */
+const OPENS_WITH_DASH = /^[\s]*[—–-][\s]/;
+
+interface Turn {
+  who: string;
+  /** One speaker's stretch of speech, already broken into paragraphs. */
+  paras: string[];
+}
+
+/** A sentence boundary IN THE TEXT: a full stop, then space, then something that starts a
+ *  sentence.
+ *
+ *  This is the difference between breaking по предложениям and breaking «как попало». Paragraphs
+ *  used to be cut only where one transcript LINE ended and the next began — and those boundaries
+ *  are the cook's 15-second clock, not the speaker's punctuation. A line whose last character
+ *  happened to be a dot looked like the end of a thought and was not. Measured on the owner's
+ *  video, the page he objected to:
+ *
+ *  ```text
+ *  paragraph ends:   …С, почему я?
+ *  paragraph starts: Я не сделал. Типа, я триллионы просмотров собрал…
+ *  ```
+ *
+ *  Requiring a capital letter after the stop is also what keeps a cut word from opening a
+ *  paragraph: «Топ-три. ...ри качества» has a dot, but «...» is not the start of a sentence, so
+ *  there is no boundary there to break at.
+ *
+ *  AND AN ELLIPSIS IS NOT A FULL STOP HERE. The recognizer marks a window cut off mid-phrase with
+ *  «...», so a fragment ending in one has not finished its sentence — the window finished. Left in
+ *  the set it produced exactly the boundary this rule exists to prevent:
+ *
+ *  ```text
+ *  paragraph ends:   …вот единственная проблема, которая...
+ *  paragraph starts: Отличается наша экономика от западной…
+ *  ```
+ *
+ *  A real ellipsis therefore never ends a paragraph either. That is the cheap half of the trade:
+ *  an ellipsis rarely closes a thought, and a cut always does not. */
+const SENTENCE_BREAK = /(?<![.…])([.!?]["»)]?)\s+(?=[«"(]?[А-ЯЁA-Z0-9])/g;
+
+/** Lines → turns. Consecutive lines by the same speaker become one turn; a pause inside a turn
+ *  starts a new paragraph; a long paragraph is cut at a sentence boundary. */
+export function toTurns(lines: ReadableLine[]): Turn[] {
+  const turns: Turn[] = [];
+  let last: ReadableLine | null = null;
+  // Blocks of continuous speech: what a pause or a change of speaker separates. Paragraphing
+  // happens INSIDE a block, over its whole text, so it never depends on where a line was cut.
+  const push = (who: string, block: string) => {
+    const paras = paragraphs(block);
+    const turn = turns[turns.length - 1];
+    if (turn && turn.who === who) turn.paras.push(...paras);
+    else turns.push({ who, paras });
+  };
+  let block = "";
+  for (const l of lines) {
+    const text = l.text.trim();
+    if (!text) continue;
+    const paused = last ? l.start_sec - last.end_sec >= PARAGRAPH_PAUSE_SEC : false;
+    if (!last || l.who !== last.who || paused) {
+      if (last && block) push(last.who, block);
+      block = text;
+    } else {
+      block += " " + text;
+    }
+    last = l;
+  }
+  if (last && block) push(last.who, block);
+  return turns;
+}
+
+/** One block of continuous speech → paragraphs of about a book's length, cut at sentence ends.
+ *
+ *  Sentences are never split: a paragraph goes over the target rather than cutting a thought in
+ *  half, and a single sentence longer than the whole target simply stands alone. */
+function paragraphs(block: string): string[] {
+  // `split` on a pattern with a capturing group interleaves the captured terminators, so the
+  // «.»/«?» is not lost — it comes back as the next element and is glued onto its own sentence.
+  const pieces = block.split(SENTENCE_BREAK);
+  const parts: string[] = [];
+  for (let i = 0; i < pieces.length; i += 2) {
+    const s = ((pieces[i] ?? "") + (pieces[i + 1] ?? "")).trim();
+    if (s) parts.push(s);
+  }
+  const out: string[] = [];
+  let open = "";
+  for (const s of parts) {
+    if (open && open.length >= PARAGRAPH_SOFT_CHARS) {
+      out.push(open);
+      open = s;
+    } else {
+      open = open ? open + " " + s : s;
+    }
+  }
+  if (open) out.push(open);
+  return out;
+}
+
 function Readable({
   session,
   onChanged,
@@ -261,7 +388,6 @@ function Readable({
   say: (m: string) => void;
 }) {
   const { data, err } = useArtifact(`${session.name}/readable`, () => api.readable(session.name));
-  const [shown, setShown] = useState<Set<number>>(new Set());
 
   const recook = async () => {
     try {
@@ -278,13 +404,10 @@ function Readable({
 
   const lines = data.lines ?? [];
   const edited = lines.filter((l) => l.original).length;
-
-  const toggle = (i: number) =>
-    setShown((s) => {
-      const next = new Set(s);
-      if (!next.delete(i)) next.add(i);
-      return next;
-    });
+  const turns = toTurns(lines);
+  // One voice — a lecture, a video, a dictation — is not a dialogue, so nothing marks a change of
+  // speaker: there is none. Plain paragraphs, the way a book prints a monologue.
+  const solo = new Set(turns.map((t) => t.who)).size <= 1;
 
   return (
     <>
@@ -292,7 +415,7 @@ function Readable({
         <div className="doubt" data-nocopy>
           <span aria-hidden="true">⚠</span>
           <div className="txt">
-            <b>Стоит перепроверить.</b> В расшифровке этого нет (или сказано другими словами):{" "}
+            <b>Стоит перепроверить.</b> В записи этого нет (или сказано другими словами):{" "}
             <code>{session.processed_doubts}</code>. Решаете вы: запись можно послушать.
           </div>
           <div className="acts">
@@ -307,9 +430,9 @@ function Readable({
           ⓘ
         </span>
         <span>
-          Тот же разговор без слов-паразитов, обрывов и повторов — но слово в слово по смыслу.
-          Исходная расшифровка остаётся на месте: она первична, этот текст производный. Имена
-          голосов подставляются при показе — переименование действует сразу, переваривать не надо.
+          Тот же разговор без слов-паразитов, обрывов и повторов — слово в слово по смыслу.
+          Копируется как есть: ни таймкодов, ни меток, чистить после вставки не надо. Проверить
+          кусок по звуку можно рядом, по строкам.
         </span>
       </p>
       <Provenance p={data.provenance} />
@@ -332,37 +455,19 @@ function Readable({
             <span>откачено проверкой: {data.rejected}</span>
           </>
         )}
-        <span className="sep">·</span>
-        <span>из расшифровки v{String(data.version_id).padStart(3, "0")}</span>
       </div>
-      <div className="lines readable">
-        {lines.map((l, i) => (
-          <div key={i} className={`ln${l.original ? " edited" : ""}`}>
-            <span className="tc">{mmss(l.start_sec)}</span>
-            <span className={`sp${l.who === "Я" ? " me" : ""}`}>{l.who}</span>
-            <span className="tx">
-              {l.text}
-              {l.original && (
-                <>
-                  {" "}
-                  <button
-                    className="was"
-                    data-nocopy
-                    title="Показать, что было в расшифровке до чистки"
-                    onClick={() => toggle(i)}
-                  >
-                    ✎
-                  </button>
-                  {shown.has(i) && (
-                    <span className="orig" data-nocopy>
-                      было: {l.original}
-                    </span>
-                  )}
-                </>
-              )}
-            </span>
-          </div>
-        ))}
+      <div className="book">
+        {turns.map((t, i) =>
+          t.paras.map((p, j) => (
+            // A change of speaker is marked the way a book marks it: the dash of direct speech, on
+            // the first paragraph of a turn only — a person continuing after a pause is still the
+            // same person, and Russian typography gives them no second dash.
+            //
+            // The dash is in the TEXT, not in a `::before`: a pseudo-element does not survive the
+            // clipboard, and the dialogue would paste as an undifferentiated wall.
+            <p key={`${i}.${j}`}>{!solo && j === 0 && !OPENS_WITH_DASH.test(p) ? `— ${p}` : p}</p>
+          )),
+        )}
       </div>
     </>
   );
@@ -415,44 +520,55 @@ function plural(n: number, one: string, few: string, many: string): string {
 
 const AVATAR = ["#2f6ea3", "#8a6fbc", "#2c7a52", "#9d6a12", "#b0554a"];
 
+/** WHO IS IN THIS RECORDING — one list, built from the lines the document actually shows.
+ *
+ *  There used to be two lists side by side: the audio SOURCES and the diarization ROSTER. Neither
+ *  said what it was, so the screen showed «Собеседники» and «Участник 1» as peers with no hint of
+ *  the difference, and it offered renames for people who say nothing. Measured on the owner's
+ *  archive: the video's roster listed a «Участник 1» with not one line in the document, and the
+ *  meeting's listed a «Участник 3» the same way.
+ *
+ *  The daemon now groups the lines themselves, so a phantom has nothing to be grouped from, the
+ *  minutes are the minutes in the text, and every entry says WHY it is called what it is called. */
 function Speakers({ session, say }: { session: Session; say: (m: string) => void }) {
   const [gen, setGen] = useState(0);
   const { data, err } = useArtifact(`${session.name}/speakers/${gen}`, () =>
     api.speakers(session.name),
   );
-  const { data: src } = useArtifact(`${session.name}/sources/${gen}`, () =>
-    api.sources(session.name),
-  );
 
-  /** Rename an audio SOURCE — «Я» for a downloaded video is a wrong statement about who spoke.
-   *  Empty input puts the default back rather than setting a blank name. */
-  const renameSource = async (id: number, current: string) => {
-    const who = prompt(`Как подписывать этот голос? (пусто — вернуть по умолчанию)`, current);
-    if (who === null) return;
+  /** One button, two mechanisms — genuinely different, which is why the row says which ones it
+   *  is made of. Naming a VOICE re-labels its lines everywhere and remembers the print for later
+   *  recordings; naming a SOURCE only changes what unattributed lines are called.
+   *
+   *  A row can be made of both, and then both are renamed. Sequentially and reporting the first
+   *  failure: half a rename leaves some lines under the old name, and the person has to see that
+   *  rather than find it later in the text. */
+  const rename = async (p: Participant) => {
+    const hasVoice = p.voices.length > 0;
+    const asked = prompt(
+      hasVoice
+        ? `Как зовут «${p.name}»? Голос запомнится и будет узнаваться в других записях.`
+        : `Как подписывать этот звук? (пусто — вернуть по умолчанию)`,
+      hasVoice ? "" : p.name,
+    );
+    if (asked === null) return;
+    const name = asked.trim();
+    if (hasVoice && !name) return say("Имя не может быть пустым");
     try {
-      const r = await api.nameSource(session.name, id, who.trim());
-      say(r.msg);
+      let msg = "";
+      for (const v of p.voices) msg = (await api.nameSpeaker(session.name, v, name)).msg;
+      for (const id of p.sources) msg = (await api.nameSource(session.name, id, name)).msg;
+      say(msg);
       setGen((g) => g + 1);
     } catch (e) {
       say((e as Error).message);
-    }
-  };
-
-  const rename = async (label: string) => {
-    const who = prompt(`Как зовут «${label}»?`);
-    if (!who?.trim()) return;
-    try {
-      const r = await api.nameSpeaker(session.name, label, who.trim());
-      say(r.msg);
       setGen((g) => g + 1);
-    } catch (e) {
-      say((e as Error).message);
     }
   };
 
   if (err) return <p className="err">{err}</p>;
   if (!data) return <p className="hint">загрузка…</p>;
-  const people: Speaker[] = data.speakers ?? [];
+  const people: Participant[] = data.speakers ?? [];
 
   return (
     <>
@@ -461,56 +577,42 @@ function Speakers({ session, say }: { session: Session; say: (m: string) => void
           ⓘ
         </span>
         <span>
-          Имена живут <b>в этой записи</b>: переименование переподпишет её строки и пересоберёт
-          сводку. Звук не переваривается — он не изменился.
+          Здесь только те, кому в этой записи приписаны реплики. <b>Отдельный голос</b> — его
+          выделила диаризация, имя запомнится и будет узнаваться дальше. <b>Микрофон</b> и{" "}
+          <b>системный звук</b> — это не голос, а вход: так подписаны реплики, в которых голос
+          выделить не удалось. Переименование меняет подписи сразу; пересобирается только сводка.
         </span>
       </p>
-      {/* The source labels. They are what the transcript shows wherever diarization did not name a
-          voice — which is EVERY line of a downloaded video, since there is no diarization there at
-          all. That is the case where «Я» was plainly wrong. */}
-      {(src?.sources ?? []).map((s) => (
-        <div className="voice" key={s.source_id}>
-          <span className="av" style={{ background: "var(--mute)" }}>
-            {s.source_id === 0 ? "1" : "2"}
-          </span>
-          <span className="grow">
-            <b>{s.name}</b>
-            <div className="sub">
-              {s.what}
-              {!s.custom && " · по умолчанию"}
-            </div>
-          </span>
-          <span className="acts">
-            <button className="btn sm" onClick={() => renameSource(s.source_id, s.name)}>
-              ✎ Переименовать
-            </button>
-          </span>
-        </div>
-      ))}
 
       {people.length === 0 ? (
-        // Empty is an ANSWER, not a breakage: either voices were not counted (no model)
-        // or none were found. We are not going to invent participants.
+        // Empty is an ANSWER, not a breakage: nothing has been attributed yet because nothing has
+        // been cooked. We are not going to invent participants to fill the screen.
         <p className="hint">
-          Говорящие не размечены: либо нет модели диаризации, либо в записи не нашлось разборчивой
-          речи.
+          Пока некому: в записи нет ни одной расшифрованной реплики.
         </p>
       ) : (
-        people.map((s, i) => (
-          <div className="voice" key={s.label}>
-            <span className="av" style={{ background: AVATAR[i % AVATAR.length] }}>
-              {s.label.slice(0, 2)}
+        people.map((p, i) => (
+          <div className="voice" key={p.name}>
+            <span
+              className="av"
+              style={{
+                background: p.voices.length ? AVATAR[i % AVATAR.length] : "var(--mute)",
+              }}
+            >
+              {p.name.slice(0, 2)}
             </span>
             <span className="grow">
-              <b>{s.owner ? "Вы" : s.label}</b>
-              <div className="sub">{Math.round(s.speech_sec / 60)} мин речи</div>
+              <b>{p.name}</b>
+              <div className="sub">
+                {p.what}
+                {!p.named && " · имени пока нет"}
+                {" · "}
+                {Math.round(p.speech_sec / 60)} мин, реплик: {p.lines}
+              </div>
             </span>
-            {/* The owner is renameable too. «Вы» is a GUESS — true for a recording made here,
-                false for anything that arrived by link, where this voice belongs to whoever was in
-                the video. Withholding the button asserted the guess was a fact. */}
             <span className="acts">
-              <button className="btn sm" onClick={() => rename(s.label)}>
-                ✎ Назвать
+              <button className="btn sm" onClick={() => void rename(p)}>
+                ✎ {p.named ? "Переименовать" : "Назвать"}
               </button>
             </span>
           </div>

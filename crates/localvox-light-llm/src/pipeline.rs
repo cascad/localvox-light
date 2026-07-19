@@ -976,7 +976,50 @@ pub fn render_transcript(session_dir: &Path) -> Result<String> {
 /// the lines, and the whole part was dropped by the shape filter — 120 of 149 lines vanished from
 /// the readable text. On the small tail part it obeyed. Short batches are obeyed; long ones are
 /// summarised.
-const CLEANUP_BATCH_LINES: usize = 40;
+const CLEANUP_BATCH_LINES: usize = 12;
+
+/// …and a ceiling in CHARACTERS, because lines are not a unit of work.
+///
+/// A line count says nothing about how much the model has to read and write. A meeting's lines
+/// have a median of 64 characters, so 40 of them are 2.5 KB; a refined video's have a median of
+/// 247, so the same 40 lines are 9.8 KB — four times the work under the same knob.
+///
+/// THE VALUE IS MEASURED, not chosen. Once the context window stopped truncating the answer, the
+/// model answered for every line — and mostly echoed it back unchanged. Yield against batch size,
+/// 19.07.2026, two of the owner's sessions, counting lines the model actually rewrote:
+///
+/// ```text
+///     video (245-char lines)     710 chars → 10/12    1421 → 7/12    2843 → 1/12
+///     meeting (139-char lines)  1108 chars → 20/24    1727 → 15/24   3435 → 1/24
+/// ```
+///
+/// The collapse above ~1700 characters is the same on both, so it is a property of the model's
+/// attention over the request, not of one recording. And a batch of ONE is not the answer either
+/// — 6/12 on the video: a line with no neighbours has no context to repair a misheard word with,
+/// and the model falls back on «бессвязный шум — верни без изменений».
+const CLEANUP_BATCH_CHARS: usize = 1200;
+
+/// Cut the lines into batches bounded by BOTH: at most `CLEANUP_BATCH_LINES` lines and at most
+/// `CLEANUP_BATCH_CHARS` characters. A single line longer than the budget goes alone rather than
+/// being split — half a line is not a line.
+fn cleanup_batches(texts: &[String]) -> Vec<std::ops::Range<usize>> {
+    let mut out = Vec::new();
+    let mut start = 0usize;
+    let mut chars = 0usize;
+    for (i, t) in texts.iter().enumerate() {
+        let would = chars + t.len();
+        if i > start && (i - start >= CLEANUP_BATCH_LINES || would > CLEANUP_BATCH_CHARS) {
+            out.push(start..i);
+            start = i;
+            chars = 0;
+        }
+        chars += t.len();
+    }
+    if start < texts.len() {
+        out.push(start..texts.len());
+    }
+    out
+}
 
 const CLEANUP_PROMPT: &str = "\
 Ниже — реплики автоматической расшифровки речи, каждая пронумерована [N]. Приведи каждую \
@@ -1030,12 +1073,14 @@ fn cleanup_by_lines(
     // The deterministic pass first: the glossary's canonical spelling is ours, not the model's.
     let texts: Vec<String> = lines.iter().map(|l| glossary.apply(&l.text).0).collect();
 
-    let batches = texts.len().div_ceil(CLEANUP_BATCH_LINES);
+    let ranges = cleanup_batches(&texts);
+    let batches = ranges.len();
     let mut cleaned: std::collections::HashMap<usize, String> = std::collections::HashMap::new();
     let mut llm_calls = 0usize;
 
-    for (bi, chunk) in texts.chunks(CLEANUP_BATCH_LINES).enumerate() {
-        let first = bi * CLEANUP_BATCH_LINES;
+    for (bi, range) in ranges.into_iter().enumerate() {
+        let first = range.start;
+        let chunk = &texts[range];
         let mut prompt = String::from(CLEANUP_PROMPT);
         if !glossary_block.is_empty() {
             prompt.push_str("\n\nТермины (правильное написание):\n");
@@ -1224,6 +1269,44 @@ mod tests {
     /// 120 real lines of that part. The readable text of a 30-minute recording became its last five
     /// minutes, and nothing said a word about it.
     ///
+    /// The knob used to be a line count alone, and lines are not a unit of work: 40 of the
+    /// owner's meeting lines are 2.5 KB, 40 of his refined video's are 9.8 KB.
+    #[test]
+    fn a_batch_is_bounded_by_characters_as_well_as_by_lines() {
+        // Lines of 1000 characters: six of them already exceed the character budget.
+        let fat: Vec<String> = (0..12).map(|_| "п".repeat(1000)).collect();
+        let ranges = cleanup_batches(&fat);
+        assert!(ranges.len() > 1, "a 12 KB request went out as one batch");
+        for r in &ranges {
+            let chars: usize = fat[r.clone()].iter().map(String::len).sum();
+            assert!(chars <= CLEANUP_BATCH_CHARS + 1000, "batch of {chars} chars");
+        }
+        // Every line lands in exactly one batch, in order — the invariant the whole cleanup rests
+        // on. A line dropped here would simply never be offered to the model.
+        let covered: Vec<usize> = ranges.iter().flat_map(|r| r.clone()).collect();
+        assert_eq!(covered, (0..12).collect::<Vec<_>>());
+    }
+
+    /// Short lines still batch by count, or a chat-like meeting would go out in dozens of tiny
+    /// requests, each paying the model's load time again.
+    #[test]
+    fn short_lines_still_fill_a_batch_by_count() {
+        let thin: Vec<String> = (0..100).map(|_| "да".to_string()).collect();
+        let ranges = cleanup_batches(&thin);
+        assert_eq!(ranges.len(), 100usize.div_ceil(CLEANUP_BATCH_LINES), "{ranges:?}");
+        assert_eq!(ranges[0], 0..CLEANUP_BATCH_LINES);
+    }
+
+    /// A single line longer than the whole budget is not split: half a line is not a line, and
+    /// the delta is keyed by line index.
+    #[test]
+    fn one_oversized_line_goes_alone_rather_than_in_half() {
+        let one = vec!["a".repeat(20_000), "b".to_string()];
+        let ranges = cleanup_batches(&one);
+        assert_eq!(ranges[0], 0..1);
+        assert_eq!(ranges.len(), 2);
+    }
+
     /// An essay carries no `[N]` markers, so it parses to NOTHING. That is the whole test: an empty
     /// lookup table must cost the cleanup, never the text.
     ///

@@ -110,7 +110,7 @@ pub fn lines(session_dir: &Path) -> Result<Vec<ReadableLine>> {
     let store = VersionStore::open(session_dir)?;
     let src = store
         .resolve(r.version_id)
-        .with_context(|| format!("версия v{} расшифровки не найдена", r.version_id))?;
+        .with_context(|| format!("версия v{} не найдена", r.version_id))?;
     let transcript = read_transcript_lines(&src)?;
     let meta: SessionMeta = std::fs::read(session_dir.join("meta.json"))
         .ok()

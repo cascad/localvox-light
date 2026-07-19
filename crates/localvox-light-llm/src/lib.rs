@@ -35,6 +35,48 @@ pub struct LlmProfile {
     /// re-publish the model, and nothing here would say so.
     pub top_p: f32,
     pub top_k: u32,
+    /// Ceiling on the context window we will ask a request to allocate.
+    ///
+    /// The window itself is COMPUTED per request (`num_ctx_for`); this only bounds it, because
+    /// Ollama allocates the KV cache for whatever it is told and a careless number costs real
+    /// memory on the owner's machine.
+    pub max_ctx: u32,
+}
+
+/// How many characters of Russian text one token holds, rounded DOWN so the estimate errs towards
+/// asking for a bigger window. Measured 19.07.2026 on the owner's cleanup batch: 9801 characters
+/// became 3326 prompt tokens — 2.95 chars per token.
+const CHARS_PER_TOKEN: usize = 2;
+
+/// The context window for a request of this size — prompt AND answer together.
+///
+/// THE BUG THIS EXISTS FOR, measured 19.07.2026. Every sampling parameter was pinned explicitly,
+/// and `num_ctx` was not — so it came from Ollama's runtime default, which is small, while the
+/// model itself advertises 262144. The cleanup sent a 3326-token batch and asked for a similar
+/// answer; the two together did not fit, so the answer was cut off and the model degenerated into
+/// loops («Вот. Вот. Вот.» ×200). The same batch, twice:
+///
+/// ```text
+///     num_ctx by default — answered for 11 of 40 lines
+///     num_ctx = 16384    — answered for 40 of 40
+/// ```
+///
+/// On the owner's video that showed up as a readable text still full of «э-э» and «ну как бы»: of
+/// 76 lines, 13 got no answer and 31 answers were rolled back by the guards. The model was not
+/// failing at the task. We never gave it room to do it.
+///
+/// The cleanup's answer is about the size of its prompt — it is a retelling, not a summary — so
+/// the window has to hold both, plus room for the model to finish a sentence.
+fn num_ctx_for(prompt_chars: usize, max_ctx: u32) -> u32 {
+    let tokens = prompt_chars / CHARS_PER_TOKEN;
+    let need = (tokens * 2 + 512) as u32;
+    // Powers of two: Ollama reuses a loaded model when the window matches, and a value that
+    // wobbles per request would reload it on nearly every call.
+    let mut ctx = 4096u32;
+    while ctx < need && ctx < max_ctx {
+        ctx *= 2;
+    }
+    ctx.min(max_ctx)
 }
 
 impl Default for LlmProfile {
@@ -48,6 +90,7 @@ impl Default for LlmProfile {
             max_tokens: 8192,
             top_p: 0.9,
             top_k: 20,
+            max_ctx: 32768,
         }
     }
 }
@@ -219,6 +262,11 @@ impl LlmClient {
             //
             // Faithful retelling needs NO repetition penalty. Repeating the source is the job.
             "options": {
+                // The one that was missing. See `num_ctx_for`.
+                "num_ctx": num_ctx_for(
+                    messages.iter().map(|m| m.content.len()).sum(),
+                    self.profile.max_ctx,
+                ),
                 "num_predict": self.profile.max_tokens,
                 "temperature": self.profile.temperature,
                 "presence_penalty": 0.0,
@@ -280,6 +328,43 @@ fn strip_think_blocks(text: &str) -> String {
     }
     out.push_str(rest);
     out
+}
+
+#[cfg(test)]
+mod ctx_tests {
+    use super::num_ctx_for;
+
+    /// The measured case: a 9801-character cleanup batch. It must not land on a window that only
+    /// fits the prompt — the answer is the same size again.
+    #[test]
+    fn the_window_holds_the_prompt_and_its_answer() {
+        let ctx = num_ctx_for(9801, 32768);
+        assert!(ctx >= 3326 * 2, "the answer has no room: {ctx}");
+        assert_eq!(ctx, 16384);
+    }
+
+    /// A small request must not allocate a huge KV cache on the owner's machine.
+    #[test]
+    fn a_short_request_keeps_a_small_window() {
+        assert_eq!(num_ctx_for(200, 32768), 4096);
+    }
+
+    /// The ceiling is a ceiling. Asking for more than the machine was told to allow is how a
+    /// local model starts swapping instead of answering.
+    #[test]
+    fn the_ceiling_holds() {
+        assert_eq!(num_ctx_for(10_000_000, 32768), 32768);
+    }
+
+    /// Powers of two only: Ollama reloads the model when the window changes, and a value that
+    /// wobbled per request would reload it on nearly every call.
+    #[test]
+    fn windows_are_powers_of_two() {
+        for chars in [0, 1, 500, 5_000, 20_000, 100_000] {
+            let c = num_ctx_for(chars, 32768);
+            assert!(c.is_power_of_two(), "{chars} chars gave {c}");
+        }
+    }
 }
 
 #[cfg(test)]

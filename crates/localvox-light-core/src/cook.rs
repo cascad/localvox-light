@@ -147,7 +147,13 @@ pub fn cook_session_asr(session_dir: &Path, p: &CookParams) -> Result<CookOutcom
         if let Some(v) = manifest
             .versions
             .iter()
-            .find(|v| v.params.get("recipe").and_then(|r| r.as_str()) == Some(recipe.as_str()))
+            // The NEWEST version of this recipe, not the first one found. Measured 19.07.2026:
+            // after a `--force` re-cook the session held v001 and v003 of one recipe, and the
+            // next cook run picked v001 — then decided `best` (v003) pointed at «someone else's»
+            // version and moved it back onto v001. A deliberate re-cook was silently undone, and
+            // the readable text was rebuilt from the older transcript.
+            .filter(|v| v.params.get("recipe").and_then(|r| r.as_str()) == Some(recipe.as_str()))
+            .max_by_key(|v| v.id)
         {
             // Cooked by this recipe — but does `best` POINT at it?
             //
@@ -626,6 +632,22 @@ fn find_model_file(dir: &Path) -> Result<PathBuf> {
 /// Cuts a continuous stream of samples into windows for ASR: after `min_cut_sec` the
 /// window closes at the first sufficient silence, at `max_window_sec` — hard.
 /// The frame classifier (20 ms) is passed in from outside — in tests it is substituted.
+///
+/// A HARD CUT NEVER LANDS MID-WORD IF THERE IS ANYWHERE ELSE TO PUT IT.
+///
+/// It used to. `min_cut_sec`/`silence_ms` demand half a second of silence, and a monologue does
+/// not offer one: measured on the owner's downloaded video, 72 of its 76 windows were EXACTLY
+/// 15.0 seconds long — the ceiling did all the cutting, straight through the middle of
+/// «Топ-три | ри качества». The recognizer then wrote «...» at both broken ends, the readable
+/// text carried a word split in half, and no later stage could repair it: the halves live in
+/// different windows and were recognized independently.
+///
+/// So when the ceiling is reached we RETREAT to the quietest place inside the window and cut
+/// there, carrying the rest over into the next one. The alternative in the literature is
+/// overlapping windows stitched by matching the repeated text (whisper.cpp, faster-whisper,
+/// NeMo's buffered inference); it needs fuzzy alignment of two recognitions and can drop or
+/// double a word at every seam. Retreating touches no text at all and is exactly as
+/// deterministic as the cut it replaces: same audio in, same windows out.
 pub struct Windower {
     max_samples: usize,
     min_cut_samples: usize,
@@ -641,6 +663,12 @@ pub struct Windower {
     /// silence is not handed to the model: GigaAM hallucinates on it («.», fragments),
     /// and inference costs money anyway.
     had_speech: bool,
+    /// Where the current run of silence began, in samples from the start of `buf`.
+    silence_from: Option<usize>,
+    /// The widest gap between words seen in this window: `(start, end)` in samples from the
+    /// start of `buf`. This is where a hard cut retreats to — the point furthest from the
+    /// speech on either side of it.
+    best_gap: Option<(usize, usize)>,
 }
 
 impl Windower {
@@ -655,6 +683,8 @@ impl Windower {
             buf_start: 0,
             silence_run: 0,
             had_speech: false,
+            silence_from: None,
+            best_gap: None,
         }
     }
 
@@ -667,19 +697,36 @@ impl Windower {
         while self.pending.len() >= FRAME_SAMPLES {
             let frame: Vec<i16> = self.pending.drain(..FRAME_SAMPLES).collect();
             let is_speech = classify(&frame);
+            let frame_start = self.buf.len();
             self.buf.extend_from_slice(&frame);
             if is_speech {
+                // A gap has just closed. It counts only if speech came BEFORE it as well:
+                // silence at the head of a window is not a gap between two words.
+                if let Some(from) = self.silence_from.take() {
+                    let wider = match self.best_gap {
+                        Some((a, b)) => frame_start - from >= b - a,
+                        None => true,
+                    };
+                    if self.had_speech && wider {
+                        self.best_gap = Some((from, frame_start));
+                    }
+                }
                 self.silence_run = 0;
                 self.had_speech = true;
             } else {
+                if self.silence_from.is_none() {
+                    self.silence_from = Some(frame_start);
+                }
                 self.silence_run += 1;
             }
 
             let cut_hard = self.buf.len() >= self.max_samples;
             let cut_soft = self.buf.len() >= self.min_cut_samples
                 && self.silence_run >= self.silence_frames_needed;
-            if cut_hard || cut_soft {
+            if cut_soft {
                 self.flush(emit)?;
+            } else if cut_hard {
+                self.cut_at_quietest(emit)?;
             }
         }
         Ok(())
@@ -693,6 +740,44 @@ impl Windower {
         let tail: Vec<i16> = std::mem::take(&mut self.pending);
         self.buf.extend_from_slice(&tail);
         self.flush(emit)
+    }
+
+    /// The ceiling is reached: cut in the middle of the widest gap between words instead of
+    /// wherever the sample counter happens to stand.
+    ///
+    /// The middle of the gap, not an edge — that is the point furthest from the speech on both
+    /// sides, so neither window steals the start of the other's word. A gap found before
+    /// `min_cut_samples` is used anyway if it is all there is: a short window is a smaller harm
+    /// than a split word. With no gap at all — unbroken speech for the whole window — there is
+    /// nothing to be done, and we SAY so instead of pretending the cut was clean.
+    fn cut_at_quietest<E>(&mut self, emit: &mut E) -> Result<()>
+    where
+        E: FnMut(u64, &[i16]) -> Result<()>,
+    {
+        let Some((from, to)) = self.best_gap else {
+            tracing::debug!(
+                "window at {:.1} s: not one gap between words in {} samples — cutting on the ceiling, a word may be split",
+                self.buf_start as f64 / f64::from(SAMPLE_RATE),
+                self.buf.len()
+            );
+            return self.flush(emit);
+        };
+        let cut = (from + to) / 2;
+        if cut == 0 || cut >= self.buf.len() {
+            return self.flush(emit);
+        }
+        if self.had_speech {
+            emit(self.buf_start, &self.buf[..cut])?;
+        }
+        // The rest is neither thrown away nor read twice: it becomes the head of the next
+        // window, so the stream stays continuous and every sample is recognized exactly once.
+        self.buf.drain(..cut);
+        self.buf_start += cut as u64;
+        self.silence_run = 0;
+        self.had_speech = true; // the tail was carved out of the middle of speech
+        self.silence_from = None;
+        self.best_gap = None;
+        Ok(())
     }
 
     fn flush<E>(&mut self, emit: &mut E) -> Result<()>
@@ -710,12 +795,107 @@ impl Windower {
         }
         self.silence_run = 0;
         self.had_speech = false;
+        self.silence_from = None;
+        self.best_gap = None;
         Ok(())
     }
 }
 
 #[cfg(test)]
 mod tests {
+    /// THE SPLIT WORD, measured on the owner's downloaded video: 72 of its 76 windows were
+    /// exactly 15.0 seconds because a monologue never offers the half-second of silence the soft
+    /// cut wants, so the ceiling cut straight through «Топ-три | ри качества».
+    ///
+    /// Here the speech has one short gap — far too short for a soft cut — and the ceiling is
+    /// reached. The window must end IN THAT GAP, not on the ceiling.
+    #[test]
+    fn a_hard_cut_retreats_to_the_gap_between_words() {
+        // 1 s windows, soft cut never fires (it wants 5 s of run-up and 500 ms of silence).
+        let mut w = Windower::new(1.0, 5.0, 500);
+        let frames = 50; // 50 × 20 ms = 1 s
+        let gap_at = 30; // a single silent frame, 600 ms in
+        let mut cuts: Vec<(u64, usize)> = Vec::new();
+        let mut emit = |start: u64, s: &[i16]| {
+            cuts.push((start, s.len()));
+            Ok(())
+        };
+        let mut n = 0usize;
+        let mut classify = |_: &[i16]| {
+            let speech = n != gap_at;
+            n += 1;
+            speech
+        };
+        let audio = vec![1i16; FRAME_SAMPLES * frames];
+        w.feed(&audio, &mut classify, &mut emit).unwrap();
+
+        assert_eq!(cuts.len(), 1, "the ceiling did not close a window");
+        let (start, len) = cuts[0];
+        assert_eq!(start, 0);
+        // The gap is frame 30: samples [30 × 320, 31 × 320). The cut is its middle.
+        let expected = (30 * FRAME_SAMPLES + 31 * FRAME_SAMPLES) / 2;
+        assert_eq!(len, expected, "the cut did not land in the gap");
+        assert!(
+            len < FRAME_SAMPLES * frames,
+            "the window still ran to the ceiling — a word gets split here"
+        );
+    }
+
+    /// Unbroken speech with no gap anywhere. There is nothing better to do than cut on the
+    /// ceiling — but the stream must stay continuous and lose nothing.
+    #[test]
+    fn without_any_gap_the_ceiling_still_cuts_and_loses_nothing() {
+        let mut w = Windower::new(1.0, 5.0, 500);
+        let mut cuts: Vec<(u64, usize)> = Vec::new();
+        let mut emit = |start: u64, s: &[i16]| {
+            cuts.push((start, s.len()));
+            Ok(())
+        };
+        let mut classify = |_: &[i16]| true;
+        let audio = vec![1i16; FRAME_SAMPLES * 150]; // 3 s
+        w.feed(&audio, &mut classify, &mut emit).unwrap();
+        w.finish(&mut emit).unwrap();
+
+        let total: usize = cuts.iter().map(|(_, l)| l).sum();
+        assert_eq!(total, audio.len(), "samples were lost or duplicated");
+        // Windows follow one another without a hole and without an overlap.
+        let mut at = 0u64;
+        for (start, len) in &cuts {
+            assert_eq!(*start, at, "a hole or an overlap in the timeline");
+            at += *len as u64;
+        }
+    }
+
+    /// The tail carried over is not recognized twice, and the timeline stays exact — this is what
+    /// makes retreating safe where overlapping windows would need the text to be de-duplicated.
+    #[test]
+    fn the_carried_tail_keeps_the_timeline_exact() {
+        let mut w = Windower::new(1.0, 5.0, 500);
+        let mut cuts: Vec<(u64, usize)> = Vec::new();
+        let mut emit = |start: u64, s: &[i16]| {
+            cuts.push((start, s.len()));
+            Ok(())
+        };
+        let mut n = 0usize;
+        // A gap every 25 frames — several ceilings in a row, each retreating.
+        let mut classify = |_: &[i16]| {
+            n += 1;
+            n % 25 != 0
+        };
+        let audio = vec![1i16; FRAME_SAMPLES * 250]; // 5 s
+        w.feed(&audio, &mut classify, &mut emit).unwrap();
+        w.finish(&mut emit).unwrap();
+
+        assert!(cuts.len() >= 4, "expected several windows: {cuts:?}");
+        let total: usize = cuts.iter().map(|(_, l)| l).sum();
+        assert_eq!(total, audio.len(), "samples were lost or duplicated");
+        let mut at = 0u64;
+        for (start, len) in &cuts {
+            assert_eq!(*start, at);
+            at += *len as u64;
+        }
+    }
+
     use super::*;
 
     fn collect_windows(

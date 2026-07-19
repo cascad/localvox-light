@@ -442,6 +442,14 @@ function SessionRow({
   );
 }
 
+/** Where a hit was found, in the words the tabs use. The index's own names are internal
+ *  («transcript», «processed»), and showing them put English field names on a Russian screen. */
+const KIND_RU: Record<string, string> = {
+  transcript: "реплики",
+  processed: "текст",
+  summary: "сводка",
+};
+
 /** A hit with a timecode plays straight from the results: "found → listened" without
  *  opening the session first. */
 function Hits({ hits, open }: { hits: Hit[]; open: (n: string, at?: number) => void }) {
@@ -458,7 +466,7 @@ function Hits({ hits, open }: { hits: Hit[]; open: (n: string, at?: number) => v
             <span className="name">{h.snippet}</span>
           </span>
           <span className="m">
-            <span>{h.kind}</span>
+            <span>{KIND_RU[h.kind] ?? h.kind}</span>
             {h.start_sec != null && <span>· {mmss(h.start_sec)}</span>}
             {h.why && <span>· {h.why}</span>}
           </span>

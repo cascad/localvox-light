@@ -190,6 +190,12 @@ fn main() -> Result<()> {
     let audio_devices = resolve_audio_from_cli_and_file(&cli);
     let devices_shared = Arc::new(RwLock::new(audio_devices.clone()));
     let reload_gen = Arc::new(AtomicU64::new(0));
+    // The composition root hands the live capture controls to the settings screen: a
+    // device saved there re-points the streams instead of waiting for a restart.
+    localvox_light_core::audio::register_capture(localvox_light_core::audio::CaptureControls {
+        devices: Arc::clone(&devices_shared),
+        reload_gen: Arc::clone(&reload_gen),
+    });
 
     if cli.tray {
         return run_tray_mode(cli, devices_shared, reload_gen, running);

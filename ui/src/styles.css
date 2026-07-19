@@ -416,23 +416,14 @@ button[disabled] { opacity: .4; cursor: not-allowed; }
 .prov b { color: var(--dim); font-weight: 600; }
 .prov .sep { color: var(--line); }
 
-/* THE READABLE TEXT. Same rows as the transcript — it is the same conversation — but without the
-   play button: this is the cleaned wording, and the audio says the raw one. */
-.lines.readable .ln { grid-template-columns: 62px 92px 1fr; }
-/* A line the model rewrote. Faint on purpose: this marks the majority of a good cleanup, and a
-   loud mark on every second line is a mark nobody reads. */
-.lines.readable .ln.edited .tc { color: var(--accent); }
-.lines.readable .was {
-  padding: 0 4px; background: transparent; border: 0; color: var(--mute); font-size: 11px;
-  vertical-align: baseline;
-}
-.lines.readable .was:hover { color: var(--accent); }
-/* What the recognizer actually heard. Shown on demand, and it never reaches the clipboard: the
-   document a person forwards is the cleaned one. */
-.lines.readable .orig {
-  display: block; margin-top: 3px; padding-left: 8px; border-left: 2px solid var(--line);
-  color: var(--mute); font-size: 12.5px;
-}
+/* THE BOOK. A page meant to be read and copied: no timecodes, no labels, no brackets — measured
+   line length, real paragraphs, and nothing in it that a person would have to delete after
+   pasting it into a letter. */
+/* Full width of the pane. 62ch is the typographer's line length and it looked like a column of
+   text pinned to the left of an empty window — the reading measure is set by the pane, and the
+   pane is what the person sized. */
+.book { max-width: none; }
+.book p { margin: 0 0 13px; font-size: 15.5px; line-height: 1.65; }
 
 .lines { display: flex; flex-direction: column; }
 .ln {
@@ -583,6 +574,12 @@ button[disabled] { opacity: .4; cursor: not-allowed; }
 .set-group h2 {
   font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--mute);
   margin: 0 0 8px; font-weight: 600;
+}
+/* When a field takes effect. Quiet — it is a footnote to the label, not a warning: most fields
+   need it and a loud badge on every second row is a badge nobody reads. */
+.set-row .applies {
+  font-size: 10.5px; color: var(--mute); border: 1px solid var(--line);
+  border-radius: 999px; padding: 1px 6px; white-space: nowrap;
 }
 .set-row {
   display: grid; grid-template-columns: minmax(180px, 260px) 1fr; gap: 12px;

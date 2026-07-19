@@ -39,6 +39,28 @@ export interface Version {
   lines: number;
 }
 
+/** Somebody this recording's text attributes lines to.
+ *
+ *  Grouped from the lines themselves, so it cannot contain anyone who says nothing. The old list
+ *  came from the diarization roster and did: on the owner's video it offered to rename a
+ *  «Участник 1» who contributes not a single line to the document. */
+export interface Participant {
+  name: string;
+  /** «отдельный голос» / «микрофон» / «системный звук» / «звук из источника» — why it is called
+   *  what it is called, which is the difference between «Собеседники» and «Участник 1». */
+  what: string;
+  /** Someone gave this one a name; «Участник 2» and «Собеседники» are not names but honest
+   *  placeholders. */
+  named: boolean;
+  /** What a rename has to touch. A row can carry both — the same name reached the text through a
+   *  separated voice AND through the input's label — and then all of them are renamed together,
+   *  or the screen would fix most of the lines and quietly leave the rest. */
+  voices: string[];
+  sources: number[];
+  speech_sec: number;
+  lines: number;
+}
+
 export interface Speaker {
   label: string;
   speech_sec: number;
@@ -111,10 +133,16 @@ export interface QueueItem {
  *  text; the kind decides the control, not the storage. */
 export type SettingKind = "text" | "path" | "bool" | "number" | "secret";
 
+/** WHEN a saved value starts working. Per setting, because the answer differs per setting:
+ *  «live» is read at the moment it is used, «capture» re-opens the microphone, «restart» was read
+ *  once into a ring buffer or a bound socket and cannot change under a running daemon. */
+export type Applies = "live" | "capture" | "restart";
+
 export interface Setting {
   key: string;
   group: string;
   label: string;
+  applies: Applies;
   /** What happens when the key is left unset — placeholder text, never a value. The real default
    *  lives in the code, and claiming to know it here is how a catalogue starts lying. */
   hint: string;
@@ -327,7 +355,7 @@ export const api = {
    *  on every read, which is why renaming one needs no re-cooking. */
   readable: (s: string) => call<ReadableDoc>(`/api/sessions/${enc(s)}/processed`),
   versions: (s: string) => call<{ versions: Version[] }>(`/api/sessions/${enc(s)}/versions`),
-  speakers: (s: string) => call<{ speakers: Speaker[] }>(`/api/sessions/${enc(s)}/speakers`),
+  speakers: (s: string) => call<{ speakers: Participant[] }>(`/api/sessions/${enc(s)}/speakers`),
 
   search: (q: string, mode: string, limit = 25) =>
     call<Hit[]>(`/api/search?q=${enc(q)}&limit=${limit}${mode ? `&mode=${mode}` : ""}`),
@@ -385,7 +413,9 @@ export const api = {
   /** Write keys into `.env`. `null` unsets a key — it is commented out and the code default takes
    *  over again. The write is surgical: comments and untouched lines survive. */
   saveSettings: (set: Record<string, string | null>) =>
-    post<{ path: string; msg: string; saved: number }>("/api/settings", { set }),
+    post<{ path: string; msg: string; saved: number; need_restart: string[] }>("/api/settings", {
+      set,
+    }),
 
   record: () => call<RecordState>("/api/record"),
   startRecording: (title: string) => post<{ msg: string }>("/api/record/start", { title }),

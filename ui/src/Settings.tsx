@@ -17,7 +17,8 @@ export function SettingsPane({ say }: { say: (m: string) => void }) {
   // nobody edited — and would turn a value that is currently a code default into a pinned one.
   const [edits, setEdits] = useState<Record<string, string | null>>({});
   const [busy, setBusy] = useState(false);
-  const [saved, setSaved] = useState(false);
+  // What the LAST save still needs a restart for, named. Empty — everything took effect.
+  const [pending, setPending] = useState<string[] | null>(null);
 
   const load = async () => {
     try {
@@ -50,7 +51,7 @@ export function SettingsPane({ say }: { say: (m: string) => void }) {
     try {
       const r = await api.saveSettings(edits);
       setEdits({});
-      setSaved(true);
+      setPending(r.need_restart ?? []);
       say(r.msg);
       await load();
     } catch (e) {
@@ -73,12 +74,23 @@ export function SettingsPane({ say }: { say: (m: string) => void }) {
           работает то, что зашито в коде.
         </p>
 
-        {saved && (
+        {/* The truth about the save that just happened — and only about it. Saying «требуется
+            перезапуск» over every save made the live settings look dead; saying nothing would
+            hide the ones that really are asleep until the daemon comes back. */}
+        {pending?.length === 0 && (
           <p className="note" data-nocopy>
             <span className="i" aria-hidden="true">ⓘ</span>
             <span>
-              <b>Сохранено, но ещё не действует.</b> Эти значения читаются один раз — при запуске
-              демона. Перезапустите его из трея, чтобы они вступили в силу.
+              <b>Сохранено и применено.</b> Перезапускать ничего не нужно.
+            </span>
+          </p>
+        )}
+        {pending && pending.length > 0 && (
+          <p className="note" data-nocopy>
+            <span className="i" aria-hidden="true">ⓘ</span>
+            <span>
+              <b>Сохранено.</b> Применится после перезапуска демона: {pending.join(", ")}. Эти
+              значения читаются один раз — при старте; остальное уже действует.
             </span>
           </p>
         )}
@@ -123,6 +135,18 @@ export function SettingsPane({ say }: { say: (m: string) => void }) {
   );
 }
 
+/** Says BEFORE the save what the save will cost. A field that needs a restart is not broken and
+ *  not rare — it is a value the engine read once, into a ring buffer or a bound socket — but the
+ *  person deserves to know that while deciding, not afterwards. */
+function Applies({ of }: { of: Setting }) {
+  if (of.applies === "live") return null;
+  return (
+    <span className="applies">
+      {of.applies === "capture" ? "перезапустит захват" : "после перезапуска"}
+    </span>
+  );
+}
+
 function Field({
   s,
   edit,
@@ -149,6 +173,7 @@ function Field({
         <label>
           <b>{s.label}</b>
           <span className="k">{s.key}</span>
+          <Applies of={s} />
         </label>
         <div className="set-ctl">
           <select value={shown} onChange={(e) => onChange(e.target.value)}>
@@ -175,6 +200,7 @@ function Field({
         <label>
           <b>{s.label}</b>
           <span className="k">{s.key}</span>
+          <Applies of={s} />
         </label>
         <div className="set-ctl">
           <select value={on === null ? "" : on ? "on" : "off"} onChange={(e) => onChange(e.target.value)}>
@@ -192,6 +218,7 @@ function Field({
       <label>
         <b>{s.label}</b>
         <span className="k">{s.key}</span>
+        <Applies of={s} />
       </label>
       <div className="set-ctl">
         <input

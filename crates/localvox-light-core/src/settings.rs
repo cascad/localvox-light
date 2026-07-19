@@ -32,6 +32,24 @@ pub enum Kind {
     Secret,
 }
 
+/// WHEN a saved value starts working. Per setting, because the answer differs per setting and a
+/// blanket «перезапустите демон» was a lie in both directions: it made live settings look dead,
+/// and it hid the ones that genuinely cannot change under a running capture.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Applies {
+    /// Read at the moment it is used, so saving is enough. The autocook flags are consulted on
+    /// every cycle, the tool paths on every ingest, the LLM address on every job.
+    Live,
+    /// Held by the capture threads. Saving updates them and re-opens the streams — no restart,
+    /// but there IS a visible seam: the microphone closes and opens again.
+    Capture,
+    /// Read ONCE, when the engine or the socket came up. A ring buffer already allocated cannot
+    /// change its length under a running recording, and a bound port cannot move. We say so
+    /// instead of pretending.
+    Restart,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct Setting {
     pub key: &'static str,
@@ -41,12 +59,79 @@ pub struct Setting {
     /// value: the real default lives in the code.
     pub hint: &'static str,
     pub kind: Kind,
+    pub applies: Applies,
 }
 
 impl Setting {
     pub fn secret(&self) -> bool {
         matches!(self.kind, Kind::Secret)
     }
+}
+
+/// What a key needs before it works. Unknown keys — the ones a person adds by hand in «остальное
+/// в файле» — are assumed to need a restart: we do not know who reads them, and promising they
+/// are live would be a guess presented as a fact.
+pub fn applies(key: &str) -> Applies {
+    CATALOGUE
+        .iter()
+        .find(|s| s.key == key)
+        .map(|s| s.applies)
+        .unwrap_or(Applies::Restart)
+}
+
+/// Put saved values into the RUNNING process, and report what is actually in force now.
+///
+/// Everything in this system that reads a setting reads it from the environment — the tool
+/// resolvers on every ingest, `post_processing_from_env` on every autocook cycle, the LLM client
+/// on every job. So updating the environment IS the hot reload for them: no watcher, no reload
+/// signal, no second source of truth to drift from `.env`.
+///
+/// It is deliberately NOT a promise about everything. A value the engine read once, into a ring
+/// buffer or a bound socket, does not change because the variable did — those are `Restart`, and
+/// the return value says which ones the person still has to restart for.
+///
+/// Windows only, in practice: `SetEnvironmentVariable` is safe to call while other threads read.
+/// On glibc the same call races `getenv` — if this daemon is ever ported, the environment stops
+/// being an acceptable channel and this becomes an in-process overlay that readers consult.
+pub fn apply_live(changes: &[(String, Option<String>)]) -> Vec<&'static str> {
+    let mut need_restart: Vec<&'static str> = Vec::new();
+    let mut touched_capture = false;
+    for (key, value) in changes {
+        match applies(key) {
+            Applies::Live | Applies::Capture => {
+                match value {
+                    Some(v) => std::env::set_var(key, v),
+                    None => std::env::remove_var(key),
+                }
+                touched_capture |= applies(key) == Applies::Capture;
+            }
+            Applies::Restart => {
+                // The variable is set anyway, so that a component reading it LATER (a job that
+                // has not started yet) sees the new value rather than the old one. What cannot
+                // be updated is what already holds a copy — and that is what we report.
+                match value {
+                    Some(v) => std::env::set_var(key, v),
+                    None => std::env::remove_var(key),
+                }
+                if let Some(s) = CATALOGUE.iter().find(|s| s.key == key) {
+                    if !need_restart.contains(&s.label) {
+                        need_restart.push(s.label);
+                    }
+                }
+            }
+        }
+    }
+    // The devices move NOW — the streams close and open on the new endpoint. If nobody registered
+    // the controls (a CLI run, no engine in this process), the promise cannot be kept, and the
+    // person is told the truth instead: these need a restart after all.
+    if touched_capture && !crate::audio::reload_capture_from_env() {
+        for s in CATALOGUE.iter().filter(|s| s.applies == Applies::Capture) {
+            if changes.iter().any(|(k, _)| k == s.key) && !need_restart.contains(&s.label) {
+                need_restart.push(s.label);
+            }
+        }
+    }
+    need_restart
 }
 
 /// The curated catalogue. Order is the order on screen.
@@ -60,6 +145,7 @@ pub const CATALOGUE: &[Setting] = &[
         label: "yt-dlp",
         hint: "не задано — ищем рядом с exe, затем в PATH",
         kind: Kind::Path,
+        applies: Applies::Live,
     },
     Setting {
         key: "LOCALVOX_LIGHT_YT_FFMPEG",
@@ -67,6 +153,7 @@ pub const CATALOGUE: &[Setting] = &[
         label: "ffmpeg",
         hint: "не задано — ищем рядом с exe, затем в PATH",
         kind: Kind::Path,
+        applies: Applies::Live,
     },
     Setting {
         key: "LOCALVOX_LIGHT_YT_JS_RUNTIME_PATH",
@@ -74,6 +161,7 @@ pub const CATALOGUE: &[Setting] = &[
         label: "node (для YouTube)",
         hint: "нужен не всегда: YouTube иногда требует JS для расшифровки ссылки",
         kind: Kind::Path,
+        applies: Applies::Live,
     },
     // ── Устройства ───────────────────────────────────────────────────────────
     Setting {
@@ -82,6 +170,7 @@ pub const CATALOGUE: &[Setting] = &[
         label: "Микрофон",
         hint: "default — системный по умолчанию",
         kind: Kind::Text,
+        applies: Applies::Capture,
     },
     Setting {
         key: "LOCALVOX_LIGHT_LOOPBACK_DEVICE",
@@ -89,6 +178,37 @@ pub const CATALOGUE: &[Setting] = &[
         label: "Системный звук (loopback)",
         hint: "default-output — то, что звучит в колонках",
         kind: Kind::Text,
+        applies: Applies::Capture,
+    },
+    // ── Запись ───────────────────────────────────────────────────────────────
+    Setting {
+        key: "LOCALVOX_LIGHT_PREROLL_SEC",
+        group: "Запись",
+        label: "Буфер прошлого, сек",
+        // The hint states the DEFAULT'S consequence, not the number alone: this buffer is the one
+        // setting here that costs RAM continuously, and it costs it whether or not anything is
+        // being recorded. A person raising it to an hour deserves to know that before, not after.
+        hint: "300 — пять минут, ≈19 МБ памяти на две дорожки",
+        kind: Kind::Number,
+        applies: Applies::Restart,
+    },
+    Setting {
+        key: "LOCALVOX_LIGHT_CHUNK_SEC",
+        group: "Запись",
+        label: "Ротация файлов аудио, сек",
+        // Not a quality knob: neighbouring chunks join sample-exactly, so this changes how the
+        // recording is SPLIT ON DISK and nothing about what is recorded.
+        hint: "300 — новый файл каждые пять минут",
+        kind: Kind::Number,
+        applies: Applies::Restart,
+    },
+    Setting {
+        key: "LOCALVOX_LIGHT_AUTOSTOP_SEC",
+        group: "Запись",
+        label: "Автостоп по тишине, сек",
+        hint: "900 — пятнадцать минут тишины на обеих дорожках; 0 — никогда",
+        kind: Kind::Number,
+        applies: Applies::Restart,
     },
     // ── LLM ──────────────────────────────────────────────────────────────────
     Setting {
@@ -97,6 +217,7 @@ pub const CATALOGUE: &[Setting] = &[
         label: "Адрес сервера",
         hint: "http://localhost:11434/v1 — локальная Ollama",
         kind: Kind::Text,
+        applies: Applies::Live,
     },
     Setting {
         key: "LOCALVOX_LLM_MODEL",
@@ -104,6 +225,7 @@ pub const CATALOGUE: &[Setting] = &[
         label: "Модель",
         hint: "модель для причёсывания и сводки",
         kind: Kind::Text,
+        applies: Applies::Live,
     },
     // ── API ──────────────────────────────────────────────────────────────────
     Setting {
@@ -112,6 +234,7 @@ pub const CATALOGUE: &[Setting] = &[
         label: "Адрес",
         hint: "127.0.0.1:3017 — только этот компьютер",
         kind: Kind::Text,
+        applies: Applies::Restart,
     },
     Setting {
         key: "LOCALVOX_API_TOKEN",
@@ -119,6 +242,7 @@ pub const CATALOGUE: &[Setting] = &[
         label: "Токен",
         hint: "обязателен, если адрес не localhost",
         kind: Kind::Secret,
+        applies: Applies::Restart,
     },
     // ── Автоварка ────────────────────────────────────────────────────────────
     Setting {
@@ -127,6 +251,7 @@ pub const CATALOGUE: &[Setting] = &[
         label: "Доваривать записи сама",
         hint: "включена",
         kind: Kind::Bool,
+        applies: Applies::Live,
     },
     Setting {
         key: "LOCALVOX_LIGHT_AUTOCOOK_INTERVAL_SEC",
@@ -134,6 +259,7 @@ pub const CATALOGUE: &[Setting] = &[
         label: "Как часто искать недоваренное, сек",
         hint: "300",
         kind: Kind::Number,
+        applies: Applies::Live,
     },
     Setting {
         key: "LOCALVOX_LIGHT_AUTOCOOK_QUIESCENT_SEC",
@@ -141,6 +267,7 @@ pub const CATALOGUE: &[Setting] = &[
         label: "Сессия «тихая» столько секунд → варим",
         hint: "60",
         kind: Kind::Number,
+        applies: Applies::Live,
     },
     Setting {
         key: "LOCALVOX_LIGHT_AUTOCOOK_SUMMARY",
@@ -148,20 +275,23 @@ pub const CATALOGUE: &[Setting] = &[
         label: "Делать сводку",
         hint: "включено",
         kind: Kind::Bool,
+        applies: Applies::Live,
     },
     Setting {
         key: "LOCALVOX_LIGHT_AUTOCOOK_CLEANUP",
         group: "Автоварка",
-        label: "Делать читаемый текст",
+        label: "Делать «Текст»",
         hint: "включено",
         kind: Kind::Bool,
+        applies: Applies::Live,
     },
     Setting {
         key: "LOCALVOX_LIGHT_AUTOCOOK_REFINE",
         group: "Автоварка",
-        label: "Причёсывать расшифровку",
+        label: "Причёсывать реплики",
         hint: "включено",
         kind: Kind::Bool,
+        applies: Applies::Live,
     },
     // ── Язык ─────────────────────────────────────────────────────────────────
     Setting {
@@ -170,6 +300,7 @@ pub const CATALOGUE: &[Setting] = &[
         label: "Язык записи",
         hint: "auto — язык текста определяем по самой расшифровке",
         kind: Kind::Text,
+        applies: Applies::Live,
     },
 ];
 
