@@ -30,6 +30,11 @@ pub struct LlmProfile {
     /// Ceiling on answer tokens (Ollama cuts thinking+answer together — thinking models
     /// with reasoning left on return empty content).
     pub max_tokens: u32,
+    /// Nucleus sampling. Pinned by US, not taken from the model's shipped params: a default that
+    /// lives in someone else's file is hidden entropy — it changes our behaviour when they
+    /// re-publish the model, and nothing here would say so.
+    pub top_p: f32,
+    pub top_k: u32,
 }
 
 impl Default for LlmProfile {
@@ -41,6 +46,8 @@ impl Default for LlmProfile {
             temperature: 0.2,
             timeout_sec: 600,
             max_tokens: 8192,
+            top_p: 0.9,
+            top_k: 20,
         }
     }
 }
@@ -130,6 +137,13 @@ impl LlmClient {
         &self.profile.model
     }
 
+    /// A ceiling on the answer. Some questions deserve a page; a question about your own
+    /// recordings does not — and a model that has started looping will run to the timeout unless
+    /// something stops it.
+    pub fn set_max_tokens(&mut self, max_tokens: u32) {
+        self.profile.max_tokens = max_tokens;
+    }
+
     /// A single chat request; reasoning is stripped/disabled depending on the dialect.
     pub fn chat(&self, messages: &[ChatMessage]) -> Result<String> {
         let raw = match detect_flavor(&self.profile.base_url) {
@@ -187,9 +201,31 @@ impl LlmClient {
             "messages": messages,
             "stream": false,
             "think": false,
+            // EVERY sampling parameter is pinned HERE, explicitly.
+            //
+            // We used to send only `num_predict` and `temperature`, and let the rest come from
+            // whatever the model ships in its own params blob. That is not a default — it is
+            // hidden entropy in someone else's file, and it changes our behaviour when they
+            // re-publish the model.
+            //
+            // What it cost us, measured: `ollama show --parameters qwen3.5:9b` ships
+            // `presence_penalty 1.5`. That penalises tokens which have ALREADY APPEARED — and the
+            // correct output of the cleanup is ~90 % the very same tokens as its input, because
+            // the task is «repeat this text, tidied». So we were mechanically penalising the model
+            // for doing exactly what we asked, and pushing it towards the one thing that earns
+            // fresh tokens: writing something of its own. On a live recording (16.07.2026) it did
+            // precisely that — the readable text opened with «Вот структурированный анализ…»
+            // instead of the conversation.
+            //
+            // Faithful retelling needs NO repetition penalty. Repeating the source is the job.
             "options": {
                 "num_predict": self.profile.max_tokens,
                 "temperature": self.profile.temperature,
+                "presence_penalty": 0.0,
+                "frequency_penalty": 0.0,
+                "repeat_penalty": 1.0,
+                "top_p": self.profile.top_p,
+                "top_k": self.profile.top_k,
             },
         });
         let resp = self

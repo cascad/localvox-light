@@ -40,7 +40,12 @@ pub const REFINED: &str = "refined";
 
 /// The revision of the prompts. Bumped when the TEMPLATES or the validation rules change
 /// — otherwise an improvement of the prompt never reaches the already processed archive.
-pub const PROMPT_REV: u32 = 1;
+///
+/// p2 (14.07.2026): the re-ask prompt no longer offers the model a way out («if there is no
+/// content, answer with exactly this line»), and the cleanup is not re-asked at all. Under p1 a
+/// 102-minute recording lost its readable text to that escape hatch — the archive must redo every
+/// document made the old way, and this bump is what makes it.
+pub const PROMPT_REV: u32 = 2;
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
 #[serde(rename_all = "lowercase")]
@@ -100,6 +105,15 @@ pub struct ProcessingLog {
 /// `kind` — [`SUMMARY`] or [`PROCESSED`]. `style` — see [`llm_style`].
 pub fn llm_recipe(kind: &str, style: &str, model: &str) -> String {
     format!("{kind}/{style}/{model}/p{PROMPT_REV}")
+}
+
+/// The recipe of the refined transcript: the model + the prompt revision. Its idempotency
+/// against a re-cook is handled by the version store (a `refined` version's parent is the best
+/// one; a new best makes the old refined stale). Recording it here just materializes the outcome
+/// uniformly with the other steps — so "already refined" and "nothing to refine" are facts in the
+/// log, not silences that make the step run every cycle.
+pub fn refine_recipe(model: &str) -> String {
+    format!("{REFINED}/{model}/p{PROMPT_REV}")
 }
 
 /// The processing style: the template explicitly chosen by a human, otherwise the
@@ -258,6 +272,31 @@ fn write_log(session_dir: &Path, log: &ProcessingLog) {
     if let Err(e) = write {
         tracing::warn!("processing.json was not written: {e}");
     }
+}
+
+/// IS THIS DOCUMENT MADE? The whole question, and nothing else.
+///
+/// The ledger is the materialisation of a finished job, and it is the only thing that answers
+/// this. Not the recipe it was made by, not the files on disk, not a timestamp — the record.
+///
+/// Any outcome except `Failed` is finished work:
+///   * `Ok` — made;
+///   * `Unverified` — made, and the check has doubts; the document is there and the human decides;
+///   * `Confirmed` — made, and the human has already said it is fine;
+///   * `Nothing` — we did the work and found there was nothing to do (a silent recording). That is
+///     a RESULT, not an absence: repeating it is the endless loop this ledger exists to prevent.
+/// `Failed` is the only unfinished state, and the queue retries it on a bounded budget.
+///
+/// Why not `is_current` (does the recipe still match): because that recomputed «what I want now»
+/// on every cycle out of drifting inputs — the prompt revision, the model in `.env`, the working
+/// directory — and re-cooked the whole archive whenever any of them moved. The owner watched
+/// two-day-old sessions re-process themselves on every launch. A better recipe reaches the old
+/// archive by a human pressing «переварить заново», not behind his back.
+pub fn is_done(session_dir: &Path, artifact: &str) -> bool {
+    load(session_dir)
+        .artifacts
+        .get(artifact)
+        .is_some_and(|r| r.outcome != Outcome::Failed)
 }
 
 pub fn is_current(session_dir: &Path, artifact: &str, recipe: &str) -> bool {

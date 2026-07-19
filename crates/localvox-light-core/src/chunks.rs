@@ -46,6 +46,16 @@ pub struct SessionMeta {
     pub started_at: String,
     pub sample_rate: u32,
     pub chunks: Vec<ChunkEntry>,
+    /// What to call each audio SOURCE when diarization has not named the voice: `0` is the
+    /// microphone, `1` is the system sound.
+    ///
+    /// The defaults — «Я» and «Собеседники» — are true for a recording made at this machine and
+    /// FALSE for anything that arrived by link: a downloaded video is not the owner speaking, and
+    /// calling its narrator «Я» is not a rough edge but a wrong statement about who said the words.
+    /// So the default depends on where the audio came from (`source_label`), and a human can
+    /// override it here for any session.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub source_names: std::collections::BTreeMap<String, String>,
     /// Calls/meetings detected during the session (F3, detect.rs).
     #[serde(default)]
     pub meetings: Vec<MeetingMark>,
@@ -78,6 +88,48 @@ pub struct SessionMeta {
     /// detector. Meeting-minutes summaries are selected and the meeting list is built by this flag.
     #[serde(default)]
     pub meeting: bool,
+    /// Where the session came from, if not from the microphone: a URL, a file. Provenance on a
+    /// derivative — without it, "which link did this transcript come from" is unanswerable
+    /// half a year later, and the session cannot be rebuilt from its source.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<Source>,
+}
+
+/// What to call a voice we know only by which input it came through.
+///
+/// ONE function, because five places used to compute this and they would drift the first time any
+/// of them was touched: the lines endpoint, the chat fragments, the export, and the LLM's two
+/// renderers. They all ask here now.
+///
+/// The default follows the ORIGIN of the audio, and that is the whole point of this change:
+///   * recorded here — source 0 is the owner's microphone, so «Я» is a fact;
+///   * arrived by link — source 0 is whatever was in the file. «Я» would then claim the owner said
+///     words spoken by someone in a video they merely downloaded. «Рассказчик» claims nothing it
+///     does not know: there is a voice, and it is not the owner's.
+///
+/// A human's own name for the session's source outranks both.
+pub fn source_label(meta: &SessionMeta, source_id: u8) -> String {
+    if let Some(name) = meta.source_names.get(&source_id.to_string()) {
+        let name = name.trim();
+        if !name.is_empty() {
+            return name.to_string();
+        }
+    }
+    match (source_id, meta.source.is_some()) {
+        (0, false) => "Я".into(),
+        (0, true) => "Рассказчик".into(),
+        _ => "Собеседники".into(),
+    }
+}
+
+/// The origin of a session that was not recorded from the microphone.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct Source {
+    /// Where it was taken from — the link as the human gave it (cleaned of tracking junk).
+    pub url: String,
+    /// The title of the source, if it named itself (yt-dlp knows it).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]

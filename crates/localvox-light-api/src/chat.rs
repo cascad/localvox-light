@@ -113,11 +113,11 @@ pub fn ask(archive: &Archive, question: &str, llm: &LlmClient) -> Result<Answer>
         &[("question", question), ("fragments", &render(&fragments))],
     );
 
-    let mut text = llm
-        .chat(&[localvox_light_llm::user(prompt.clone())])
-        .context("вопрос к архиву")?
-        .trim()
-        .to_string();
+    let mut text = cut_where_it_starts_looping(
+        llm.chat(&[localvox_light_llm::user(prompt.clone())])
+            .context("вопрос к архиву")?
+            .trim(),
+    );
 
     // A REFUSAL IS NOT AN ANSWER WHEN THE WORDS OF THE QUESTION ARE RIGHT THERE IN THE
     // FRAGMENTS.
@@ -278,6 +278,10 @@ fn transcript_lines(archive: &Archive, session: &str) -> Vec<Line> {
         return Vec::new();
     };
     let path = dir.join("transcripts").join(&best.file);
+    let meta: localvox_light_core::chunks::SessionMeta = std::fs::read(dir.join("meta.json"))
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default();
     read_transcript_lines(&path)
         .unwrap_or_default()
         .into_iter()
@@ -285,8 +289,7 @@ fn transcript_lines(archive: &Archive, session: &str) -> Vec<Line> {
             start_sec: l.start_sec,
             who: match l.speaker {
                 Some(name) => name,
-                None if l.source_id == 0 => "Я".into(),
-                None => "Собеседники".into(),
+                None => localvox_light_core::chunks::source_label(&meta, l.source_id),
             },
             text: l.text,
         })
@@ -315,18 +318,75 @@ fn context_at(lines: &[Line], at: f64, neighbours: usize) -> String {
 /// The fragments exactly as the model sees them. The same text goes to the grounding
 /// check as well — the answer must be verified against precisely what the model was
 /// shown.
+///
+/// The DIRECTORY NAME of the session is not shown. The model does not need it — the number `[n]`
+/// is enough to cite by, and mapping the number back to the recording is our job, not its. But
+/// shown, it gets quoted as if it were content: an answer came back reasoning about «the code in
+/// the context of 20260714_181036», and the grounding check then flagged the «20» out of that
+/// date as an invented number. We handed it a file name and it took it for a fact of the
+/// conversation.
 fn render(fragments: &[Fragment]) -> String {
     fragments
         .iter()
         .map(|f| {
             let when = match f.start_sec {
-                Some(s) => format!(", {:02}:{:02}", (s as u64) / 60, (s as u64) % 60),
+                Some(s) => format!(" ({:02}:{:02})", (s as u64) / 60, (s as u64) % 60),
                 None => String::new(),
             };
-            format!("[{}] {}{}\n{}", f.n, f.session, when, f.text)
+            format!("[{}]{}\n{}", f.n, when, f.text)
         })
         .collect::<Vec<_>>()
         .join("\n\n")
+}
+
+/// An answer that has started repeating itself has stopped answering.
+///
+/// Measured (14.07.2026). Asked «про код», the model returned some seventy lines, every one of
+/// them opening with the same «В записях нет информации о том…»: about the code in the context of
+/// the tea, of the sun, of the district, of a session's directory name. Nothing was wrong with the
+/// prompt — it asks for brevity in plain words — but **a prompt is a request, not a mechanism**.
+/// This is the mechanism.
+///
+/// It knows nothing about WHAT is being repeated: no phrases, no dictionaries, no lists of
+/// «bad» wordings — those would need updating for every model and every language. It knows only
+/// the FACT of repetition, and no rewording hides that.
+///
+/// Two identical openings are allowed: a real answer may легитимно parallel itself twice
+/// («В записях сказано… В записях сказано…»). The third is a loop, and the answer ends there.
+fn cut_where_it_starts_looping(text: &str) -> String {
+    use std::collections::HashMap;
+    /// How much of a line's opening counts as "the same opening".
+    const OPENING_WORDS: usize = 6;
+    /// How many times one opening may legitimately occur.
+    const ALLOWED: usize = 2;
+
+    let mut seen: HashMap<String, usize> = HashMap::new();
+    let mut kept: Vec<&str> = Vec::new();
+
+    for line in text.lines() {
+        let words: Vec<String> = line
+            .split_whitespace()
+            .map(|w| {
+                w.trim_matches(|c: char| !c.is_alphanumeric())
+                    .to_lowercase()
+            })
+            .filter(|w| !w.is_empty())
+            .collect();
+        // A short line is not a claim — a heading, a blank, a citation on its own.
+        if words.len() < OPENING_WORDS {
+            kept.push(line);
+            continue;
+        }
+        let opening = words[..OPENING_WORDS].join(" ");
+        let count = seen.entry(opening).or_insert(0);
+        *count += 1;
+        if *count > ALLOWED {
+            break;
+        }
+        kept.push(line);
+    }
+
+    kept.join("\n").trim_end().to_string()
 }
 
 /// The fragment numbers the answer cited: `[2]`, `[1, 3]`, `[4][5]`.
@@ -410,11 +470,15 @@ mod tests {
         );
     }
 
-    /// The fragments the model sees are exactly the ones its answer is later checked
-    /// against. Should they diverge, the check would catch inventions where there are
-    /// none.
+    /// The fragments the model sees are exactly the ones its answer is later checked against.
+    /// Should they diverge, the check would catch inventions where there are none.
+    ///
+    /// And the session's DIRECTORY NAME is not among them. The model has no use for it — `[n]` is
+    /// what it cites by — but shown, it gets quoted as a fact of the conversation: an answer came
+    /// back reasoning about «the code in the context of 20260714_181036», and the check then
+    /// flagged the «20» out of that date as an invented number.
     #[test]
-    fn the_model_sees_numbered_fragments_with_session_and_time() {
+    fn the_model_sees_numbered_fragments_without_the_directory_name() {
         let f = vec![Fragment {
             n: 1,
             session: "20260713_011211".into(),
@@ -423,7 +487,38 @@ mod tests {
             text: "Иван: миграцию беру я".into(),
         }];
         let out = render(&f);
-        assert!(out.starts_with("[1] 20260713_011211, 02:05"));
+        assert!(out.starts_with("[1] (02:05)"), "{out}");
+        assert!(!out.contains("20260713"), "the directory name leaked to the model: {out}");
         assert!(out.contains("миграцию беру я"));
+    }
+
+    /// THE ANSWER THAT STARTED THIS. Asked «про код» (14.07.2026), the model returned dozens of
+    /// lines, each opening the same way: no information about the code in the context of the tea,
+    /// of the sun, of a session's directory name. The prompt asks for brevity in plain words —
+    /// and a prompt is a request, not a mechanism.
+    #[test]
+    fn an_answer_that_loops_is_cut_where_it_starts_looping() {
+        let looped = "В записях есть упоминание кода, но нет его содержимого [1].\n\
+             В записях нет информации о том, кто именно пишет код.\n\
+             В записях нет информации о том, где хранится код.\n\
+             В записях нет информации о том, какие языки использовались.\n\
+             В записях нет информации о том, есть ли тесты для кода.";
+        let out = cut_where_it_starts_looping(looped);
+
+        assert!(out.contains("есть упоминание кода"), "the real answer was lost: {out}");
+        // Two openings alike are tolerated — a real answer may parallel itself. The third is a
+        // loop, and it ends there.
+        assert_eq!(out.lines().count(), 3, "the loop was not cut: {out}");
+        assert!(!out.contains("тесты"), "the tail of the loop survived: {out}");
+    }
+
+    /// The mechanism knows nothing about WHAT is repeated — no phrases, no dictionaries. An
+    /// ordinary answer, even one that says «нет» a few times, must survive it intact.
+    #[test]
+    fn an_ordinary_answer_survives_untouched() {
+        let normal = "Тикеты старше года закрывают с пометкой [1].\n\
+             Пройтись по бэклогу вызвалась Аня, срок — пятница [2].\n\
+             Про сроки релиза в записях ничего нет.";
+        assert_eq!(cut_where_it_starts_looping(normal), normal);
     }
 }

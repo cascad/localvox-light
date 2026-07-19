@@ -1,0 +1,670 @@
+/* Design tokens. Neutrals are biased cold-blue toward the product accent; the
+   semantics (recording / cooking / error) are deliberately NOT the accent — state
+   must read separately from "this is interactive". */
+:root {
+  --ground: #eef0f4;
+  --side: #e7eaef;
+  --surface: #ffffff;
+  --raise: #f4f6f9;
+  --line: #d5dae1;
+  --line-soft: #e3e7ec;
+  --ink: #171b21;
+  --dim: #59636f;
+  --mute: #8a94a1;
+  --accent: #2f6ea3;
+  --accent-ink: #ffffff;
+  --accent-soft: #e2edf6;
+  --rec: #c33629;
+  --rec-soft: #fbe7e4;
+  --busy: #9d6a12;
+  --ok: #2c7a52;
+  --mark: #ffe9a8;
+
+  --ui: "Segoe UI", system-ui, -apple-system, sans-serif;
+  --mono: "Cascadia Mono", "Consolas", ui-monospace, monospace;
+  --r: 7px;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ground: #15181d; --side: #101317; --surface: #1b1f25; --raise: #21262d;
+    --line: #2b3138; --line-soft: #23282f; --ink: #e3e8ee; --dim: #98a2ae; --mute: #6b7581;
+    --accent: #6ea6d8; --accent-ink: #0f1418; --accent-soft: #1d2b37;
+    --rec: #e5675c; --rec-soft: #33211f; --busy: #d09b45; --ok: #59b587; --mark: #5a4a12;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="light"] {
+  --ground: #eef0f4; --side: #e7eaef; --surface: #fff; --raise: #f4f6f9;
+  --line: #d5dae1; --line-soft: #e3e7ec; --ink: #171b21; --dim: #59636f; --mute: #8a94a1;
+  --accent: #2f6ea3; --accent-ink: #fff; --accent-soft: #e2edf6;
+  --rec: #c33629; --rec-soft: #fbe7e4; --busy: #9d6a12; --ok: #2c7a52; --mark: #ffe9a8;
+  color-scheme: light;
+}
+:root[data-theme="dark"] {
+  --ground: #15181d; --side: #101317; --surface: #1b1f25; --raise: #21262d;
+  --line: #2b3138; --line-soft: #23282f; --ink: #e3e8ee; --dim: #98a2ae; --mute: #6b7581;
+  --accent: #6ea6d8; --accent-ink: #0f1418; --accent-soft: #1d2b37;
+  --rec: #e5675c; --rec-soft: #33211f; --busy: #d09b45; --ok: #59b587; --mark: #5a4a12;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--ground); color: var(--ink);
+  font: 13px/1.45 var(--ui); -webkit-font-smoothing: antialiased;
+}
+button, input, textarea, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+button[disabled] { opacity: .4; cursor: not-allowed; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 4px; }
+
+/* The player is a row of its own, across the WHOLE width. In the right rail an hour of recording
+   was squeezed into 300 pixels — a minute became three of them, and there was nothing to aim at.
+   The row collapses when there is no audio to play. */
+.app {
+  height: 100vh; display: grid;
+  grid-template-rows: 46px auto 1fr;
+  grid-template-columns: 288px 1fr 330px;
+  grid-template-areas: "bar bar bar" "play play play" "side main rail";
+}
+
+.playbar {
+  grid-area: play; display: flex; align-items: center; gap: 10px;
+  padding: 6px 12px; background: var(--side); border-bottom: 1px solid var(--line);
+  min-width: 0;
+}
+.playbar .ptime {
+  font-family: var(--mono); font-size: 12px; font-variant-numeric: tabular-nums;
+  flex: none; margin: 0;
+}
+.playbar .mut { color: var(--mute); }
+.play-big {
+  width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--accent); color: var(--accent-ink); border: 0; font-size: 11px; flex: none;
+}
+.play-big:hover { filter: brightness(1.08); }
+
+/* ── Record bar ─────────────────────────────────────────────────────────────
+   Permanent, two states. "Is it recording right now" is not a question you send
+   someone to another screen to answer. */
+.bar {
+  grid-area: bar; display: flex; align-items: center; gap: 10px; padding: 0 12px;
+  background: var(--side); border-bottom: 1px solid var(--line); min-width: 0;
+}
+/* Record and Stop NEVER shrink and never get pushed out: a long session title
+   used to squeeze "Stop" past the right edge — recording ran with nothing to end
+   it. Everything else yields first. */
+.bar > .grow { flex: 1 1 auto; min-width: 0; }
+.bar > button { flex: none; }
+.brand { font-weight: 600; letter-spacing: .02em; flex: none; }
+.brand span { color: var(--mute); font-weight: 400; }
+
+.rec-btn {
+  display: flex; align-items: center; gap: 7px; padding: 6px 13px 6px 10px;
+  border-radius: 999px; background: var(--rec); color: #fff;
+  border: 1px solid var(--rec); font-weight: 600;
+}
+.rec-btn:hover:not([disabled]) { filter: brightness(1.08); }
+.rec-btn .glyph { width: 9px; height: 9px; border-radius: 50%; background: #fff; }
+/* Stop lives on the SAME button as start — the hand already knows the way there. Only the glyph
+   changes: a circle records, a square ends. */
+.rec-btn .glyph.square { border-radius: 2px; }
+.rec-btn.stop { background: var(--surface); color: var(--rec); border-color: var(--rec); }
+.rec-btn.stop .glyph { background: var(--rec); }
+
+.recpill {
+  display: flex; align-items: center; gap: 8px; padding: 5px 11px 5px 9px;
+  border-radius: 999px; background: var(--rec-soft); border: 1px solid var(--rec); min-width: 0;
+}
+.recpill .who { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.recpill .clock { font-family: var(--mono); font-variant-numeric: tabular-nums; color: var(--dim); }
+/* A CIRCLE — and it was an oval for a stupid reason worth recording.
+   The dictation dot was written `class="dot note"`, and `.note` is ALREADY TAKEN: it is the
+   footnote callout, `display:flex; padding:8px 0 8px 10px; border-left:2px`. Those add up to
+   exactly 12×16 — the "вытянутый круг" measured on screen. The dot was quietly wearing a
+   footnote's geometry. Renamed to `.dictating-dot`; `.note` belongs to the callout alone.
+   Second name collision in this file (see `.rail` → `.track` in the stage chain): two different
+   things must never share a class. `min-*` stays as a belt: it holds in every display mode. */
+.dot {
+  display: inline-block; flex: none; border-radius: 50%; background: var(--rec);
+  width: 8px; height: 8px; min-width: 8px; min-height: 8px;
+}
+/* Asked, not yet confirmed. Amber, not red: red means the sound IS being written, and until the
+   engine says so, it is not. */
+.recpill.waiting { background: var(--surface); border-color: var(--busy); }
+.recpill.waiting .who { color: var(--busy); }
+.dot.wait { background: var(--busy); }
+/* PULSING MEANS EXACTLY ONE THING: it is happening right now. Nothing else may blink.
+   This rule used to be a bare `.dot`, so it caught every dot on the page — including the GREEN one
+   that reports a note has already been written. A finished thing blinking beside the recording
+   controls reads as "recording", and the owner could not tell whether anything was being captured.
+   Scoped to the two states that are genuinely ongoing. */
+@media (prefers-reduced-motion: no-preference) {
+  .recpill .dot { animation: pulse 1.8s ease-in-out infinite; }
+}
+@keyframes pulse { 50% { opacity: .25; } }
+
+/* A dictation, shown INSIDE the capture pill — the same pill that reports a meeting.
+   ONE PLACE for «что сейчас захватывается». Two indicators side by side was the confusion: a
+   second blinking thing beside the recording one reads as "am I being recorded twice?".
+   Amber, not red: a note goes into a slot file, a recording goes into a session — different
+   destinations, honestly different colours. */
+.note-seg {
+  display: flex; align-items: center; gap: 6px; min-width: 0;
+  padding-left: 8px; margin-left: 2px; border-left: 1px solid var(--line);
+}
+/* Dictating with no meeting running: the segment stands alone, in the pill's own place, so the
+   eye still has exactly one spot to look at. */
+.recpill.dictating {
+  background: var(--surface); border-color: var(--busy); cursor: pointer;
+  max-width: 420px;
+}
+.recpill.dictating .note-seg { padding-left: 0; margin-left: 0; border-left: 0; }
+.recpill.plus-note { max-width: 560px; }
+.dot.dictating-dot { background: var(--busy); flex: none; }
+.note-seg .slot { font-weight: 600; color: var(--busy); flex: none; }
+.note-seg .said {
+  color: var(--dim); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* The one voice state allowed to move — it IS happening right now. */
+@media (prefers-reduced-motion: no-preference) {
+  .note-seg .dot.dictating-dot { animation: pulse 1.4s ease-in-out infinite; }
+}
+
+/* The module's readiness and the last receipt. NOT a capture indicator: it never pulses, and it is
+   the faintest thing in the bar on purpose — it answers «жив ли модуль» and «легла ли заметка»,
+   both facts about the past or about readiness. Mixing that with live capture is exactly what made
+   a finished note look like an ongoing recording. */
+.vchip {
+  display: flex; align-items: center; gap: 6px; flex: none; min-width: 0; max-width: 300px;
+  padding: 4px 10px; border-radius: 999px; font-size: 12px;
+  background: transparent; border: 1px solid transparent; color: var(--mute);
+}
+.vchip:hover { border-color: var(--line); color: var(--ink); background: var(--surface); }
+/* A tick, not a coloured dot: in a bar that already carries a red dot for recording and an amber
+   one for cooking, one more coloured dot is ambiguous by construction. A ✓ is not. */
+.vchip .tick { flex: none; font-size: 11px; }
+.vchip.done { color: var(--dim); }
+.vchip.done .tick { color: var(--ok); }
+/* It did NOT land. Loud, and it never fades: a note believed saved but actually lost is the worst
+   outcome this system can produce. */
+.vchip.bad { color: var(--rec); border-color: var(--rec); background: var(--surface); }
+.vchip.bad .tick { color: var(--rec); }
+.vchip .said { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vchip .when { color: var(--mute); flex: none; font-size: 11px; }
+
+/* The notebook. Newest first — the note just dictated is the one being looked for. */
+.notes-list { display: flex; flex-direction: column; }
+.note-row {
+  display: flex; align-items: baseline; gap: 10px;
+  padding: 7px 8px; border-bottom: 1px solid var(--line-soft);
+}
+.note-row:hover { background: var(--raise); }
+.note-row .tx { flex: 1; min-width: 0; font-size: 14px; line-height: 1.5; }
+/* The file it lives in. What makes the list a RECORD rather than a reassurance: the person can
+   open that file and see the same line. */
+.note-row .src-file {
+  flex: none; font-family: var(--mono); font-size: 10.5px; color: var(--mute);
+}
+/* Deleting removes a line from the person's OWN vault — a file we do not own and cannot restore.
+   So the control hides until reached for, exactly like the archive's trash. */
+.note-row .note-trash {
+  flex: none; opacity: 0; width: 24px; height: 24px; display: grid; place-items: center;
+  border-radius: 5px; background: transparent; border: 1px solid transparent;
+  color: var(--mute); font-size: 12px;
+}
+.note-row:hover .note-trash { opacity: 1; }
+.note-row .note-trash:hover { border-color: var(--rec); color: var(--rec); }
+/* A keyboard user must reach it too — a focus ring is not "on hover". */
+.note-row .note-trash:focus-visible { opacity: 1; }
+/* The named confirm, in place of the row: a second deliberate click aimed at THIS line. */
+.note-row.confirming { background: var(--rec-soft); gap: 8px; }
+.note-row.confirming .mut { color: var(--mute); }
+
+.preroll {
+  display: flex; align-items: center; gap: 6px; color: var(--dim); font-size: 12px;
+  padding: 4px 9px; border-radius: 999px; background: var(--surface);
+  border: 1px dashed var(--line); flex: none;
+}
+.preroll b { font-family: var(--mono); font-weight: 600; color: var(--ink); }
+
+/* What the secretary is doing with the archive. In the top bar, because "is it still working or
+   has it hung" must not depend on which screen you are on. */
+.queue {
+  display: flex; align-items: center; gap: 6px; flex: none; max-width: 320px;
+  padding: 4px 10px; border-radius: 999px; font-size: 12px;
+  background: var(--surface); border: 1px solid var(--line); color: var(--dim);
+}
+.queue:hover { border-color: var(--busy); color: var(--ink); }
+.queue.failed:hover { border-color: var(--rec); }
+.queue b { color: var(--ink); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.queue .mut { color: var(--mute); }
+.qdot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.qdot.busy { background: var(--busy); }
+.qdot.err { background: var(--rec); }
+/* It PULSES while the work runs: a still dot is indistinguishable from a frozen one. */
+@media (prefers-reduced-motion: no-preference) {
+  .qdot.busy { animation: pulse 1.4s ease-in-out infinite; }
+  /* The same in the list, on the card actually being cooked. */
+  .item .st.busy::before { animation: pulse 1.4s ease-in-out infinite; }
+}
+.voice-hint { color: var(--mute); font-size: 12px; white-space: nowrap; flex: none; }
+.voice-hint code {
+  font-family: var(--mono); background: var(--surface);
+  border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px;
+}
+@media (max-width: 1280px) { .voice-hint { display: none; } }
+@media (max-width: 1140px) { .preroll { display: none; } }
+
+.btn { padding: 5px 11px; border-radius: var(--r); background: var(--surface); border: 1px solid var(--line); }
+.btn:hover:not([disabled]) { border-color: var(--accent); color: var(--accent); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.primary:hover { filter: brightness(1.08); color: var(--accent-ink); }
+.btn.danger:hover { border-color: var(--rec); color: var(--rec); }
+.btn.sm { padding: 3px 8px; font-size: 12px; }
+.icon-btn {
+  width: 28px; height: 28px; display: grid; place-items: center; border-radius: var(--r);
+  background: transparent; border: 1px solid transparent; color: var(--dim); flex: none;
+}
+.icon-btn:hover { background: var(--surface); border-color: var(--line); color: var(--ink); }
+
+/* ── Left column ─────────────────────────────────────────────────────────── */
+.side {
+  grid-area: side; background: var(--side); border-right: 1px solid var(--line);
+  display: flex; flex-direction: column; min-height: 0;
+}
+.side-pad { padding: 10px 10px 6px; display: flex; flex-direction: column; gap: 8px; }
+.search { display: flex; gap: 6px; }
+.search input {
+  flex: 1; min-width: 0; padding: 6px 9px; border-radius: var(--r);
+  background: var(--surface); border: 1px solid var(--line);
+}
+.search input::placeholder { color: var(--mute); }
+.search select {
+  padding: 6px 4px; border-radius: var(--r); background: var(--surface);
+  border: 1px solid var(--line); color: var(--dim);
+}
+.nav { display: flex; flex-direction: column; gap: 1px; }
+.nav button {
+  display: flex; align-items: center; gap: 8px; text-align: left; padding: 6px 8px;
+  border-radius: var(--r); background: transparent; border: 0; color: var(--dim);
+}
+.nav button:hover { background: var(--raise); color: var(--ink); }
+.nav button[aria-selected="true"] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.nav .k { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--mute); }
+
+/* NO padding-top. A sticky child cannot leave its containing block — the scroller's CONTENT box —
+   so a top padding here pins the day header that many pixels BELOW the top edge, and the rows
+   scroll through the slit above it. Measured in Chromium 16.07.2026: 4px of padding = a 4px band
+   of the list visibly scrolling past over the header. The header's own padding gives the breathing
+   room instead, and it scrolls WITH the header. */
+.list { flex: 1; overflow-y: auto; padding: 0 8px 12px; min-height: 0; }
+.day {
+  position: sticky; top: 0; z-index: 1; background: var(--side); padding: 8px 4px 4px;
+  font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--mute);
+}
+.item {
+  position: relative;
+  width: 100%; text-align: left; display: block; padding: 7px 9px; margin-bottom: 2px;
+  border-radius: var(--r); background: transparent; border: 1px solid transparent;
+  cursor: pointer;
+}
+.item:hover { background: var(--raise); }
+.item[aria-selected="true"] { background: var(--surface); border-color: var(--line); }
+.item .t { display: flex; align-items: baseline; gap: 6px; }
+
+/* Delete is the one irreversible action, so its control hides until you reach for it: the trash
+   appears only on hover, and it never sits under the cursor by default. */
+.trash {
+  position: absolute; top: 6px; right: 6px; opacity: 0;
+  width: 24px; height: 24px; display: grid; place-items: center; border-radius: 5px;
+  background: var(--surface); border: 1px solid var(--line); color: var(--dim); font-size: 12px;
+}
+.item:hover .trash { opacity: 1; }
+.trash:hover { border-color: var(--rec); color: var(--rec); }
+/* A keyboard user must be able to reach it too — a focus ring is not "on hover". */
+.trash:focus-visible { opacity: 1; }
+
+/* The named confirm, in place of the row. A second, deliberate click — no modal, no swipe. */
+.item.confirming { background: var(--rec-soft); border-color: var(--rec); cursor: default; }
+.confirm-actions { display: flex; gap: 6px; margin-top: 6px; }
+.btn.danger-solid { background: var(--rec); border-color: var(--rec); color: #fff; }
+.btn.danger-solid:hover:not([disabled]) { filter: brightness(1.08); color: #fff; }
+.item .name { font-weight: 500; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.item .dur { font-family: var(--mono); font-size: 11px; color: var(--mute); font-variant-numeric: tabular-nums; }
+.item .m { margin-top: 2px; font-size: 11.5px; color: var(--mute); display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+
+/* State reads by shape, not only by word. */
+.st { display: inline-flex; align-items: center; gap: 4px; }
+.st::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.st.rec { color: var(--rec); }
+.st.busy { color: var(--busy); }
+.st.done { color: var(--ok); }
+.st.err { color: var(--rec); }
+.warnchip { color: var(--busy); }
+
+.side-foot {
+  border-top: 1px solid var(--line); padding: 6px 10px; display: flex; align-items: center;
+  gap: 8px; color: var(--mute); font-size: 11.5px;
+}
+
+/* ── Canvas ──────────────────────────────────────────────────────────────── */
+.main { grid-area: main; background: var(--surface); overflow-y: auto; min-height: 0; }
+.doc-head {
+  position: sticky; top: 0; z-index: 2; background: var(--surface);
+  border-bottom: 1px solid var(--line-soft); padding: 14px 22px 0;
+}
+.doc-head h1 { margin: 0; font-size: 19px; font-weight: 600; letter-spacing: -.01em; text-wrap: balance; }
+.doc-head .m { margin-top: 3px; color: var(--dim); display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.doc-head .m .sep { color: var(--mute); }
+.tabs { display: flex; gap: 2px; margin-top: 12px; }
+.tabs button {
+  padding: 7px 11px; background: transparent; border: 0; border-bottom: 2px solid transparent;
+  color: var(--dim); border-radius: 5px 5px 0 0;
+}
+.tabs button:hover { color: var(--ink); background: var(--raise); }
+.tabs button[aria-selected="true"] { color: var(--ink); font-weight: 600; border-bottom-color: var(--accent); }
+.tabs .grow { flex: 1; }
+.tabs .tool { color: var(--dim); border-bottom: 0; }
+
+/* No reading-measure cap. In a three-pane window the column is already bounded by the panes,
+   and a `max-width` on top of that squeezed the text to half the space it had — the reader saw
+   a narrow ribbon with empty canvas beside it. */
+.doc { padding: 18px 24px 40px; }
+.doc h2 { font-size: 14px; margin: 22px 0 8px; }
+.doc h2:first-child { margin-top: 0; }
+.doc p, .doc li { font-size: 14.5px; line-height: 1.62; }
+.doc ul { padding-left: 18px; margin: 6px 0; }
+.doc li { margin: 3px 0; }
+.doc li::marker { color: var(--mute); }
+.doc pre { white-space: pre-wrap; word-wrap: break-word; font: inherit; margin: 0; }
+
+/* The doubt mark is a NOTE, not a verdict — and both exits stand next to it, so the
+   choice is made here instead of hunting for a second button in a corner. */
+.doubt {
+  display: flex; gap: 10px; align-items: flex-start; background: var(--raise);
+  border: 1px solid var(--line); border-left: 3px solid var(--busy);
+  border-radius: var(--r); padding: 10px 12px; margin-bottom: 18px;
+}
+.doubt .txt { flex: 1; }
+.doubt b { color: var(--busy); }
+.doubt code { font-family: var(--mono); background: var(--mark); color: var(--ink); padding: 0 4px; border-radius: 3px; }
+.doubt .acts { display: flex; flex-direction: column; gap: 5px; flex: none; }
+
+/* A system footnote is NOT part of the document: different size, muted, ruled off —
+   and it never reaches the clipboard. Otherwise our own explanation travels into
+   someone else's protocol as its opening paragraph. */
+.note {
+  display: flex; gap: 8px; align-items: flex-start; margin: 0 0 16px;
+  padding: 8px 0 8px 10px; border-left: 2px solid var(--line);
+  color: var(--mute); font-size: 12.5px; line-height: 1.5;
+}
+.note .i { color: var(--accent); flex: none; }
+
+/* WHAT PRODUCED THIS TEXT: template, model, glossary, when. It used to be the document's first
+   paragraph — the header comment rendered as prose and travelled with every copy. It is a fact
+   ABOUT the document, so it stands beside it: faint, monospaced, and never in the clipboard.
+   Facts, not a paraphrase: swapping models is how the summaries get compared, and «сварено
+   моделью» without its name is worth nothing. */
+.prov {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px;
+  margin: 0 0 18px; color: var(--mute); font-size: 11.5px; font-family: var(--mono);
+}
+/* Right under the hint it explains, as one block. */
+.note + .prov { margin-top: -10px; padding-left: 12px; }
+.prov b { color: var(--dim); font-weight: 600; }
+.prov .sep { color: var(--line); }
+
+/* THE READABLE TEXT. Same rows as the transcript — it is the same conversation — but without the
+   play button: this is the cleaned wording, and the audio says the raw one. */
+.lines.readable .ln { grid-template-columns: 62px 92px 1fr; }
+/* A line the model rewrote. Faint on purpose: this marks the majority of a good cleanup, and a
+   loud mark on every second line is a mark nobody reads. */
+.lines.readable .ln.edited .tc { color: var(--accent); }
+.lines.readable .was {
+  padding: 0 4px; background: transparent; border: 0; color: var(--mute); font-size: 11px;
+  vertical-align: baseline;
+}
+.lines.readable .was:hover { color: var(--accent); }
+/* What the recognizer actually heard. Shown on demand, and it never reaches the clipboard: the
+   document a person forwards is the cleaned one. */
+.lines.readable .orig {
+  display: block; margin-top: 3px; padding-left: 8px; border-left: 2px solid var(--line);
+  color: var(--mute); font-size: 12.5px;
+}
+
+.lines { display: flex; flex-direction: column; }
+.ln {
+  display: grid; grid-template-columns: 26px 62px 92px 1fr; gap: 8px; align-items: baseline;
+  padding: 5px 6px; border-radius: 5px; scroll-margin: 90px;
+}
+.ln:hover { background: var(--raise); }
+.ln.playing { background: var(--accent-soft); }
+.ln.playing .tc { color: var(--accent); font-weight: 600; }
+.ln .play {
+  width: 22px; height: 22px; padding: 0; display: grid; place-items: center; border-radius: 5px;
+  background: transparent; border: 1px solid transparent; color: var(--mute); font-size: 10px;
+}
+.ln:hover .play, .ln.playing .play { border-color: var(--line); color: var(--accent); }
+.ln .tc { font-family: var(--mono); font-size: 11.5px; color: var(--mute); font-variant-numeric: tabular-nums; }
+.ln .sp { font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dim); }
+.ln .sp.me { color: var(--accent); }
+.ln .tx { font-size: 14px; line-height: 1.55; }
+
+.voice { display: flex; align-items: center; gap: 10px; padding: 9px 6px; border-bottom: 1px solid var(--line-soft); }
+.av { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 600; color: #fff; flex: none; }
+.voice .grow { flex: 1; }
+.voice .sub { color: var(--mute); font-size: 12px; }
+.voice .acts { display: flex; gap: 5px; }
+
+/* ── Right column: ONE player for the whole app ───────────────────────────── */
+.rail {
+  grid-area: rail; background: var(--side); border-left: 1px solid var(--line);
+  display: flex; flex-direction: column; min-height: 0;
+}
+.panel { padding: 12px; border-bottom: 1px solid var(--line); }
+.panel h3 {
+  margin: 0 0 9px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--mute); font-weight: 600; display: flex; align-items: baseline; gap: 6px;
+}
+.panel h3 .grow { flex: 1; }
+
+/* The waveform. Bars, not a line: the eye finds the loud stretch in it, and that is the whole
+   reason it exists — to aim at "where the argument was" and land there.
+   THE BARS FILL THE FULL WIDTH EXACTLY. No gap, no max-width — because the click axis is the bar
+   axis: `x / width` must map to the same second the bar under the cursor is drawn at. With a gap
+   or a width cap the bars occupied less than the full width, so the click read a second EARLIER
+   than the peak aimed at, and the miss grew toward the end. The visual 1px separation is a border
+   INSIDE each bar (box-sizing: border-box), which does not change layout. */
+.wave {
+  position: relative;
+  flex: 1; min-width: 0;
+  display: flex; align-items: center; gap: 0; height: 34px; cursor: pointer;
+}
+.wave i {
+  flex: 1 1 0; min-width: 0; display: block;
+  border-right: 1px solid var(--side);
+  background: var(--line); transition: background .12s;
+}
+
+/* Where the click will land. Without it you aim by guesswork and then undo: an hour of recording
+   over a thousand pixels means one pixel is three seconds. */
+.wave .aim {
+  position: absolute; top: 0; bottom: 0; width: 1px; pointer-events: none;
+  background: var(--ink); opacity: .55;
+}
+/* Where the sound actually is. It rides with playback — the current position, seen without a
+   clock, and the witness that a click landed where it was aimed. */
+.wave .playhead {
+  position: absolute; top: -1px; bottom: -1px; width: 2px; pointer-events: none;
+  background: var(--accent); border-radius: 1px;
+}
+/* Status ("загружаю звук…", an error) as an OVERLAY, not a flex sibling: as a sibling it took
+   horizontal space and the wave shrank for the second it was shown, springing back after — the
+   strip "breathed" on every seek to a new window. */
+.wave .wave-note {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  pointer-events: none; font-size: 12px; color: var(--dim);
+  background: color-mix(in srgb, var(--side) 82%, transparent);
+  padding: 2px 10px; border-radius: 999px; white-space: nowrap;
+}
+.wave .aim-t {
+  position: absolute; top: 50%; pointer-events: none;
+  transform-origin: left center; translate: 0 -50%;
+  font-family: var(--mono); font-size: 11px; font-variant-numeric: tabular-nums;
+  padding: 1px 5px; border-radius: 4px; white-space: nowrap;
+  background: var(--ink); color: var(--ground);
+}
+/* Already played. */
+.wave i.on { background: var(--accent); }
+/* The played segment (a line click): red for the piece, amber for how much of it has sounded —
+   both on the same wave, no separate marker. */
+.wave i.seg { background: var(--rec); }
+.wave i.seg-on { background: var(--busy); }
+.chat { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.chat-log { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+.msg { padding: 8px 10px; border-radius: 9px; max-width: 92%; }
+.msg.q { align-self: flex-end; background: var(--accent); color: var(--accent-ink); border-bottom-right-radius: 3px; }
+.msg.a { align-self: flex-start; background: var(--surface); border: 1px solid var(--line); border-bottom-left-radius: 3px; }
+.msg.a p { margin: 0 0 6px; white-space: pre-wrap; }
+.src {
+  display: block; width: 100%; text-align: left; margin-top: 4px; padding: 5px 7px;
+  background: var(--raise); border: 1px solid var(--line-soft); border-radius: 5px;
+  font-size: 12px; color: var(--dim);
+}
+.src:hover { border-color: var(--accent); color: var(--ink); }
+.src .tc { font-family: var(--mono); font-size: 11px; color: var(--accent); margin-right: 5px; }
+.chat-in { padding: 10px 12px; border-top: 1px solid var(--line); display: flex; gap: 6px; }
+.chat-in input { flex: 1; min-width: 0; padding: 7px 9px; border-radius: var(--r); background: var(--surface); border: 1px solid var(--line); }
+
+/* The chain of stages. Vertical: what follows what, where it is now, and — if it broke — why.
+   "⚙ cooking" for ten minutes is indistinguishable from a hang.
+
+   The bead column is `.track`, NOT `.rail`. `.rail` is the right-hand column of the whole app, and
+   the name collided: every bead column silently inherited that column's `background: var(--side)`
+   and `border-left: 1px solid var(--line)` — a dark strip with a dark edge running down the chain.
+   That was the "black pipe"; the 2px connector blamed for it was never the culprit. Two different
+   things must not share a name. */
+.chain { display: flex; flex-direction: column; }
+.step { display: flex; gap: 10px; }
+.step .track { width: 12px; display: flex; flex-direction: column; align-items: center; flex: none; }
+.step .track i {
+  width: 9px; height: 9px; border-radius: 50%; margin-top: 5px; flex: none;
+  background: var(--line); border: 2px solid var(--line);
+}
+/* A thread between the beads, not a pipe. The line only says "one follows the other" — the beads
+   are what carry the state. It stops at the last bead: a line hanging into nothing promises a step
+   that is not coming. */
+.step:not(:last-child) .track::after {
+  content: ""; flex: 1; width: 1px; background: var(--line-soft); margin: 3px 0;
+}
+.step .body { flex: 1; display: flex; flex-direction: column; gap: 2px; padding-bottom: 14px; }
+.step .body .t { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.step.done .track i { background: var(--ok); border-color: var(--ok); }
+.step.running .track i { background: var(--busy); border-color: var(--busy); }
+.step.failed .track i { background: var(--rec); border-color: var(--rec); }
+.step.skipped .track i { background: transparent; }
+.step.skipped .body b { color: var(--mute); font-weight: 500; }
+/* Not started yet. Hollow and grey: nothing has happened here, and the bead must not borrow the
+   weight of one that has. */
+.step.waiting .track i { background: transparent; border-color: var(--line); }
+.step.waiting .body b { color: var(--mute); font-weight: 500; }
+@media (prefers-reduced-motion: no-preference) {
+  .step.running .track i { animation: pulse 1.6s ease-in-out infinite; }
+}
+.st.mute { color: var(--mute); }
+
+/* ── Settings ─────────────────────────────────────────────────────────────
+   One file, `.env`. A field left empty means the code default applies — so an empty box is a
+   real, meaningful state here, and the placeholder says what it means rather than hinting at
+   a value to type. */
+.set-group { margin-bottom: 22px; }
+.set-group h2 {
+  font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--mute);
+  margin: 0 0 8px; font-weight: 600;
+}
+.set-row {
+  display: grid; grid-template-columns: minmax(180px, 260px) 1fr; gap: 12px;
+  align-items: center; padding: 6px 8px; border-radius: var(--r);
+  border-left: 2px solid transparent;
+}
+.set-row:hover { background: var(--raise); }
+/* Edited but not yet saved. The mark is the answer to "did I change that one?" on a form with
+   thirty fields — and it disappears the moment the value is put back. */
+.set-row.changed { border-left-color: var(--busy); background: var(--raise); }
+.set-row label { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.set-row label b { font-weight: 500; }
+/* The raw key, always visible: this screen edits a file the owner also edits by hand, and the
+   key is what connects the two. Hiding it would make the file and the screen feel like different
+   systems. */
+.set-row .k { font-family: var(--mono); font-size: 10.5px; color: var(--mute); }
+.set-ctl { min-width: 0; }
+.set-ctl input, .set-ctl select {
+  width: 100%; padding: 6px 9px; border-radius: var(--r);
+  background: var(--surface); border: 1px solid var(--line);
+}
+.set-ctl input::placeholder { color: var(--mute); }
+.set-ctl input:focus, .set-ctl select:focus { border-color: var(--accent); }
+
+/* A link in the search box is not a search: it is an offer to fetch it. */
+.link-offer {
+  display: flex; flex-direction: column; gap: 6px; padding: 10px;
+  background: var(--surface); border: 1px solid var(--accent); border-radius: var(--r);
+}
+.link-offer .url {
+  font-family: var(--mono); font-size: 11.5px; color: var(--dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.hint { color: var(--mute); font-size: 12px; }
+.err { color: var(--rec); }
+a { color: var(--accent); }
+mark { background: var(--mark); color: inherit; padding: 0 .1em; border-radius: 2px; }
+
+.pane { padding: 18px 24px 40px; }
+.pane textarea {
+  width: 100%; min-height: 5rem; padding: 8px 10px; border-radius: var(--r);
+  background: var(--surface); border: 1px solid var(--line); resize: vertical;
+}
+.row { display: flex; gap: 6px; margin-top: 8px; align-items: center; }
+.row input[type="search"], .row input[type="password"], .row select { padding: 6px 9px; border-radius: var(--r); background: var(--surface); border: 1px solid var(--line); }
+.row input[type="search"], .row input[type="password"] { flex: 1; min-width: 0; }
+
+/* The queue. Rows in the daemon's own order — the number on the left is the place in line,
+   not a rank we invented. */
+.queue-list { margin-top: 14px; display: flex; flex-direction: column; gap: 6px; }
+.qrow {
+  display: flex; align-items: center; gap: 10px; padding: 9px 12px;
+  border: 1px solid var(--line); border-radius: var(--r); background: var(--surface);
+}
+/* Only what is cooking right now is marked. Everything below it is waiting, and waiting is
+   not an event worth a colour. */
+.qrow.running { border-color: var(--busy); }
+.qrow.failed { border-color: var(--rec); }
+.qpos {
+  flex: none; width: 22px; text-align: center; font-variant-numeric: tabular-nums;
+  color: var(--mute); font-size: 12px;
+}
+.qrow.running .qpos { color: var(--busy); }
+.qrow.failed .qpos { color: var(--rec); }
+.qname {
+  flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px;
+  background: none; border: 0; padding: 0; text-align: left; cursor: pointer; color: inherit;
+}
+.qname b { font-weight: 550; font-size: 13.5px; }
+.qname .m { display: flex; gap: 6px; font-size: 12px; color: var(--mute); }
+.qerr {
+  font-size: 11.5px; color: var(--rec); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.toast {
+  position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); z-index: 20;
+  background: var(--ink); color: var(--ground); padding: 7px 14px; border-radius: 999px;
+  font-size: 12.5px; box-shadow: 0 4px 16px rgb(0 0 0 / .18);
+}
+
+@media (max-width: 1100px) {
+  .app { grid-template-columns: 260px 1fr; grid-template-areas: "bar bar" "side main"; }
+  .rail { display: none; }
+}

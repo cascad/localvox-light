@@ -31,7 +31,8 @@ impl Task {
     }
     fn out_file(&self) -> &'static str {
         match self {
-            Task::Cleanup => "processed.md",
+            // Data, not a page: a delta over the transcript version. See `core::readable`.
+            Task::Cleanup => localvox_light_core::readable::FILE,
             Task::Summary => "summary.md",
         }
     }
@@ -119,30 +120,18 @@ pub struct ProcessOutcome {
 ///
 /// The check is deterministic: it does not depend on the model, on the wording of the
 /// prompt, or on the length of the recording (see `grounding`).
+/// ONLY THE SUMMARY comes through here. The readable text does not: it is not one document the
+/// model wrote, it is our transcript with the model's wording looked up line by line, and each
+/// line is judged against its own original inside `cleanup_by_lines`.
 fn chat_grounded(
     client: &LlmClient,
     prompt: &str,
     source: &str,
     speech: &str,
     template: &str,
-    answer_keeps_markup: bool,
     ner: Option<&dyn grounding::Entities>,
 ) -> Result<(String, usize, grounding::Ungrounded)> {
     let check = |a: &str| {
-        // The cleanup PRESERVES the structure of the transcript — the labels and the
-        // timecodes. There is nothing to compare their numbers against: the timecodes are
-        // cut out of the speech (otherwise «(00:15)» would ground any invented deadline).
-        // Acceptance run 13.07.2026: an excellent cleaned-up text went into quarantine
-        // over «invented» 4, 6, 7, 22 — and those were the `(04:06)` and `(07:22)` from
-        // its own line headers. We strip the markup from the answer with the same code as
-        // from the speech: we compare speech against speech.
-        let cleaned;
-        let a = if answer_keeps_markup {
-            cleaned = speech_only(a);
-            cleaned.as_str()
-        } else {
-            a
-        };
         // Words may be grounded by the template (we gave them to the model), NUMBERS only
         // by the speech: the «1–3 предложения» from our own prompt used to ground the
         // invented «3 задачи» in the answer.
@@ -157,6 +146,7 @@ fn chat_grounded(
     if bad.is_empty() {
         return Ok((answer, 1, bad));
     }
+
     tracing::warn!(
         "the LLM invented things that are not in the recording ({}) — asking again",
         bad.describe()
@@ -168,38 +158,41 @@ fn chat_grounded(
     // as honest. We ask it to restate everything from scratch off the transcript: deleting
     // specific pieces of evidence is easy, but reassembling the document so that nothing
     // spurious ends up in it again is a different kind of work.
+    // NO ESCAPE HATCH. The prompt used to end with «if there is no content, return exactly one
+    // line: Содержательной речи в записи не распознано» — and a model that has just been accused
+    // of lying grabs that line like a life buoy. It then passes the check perfectly, because an
+    // empty answer has nothing in it to be ungrounded. We handed it both the way out and the
+    // reward for taking it.
+    //
+    // Whether the recording is empty is OUR question, and we answer it deterministically from the
+    // transcript — not by asking the model to confess.
     let fix = "Твой ответ содержит утверждения, которых в расшифровке нет.\n\
                Сделай заново: перечитай расшифровку выше и изложи ТОЛЬКО то, что в \
                ней действительно сказано. Не переноси формулировки из прошлого \
                ответа — начни с чистого листа. Ни одного имени, числа, срока или \
-               названия, которого нет в записи. Если содержания в записи нет, верни \
-               ровно одну строку:\nСодержательной речи в записи не распознано."
+               названия, которого нет в записи."
         .to_string();
     let retry = client.chat(&[
         user(prompt.to_string()),
         crate::assistant(answer.clone()),
         user(fix),
     ])?;
-    // A RETREAT INTO A REFUSAL IS NOT AN ANSWER, and it must never win.
+    // AN ANSWER THAT SAYS NOTHING ABOUT THE RECORDING NEVER WINS — no matter how clean it looks.
     //
-    // The re-ask prompt itself offers the model an escape hatch: «if there is no content,
-    // return exactly one line: Содержательной речи в записи не распознано». A model that has
-    // just been scolded for inventing things grabs that line like a life buoy — and the
-    // refusal passes the grounding check perfectly (it contains nothing at all, so there is
-    // nothing to invent).
+    // This is the trap the whole thing kept falling into: emptiness passes the check perfectly,
+    // because there is nothing in it to be ungrounded. So «I found nothing» always scores better
+    // than a real document with one flagged word — and the archive ends up with nothing.
     //
-    // Caught live (13.07.2026): a 50-minute conversation, 223 lines, a good first answer with
-    // a couple of flagged names — and after the re-ask the archive got NOTHING. Neither the
-    // cleaned-up text nor the summary. The owner saw an empty session and was right to be
-    // furious.
+    // Caught twice, live. 13.07.2026: a 50-minute conversation, 223 lines, a good first answer,
+    // and after the re-ask the session was left EMPTY. 14.07.2026: a 102-minute recording lost its
+    // readable text the same way.
     //
-    // A draft with a couple of flagged names is incomparably more valuable than emptiness:
-    // the human sees the warning and decides for himself. Emptiness he cannot even check.
-    let retry_is_refusal = !grounding::says_something_about(speech, &retry, template);
-    let first_says_something = grounding::says_something_about(speech, &answer, template);
-    if retry_is_refusal && first_says_something {
+    // A document with a couple of flagged words is incomparably more valuable than emptiness: the
+    // human sees the mark and decides. Emptiness he cannot even check.
+    if !grounding::says_something_about(speech, &retry, template) {
         tracing::warn!(
-            "the LLM backed off into a refusal after the re-ask — keeping the first answer              and marking it: a flagged draft is better than an empty archive"
+            "the LLM backed off into an empty answer after the re-ask — keeping the first one and \
+             marking it: a flagged document beats an empty archive"
         );
         return Ok((answer, 2, bad));
     }
@@ -302,6 +295,14 @@ fn drop_empty_sections(text: &str, speech: &str, template: &str) -> String {
 /// secondly, it «grounded» any number from 0 to 59: an invented deadline «до 15 числа»
 /// found itself support in the timecode of a neighbouring line. This de-energized the
 /// check completely.
+///
+/// FILTERING THE ANSWER BY SHAPE USED TO LIVE HERE, and it is gone on purpose. It kept only lines
+/// matching `[метка] (таймкод) реплика`, which correctly killed the essays the model opened the
+/// readable text with — and, on 16.07.2026, killed 120 of 149 real lines along with one, because
+/// an essay was the model's ENTIRE answer for the first of two parts. A filter cannot tell «the
+/// model added noise» from «the model replaced the document with noise»; both look like text of
+/// the wrong shape. `cleanup_by_lines` removes the question: the model never supplies markup, so
+/// there is nothing to filter and nothing to lose.
 fn speech_only(transcript: &str) -> String {
     let mut out = String::with_capacity(transcript.len());
     for line in transcript.lines() {
@@ -398,7 +399,10 @@ pub fn process_session(
         .map(str::trim)
         .filter(|s| !s.is_empty());
     let (template_name, template) = match (task, explicit) {
-        (Task::Cleanup, _) => templates::for_lang("cleanup", &lang, dir)?,
+        // The readable text has no template FILE: its prompt is a const, exactly like refine's.
+        // The lines are ours and so is the markup — there is nothing left for a template to
+        // shape, and a template file that shapes nothing is a lie sitting in the repo.
+        (Task::Cleanup, _) => ("cleanup-lines".to_string(), CLEANUP_PROMPT.to_string()),
         (Task::Summary, Some(explicit)) => (explicit.to_string(), templates::load(explicit, dir)?),
         (Task::Summary, None) if words < SHORT_RECORD_WORDS => {
             tracing::info!("the recording is short ({words} words) — a note instead of a summary");
@@ -412,31 +416,63 @@ pub fn process_session(
     // the template (we gave the model its words ourselves) + the glossary (the canonical
     // «capacity» is also ours, not invented) + ONLY THE SPEECH, without labels and
     // timecodes, otherwise «(00:15)» grounds any invented number up to 59.
-    let speech = speech_only(&transcript);
-    let base = format!("{template}\n{glossary_block}\n{speech}");
-    // The cleanup returns the transcript in the same shape — with labels and timecodes;
-    // a summary is free-form markdown. The markup must be stripped from the answer,
-    // otherwise its numbers («(07:22)» → 7 and 22) look like inventions.
-    let keeps_markup = matches!(task, Task::Cleanup);
-
-    let parts = split_for_map_reduce(&transcript, p.map_reduce_chars);
-    let mut llm_calls = 0usize;
-    let mut outputs: Vec<String> = Vec::with_capacity(parts.len());
-    for part in &parts {
-        let prompt = templates::render(&template, part, &glossary_block);
-        let (answer, calls, _) = chat_grounded(client, &prompt, &base, &speech, &template, keeps_markup, ner)?;
-        llm_calls += calls;
-        outputs.push(answer);
+    // THE READABLE TEXT LEAVES HERE, and it leaves as DATA rather than as a page.
+    //
+    // Everything below this point is about a document the model composed: grounding it against
+    // the whole recording, dropping its empty sections, stamping a header comment onto its
+    // markdown. None of that applies to the readable text — it is not a composition but a delta:
+    // for each line of the transcript, what the cleanup made of it. Its guards are per-line and
+    // live inside `assemble_readable`, where a cleaned line is judged against its OWN original.
+    //
+    // Storing it as data is what made renaming a speaker free. The old file baked `[Я]` into the
+    // text at cook time, so «Я» could only become «Арсен Маркарян» by running the whole recording
+    // through an LLM again. The name is not in this artifact at all: it is joined in at render
+    // time by whichever client is drawing it.
+    if matches!(task, Task::Cleanup) {
+        let (mut readable, calls) =
+            cleanup_by_lines(session_dir, client, &glossary, &glossary_block)?;
+        readable.provenance = localvox_light_core::provenance::Provenance {
+            template: template_name,
+            model: client.model().to_string(),
+            glossary: replacements.iter().map(|r| r.count).sum(),
+            at: now_rfc3339(),
+            doubts: None,
+        };
+        // The old quarantine draft, if one is still lying about — there is no quarantine any more.
+        let _ = fs::remove_file(session_dir.join(task.unverified_file()));
+        let out_path = localvox_light_core::readable::save(session_dir, &readable)?;
+        return Ok(ProcessOutcome {
+            out_path,
+            replacements: replacements.len(),
+            llm_calls: calls,
+            wall_sec: t0.elapsed().as_secs_f64(),
+            skipped: None,
+            unverified: None,
+            source,
+        });
     }
 
-    let result = if outputs.len() == 1 {
-        outputs.pop().unwrap()
-    } else {
-        match task {
-            // cleanup — a concatenation of the cleaned-up parts
-            Task::Cleanup => outputs.join("\n\n"),
-            // summary — a reduction of the per-part results into a single document
-            Task::Summary => {
+    let speech = speech_only(&transcript);
+    let base = format!("{template}\n{glossary_block}\n{speech}");
+    let (result, llm_calls) = match task {
+        // Handled above — it is not a document the model wrote.
+        Task::Cleanup => unreachable!("the readable text is written as data, above"),
+        // The summary is free-form: it is the model's document, and the map-reduce over parts
+        // with a final reduce is the right shape for it. Nothing to key it by — it has no records.
+        Task::Summary => {
+            let parts = split_for_map_reduce(&transcript, p.map_reduce_chars);
+            let mut calls_total = 0usize;
+            let mut outputs: Vec<String> = Vec::with_capacity(parts.len());
+            for part in &parts {
+                let prompt = templates::render(&template, part, &glossary_block);
+                let (answer, calls, _) =
+                    chat_grounded(client, &prompt, &base, &speech, &template, ner)?;
+                calls_total += calls;
+                outputs.push(answer);
+            }
+            let joined = if outputs.len() == 1 {
+                outputs.pop().unwrap()
+            } else {
                 let joined = outputs.join("\n\n---\n\n");
                 let prompt = format!(
                     "Ниже — результаты обработки последовательных частей одного \
@@ -444,9 +480,10 @@ pub fn process_session(
                      структуры и на том же языке, без дублей и повторов разделов; \
                      слова «части» и «протокол частей» в тексте не упоминай.\n\n{joined}"
                 );
-                llm_calls += 1;
+                calls_total += 1;
                 client.chat(&[user(prompt)])?
-            }
+            };
+            (joined, calls_total)
         }
     };
 
@@ -493,17 +530,33 @@ pub fn process_session(
         result
     };
 
-    // The final check against the same base: the map-reduce reduction is also a call to the
-    // model, and it too can bring in something of its own.
-    let for_check = if keeps_markup {
-        speech_only(&result)
+    // The doubt check is for the SUMMARY ONLY — a free composition the model writes, where a name
+    // or a number that was never said can slip in and only a whole-document pass will catch it.
+    // (The map-reduce reduction is itself a model call and can add something of its own; this is
+    // where it is caught.)
+    //
+    // THE READABLE TEXT DOES NOT GET THIS CHECK, and must not. It is assembled line by line from
+    // OUR list (`cleanup_by_lines`): every line is either the transcript verbatim or a cleaning
+    // already checked against its OWN original by `grounding::check` (nothing added) and
+    // `keeps_what_was_said` (nothing replaced). A word in it is, by construction, a word from the
+    // recording — there is nowhere for an invented name to enter.
+    //
+    // Running the document-level NER check on it anyway adds no safety and manufactures false
+    // doubts. It tags the SAME words with a context-dependent model twice — once in the readable
+    // text, once in the transcript — and flags any disagreement between the two passes. Measured
+    // 17.07.2026, session 20260714_181036: «Кадыйлят», a standalone ASR garble at 58:43, sits
+    // verbatim in BOTH the readable text and the transcript, and was still flagged «стоит
+    // перепроверить: кадыйлят» because the NER tagged it as a name in one document and not the
+    // other. A doubt on a word the reader can see in the very same text is worse than no doubt: it
+    // teaches them to stop reading the marks that do matter.
+    let ungrounded = if matches!(task, Task::Summary) {
+        let lex = localvox_light_core::lexicon::active();
+        match ner {
+            Some(n) => grounding::check_with_entities(lex, &base, &speech, &result, n),
+            None => grounding::check_parts(lex, &base, &speech, &result),
+        }
     } else {
-        result.clone()
-    };
-    let lex = localvox_light_core::lexicon::active();
-    let ungrounded = match ner {
-        Some(n) => grounding::check_with_entities(lex, &base, &speech, &for_check, n),
-        None => grounding::check_parts(lex, &base, &speech, &for_check),
+        grounding::Ungrounded::default()
     };
 
     let out_path = place_result(session_dir, task);
@@ -511,19 +564,13 @@ pub fn process_session(
     // «it is fine» button), but they must not disfigure the document a human forwards to
     // colleagues. A warning across the whole page over a «Питер» that became a
     // «Санкт-Петербург» is exactly the fussing that makes people stop reading warnings.
-    let doubts = if ungrounded.is_empty() {
-        String::new()
-    } else {
-        format!(" | стоит перепроверить: {}", ungrounded.describe())
-    };
-    let header = format!(
-        "<!-- localvox: {} | модель {} | глоссарий: {} замен | {}{doubts} -->
-
-",
-        template_name,
-        client.model(),
+    let doubts = (!ungrounded.is_empty()).then(|| ungrounded.describe());
+    let header = localvox_light_core::provenance::render(
+        &template_name,
+        &client.model(),
         replacements.iter().map(|r| r.count).sum::<usize>(),
-        localvox_light_core::versions::now_rfc3339(),
+        &localvox_light_core::versions::now_rfc3339(),
+        doubts.as_deref(),
     );
     fs::write(&out_path, header + &result)
         .with_context(|| format!("writing {}", out_path.display()))?;
@@ -552,6 +599,10 @@ pub struct RefineOutcome {
     pub wall_sec: f64,
     /// true — best was already `refined`, we did nothing (idempotency).
     pub skipped: bool,
+    /// true — there was no speech to clean up (a silent recording). This is DONE, not failed:
+    /// the caller records it as `Outcome::Nothing` and never counts it as a post-processing
+    /// error — that miscount was the re-cook loop that churned every silent session forever.
+    pub nothing: bool,
 }
 
 /// Cleaning up the transcript with the LLM while preserving the structure (F1/«the refined
@@ -598,6 +649,7 @@ pub fn refine_session(
                 llm_calls: 0,
                 wall_sec: t0.elapsed().as_secs_f64(),
                 skipped: true,
+                nothing: false, // already refined — done, not "nothing to do"
             });
         }
     }
@@ -605,14 +657,18 @@ pub fn refine_session(
         .resolve(best.id)
         .context("the file of the best version was not found")?;
     let orig = read_transcript_lines(&src_path)?;
-    if orig.is_empty() {
-        bail!("the transcript is empty — there is nothing to clean up");
-    }
-    // The cleanup runs line by line and does not touch the timecodes, so there is nothing
-    // here to invent a «meeting» with — we run it even for a short note. We cut off only on
-    // the fact: there are no recognized words at all («Т.», «.»), there is nothing to fix.
+    // An EMPTY transcript is a SILENT recording — "nothing to clean up", not a failure.
+    //
+    // This was the re-cook loop the owner kept hitting: a silent session has no transcript, refine
+    // used to `bail!` here, the process exited 2 ("post-processing error"), the daemon marked the
+    // job Failed, and `revive_failed` brought it back to Pending on every restart. Cleanup and
+    // summary already treat "no speech" as skipped; refine now does the same — a done, not a
+    // failure — so the session settles instead of churning forever.
+    //
+    // Below, a transcript that has lines but no recognized WORDS («Т.», «.») is skipped for the
+    // same reason; an empty one is just the extreme of that.
     let words: usize = orig.iter().map(|l| speech_words(&l.text)).sum();
-    if words == 0 {
+    if orig.is_empty() || words == 0 {
         return Ok(RefineOutcome {
             version_id: best.id,
             file: src_path,
@@ -622,6 +678,7 @@ pub fn refine_session(
             llm_calls: 0,
             wall_sec: t0.elapsed().as_secs_f64(),
             skipped: true,
+            nothing: true, // silent recording — recorded as Outcome::Nothing, never a failure
         });
     }
 
@@ -717,6 +774,20 @@ pub fn refine_session(
                     rejected += 1;
                     return l;
                 }
+                // The other direction: not what the model added, but whether the speech survived.
+                // A line it REPLACED rather than repaired is an invention that `grounding::check`
+                // cannot see — it has no name and no number to catch.
+                if !keeps_what_was_said(&l.text, fixed) {
+                    tracing::warn!(
+                        "refine: the line at {:.0} s was replaced, not repaired — rolling back \
+                         to the original. was: {:?}, model: {:?}",
+                        l.start_sec,
+                        l.text,
+                        fixed
+                    );
+                    rejected += 1;
+                    return l;
+                }
                 if fixed.trim() != l.text.trim() {
                     changed += 1;
                 }
@@ -773,6 +844,7 @@ pub fn refine_session(
         llm_calls,
         wall_sec: t0.elapsed().as_secs_f64(),
         skipped: false,
+        nothing: false,
     })
 }
 
@@ -782,6 +854,48 @@ const REFINE_PROMPT: &str = "\
 разговорный стиль. НЕ объединяй и НЕ разбивай реплики, НЕ меняй их количество и \
 порядок. Верни РОВНО те же номера [N], по одной исправленной реплике в строке, \
 без каких-либо пояснений. Если реплика — бессвязный шум, верни её без изменений.";
+
+/// The words of a line, for comparing one against the other. Case and punctuation are noise here:
+/// «Кнопка,» and «кнопка» are the same word surviving.
+fn spoken_words(s: &str) -> Vec<String> {
+    s.split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .map(|w| w.to_lowercase())
+        .collect()
+}
+
+/// A REPAIR KEEPS WHAT WAS SAID.
+///
+/// The prompt asks the model to fix recognition errors and keep the meaning; it never asks it to
+/// shorten, and never to answer. On a real recording of the owner's it did answer: the line
+/// «Ну, я тебя вижу, но не слышу. Вижу, что ты микрофон включил. У тебя, может, кнопка нажата?
+/// ИНе вижу.» came back as «Какая нахуй кнопка, блядь?» — a plausible reply to the question,
+/// written over the question.
+///
+/// Nothing caught it. `grounding::check` looks for names and numbers the model ADDED, and this
+/// invention contained neither; the one word it kept («кнопка») came from the original. That check
+/// guards one direction only, and the damage came from the other: not what was added, but what was
+/// thrown away.
+///
+/// This matters more here than anywhere else in the pipeline. The refined version becomes `best` —
+/// that is, THE transcript — so from that moment the invention is grounded by definition for the
+/// summary, the search and the export, and the audio is the only thing left that disagrees.
+///
+/// Rolling back costs a repair we could have had. Keeping a fabrication costs the archive its
+/// truth, permanently and invisibly. The measurement is set for that asymmetry, not for balance.
+fn keeps_what_was_said(orig: &str, fixed: &str) -> bool {
+    let o = spoken_words(orig);
+    // Too short to measure: a mangled «ориентируйсям сво» → «ориентируйся сам» is a legitimate
+    // repair that keeps almost no word intact, and a ratio over three words means nothing.
+    // Inventions of that size are still caught by `grounding::check`.
+    if o.len() < 4 {
+        return true;
+    }
+    let f: std::collections::HashSet<String> = spoken_words(fixed).into_iter().collect();
+    // A repair does not halve the utterance — it is the same speech with the errors taken out.
+    let kept = o.iter().filter(|w| f.contains(*w)).count();
+    kept * 2 >= o.len()
+}
 
 /// Parsing an LLM answer of the form `[N] текст`. A line that the LLM wrapped across
 /// several physical lines is glued back into one (otherwise the tail would be lost); the
@@ -828,22 +942,218 @@ pub fn render_transcript(session_dir: &Path) -> Result<String> {
         .context("the file of the best version was not found")?;
     let lines = read_transcript_lines(&path)?;
 
+    // WHO said it. Diarization's answer if it separated the voices; otherwise the label of the
+    // audio SOURCE — and that label is not «Я» by default any more. For a downloaded video source
+    // 0 is whoever was in it, so «Я» would put the owner's name on words spoken by someone else,
+    // and the summary would then say it in prose. One place decides: `chunks::source_label`.
+    let meta: localvox_light_core::chunks::SessionMeta =
+        std::fs::read(session_dir.join("meta.json"))
+            .ok()
+            .and_then(|b| serde_json::from_slice(&b).ok())
+            .unwrap_or_default();
+
     let mut out = String::new();
     for l in &lines {
-        // WHO said it. If diarization separated the voices — its answer; if a person said
-        // a name — the name. If we do not know — we honestly name the source of the sound
-        // rather than invent a participant: attributing someone else's words to a living
-        // person is not a typo but slander.
-        let who: &str = match l.speaker.as_deref() {
+        let who = match l.speaker.clone() {
             Some(name) => name,
-            None if l.source_id == 0 => "Я",
-            None => "Собеседники",
+            None => localvox_light_core::chunks::source_label(&meta, l.source_id),
         };
         let mins = (l.start_sec / 60.0) as u64;
         let secs = l.start_sec as u64 % 60;
         out.push_str(&format!("[{who}] ({mins:02}:{secs:02}) {}\n", l.text));
     }
     Ok(out)
+}
+
+/// How many transcript lines go to the model in one cleanup request.
+///
+/// This is a QUALITY knob, not a correctness one: `cleanup_by_lines` rebuilds the document from
+/// OUR line list, so a batch the model mangles costs those lines their cleanup — never their
+/// existence. It is here because a request the model can actually obey is a better request.
+///
+/// Measured 16.07.2026 on the owner's session 20260716_164443 (149 lines): the old cleanup sent
+/// the transcript in two 24 000-byte parts. On the big part the model wrote an essay instead of
+/// the lines, and the whole part was dropped by the shape filter — 120 of 149 lines vanished from
+/// the readable text. On the small tail part it obeyed. Short batches are obeyed; long ones are
+/// summarised.
+const CLEANUP_BATCH_LINES: usize = 40;
+
+const CLEANUP_PROMPT: &str = "\
+Ниже — реплики автоматической расшифровки речи, каждая пронумерована [N]. Приведи каждую \
+к читаемому виду: убери слова-паразиты («эээ», «ну», «как бы», «короче»), фальстарты и \
+повторы; почини явные ошибки распознавания по контексту. Сохрани смысл и порядок; ничего \
+не сокращай по содержанию и ничего не выдумывай — это чистка, а не пересказ. НЕ объединяй \
+и НЕ разбивай реплики, НЕ меняй их количество. Верни РОВНО те же номера [N], по одной \
+реплике в строке, без пояснений и преамбул. Если реплика — бессвязный шум, верни её без \
+изменений.";
+
+// The label of a readable line used to be built HERE, at cook time, and baked into the file. It
+// is not built here any more and not stored at all: `readable::render_markdown` joins it in when
+// someone asks for the text. See `core/src/readable.rs`.
+
+/// The readable text, built line by line: the model may only REPHRASE lines we hand it, never
+/// decide what the document contains.
+///
+/// THE INCIDENT THIS EXISTS FOR (16.07.2026, session 20260716_164443). The old cleanup sent the
+/// transcript as free text and took the model's answer AS the document. On a 27 006-byte
+/// transcript it split into two parts; on the big one the model returned «Вот структурированный
+/// анализ… ### Логистика…» instead of the lines. `keep_only_transcript_lines` then stripped
+/// everything that was not shaped like a transcript line — correctly killing the essay, and with
+/// it all 120 lines of that part. Its emptiness guard («kept nothing → keep the answer») looked at
+/// the WHOLE joined document, and the 29 lines of the surviving tail satisfied it. The readable
+/// text of a 30-minute recording became its last five minutes, silently.
+///
+/// The lesson is not «split smaller» — a smaller part is a hope, and the model can disobey on any
+/// size. It is that the OUTPUT MUST NOT BE THE SPINE. Here our own line list is: we walk it, look
+/// the model's answer up by line number, and take it only if it passes the same two guards refine
+/// uses. A line the model did not return keeps its original wording; a line it invented has
+/// nowhere to land; an essay parses as no line numbers at all and changes nothing. The markup is
+/// ours (`line_prefix`), so the model cannot inject a heading into the document even if it tries.
+///
+/// Returns the rendered text, the number of LLM calls, and how many lines the model never answered
+/// for — that last one is the honest measure of how much cleanup actually happened.
+fn cleanup_by_lines(
+    session_dir: &Path,
+    client: &LlmClient,
+    glossary: &Glossary,
+    glossary_block: &str,
+) -> Result<(localvox_light_core::readable::Readable, usize)> {
+    let store = VersionStore::open(session_dir)?;
+    let best = store
+        .best()
+        .context("there are no transcript versions — run localvox-process (the cook) first")?;
+    let src = store
+        .resolve(best.id)
+        .context("the file of the best version was not found")?;
+    let lines = read_transcript_lines(&src)?;
+
+    // The deterministic pass first: the glossary's canonical spelling is ours, not the model's.
+    let texts: Vec<String> = lines.iter().map(|l| glossary.apply(&l.text).0).collect();
+
+    let batches = texts.len().div_ceil(CLEANUP_BATCH_LINES);
+    let mut cleaned: std::collections::HashMap<usize, String> = std::collections::HashMap::new();
+    let mut llm_calls = 0usize;
+
+    for (bi, chunk) in texts.chunks(CLEANUP_BATCH_LINES).enumerate() {
+        let first = bi * CLEANUP_BATCH_LINES;
+        let mut prompt = String::from(CLEANUP_PROMPT);
+        if !glossary_block.is_empty() {
+            prompt.push_str("\n\nТермины (правильное написание):\n");
+            prompt.push_str(glossary_block);
+        }
+        prompt.push_str("\n\n");
+        for (i, t) in chunk.iter().enumerate() {
+            prompt.push_str(&format!("[{}] {t}\n", first + i + 1));
+        }
+        // Only the numbers of THIS batch. A model that renumbers its answer [1..] instead of
+        // [81..] must not overwrite another batch's lines.
+        let sent: std::collections::HashSet<usize> = (first + 1..=first + chunk.len()).collect();
+        let answer = client.chat(&[user(prompt)])?;
+        llm_calls += 1;
+        let mut got = 0usize;
+        for (n, text) in parse_numbered(&answer) {
+            if sent.contains(&n) && !text.trim().is_empty() {
+                cleaned.insert(n, text);
+                got += 1;
+            }
+        }
+        // The one number that says whether the model did the work or waved us off. Silence here
+        // was what let 120 lines disappear without a trace.
+        if got < chunk.len() {
+            tracing::warn!(
+                "cleanup: batch {}/{batches} — the model answered for {got} of {} lines; the rest \
+                 keep the transcript's own wording",
+                bi + 1,
+                chunk.len()
+            );
+        }
+    }
+
+    let (edits, omitted, rejected) = assemble_readable(&lines, &texts, &cleaned);
+    if omitted > 0 || rejected > 0 {
+        tracing::info!(
+            "cleanup: {} lines — {omitted} the model did not answer for, {rejected} rolled back; \
+             those keep the transcript's own wording",
+            lines.len()
+        );
+    }
+    Ok((
+        localvox_light_core::readable::Readable {
+            version_id: best.id,
+            provenance: Default::default(),
+            edits,
+            omitted,
+            rejected,
+        },
+        llm_calls,
+    ))
+}
+
+/// Build the delta by walking OUR lines and looking the model's answers up by number.
+///
+/// This is the whole invariant, and it is pure so it can be held to it: the result has at most one
+/// entry per input line, keyed by ITS index, no matter what the model said. `cleaned` is a lookup
+/// table, never an iteration source — that single choice is the difference between «the model
+/// rephrased 3 of 40 lines» and «117 lines are gone».
+///
+/// A line that ends up saying exactly what the transcript says is NOT recorded: its absence is the
+/// record that nothing happened to it, and that is also what makes the artifact a delta rather
+/// than a second copy of the speech.
+///
+/// Returns the edits, how many lines the model never answered for, and how many of its answers
+/// were rolled back by the guards.
+fn assemble_readable(
+    lines: &[TranscriptLine],
+    texts: &[String],
+    cleaned: &std::collections::HashMap<usize, String>,
+) -> (std::collections::BTreeMap<usize, String>, usize, usize) {
+    let mut omitted = 0usize;
+    let mut rejected = 0usize;
+    let mut edits = std::collections::BTreeMap::new();
+    for (i, l) in lines.iter().enumerate() {
+        let original = texts[i].as_str();
+        let text = match cleaned.get(&(i + 1)) {
+            Some(fixed) => {
+                // The same two guards refine uses, and for the same reason. `check` catches what
+                // the model ADDED (a name, a number that was never said); `keeps_what_was_said`
+                // catches what it THREW AWAY — a line answered instead of repaired, which `check`
+                // cannot see because an invention made of ordinary words has nothing to flag.
+                let bad = grounding::check(&l.text, fixed);
+                if !bad.is_empty() {
+                    tracing::warn!(
+                        "cleanup: the line at {:.0} s was added to ({}) — keeping the original",
+                        l.start_sec,
+                        bad.describe()
+                    );
+                    rejected += 1;
+                    original
+                } else if !keeps_what_was_said(&l.text, fixed) {
+                    tracing::warn!(
+                        "cleanup: the line at {:.0} s was replaced, not cleaned — keeping the \
+                         original. was: {:?}, model: {:?}",
+                        l.start_sec,
+                        l.text,
+                        fixed
+                    );
+                    rejected += 1;
+                    original
+                } else {
+                    fixed.trim()
+                }
+            }
+            None => {
+                omitted += 1;
+                original
+            }
+        };
+        // The glossary counts as a change too: its canonical spelling is ours, applied before the
+        // model ever sees the line, and a reader comparing against the transcript must be able to
+        // see that the wording moved.
+        if text != l.text {
+            edits.insert(i, text.to_string());
+        }
+    }
+    (edits, omitted, rejected)
 }
 
 /// Cuts the text along its lines into parts of ≤ max_chars (a single line longer than the
@@ -894,6 +1204,169 @@ mod tests {
             !dir.path().join("summary.unverified.md").exists(),
             "the draft of the old quarantine stayed in the archive"
         );
+    }
+
+    fn line(n: u64, source_id: u8, text: &str) -> TranscriptLine {
+        TranscriptLine {
+            source_id,
+            start_sec: n as f64,
+            end_sec: n as f64 + 1.0,
+            text: text.to_string(),
+            speaker: None,
+        }
+    }
+
+    /// THE INCIDENT, 16.07.2026, session 20260716_164443.
+    ///
+    /// The model was handed the transcript as free text and answered the first of two parts with
+    /// «Вот структурированный анализ… ### Логистика…» instead of the lines. The shape filter then
+    /// stripped everything that did not look like a transcript line — the essay, and with it all
+    /// 120 real lines of that part. The readable text of a 30-minute recording became its last five
+    /// minutes, and nothing said a word about it.
+    ///
+    /// An essay carries no `[N]` markers, so it parses to NOTHING. That is the whole test: an empty
+    /// lookup table must cost the cleanup, never the text.
+    ///
+    /// Since the artifact became a delta, «the text survives» is structural: an empty delta
+    /// overrides nothing, and every line is rendered from the transcript that owns it. So what is
+    /// asserted here is that the essay contributes NOTHING — not one entry, and the silence
+    /// counted rather than hidden.
+    #[test]
+    fn an_essay_instead_of_the_lines_costs_the_cleanup_not_the_text() {
+        let lines = vec![
+            line(0, 0, "Так, начали."),
+            line(19, 1, "Слышно."),
+            line(28, 0, "Ну ладно. Окей."),
+        ];
+        let texts: Vec<String> = lines.iter().map(|l| l.text.clone()).collect();
+        // What `parse_numbered` returns for «Вот **структурированный анализ**… ### Логистика…».
+        let nothing = std::collections::HashMap::new();
+
+        let (edits, omitted, rejected) = assemble_readable(&lines, &texts, &nothing);
+
+        assert!(edits.is_empty(), "the model's prose reached the document: {edits:?}");
+        assert_eq!(omitted, 3, "the silence must be counted, not hidden");
+        assert_eq!(rejected, 0);
+    }
+
+    /// The model supplies the WORDS of a line and nothing else. It cannot put a heading, a label
+    /// or a timecode into the readable text: those are not stored here at all — the labels are
+    /// joined in at render time from the transcript and `meta.json`, which the model never sees.
+    #[test]
+    fn the_model_contributes_wordings_and_nothing_else() {
+        let lines = vec![line(4, 0, "так начали"), line(19, 1, "Слышно.")];
+        let texts: Vec<String> = lines.iter().map(|l| l.text.clone()).collect();
+        let cleaned = std::collections::HashMap::from([(1, "Так, начали.".to_string())]);
+
+        let (edits, _, _) = assemble_readable(&lines, &texts, &cleaned);
+
+        // Keyed by OUR line index (0-based), holding the wording only.
+        assert_eq!(edits.get(&0).map(String::as_str), Some("Так, начали."));
+        assert!(
+            !edits.values().any(|t| t.contains('[') || t.contains("00:")),
+            "a label or a timecode got into the stored wording: {edits:?}"
+        );
+        // The untouched line is absent — its absence IS the record that nothing happened to it.
+        assert!(!edits.contains_key(&1), "an untouched line was written down: {edits:?}");
+    }
+
+    /// The model answered for some lines and stayed silent about the rest — the normal case on a
+    /// long recording, and the one that used to be indistinguishable from data loss. Every line
+    /// stands; the silent ones keep the transcript's own wording.
+    #[test]
+    fn lines_the_model_never_answered_for_keep_their_own_wording() {
+        let lines = vec![
+            line(0, 0, "ну короче я это самое"),
+            line(9, 0, "давай в субботу"),
+            line(18, 0, "эээ ну да"),
+        ];
+        let texts: Vec<String> = lines.iter().map(|l| l.text.clone()).collect();
+        let cleaned = std::collections::HashMap::from([(2, "Давай в субботу.".to_string())]);
+
+        let (edits, omitted, rejected) = assemble_readable(&lines, &texts, &cleaned);
+
+        assert_eq!(omitted, 2);
+        assert_eq!(rejected, 0);
+        // The model's numbering is 1-based, ours is the line index. Off by one here would hand
+        // one line's cleaning to its neighbour.
+        assert_eq!(edits.len(), 1, "{edits:?}");
+        assert_eq!(edits.get(&1).map(String::as_str), Some("Давай в субботу."));
+    }
+
+    /// The fabrication that reached the owner's archive, now guarded on the readable text too:
+    /// the model ANSWERED the line instead of cleaning it. Rolled back to the original — and the
+    /// line still stands, because a rollback is not a deletion.
+    #[test]
+    fn a_fabricated_line_is_rolled_back_in_the_readable_text_too() {
+        let was = "Ну, я тебя вижу, но не слышу. Вижу, что ты микрофон включил. У тебя, может, \
+                   кнопка нажата? ИНе вижу.";
+        let lines = vec![line(120, 0, was)];
+        let texts: Vec<String> = lines.iter().map(|l| l.text.clone()).collect();
+        let cleaned =
+            std::collections::HashMap::from([(1, "Какая нахуй кнопка, блядь?".to_string())]);
+
+        let (edits, omitted, rejected) = assemble_readable(&lines, &texts, &cleaned);
+
+        assert_eq!(rejected, 1, "the fabrication got into the readable text");
+        assert_eq!(omitted, 0);
+        // Rolled back to the transcript's own words — which means there is no edit to record.
+        // The line still stands: it is rendered from the transcript, as every unedited line is.
+        assert!(edits.is_empty(), "the fabrication survived: {edits:?}");
+    }
+
+    /// THE MODEL ANSWERED THE LINE INSTEAD OF REPAIRING IT.
+    ///
+    /// All four cases are REAL — the only four lines the refine touched on the owner's recording
+    /// 20260716_164443 (149 lines). Three are repairs and must live. The fourth is the invention
+    /// that reached the archive: a plausible reply written over the question that prompted it.
+    /// Nothing stopped it, because `grounding::check` guards inventions that carry a name or a
+    /// number, and this one carried neither.
+    #[test]
+    fn a_line_the_model_replaced_instead_of_repairing_is_rolled_back() {
+        // The invention. The one word it kept — «кнопка» — it took from the line it destroyed.
+        assert!(
+            !keeps_what_was_said(
+                "Ну, я тебя вижу, но не слышу. Вижу, что ты микрофон включил. У тебя, может, \
+                 кнопка нажата? ИНе вижу.",
+                "Какая нахуй кнопка, блядь?"
+            ),
+            "the fabrication that reached the archive still passes"
+        );
+
+        // The repairs. Rolling any of these back is a loss, not a save.
+        assert!(keeps_what_was_said(
+            "И потом во сколько ты уыезжаешь в субботу?",
+            "И потом во сколько ты уезжаешь в субботу?"
+        ));
+        assert!(keeps_what_was_said(
+            "Да ты упариваешься, что ли? Ну, ну типа, это ты будешь",
+            "Да ты упариваешься, что ли? Ну, ну типа, это ты будешь."
+        ));
+        assert!(keeps_what_was_said(
+            "Э. Тогда там ближе к телу, тогда будет понятно точнее, чего и куда.  И в общем, \
+             ориентируйсям сво.",
+            "Э. Тогда там ближе к телу, тогда будет понятно точнее, чего и куда. И в общем, \
+             ориентируйсям сво."
+        ));
+    }
+
+    /// A short mangled line is repaired wholesale, and that is legitimate — «ориентируйсям сво» has
+    /// no word worth keeping. A ratio over three words measures nothing, so it is not applied;
+    /// inventions of that size still have to get past `grounding::check`.
+    #[test]
+    fn a_short_mangled_line_is_still_allowed_to_be_repaired() {
+        assert!(keeps_what_was_said("ИНе вижу", "И не вижу"));
+        assert!(keeps_what_was_said("ориентируйсям сво", "ориентируйся сам"));
+    }
+
+    /// The guard measures the SPEECH, not the punctuation: a line that only gained commas and a
+    /// full stop has lost nothing.
+    #[test]
+    fn punctuation_alone_never_looks_like_a_replacement() {
+        assert!(keeps_what_was_said(
+            "ну короче условно там с тридцать можно подъехать куда-то к андрону этому",
+            "Ну, короче, условно, там с тридцать можно подъехать куда-то к Андрону этому."
+        ));
     }
 
     /// The canonical form from the glossary is not an invention: it was WE who gave the

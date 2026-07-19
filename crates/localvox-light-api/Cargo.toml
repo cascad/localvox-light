@@ -12,6 +12,7 @@ localvox-light-search = { path = "../localvox-light-search" }
 anyhow.workspace = true
 clap.workspace = true
 dotenvy.workspace = true
+rust-embed = "8"
 serde.workspace = true
 serde_json.workspace = true
 tiny_http.workspace = true

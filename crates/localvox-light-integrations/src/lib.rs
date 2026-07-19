@@ -24,12 +24,89 @@ use std::path::{Path, PathBuf};
 use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 
+/// One note read back out of a destination.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct StoredNote {
+    /// The note as a person would read it — the markdown bullet and the date prefix removed.
+    pub text: String,
+    /// The date the line carried, if it carried one. Shown as its OWN column, the way a session
+    /// shows its day: a date belongs beside the note, not inside its sentence.
+    pub date: Option<String>,
+    /// THE LINE AS IT ACTUALLY IS IN THE FILE. Deletion matches on this, never on the cleaned
+    /// text: what we show is a rendering, and deleting by a rendering would either miss the line
+    /// or, worse, match a different one.
+    pub raw: String,
+    /// Which file it physically lives in. What makes the list checkable rather than merely
+    /// reassuring: the person can open that file and see the same line.
+    pub source: String,
+}
+
+/// Split a stored line into «when» and «what».
+///
+/// The file keeps the full line — the template is the owner's own choice of how his vault looks,
+/// and for a line in an append-only file the date is THE ONLY record of when the note was made.
+/// Stripping it from the file would destroy that; stripping it from the DISPLAY only removes noise.
+///
+/// Conservative on purpose: a leading markdown bullet or task box, then an ISO date, then a
+/// separator. Anything it does not recognise passes through untouched — a parser that guesses would
+/// eventually eat someone's actual words.
+fn split_date(line: &str) -> (Option<String>, String) {
+    let mut rest = line.trim();
+    for marker in ["- [ ] ", "- [x] ", "- [X] ", "- ", "* ", "+ "] {
+        if let Some(r) = rest.strip_prefix(marker) {
+            rest = r.trim_start();
+            break;
+        }
+    }
+    // `YYYY-MM-DD` and nothing looser: a bare number or a partial date is somebody's text.
+    let is_iso = rest.len() >= 10
+        && rest.as_bytes()[..10]
+            .iter()
+            .enumerate()
+            .all(|(i, c)| if i == 4 || i == 7 { *c == b'-' } else { c.is_ascii_digit() });
+    if !is_iso {
+        return (None, rest.to_string());
+    }
+    let (date, tail) = rest.split_at(10);
+    let tail = tail.trim_start();
+    // The separator the template puts between the date and the text. Without one, the date is
+    // simply how the sentence begins, and we leave it alone.
+    let tail = ["—", "-", "–", ":", "|"]
+        .iter()
+        .find_map(|s| tail.strip_prefix(*s))
+        .map(str::trim_start)
+        .unwrap_or(tail);
+    (Some(date.to_string()), tail.to_string())
+}
+
 /// Where the note physically goes. Implementations: [`FsIntegration`],
 /// [`mcp::McpIntegration`]. `Send + Sync` — the slot registry lives in the voice
 /// module thread.
 pub trait Integration: Send + Sync {
     /// Writes the note; returns a human-readable «where to» (path/tool).
     fn write_note(&self, text: &str) -> Result<String>;
+
+    /// Read recent notes back, NEWEST FIRST.
+    ///
+    /// Not every destination can be read: an MCP server we only send to has no listing. The default
+    /// says so out loud rather than returning an empty list — «нельзя прочитать» and «у вас нет
+    /// идей» are opposite facts, and showing the second when the first is true is the kind of quiet
+    /// lie this system is built to avoid.
+    fn read_notes(&self, _limit: usize) -> Result<Vec<StoredNote>> {
+        bail!("это назначение нельзя прочитать обратно — сюда можно только писать")
+    }
+
+    /// Whether `read_notes` will work. Lets the screen offer the list only where it exists.
+    fn can_read(&self) -> bool {
+        false
+    }
+
+    /// Remove a note. Identified by the text AND the file it came from, never by index: the file is
+    /// the person's own, they edit it by hand, and a position captured a second ago may already
+    /// point at a different line.
+    fn delete_note(&self, _note: &StoredNote) -> Result<()> {
+        bail!("из этого назначения нельзя удалять")
+    }
 }
 
 // ─────────────────────────── config ───────────────────────────
@@ -167,6 +244,134 @@ impl Integration for FsIntegration {
             Ok(self.path.display().to_string())
         }
     }
+
+    fn can_read(&self) -> bool {
+        true
+    }
+
+    /// Delete a note.
+    ///
+    /// THIS TOUCHES THE PERSON'S OWN VAULT, so the target is verified before anything is removed:
+    /// the file must lie INSIDE the slot's configured path. Without that check a crafted `source`
+    /// would turn this endpoint into "delete any file on the machine" — the slot's path is the
+    /// boundary of what this integration is allowed to touch, and it is enforced here rather than
+    /// trusted from the caller.
+    ///
+    /// A folder slot deletes the file; a file slot removes the LINE. The line is matched by its
+    /// exact text, not by an index: the file is hand-edited too, and a position read a second ago
+    /// may already point somewhere else. If the text is no longer there, that is not an error —
+    /// it is already gone, which is what was asked for.
+    fn delete_note(&self, note: &StoredNote) -> Result<()> {
+        let target = PathBuf::from(&note.source);
+        if self.is_dir_target() {
+            let root = self
+                .path
+                .canonicalize()
+                .with_context(|| format!("slot folder {}", self.path.display()))?;
+            let file = target
+                .canonicalize()
+                .with_context(|| format!("note file {}", target.display()))?;
+            if !file.starts_with(&root) {
+                bail!("эта заметка не из слота — удалять отказываюсь");
+            }
+            fs::remove_file(&file).with_context(|| format!("removing {}", file.display()))?;
+            return Ok(());
+        }
+
+        if target != self.path {
+            bail!("эта заметка не из слота — удалять отказываюсь");
+        }
+        let body = fs::read_to_string(&self.path)
+            .with_context(|| format!("reading {}", self.path.display()))?;
+        // MATCHED ON THE RAW LINE, never on the cleaned text. What the screen shows is a rendering
+        // — bullet and date stripped — and deleting by a rendering would either miss the line or
+        // match a different one that happens to render the same way.
+        let wanted = note.raw.trim();
+        let mut removed = false;
+        let kept: Vec<&str> = body
+            .lines()
+            .filter(|l| {
+                // Only the FIRST match goes: two identical lines are two separate notes, and
+                // deleting both when one was asked for would destroy something not selected.
+                if !removed && l.trim() == wanted {
+                    removed = true;
+                    return false;
+                }
+                true
+            })
+            .collect();
+        if !removed {
+            return Ok(()); // already gone — the desired state, not a failure
+        }
+        let mut out = kept.join("\n");
+        if !out.is_empty() {
+            out.push('\n');
+        }
+        fs::write(&self.path, out).with_context(|| format!("writing {}", self.path.display()))?;
+        Ok(())
+    }
+
+    /// Newest first, because that is the order a person looks: the thing just dictated is the thing
+    /// they want to confirm landed.
+    ///
+    /// A destination that does not exist yet is an EMPTY list, not an error — nobody has written
+    /// there so far, which is a perfectly ordinary state and not a fault to report.
+    fn read_notes(&self, limit: usize) -> Result<Vec<StoredNote>> {
+        if self.is_dir_target() {
+            if !self.path.is_dir() {
+                return Ok(Vec::new());
+            }
+            // One file per note, named `YYYYMMDD-HHMMSS-…`, so the name sorts by time.
+            let mut files: Vec<PathBuf> = fs::read_dir(&self.path)
+                .with_context(|| format!("reading {}", self.path.display()))?
+                .filter_map(|e| e.ok().map(|e| e.path()))
+                .filter(|p| p.is_file())
+                .collect();
+            files.sort();
+            Ok(files
+                .iter()
+                .rev()
+                .take(limit)
+                .filter_map(|p| {
+                    let body = fs::read_to_string(p).ok()?;
+                    let body = body.trim();
+                    if body.is_empty() {
+                        return None;
+                    }
+                    let (date, text) = split_date(body);
+                    Some(StoredNote {
+                        text,
+                        date,
+                        raw: body.to_string(),
+                        source: p.display().to_string(),
+                    })
+                })
+                .collect())
+        } else {
+            if !self.path.is_file() {
+                return Ok(Vec::new());
+            }
+            let body = fs::read_to_string(&self.path)
+                .with_context(|| format!("reading {}", self.path.display()))?;
+            let source = self.path.display().to_string();
+            Ok(body
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .rev()
+                .take(limit)
+                .map(|l| {
+                    let (date, text) = split_date(l);
+                    StoredNote {
+                        text,
+                        date,
+                        raw: l.to_string(),
+                        source: source.clone(),
+                    }
+                })
+                .collect())
+        }
+    }
 }
 
 fn ends_with_newline(path: &Path) -> bool {
@@ -195,6 +400,19 @@ pub struct Slot {
 impl Slot {
     pub fn write_note(&self, text: &str) -> Result<String> {
         self.integration.write_note(text)
+    }
+
+    /// Recent notes, newest first — «полистать посмотреть».
+    pub fn read_notes(&self, limit: usize) -> Result<Vec<StoredNote>> {
+        self.integration.read_notes(limit)
+    }
+
+    pub fn can_read(&self) -> bool {
+        self.integration.can_read()
+    }
+
+    pub fn delete_note(&self, note: &StoredNote) -> Result<()> {
+        self.integration.delete_note(note)
     }
 
     fn from_config(name: String, c: SlotConfig) -> Result<Self> {
@@ -358,5 +576,212 @@ mod tests {
         let p = dir.path().join("slots.toml");
         fs::write(&p, "[slots.\"x\"]\ntype = \"carrier-pigeon\"\n").unwrap();
         assert!(SlotRegistry::load(&p).map(|_| ()).is_err());
+    }
+
+    /// «Раздел со списком идей, чтобы можно было полистать посмотреть». Newest first, because the
+    /// note just dictated is the one the person is looking to confirm.
+    #[test]
+    fn notes_are_read_back_newest_first() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("ideas.md");
+        let slot = FsIntegration::new(file, "- {{text}}".into());
+        slot.write_note("первая").unwrap();
+        slot.write_note("вторая").unwrap();
+        slot.write_note("третья").unwrap();
+
+        let got = slot.read_notes(10).unwrap();
+        // `text` is what a person reads — the bullet is formatting, not words.
+        assert_eq!(
+            got.iter().map(|n| n.text.as_str()).collect::<Vec<_>>(),
+            vec!["третья", "вторая", "первая"]
+        );
+        // `raw` is the file's own line, and it keeps the format the owner chose.
+        assert_eq!(got[0].raw, "- третья");
+        assert!(got[0].source.ends_with("ideas.md"), "the note must be traceable to its file");
+    }
+
+    /// The list is capped, and the cap keeps the NEWEST — a limit that returned the oldest notes
+    /// would be worse than no limit at all.
+    #[test]
+    fn the_limit_keeps_the_newest_notes() {
+        let dir = tempdir().unwrap();
+        let slot = FsIntegration::new(dir.path().join("ideas.md"), "{{text}}".into());
+        for i in 1..=5 {
+            slot.write_note(&format!("заметка {i}")).unwrap();
+        }
+        let got = slot.read_notes(2).unwrap();
+        assert_eq!(
+            got.iter().map(|n| n.text.as_str()).collect::<Vec<_>>(),
+            vec!["заметка 5", "заметка 4"]
+        );
+    }
+
+    /// A folder slot: one file per note, and the timestamped names carry the order.
+    #[test]
+    fn a_folder_slot_reads_its_files_back() {
+        let dir = tempdir().unwrap();
+        let inbox = dir.path().join("inbox");
+        let slot = FsIntegration::new(inbox, "{{text}}".into());
+        slot.write_note("одна мысль").unwrap();
+        let got = slot.read_notes(10).unwrap();
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].text, "одна мысль");
+    }
+
+    /// Nobody has written there yet — an EMPTY list, not an error. «Ничего ещё не записано» is an
+    /// ordinary state, and reporting it as a failure would put a red error on a fresh install.
+    #[test]
+    fn a_destination_that_does_not_exist_yet_reads_as_empty() {
+        let dir = tempdir().unwrap();
+        let slot = FsIntegration::new(dir.path().join("nothing-here.md"), "{{text}}".into());
+        assert_eq!(slot.read_notes(10).unwrap(), Vec::new());
+    }
+
+    /// THE DATE IS METADATA, NOT PART OF THE SENTENCE. The file keeps the whole line — for a line
+    /// in an append-only file the date is the only record of WHEN it was written, and deleting it
+    /// from the file would destroy that. The screen gets it as its own column, the way a session
+    /// shows its day.
+    #[test]
+    fn the_bullet_and_the_date_are_metadata_not_text() {
+        let dir = tempdir().unwrap();
+        let slot = FsIntegration::new(dir.path().join("ideas.md"), "- [ ] {{date}} — {{text}}".into());
+        slot.write_note("купить кофе").unwrap();
+
+        let n = &slot.read_notes(10).unwrap()[0];
+        assert_eq!(n.text, "купить кофе", "the checkbox and date leaked into the text");
+        assert!(n.date.is_some(), "the date was lost instead of moved");
+        // The file is untouched: the person's vault keeps the format they chose.
+        assert!(n.raw.starts_with("- [ ] "), "the file lost its own formatting: {}", n.raw);
+        assert!(n.raw.ends_with("— купить кофе"), "{}", n.raw);
+    }
+
+    /// A parser that guesses eventually eats someone's actual words. Anything it does not clearly
+    /// recognise must pass through whole.
+    #[test]
+    fn text_that_only_looks_like_a_date_is_left_alone() {
+        // No separator — this is how the sentence begins.
+        assert_eq!(split_date("2026-07-18 годовой отчёт"), (Some("2026-07-18".into()), "годовой отчёт".into()));
+        // Not an ISO date at all.
+        assert_eq!(split_date("18.07.2026 — отчёт").0, None);
+        assert_eq!(split_date("2026 год был странный").0, None);
+        // A bullet with no date: only the bullet goes.
+        assert_eq!(split_date("- просто мысль"), (None, "просто мысль".into()));
+        // A dash INSIDE the text must survive.
+        assert_eq!(split_date("что-то про кое-что").1, "что-то про кое-что");
+    }
+
+    /// Deletion matches the RAW line. The screen shows a cleaned rendering, and deleting by that
+    /// rendering would miss the line — or match a different one that renders the same way.
+    #[test]
+    fn deletion_matches_the_raw_line_not_the_rendered_one() {
+        let dir = tempdir().unwrap();
+        let slot = FsIntegration::new(dir.path().join("ideas.md"), "- [ ] {{date}} — {{text}}".into());
+        slot.write_note("купить кофе").unwrap();
+        slot.write_note("позвонить в банк").unwrap();
+
+        let note = slot
+            .read_notes(10)
+            .unwrap()
+            .into_iter()
+            .find(|n| n.text == "купить кофе")
+            .unwrap();
+        slot.delete_note(&note).unwrap();
+
+        let left = slot.read_notes(10).unwrap();
+        assert_eq!(left.len(), 1);
+        assert_eq!(left[0].text, "позвонить в банк");
+    }
+
+    /// Deleting a note removes exactly that line and leaves the rest of the file alone — this is
+    /// the person's own vault, not our storage.
+    #[test]
+    fn deleting_a_note_removes_only_that_line() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("ideas.md");
+        let slot = FsIntegration::new(file.clone(), "{{text}}".into());
+        for t in ["первая", "вторая", "третья"] {
+            slot.write_note(t).unwrap();
+        }
+        let notes = slot.read_notes(10).unwrap();
+        let second = notes.iter().find(|n| n.text == "вторая").unwrap().clone();
+        slot.delete_note(&second).unwrap();
+
+        let left = slot.read_notes(10).unwrap();
+        assert_eq!(
+            left.iter().map(|n| n.text.as_str()).collect::<Vec<_>>(),
+            vec!["третья", "первая"]
+        );
+    }
+
+    /// Two identical lines are two separate notes. Deleting one must not take the other with it.
+    #[test]
+    fn a_duplicate_line_loses_only_one_copy() {
+        let dir = tempdir().unwrap();
+        let slot = FsIntegration::new(dir.path().join("ideas.md"), "{{text}}".into());
+        slot.write_note("купить кофе").unwrap();
+        slot.write_note("купить кофе").unwrap();
+        let note = slot.read_notes(10).unwrap()[0].clone();
+        slot.delete_note(&note).unwrap();
+        assert_eq!(slot.read_notes(10).unwrap().len(), 1);
+    }
+
+    /// THE SLOT'S PATH IS THE BOUNDARY. A crafted `source` must not turn deletion into «remove any
+    /// file on this machine» — the check lives here, not in the caller's good intentions.
+    #[test]
+    fn a_note_from_outside_the_slot_is_refused() {
+        let dir = tempdir().unwrap();
+        let slot = FsIntegration::new(dir.path().join("ideas.md"), "{{text}}".into());
+        slot.write_note("своя").unwrap();
+
+        let outsider = dir.path().join("secret.txt");
+        fs::write(&outsider, "не трогать\n").unwrap();
+        let forged = StoredNote {
+            text: "не трогать".into(),
+            date: None,
+            raw: "не трогать".into(),
+            source: outsider.display().to_string(),
+        };
+        assert!(slot.delete_note(&forged).is_err(), "deleted a file outside the slot");
+        assert!(outsider.exists(), "a file outside the slot was destroyed");
+    }
+
+    /// Already gone is the desired state, not a failure — a second click must not raise an error.
+    #[test]
+    fn deleting_something_that_is_no_longer_there_is_not_an_error() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("ideas.md");
+        let slot = FsIntegration::new(file.clone(), "{{text}}".into());
+        slot.write_note("одна").unwrap();
+        let note = slot.read_notes(10).unwrap()[0].clone();
+        slot.delete_note(&note).unwrap();
+        slot.delete_note(&note).unwrap();
+        assert!(slot.read_notes(10).unwrap().is_empty());
+    }
+
+    /// A folder slot stores one file per note, so deleting the note deletes that file.
+    #[test]
+    fn a_folder_slot_deletes_the_note_file() {
+        let dir = tempdir().unwrap();
+        let inbox = dir.path().join("inbox");
+        let slot = FsIntegration::new(inbox.clone(), "{{text}}".into());
+        slot.write_note("одна мысль").unwrap();
+        let note = slot.read_notes(10).unwrap()[0].clone();
+        slot.delete_note(&note).unwrap();
+        assert!(slot.read_notes(10).unwrap().is_empty());
+        assert!(!PathBuf::from(&note.source).exists());
+    }
+
+    /// «Нельзя прочитать» and «у вас нет идей» are opposite facts. A destination we can only write
+    /// to must say the first, never quietly show the second.
+    #[test]
+    fn a_write_only_destination_says_so_instead_of_showing_an_empty_list() {
+        struct WriteOnly;
+        impl Integration for WriteOnly {
+            fn write_note(&self, _t: &str) -> Result<String> {
+                Ok("ушло".into())
+            }
+        }
+        assert!(!WriteOnly.can_read());
+        assert!(WriteOnly.read_notes(10).is_err(), "an empty list would read as «нет идей»");
     }
 }

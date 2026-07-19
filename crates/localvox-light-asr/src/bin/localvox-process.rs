@@ -345,6 +345,11 @@ fn main() -> Result<()> {
             }
         }
 
+        // The stages are recorded as they happen: we are the only one who knows where the work
+        // actually is. From outside, all of this is a single "⚙ cooking" — and when it breaks,
+        // the reason lives in a daemon log nobody opens.
+        use localvox_light_core::progress::{mark, Stage, StageState};
+        mark(session, Stage::Transcribe, StageState::Running, None);
         let cooked = match cook_session_asr(session, &params) {
             Ok(CookOutcome::Done {
                 version_id,
@@ -362,19 +367,45 @@ fn main() -> Result<()> {
                     "  cook: v{version_id:03} ({lines} lines, {audio_sec:.0} s audio in {wall_sec:.1} s, RTF {rtf:.3})"
                 );
                 println!("  {}", file.display());
+                mark(
+                    session,
+                    Stage::Transcribe,
+                    StageState::Done,
+                    Some(&format!("{lines} строк")),
+                );
                 lines > 0
             }
             Ok(CookOutcome::Skipped { existing_version }) => {
                 println!("  cook: v{existing_version:03} already exists (--force to re-cook)");
+                mark(
+                    session,
+                    Stage::Transcribe,
+                    StageState::Done,
+                    Some(&format!("уже сварено, v{existing_version:03}")),
+                );
                 true
             }
             Ok(CookOutcome::Empty) => {
                 println!("  cook: no audio");
+                // Not a failure: there is simply nothing to recognize. A person must see the
+                // difference between "it broke" and "there was nothing here".
+                mark(
+                    session,
+                    Stage::Transcribe,
+                    StageState::Skipped,
+                    Some("в записи нет звука"),
+                );
                 false
             }
             Err(e) => {
                 failed_cook += 1;
                 eprintln!("  cook error: {e:#}");
+                mark(
+                    session,
+                    Stage::Transcribe,
+                    StageState::Failed,
+                    Some(&format!("{e:#}")),
+                );
                 false
             }
         };
@@ -406,18 +437,47 @@ fn main() -> Result<()> {
 
         // --refine: clean up the transcript as a new version (before summary/cleanup, so that
         // those are built from the already cleaned-up best).
+        //
+        // Every outcome is RECORDED — done, nothing-to-do, or a genuine failure — so refine takes
+        // part in the same idempotency as summary/cleanup: a settled session is a fact in the log,
+        // not a silence that makes the step run again and, on any hiccup, loop.
         if cli.refine {
+            use localvox_light_core::processing::{self, Outcome};
+            let recipe = processing::refine_recipe(&cli.llm_model);
+            mark(session, Stage::Refine, StageState::Running, None);
             match localvox_light_llm::pipeline::refine_session(session, client, pp, cli.force) {
-                Ok(o) if o.skipped => {
-                    println!("  refine: best is already cleaned up v{:03} (--force to repeat)", o.version_id);
+                // No speech to clean up — a silent recording. DONE, not a failure. This exact
+                // miscount (refine treating silence as an error → exit 2 → the job revived on
+                // every restart) was the re-cook loop.
+                Ok(o) if o.nothing => {
+                    println!("  refine: nothing to clean up (no speech)");
+                    mark(session, Stage::Refine, StageState::Skipped, Some("речи нет"));
+                    processing::record(session, processing::REFINED, &recipe, Outcome::Nothing,
+                        Some("no speech".into()), Some(o.version_id));
                 }
-                Ok(o) => println!(
-                    "  refine: v{:03} best ({}/{} lines fixed, {} with no LLM answer, {} calls, {:.1} s)",
-                    o.version_id, o.changed, o.lines, o.omitted, o.llm_calls, o.wall_sec
-                ),
+                Ok(o) if o.skipped => {
+                    println!("  refine: already cleaned up v{:03} (--force to repeat)", o.version_id);
+                    mark(session, Stage::Refine, StageState::Done, Some("уже причёсано"));
+                    processing::record(session, processing::REFINED, &recipe, Outcome::Ok,
+                        None, Some(o.version_id));
+                }
+                Ok(o) => {
+                    println!(
+                        "  refine: v{:03} best ({}/{} lines fixed, {} with no LLM answer, {} calls, {:.1} s)",
+                        o.version_id, o.changed, o.lines, o.omitted, o.llm_calls, o.wall_sec
+                    );
+                    mark(session, Stage::Refine, StageState::Done,
+                        Some(&format!("исправлено {}/{} строк", o.changed, o.lines)));
+                    processing::record(session, processing::REFINED, &recipe, Outcome::Ok,
+                        None, Some(o.version_id));
+                }
+                // A genuine transient failure (the LLM is down): worth a retry, so it counts.
                 Err(e) => {
                     failed_post += 1;
                     eprintln!("  refine error: {e:#}");
+                    mark(session, Stage::Refine, StageState::Failed, Some(&format!("{e:#}")));
+                    processing::record(session, processing::REFINED, &recipe, Outcome::Failed,
+                        Some(format!("{e:#}")), None);
                 }
             }
         }
@@ -449,6 +509,14 @@ fn main() -> Result<()> {
             // touch it.
             let recipe = processing::llm_recipe(artifact, &style, &cli.llm_model);
 
+            // The summary is a stage a person watches for; the cleanup rides along with it and
+            // has no separate step in the chain.
+            let stage = matches!(task, localvox_light_llm::pipeline::Task::Summary)
+                .then_some(Stage::Summary);
+            if let Some(s) = stage {
+                mark(session, s, StageState::Running, None);
+            }
+
             match localvox_light_llm::pipeline::process_session(session, task, client, pp) {
                 // A silent session is not an error: silence from an always-on recorder is
                 // normal, whereas a summary invented out of silence is a catastrophe.
@@ -456,6 +524,9 @@ fn main() -> Result<()> {
                 Ok(o) if o.skipped.is_some() => {
                     let why = o.skipped.unwrap_or_default();
                     println!("  llm: skipped — {why}");
+                    if let Some(s) = stage {
+                        mark(session, s, StageState::Skipped, Some(&why));
+                    }
                     processing::record(
                         session,
                         artifact,
@@ -473,6 +544,16 @@ fn main() -> Result<()> {
                         o.wall_sec,
                         o.replacements
                     );
+                    // The doubt mark travels into the chain too: "done, but worth a look" is not
+                    // the same fact as "done", and the person deserves to see which one it was.
+                    if let Some(s) = stage {
+                        mark(
+                            session,
+                            s,
+                            StageState::Done,
+                            o.unverified.as_deref().map(|_| "стоит перепроверить"),
+                        );
+                    }
                     // Not an error and not a loss: the document IS written. This is a MARK —
                     // «worth double-checking, may be a lie or an imprecision» — not a verdict.
                     // The check compares literally and will always have false positives
@@ -498,6 +579,9 @@ fn main() -> Result<()> {
                 Err(e) => {
                     failed_post += 1;
                     eprintln!("  llm error: {e:#}");
+                    if let Some(s) = stage {
+                        mark(session, s, StageState::Failed, Some(&format!("{e:#}")));
+                    }
                     processing::record(
                         session,
                         artifact,

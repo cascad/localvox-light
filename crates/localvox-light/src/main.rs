@@ -381,16 +381,14 @@ fn run_tray_mode(
         .map_err(|e| anyhow::anyhow!("tray menu: {e}"))?;
     }
     if let Some(bind) = api_bind {
-        // 0.0.0.0/[::] is a listen address, not a destination: in the browser we open the
-        // loopback address, otherwise "cannot connect".
-        let url = match bind.parse::<std::net::SocketAddr>() {
-            Ok(a) if a.ip().is_unspecified() => format!("http://127.0.0.1:{}/", a.port()),
-            _ => format!("http://{bind}/"),
+        // 0.0.0.0/[::] is a LISTEN address, not a destination: the window and the browser get the
+        // loopback one, or they would try to connect to "everything" and fail.
+        let addr = match bind.parse::<std::net::SocketAddr>() {
+            Ok(a) if a.ip().is_unspecified() => format!("127.0.0.1:{}", a.port()),
+            _ => bind.clone(),
         };
-        tray.add_menu_item("Открыть веб-архив", move || {
-            let _ = std::process::Command::new("explorer").arg(&url).spawn();
-        })
-        .map_err(|e| anyhow::anyhow!("tray menu: {e}"))?;
+        tray.add_menu_item("Открыть интерфейс", move || open_window(&addr))
+            .map_err(|e| anyhow::anyhow!("tray menu: {e}"))?;
     }
     let autostart_id = {
         let t = msg_tx.clone();
@@ -564,17 +562,12 @@ fn spawn_autocook(
     // second reading has already diverged from this once (the button erased the summary but
     // queued a job without the flag to make it again).
     let (summary, cleanup, refine) = localvox_light_core::jobs::post_processing_from_env();
-    // Re-cooking an archive cooked with an outdated recipe (the ASR windows changed).
-    // ON by default: otherwise an improvement to the cook never reaches already cooked sessions
-    // and the archive stays forever worse than the engine can do.
-    // Turn off (for an archive of hundreds of hours, say): AUTOCOOK_RECOOK_STALE=0.
-    let recook_stale = !matches!(
-        std::env::var("LOCALVOX_LIGHT_AUTOCOOK_RECOOK_STALE")
-            .unwrap_or_default()
-            .to_lowercase()
-            .as_str(),
-        "0" | "off" | "false" | "no"
-    );
+    // There used to be a switch here — LOCALVOX_LIGHT_AUTOCOOK_RECOOK_STALE — that let the
+    // archive redo work whose recipe no longer matched the current one. It is gone, and no
+    // replacement is coming: the recipes drifted on their own (a prompt revision, the model in
+    // .env, the language, even the working directory), so every drift silently re-cooked the whole
+    // archive behind the owner's back. Finished is finished. A better cook reaches the old
+    // recordings when a human presses «переварить», and only then.
     const MAX_ATTEMPTS: u32 = 3;
 
     // `localvox-process` sits next to our exe (in the same distribution).
@@ -625,9 +618,25 @@ fn spawn_autocook(
             // otherwise pay for migrating the whole archive right inside an HTTP request.
             // On an up-to-date index this is a no-op (not a single embed, not a single rewrite).
             warm_indexes(&wd);
+            // Take back what a dead daemon left mid-cook. ONCE, HERE, before the loop: we have
+            // just started, so nothing of ours is cooking, so `Running` in the file can only be a
+            // corpse. Inside the loop the same state means the opposite — it is cooking right now —
+            // and reading the file every few seconds cannot tell the two apart. That confusion,
+            // living inside `load()`, is what re-cooked this archive for months.
+            {
+                let mut q = localvox_light_core::jobs::JobQueue::load(&wd);
+                let taken = q.reclaim_abandoned();
+                if taken > 0 {
+                    tracing::info!("autocook: {taken} job(s) abandoned by a dead daemon — replaying");
+                }
+                // Ghosts: work queued for sessions that are no longer on disk. They can only fail,
+                // for ever, and each failure looks to the owner like something of theirs broke.
+                q.drop_orphans(&wd);
+            }
             let mut last_idle_log: Option<std::time::Instant> = None;
-            // What we want from every session and WITH WHICH recipe. If the model, the template
-            // or the LANGUAGE changed — the recipe is different, and the archive finishes itself.
+            // What we want from every session, and with which recipe. The recipe is PROVENANCE —
+            // it records what made this, not whether to make it again. A changed model or template
+            // no longer redoes anything: that is the human's word (see WP-C67).
             let llm_model =
                 std::env::var("LOCALVOX_LLM_MODEL").unwrap_or_else(|_| "qwen3.5:9b".into());
             let summary_template = std::env::var("LOCALVOX_LLM_SUMMARY_TEMPLATE")
@@ -646,22 +655,33 @@ fn spawn_autocook(
                 // daemon, and a re-cook request was simply lost — even though the web had
                 // already managed to delete the derived artifacts.
                 let mut queue = localvox_light_core::jobs::JobQueue::load(&wd);
+                // 0a) Ghosts first, and BEFORE reviving anything: a session deleted while the
+                // daemon runs leaves work behind, and the next line would faithfully bring it back
+                // to life. The owner then watches «сорвалось, повторю» against a recording they
+                // threw away — the app appearing to break over something they already decided
+                // about. Cheap: a handful of `is_dir` checks per cycle.
+                queue.drop_orphans(&wd);
                 // 0) revive jobs that failed long ago (Ollama may be back): a transient failure
                 // heals itself without restarting the daemon
                 let revived = queue.revive_failed(std::time::Duration::from_secs(3600));
                 if revived > 0 {
                     tracing::info!("autocook: {revived} Failed jobs revived (backoff 1 h)");
                 }
-                // 1) enqueue new closed, not-yet-cooked sessions, and also those cooked with an
-                // OUTDATED recipe (the cook windows changed — an archive cooked the old way must
-                // be re-cooked once; disabled by LOCALVOX_LIGHT_AUTOCOOK_RECOOK_STALE=0)
+                // 1) Queue sessions that have NO transcript at all. Nothing else.
+                //
+                // `requeue_stale` used to live here too: it took a session that was already Done
+                // and put it back, because its recipe no longer matched the one we want now. That
+                // is the third door through which the archive re-cooked itself on every launch —
+                // and the recipe drifts on its own (the working directory decides whether the
+                // diarization model is found, and that decides `-spk` in the recipe).
+                //
+                // FINISHED IS FINISHED. A better cook reaches the old archive when the human
+                // presses «переварить заново» — `enqueue_recook`, which forces. Not behind his
+                // back, and not a hundred times.
                 for name in localvox_light_core::jobs::sessions_needing_cook(&wd, quiescent_sec) {
-                    let queued = if recook_stale {
-                        queue.requeue_stale(&name, summary, cleanup, refine)
-                    } else {
-                        queue.enqueue_cook(&name, summary, cleanup, refine)
-                    };
-                    if queued {
+                    // Dedups by session: a session that already has a job (Done included) is not
+                    // touched.
+                    if queue.enqueue_cook(&name, summary, cleanup, refine) {
                         tracing::info!("autocook: enqueued {name}");
                     }
                 }
@@ -683,6 +703,26 @@ fn spawn_autocook(
                     }
                     let Some(job) = queue.start(id) else { continue };
                     let session = wd.join("sessions").join(&job.session);
+                    // The work over the session begins HERE. Everything the stages say from now on
+                    // belongs to this run: an auto-cook picked up after a recording has no button
+                    // behind it to have opened the run for it.
+                    localvox_light_core::progress::new_run(&session);
+
+                    // A link job: there is no audio yet — it has to be fetched before anything
+                    // can be cooked. If the fetch fails there is nothing to cook, and the job
+                    // stops HERE: the reason lands both in the queue and in the session's stage
+                    // log, where a person is actually looking.
+                    if job.kind == localvox_light_core::jobs::JobKind::Ingest
+                        && !has_audio(&session)
+                    {
+                        if let Err(e) = ingest_into_session(&session) {
+                            let msg = format!("{e:#}");
+                            queue.mark_failed(job.id, &msg, MAX_ATTEMPTS);
+                            tracing::warn!("ingest: {} — {msg}", job.session);
+                            continue;
+                        }
+                    }
+
                     tracing::info!("autocook: cooking {}", job.session);
                     let mut cmd = std::process::Command::new(&exe);
                     cmd.arg(&session)
@@ -803,8 +843,11 @@ fn spawn_autocook(
                                         if !running.load(Ordering::Relaxed) {
                                             let _ = child.kill();
                                             let _ = child.wait();
-                                            // the job stays Running → load() puts it back to
-                                            // Pending, the cook is not lost
+                                            // The job stays Running on purpose: that is the mark of
+                                            // an interrupted cook, and the next daemon reclaims it
+                                            // at startup (`reclaim_abandoned`). It comes back as a
+                                            // NORMAL job — it finishes what is missing instead of
+                                            // wiping what the killed run had already finished.
                                             break;
                                         }
                                         std::thread::sleep(std::time::Duration::from_millis(200));
@@ -880,6 +923,154 @@ fn strip_ansi(s: &str) -> String {
         }
     }
     out.trim().to_string()
+}
+
+/// "Открыть интерфейс" from the tray.
+///
+/// The window is a SEPARATE process (`localvox-desktop`), and that is deliberate: it is a view
+/// onto this daemon, and closing it must never stop a recording. It is launched with the address
+/// we actually bound to — the port is configurable, and a window guessing it would sooner or later
+/// guess wrong.
+///
+/// No shell? Then the browser: an interface reachable at a URL beats no interface at all. A
+/// person who never built the desktop shell must still be able to open their archive.
+#[cfg(windows)]
+fn open_window(addr: &str) {
+    let shell = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|d| d.join("localvox-desktop.exe")))
+        .filter(|p| p.exists());
+    match shell {
+        Some(exe) => {
+            // A second click focuses the open window rather than opening a second one — the shell
+            // is single-instance. Two views of one archive would drift apart.
+            let _ = std::process::Command::new(exe).arg("--addr").arg(addr).spawn();
+        }
+        None => {
+            let _ = std::process::Command::new("explorer")
+                .arg(format!("http://{addr}/"))
+                .spawn();
+        }
+    }
+}
+
+/// Does the session already have audio? For an ingest job this is the idempotency check: the
+/// daemon may have died between the download and the cook, and the queue will bring the job back
+/// — downloading an hour of video a second time is not a small cost.
+fn has_audio(session: &Path) -> bool {
+    std::fs::read_dir(session.join("audio"))
+        .map(|mut d| d.next().is_some())
+        .unwrap_or(false)
+}
+
+/// A link → audio in the session. The stages are written as they happen, because this is the
+/// step a person actually watches: it is long, it depends on the network and on foreign tools,
+/// and "⚙ cooking" for ten minutes tells them nothing about where it is or what broke.
+///
+/// The audio lands as ordinary session chunks — from here on, a lecture from a link is
+/// indistinguishable from a recording of a meeting: the same cook, the same versions, the same
+/// player. That is the whole point of doing it this way.
+fn ingest_into_session(session: &Path) -> Result<()> {
+    use localvox_light_core::chunks::{ChunkParams, ChunkRecorder, SessionMeta};
+    use localvox_light_core::progress::{step, Stage};
+    use std::sync::{Arc, Mutex};
+
+    let meta_path = session.join("meta.json");
+    let mut meta: SessionMeta = serde_json::from_slice(&std::fs::read(&meta_path)?)?;
+    let source = meta
+        .source
+        .clone()
+        .ok_or_else(|| anyhow::anyhow!("у сессии нет ссылки: нечего скачивать"))?;
+
+    // The tools are checked BEFORE the download: "yt-dlp is not installed" must be said at the
+    // start, not after a minute of waiting for a network that was never going to be used.
+    let settings = localvox_light_ingest::load_settings();
+    let yt_dlp = localvox_light_ingest::resolve_yt_dlp(&settings, None);
+    let ffmpeg = localvox_light_ingest::resolve_ffmpeg(&settings, None);
+    localvox_light_ingest::verify_yt_dlp(&yt_dlp)?;
+    localvox_light_ingest::verify_ffmpeg(&ffmpeg)?;
+    let ffmpeg_location = localvox_light_ingest::resolve_ffmpeg_location_for_ytdlp(&ffmpeg);
+    let js_runtime = localvox_light_ingest::resolve_js_runtime(&settings, None, None);
+
+    // The title, if the source names itself. A session called "youtube" is useless in a list —
+    // a person looks for the lecture by its name, not by where it was hosted.
+    if let Some(title) = source_title(&yt_dlp, &source.url) {
+        meta.title = Some(title.clone());
+        meta.source = Some(localvox_light_core::chunks::Source {
+            url: source.url.clone(),
+            title: Some(title),
+        });
+        localvox_light_core::chunks::save_meta_public(&meta_path, &meta);
+    }
+
+    let file = step(session, Stage::Download, || {
+        localvox_light_ingest::download::download_audio(
+            &yt_dlp,
+            &source.url,
+            ffmpeg_location.as_deref(),
+            js_runtime.as_deref(),
+            false,
+        )
+    })?;
+
+    let outcome = step(session, Stage::Extract, || -> Result<f64> {
+        let pcm = localvox_light_ingest::download::convert_to_pcm_s16le(&ffmpeg, &file, false)?;
+        let samples: Vec<i16> = pcm
+            .chunks_exact(2)
+            .map(|b| i16::from_le_bytes([b[0], b[1]]))
+            .collect();
+        if samples.is_empty() {
+            anyhow::bail!("в источнике нет звуковой дорожки");
+        }
+        let params = Arc::new(ChunkParams {
+            audio_dir: session.join("audio"),
+            meta_path: meta_path.clone(),
+            chunk_sec: 300.0,
+            flac: false,
+            ffmpeg: std::path::PathBuf::from(&ffmpeg),
+        });
+        let shared = Arc::new(Mutex::new(meta));
+        // Track 0 — as if it were the microphone: a lecture has one voice line, and inventing a
+        // second, empty track would only make the player lie about a silent interlocutor.
+        let mut rec = ChunkRecorder::new(0, params, shared);
+        rec.feed(&samples);
+        rec.finalize_current();
+        Ok(samples.len() as f64 / 16_000.0)
+    });
+
+    // The temporary download is removed on ANY outcome: a failed ingest must not leave hundreds
+    // of megabytes in the temp directory to be found by nobody.
+    let _ = std::fs::remove_file(&file);
+    let seconds = outcome?;
+
+    tracing::info!(
+        "ingest: {} — {:.0} с звука из {}",
+        session.display(),
+        seconds,
+        source.url
+    );
+    Ok(())
+}
+
+/// What the source calls itself. A failure here is not a failure of the ingest: a session with no
+/// title is worse than one with a title, but it is still a session.
+fn source_title(yt_dlp: &str, url: &str) -> Option<String> {
+    let out = std::process::Command::new(yt_dlp)
+        // `--encoding utf-8` OR THE TITLE ARRIVES AS MOJIBAKE.
+        //
+        // yt-dlp is Python, and on Windows a redirected stdout gets the ANSI code page, not UTF-8.
+        // Measured 18.07.2026 on a Russian title: the pipe carried cp1251 bytes
+        // (209 32 247 229 …), we decoded them as UTF-8, and the archive showed
+        // «� ���� ������ …» as the name of the recording. `PYTHONIOENCODING` does NOT help —
+        // the frozen exe ignores it; this flag is yt-dlp's own and it does.
+        .args(["--encoding", "utf-8", "--skip-download", "--print", "%(title)s", url])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let title = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (!title.is_empty()).then_some(title)
 }
 
 fn pump_child_output(

@@ -1,0 +1,20 @@
+[package]
+name = "localvox-desktop"
+version.workspace = true
+edition.workspace = true
+description = "Desktop shell for localvox: a window onto the local daemon. It owns no state — the daemon owns the recording, and closing the window never stops it."
+
+[[bin]]
+name = "localvox-desktop"
+path = "src/main.rs"
+
+[lib]
+name = "localvox_desktop"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.6.3" }
+
+[dependencies]
+tauri = { version = "2.11.3" }
+tauri-plugin-single-instance = "2"

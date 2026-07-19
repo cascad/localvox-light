@@ -62,7 +62,11 @@ mark { background:#fff2a8; color:inherit; padding:0 .1em; border-radius:2px; }
 #route-hints { display:flex; gap:.4rem; flex-wrap:wrap; margin:.2rem 0; }
 button.hint { background:var(--card); border:1px solid var(--acc); color:var(--acc);
   border-radius:14px; padding:.2rem .6rem; font-size:.85rem; }
-.hidden { display:none; }
+/* !important is not decoration: `#view-session` sets `display:flex` for the player
+   column, and an id beats a class no matter the order — the class went on, the section
+   stayed visible, and the last opened session hung expanded under the list forever.
+   A visibility utility must outrank every layout rule. */
+.hidden { display:none !important; }
 /* Плеер записи ЦЕЛИКОМ — сбоку и ЛИПКИЙ. Он нужен, чтобы «пошариться» по звуку, пока
    читаешь расшифровку; уезжая вверх вместе со страницей, он заставлял листать туда-сюда.
    На узком экране (телефон) колонки нет — плеер уходит вниз, как раньше. */

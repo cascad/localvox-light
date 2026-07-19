@@ -35,12 +35,22 @@ fn make_workdir(dir: &Path) {
             parents: vec![],
         })
         .unwrap();
-    // An identical long paragraph in summary.md and processed.md (< 160 characters —
-    // make_snippet will return the same full text, and the dedup by snippet will fire).
+    // The same long paragraph reaching the index through BOTH derived channels (< 160
+    // characters — make_snippet will return the same full text, and the dedup by snippet will
+    // fire). The summary is a file; the readable text is a delta, so it says this paragraph by
+    // being the cleanup of that line.
     let para = "На встрече долго и подробно обсуждали кварталку, сроки, риски, \
 бюджеты, кадровые вопросы и планирование на следующий период работы команды.";
     std::fs::write(session.join("summary.md"), format!("{para}\n")).unwrap();
-    std::fs::write(session.join("processed.md"), format!("{para}\n")).unwrap();
+    localvox_light_core::readable::save(
+        &session,
+        &localvox_light_core::readable::Readable {
+            version_id: id,
+            edits: [(0usize, para.to_string())].into_iter().collect(),
+            ..Default::default()
+        },
+    )
+    .unwrap();
 }
 
 #[test]

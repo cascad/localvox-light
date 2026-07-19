@@ -59,11 +59,20 @@ pub struct PipelineConfig {
     pub segments_to_disk: bool,
     /// Watchdog: warn if the microphone is silent for longer (sec); 0 — disabled.
     pub mic_silence_warn_sec: f64,
-    /// Ambient sessionization (WP-C6): seconds "before" the call is detected to pull into
-    /// the meeting session (pre-roll). 0 — no pre-roll.
+
+    /// Session chunks (F8) at all. `false` — the engine records nothing to disk, ever.
+    pub session_chunks: bool,
+    /// Length of one chunk file.
+    pub chunk_sec: f64,
+    pub chunk_flac: bool,
+    pub ffmpeg: PathBuf,
+
+    /// The pre-roll ring: how many seconds of the PAST are kept in memory. Nothing here
+    /// touches the disk — but the moment a human presses "record", this is what enters the
+    /// session, so a conversation that began before the button is not lost.
     pub preroll_sec: f64,
-    /// Silence longer than this cuts the ambient session into a new one (0 — never cut).
-    pub ambient_gap_sec: f64,
+    /// Silence on both tracks longer than this stops the recording (0 — never).
+    pub autostop_sec: f64,
 }
 
 /// The sink for the current segment.
@@ -262,26 +271,27 @@ impl SourceState {
     }
 }
 
-/// The session-change signal (F3, ambient sessionization): call detection tells the pipeline
-/// about the start/end of a meeting. The pipeline is the sole owner of the session lifecycle
-/// and the sole writer of `meta.json` (detection no longer writes the meta itself — there are
-/// no two writers of one file).
+/// The session-change signal (F3): call detection tells the pipeline that a call started or
+/// ended. Since the recording became explicit, this signal no longer STARTS anything — it
+/// only marks a running recording ("a call was going here"). The pipeline stays the sole
+/// owner of the session lifecycle and the sole writer of `meta.json`.
 pub enum SessionSignal {
     CallStarted { apps: Vec<String>, title: String },
     CallEnded,
 }
 
-/// Settings for creating NEW sessions on the fly (rotation on a call / silence / a new day).
+/// Settings for creating a session when a human starts a recording.
 #[derive(Clone)]
 struct SessionSettings {
     work_dir: PathBuf,
     chunk_sec: f64,
     flac: bool,
     ffmpeg: PathBuf,
-    /// How many seconds "before" the moment of detection to pull into the meeting session.
+    /// How many seconds of the past the ring keeps — and therefore how much of the
+    /// conversation before the button lands in the session.
     preroll_sec: f64,
-    /// Silence longer than this cuts the ambient session (0 — never cut).
-    gap_sec: f64,
+    /// Silence on both tracks longer than this stops the recording (0 — never).
+    autostop_sec: f64,
 }
 
 struct Session {
@@ -289,22 +299,36 @@ struct Session {
     meta: Arc<Mutex<SessionMeta>>,
 }
 
-/// Recording of continuous session chunks (F8) + ambient sessionization (WP-C6):
-/// the recorders for both sources, the current session, the pre-roll ring.
-/// `settings == None` — chunks are off, every call becomes a no-op.
+/// Recording of session chunks (F8).
+///
+/// **The recording is not the default state.** Capture runs always — the microphone and the
+/// loopback are open, the levels are measured, the watchdogs are watching — but NOTHING
+/// reaches the disk until a human says so. A recorder running all day through an office
+/// writes other people's conversations, and none of those people agreed to that.
+///
+/// What makes the button safe is the pre-roll ring: the last `preroll_sec` of both tracks
+/// live in memory (five minutes ≈ 19 MB) and never touch the disk. Press "record" — and they
+/// go INTO the session, so a conversation that began before the button is not lost. This is
+/// loop recording, the same trick a dashcam has used for twenty years.
+///
+/// `settings == None` — chunks are off entirely, every call is a no-op.
 struct ChunkLane {
     settings: Option<SessionSettings>,
-    /// How much audio arrived against real time — per source.
+    /// How much audio arrived against real time — per source. Runs regardless of recording:
+    /// it watches the DEVICE, not our willingness to write.
     integrity: [Integrity; 2],
+    /// Is a recording running right now. The single source of truth for "does the sound reach
+    /// the disk".
+    armed: bool,
     current: Option<Session>,
     recorders: [Option<ChunkRecorder>; 2],
-    /// The last `preroll_cap` samples of each source — they seed the meeting session.
+    /// The last `preroll_cap` samples of each source. Filled always — this is the past we can
+    /// still save.
     preroll: [std::collections::VecDeque<i16>; 2],
     preroll_cap: usize,
-    /// Is a meeting session running right now (a call is recorded into it separately from
-    /// ambient).
+    /// A call is being recorded into the running session right now (a mark, not a session).
     in_meeting: bool,
-    /// The moment of the last speech (for the ambient cut on silence); whether anything was
+    /// The moment of the last sound (for the auto-stop on silence); whether anything was
     /// written at all.
     last_voice: Option<Instant>,
     recorded_since_open: bool,
@@ -312,40 +336,35 @@ struct ChunkLane {
     /// temporarily failing) — it will be written into the very first session that gets
     /// created; bounded in length.
     orphan: [Vec<i16>; 2],
-    /// The calendar day of the current session — midnight cuts ambient (otherwise a daemon
-    /// running for a week in silence-without-calls would pile up one session for all the days).
-    day: Option<i32>,
-    /// The frame counter until the next "finish the session" check: we poke the file once a
-    /// second, not on every audio frame.
-    finish_poll: u32,
-    /// The human pressed "New meeting": the next session opens with this title and the
-    /// "meeting" flag.
-    pending_meeting: Option<String>,
+    /// The frame counter until the next command check: we poke the files once a second, not
+    /// on every audio frame.
+    poll: u32,
+    /// The title the human gave when starting ("" — a recording without a name).
+    title: Option<String>,
 }
 
-/// Frames between checks of the "finish the session" marker (a frame is 20 ms).
-const FINISH_POLL_FRAMES: u32 = 50;
+/// Frames between checks of the start/stop request files (a frame is 20 ms).
+const COMMAND_POLL_FRAMES: u32 = 50;
 
 impl ChunkLane {
-    fn new(env: Option<(Arc<ChunkParams>, Arc<Mutex<SessionMeta>>)>, cfg: &PipelineConfig) -> Self {
-        // The settings for new sessions are taken from the first (engine-created) session.
-        let settings = env.as_ref().map(|(p, _)| SessionSettings {
+    fn new(cfg: &PipelineConfig) -> Self {
+        let settings = cfg.session_chunks.then(|| SessionSettings {
             work_dir: cfg.work_dir.clone(),
-            chunk_sec: p.chunk_sec,
-            flac: p.flac,
-            ffmpeg: p.ffmpeg.clone(),
+            chunk_sec: cfg.chunk_sec,
+            flac: cfg.chunk_flac,
+            ffmpeg: cfg.ffmpeg.clone(),
             preroll_sec: cfg.preroll_sec,
-            gap_sec: cfg.ambient_gap_sec,
+            autostop_sec: cfg.autostop_sec,
         });
         let preroll_cap = settings
             .as_ref()
             .map(|s| (s.preroll_sec * 16_000.0) as usize)
             .unwrap_or(0);
-        let current = env.map(|(params, meta)| Session { params, meta });
         let lane = Self {
             settings,
             integrity: Default::default(),
-            current,
+            armed: false,
+            current: None,
             recorders: [None, None],
             preroll: [
                 std::collections::VecDeque::new(),
@@ -356,11 +375,13 @@ impl ChunkLane {
             last_voice: None,
             recorded_since_open: false,
             orphan: [Vec::new(), Vec::new()],
-            day: Some(today()),
-            finish_poll: 0,
-            pending_meeting: None,
+            poll: 0,
+            title: None,
         };
-        lane.sync_marker(); // the engine started writing into this session
+        // No recording is running. A marker left by a killed daemon would make the archive
+        // claim forever that a session is live — we clear it here, at the one place that
+        // knows the truth.
+        lane.sync_marker();
         lane
     }
 
@@ -385,7 +406,9 @@ impl ChunkLane {
         // The watchdog asks THE DEVICE, not our queue: a loss is when the sound did not
         // arrive, not when we did not manage to process it in time.
         self.integrity[sid].observe(source_id, crate::audio::captured(source_id), Instant::now());
-        // The pre-roll ring: the last preroll_cap samples of the source.
+        // The pre-roll ring: the last preroll_cap samples of the source. Filled ALWAYS,
+        // recording or not — it is memory, not disk, and it is the only thing that can still
+        // save a conversation that began before the button.
         if self.preroll_cap > 0 {
             let ring = &mut self.preroll[sid];
             for &s in samples {
@@ -395,22 +418,27 @@ impl ChunkLane {
                 ring.push_back(s);
             }
         }
-        // Activity for the ambient cut: any loud track (the microphone OR the system sound in
-        // loopback — a webinar, a call) keeps the session alive, otherwise a loopback-only
-        // recording would be shattered into one session per chunk. True silence on both
-        // sources still does not move the timer.
+        // Activity for the auto-stop: any loud track (the microphone OR the system sound in
+        // loopback — a webinar, a call) keeps the recording alive. True silence on both
+        // sources is what moves the timer.
         if crate::audio::pcm_level_i16(samples) > 0.003 {
             self.last_voice = Some(Instant::now());
         }
-        // "Finish the session" from the web UI / the tray. We check no more than once a
-        // second — it is a single file-existence check, and we are called on every frame.
-        self.finish_poll += 1;
-        if self.finish_poll >= FINISH_POLL_FRAMES {
-            self.finish_poll = 0;
-            self.maybe_start_meeting();
-            self.maybe_finish_on_request();
+        // Start/stop from the web UI, the tray or the voice command. We check no more than
+        // once a second — these are file-existence checks, and we are called on every frame.
+        self.poll += 1;
+        if self.poll >= COMMAND_POLL_FRAMES {
+            self.poll = 0;
+            self.poll_commands();
         }
-        self.ensure_current_ambient();
+
+        // THE GATE. No recording — nothing reaches the disk. Everything above this line
+        // (levels, watchdogs, the ring) keeps running: we listen always, we write on command.
+        if !self.armed {
+            return;
+        }
+
+        self.ensure_current();
         let Some(session) = &self.current else {
             // No "home" (create_session_dir is temporarily failing): we accumulate into a
             // bounded buffer and will write it into the very first session that gets created.
@@ -457,31 +485,38 @@ impl ChunkLane {
         }
     }
 
-    /// Create an ambient session if there is no current one (after a cut on silence).
-    ///
-    /// If the human pressed "New meeting", this session is born a MEETING: with their title
-    /// in the directory name (`20260713_181500_planerka`) and a flag in the meta.
-    fn ensure_current_ambient(&mut self) {
-        if self.current.is_some() {
+    /// The session for the running recording. Called on arming, and again on every frame
+    /// while armed — so that a session that failed to be created (a full disk, a locked
+    /// directory) is retried instead of silently dropping the recording on the floor.
+    fn ensure_current(&mut self) {
+        if self.current.is_some() || !self.armed {
             return;
         }
-        let Some(s) = &self.settings else { return };
-        let meeting = self.pending_meeting.take();
-        let label = meeting.as_deref().filter(|t| !t.is_empty());
+        let Some(s) = self.settings.clone() else { return };
+        let title = self.title.clone().unwrap_or_default();
+        let label = (!title.is_empty()).then_some(title.as_str());
+
         match crate::chunks::create_session_dir(&s.work_dir, label) {
             Ok((audio_dir, meta_path)) => {
+                // THE RECORDING BEGAN BEFORE THE BUTTON. The ring holds the last minutes, and
+                // they go into this session — so `started_at` is moved back by exactly as much
+                // audio as we are about to seed. Otherwise the archive's clock lies: the file
+                // would open with a conversation that, by its own timestamps, had not started
+                // yet.
+                let seeded = self.preroll_len_sec();
+                let began = chrono::Local::now()
+                    - chrono::Duration::milliseconds((seeded * 1000.0).round() as i64);
                 let meta = SessionMeta {
-                    started_at: crate::versions::now_rfc3339(),
+                    started_at: began.to_rfc3339(),
                     sample_rate: 16_000,
                     chunks: Vec::new(),
                     title: label.map(str::to_string),
-                    meeting: meeting.is_some(),
+                    meeting: label.is_some(),
                     ..Default::default()
                 };
-                // We write the meta IMMEDIATELY, not when the first chunk closes. Otherwise a
-                // new session looks dead and empty in the archive for several minutes, and the
-                // human does not understand where the sound is being written now (owner's
-                // complaint).
+                // The meta is written IMMEDIATELY, not when the first chunk closes: otherwise a
+                // new session looks dead and empty in the archive for minutes, and the human
+                // cannot tell where the sound is going now.
                 crate::chunks::save_meta_public(&meta_path, &meta);
                 self.current = Some(Session {
                     params: Arc::new(ChunkParams {
@@ -494,50 +529,53 @@ impl ChunkLane {
                     meta: Arc::new(Mutex::new(meta)),
                 });
                 self.recorded_since_open = false;
-                // the day of the SESSION, not of the last cut: otherwise a session opened
-                // after midnight would immediately be cut "on the change of day"
-                self.day = Some(today());
                 self.sync_marker();
+                self.seed_preroll();
+                tracing::info!(preroll_sec = seeded, title = %title, "recording started");
             }
-            Err(e) => tracing::error!("ambient session was not created: {e}"),
+            Err(e) => tracing::error!("session was not created: {e}"),
         }
     }
 
-    /// Handle a detection signal: a call → a separate session (with pre-roll); the end of the
-    /// call → close the meeting and go back to ambient.
+    /// How many seconds of the past the ring is holding right now (the longer track: the two
+    /// are seeded together and the session must cover both).
+    fn preroll_len_sec(&self) -> f64 {
+        let longest = self.preroll.iter().map(|r| r.len()).max().unwrap_or(0);
+        longest as f64 / 16_000.0
+    }
+
+    /// A detection signal only MARKS a running recording — it starts nothing.
+    ///
+    /// Detection sees a call by an application holding the microphone, and for Zoom, Teams and
+    /// the browser that honestly works. But it cannot see a stand-up at the table, and it
+    /// cannot tell a work call from a private one. Letting it start the recorder by itself
+    /// means recording people who never agreed to it. So the human presses the button, and
+    /// detection's job is to leave a mark in the meta: "a call was going here, in these apps".
+    /// That mark is what a future "start recording?" prompt will be built on.
     fn on_signal(&mut self, sig: SessionSignal) {
-        if self.settings.is_none() {
+        if !self.armed {
             return;
         }
         match sig {
             SessionSignal::CallStarted { apps, title } => {
-                let label = meeting_label(&apps, &title);
+                let Some(session) = &self.current else { return };
                 let mark = crate::chunks::MeetingMark {
                     apps,
                     window_title: title,
                     started_at: crate::versions::now_rfc3339(),
                     ended_at: None,
                 };
-                self.rotate(Some(&label), true, Some(mark));
-                // in_meeting stays in agreement with reality: if the meeting session was not
-                // created (rotate → current=None on failure), we do not set the flag.
-                self.in_meeting = self.current.is_some();
+                if let Ok(mut m) = session.meta.lock() {
+                    m.meetings.push(mark);
+                    crate::chunks::save_meta_public(&session.params.meta_path, &m);
+                }
+                self.in_meeting = true;
             }
             SessionSignal::CallEnded => {
                 if self.in_meeting {
                     self.close_meeting_mark();
                 }
-                // The return to ambient is lazy: we do not breed an empty directory if the
-                // next call starts right away (back-to-back) or there is nothing to record.
-                // The next speech will open ambient through ensure_current_ambient.
-                for rec in self.recorders.iter_mut().flatten() {
-                    rec.finalize_current();
-                }
-                self.recorders = [None, None];
-                self.current = None;
-                self.recorded_since_open = false;
                 self.in_meeting = false;
-                self.sync_marker();
             }
         }
     }
@@ -552,61 +590,6 @@ impl ChunkLane {
                 }
             }
             crate::chunks::save_meta_public(&session.params.meta_path, &m);
-        }
-    }
-
-    /// Close the current session and open a new one. `seed_preroll` — seed the new session
-    /// with the pre-roll ring (the start of the meeting "before" the moment of detection).
-    fn rotate(
-        &mut self,
-        label: Option<&str>,
-        seed_preroll: bool,
-        meeting: Option<crate::chunks::MeetingMark>,
-    ) {
-        let Some(s) = self.settings.clone() else {
-            return;
-        };
-        for rec in self.recorders.iter_mut().flatten() {
-            rec.finalize_current();
-        }
-        self.recorders = [None, None];
-        match crate::chunks::create_session_dir(&s.work_dir, label) {
-            Ok((audio_dir, meta_path)) => {
-                let mut meta = SessionMeta {
-                    started_at: crate::versions::now_rfc3339(),
-                    sample_rate: 16_000,
-                    chunks: Vec::new(),
-                    ..Default::default()
-                };
-                if let Some(mark) = meeting {
-                    meta.meetings.push(mark);
-                }
-                let params = Arc::new(ChunkParams {
-                    audio_dir,
-                    meta_path: meta_path.clone(),
-                    chunk_sec: s.chunk_sec,
-                    flac: s.flac,
-                    ffmpeg: s.ffmpeg.clone(),
-                });
-                crate::chunks::save_meta_public(&meta_path, &meta);
-                self.current = Some(Session {
-                    params,
-                    meta: Arc::new(Mutex::new(meta)),
-                });
-                self.recorded_since_open = false;
-                self.day = Some(today());
-                if seed_preroll {
-                    self.seed_preroll();
-                }
-                self.sync_marker();
-            }
-            Err(e) => {
-                // We do not keep the old session: a fresh recorder with seq=0 would overwrite
-                // its first chunk. None → the next speech will create a new ambient one.
-                tracing::error!("session was not created on rotation: {e}");
-                self.current = None;
-                self.sync_marker();
-            }
         }
     }
 
@@ -626,67 +609,56 @@ impl ChunkLane {
         }
     }
 
-    /// The human pressed "New meeting": we close the current session and open the next one —
-    /// with a title and the "this is a meeting" flag.
+    /// Start/stop requests from the web UI, the tray or the voice command.
     ///
-    /// **Why a button, and not only auto-detection.** The call detector sees that an
-    /// application is holding the microphone — and that honestly works for Zoom, Teams, the
-    /// browser. A face-to-face standup at the table it will NEVER see: from the system's point
-    /// of view that is the same background noise as the whole day. There is no reliable
-    /// automatic sign of a meeting in a room, and pretending there is means lying to the human.
-    /// The human's word outweighs any guess here.
-    fn maybe_start_meeting(&mut self) {
+    /// Files, not a channel: the request comes from another thread (HTTP, tray) or another
+    /// process, while the session is owned by this loop. A file is the cheapest way to shout
+    /// across any boundary, and it survives everything short of the disk being deleted.
+    fn poll_commands(&mut self) {
         let Some(s) = &self.settings else { return };
         let work_dir = s.work_dir.clone();
-        let Some(title) = crate::jobs::take_meeting_request(&work_dir) else {
-            return;
-        };
-        // We close the current one — the cook will pick it up; the next one opens as a meeting.
-        if let Some(session) = &self.current {
-            let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
-            meta.stopped_at = Some(crate::versions::now_rfc3339());
-            meta.stopped_reason = Some("начата встреча".into());
-            crate::chunks::save_meta_public(&session.params.meta_path, &meta);
+        if let Some(title) = crate::jobs::take_record_start(&work_dir) {
+            self.start(title);
         }
-        for rec in self.recorders.iter_mut().flatten() {
-            rec.finalize_current();
+        if let Some(reason) = crate::jobs::take_record_stop(&work_dir) {
+            self.stop(&reason);
         }
-        self.recorders = [None, None];
-        self.current = None;
-        self.recorded_since_open = false;
-        self.last_voice = None;
-        self.pending_meeting = Some(title.clone());
-        self.sync_marker();
-        // We open the meeting IMMEDIATELY, without waiting for the next frame: the human
-        // pressed the button and must see the recording in the archive right away, not
-        // "some day".
-        self.ensure_current_ambient();
-        tracing::info!(
-            "meeting started: {}",
-            if title.is_empty() { "(untitled)" } else { &title }
-        );
     }
 
-    /// The human pressed "Finish the session": we close the current one and record in
-    /// `meta.json` that they did it and when.
-    ///
-    /// Why: while a session is open the cook does not touch it — and to get a summary one had
-    /// to KILL THE DAEMON. Now there is a button, and a trace stays in the meta: the recording
-    /// was cut short by a human, not by a failure.
-    fn maybe_finish_on_request(&mut self) {
-        let Some(s) = &self.settings else { return };
-        let work_dir = s.work_dir.clone();
-        let Some(reason) = crate::jobs::take_finish_request(&work_dir) else {
+    /// Start recording. The session is created RIGHT HERE, not on the next frame: the human
+    /// pressed the button and must see the recording in the archive at once, not "some day".
+    fn start(&mut self, title: String) {
+        if self.settings.is_none() {
             return;
-        };
-        if self.current.is_none() {
-            tracing::info!("\"finish the session\": there is no active session");
+        }
+        if self.armed {
+            // A second press is not a second session. Silently opening a new one would split
+            // the conversation in half at the moment the human doubted the button worked.
+            tracing::info!("recording is already running — the start is ignored");
             return;
+        }
+        self.armed = true;
+        self.title = Some(title);
+        // The auto-stop counts from the start: a recording begun in silence must not close on
+        // the very first check.
+        self.last_voice = Some(Instant::now());
+        self.ensure_current();
+    }
+
+    /// Stop recording. The reason goes into `meta.json` — the archive must be able to say who
+    /// ended the recording and why: a human, a voice command, or the silence watchdog.
+    fn stop(&mut self, reason: &str) {
+        if !self.armed && self.current.is_none() {
+            tracing::info!("\"stop\": no recording is running");
+            return;
+        }
+        if self.in_meeting {
+            self.close_meeting_mark();
         }
         if let Some(session) = &self.current {
             let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             meta.stopped_at = Some(crate::versions::now_rfc3339());
-            meta.stopped_reason = Some(reason.clone());
+            meta.stopped_reason = Some(reason.to_string());
             crate::chunks::save_meta_public(&session.params.meta_path, &meta);
         }
         for rec in self.recorders.iter_mut().flatten() {
@@ -694,52 +666,37 @@ impl ChunkLane {
         }
         self.recorders = [None, None];
         self.current = None;
-        self.recorded_since_open = false;
-        self.last_voice = None;
+        self.armed = false;
         self.in_meeting = false;
+        self.recorded_since_open = false;
+        self.title = None;
+        self.last_voice = None;
+        // The marker goes away only after the last chunk is written: while it is there, the
+        // cook keeps its hands off the session.
         self.sync_marker();
-        tracing::info!("session finished on request: {reason}");
+        tracing::info!("recording stopped: {reason}");
     }
 
-    /// The ambient cut: on long silence OR on a change of the calendar day (midnight). We
-    /// close the ambient session that has accumulated audio — the next speech will open a
-    /// fresh one. During a meeting we do not cut (a call across midnight is one meeting, not
-    /// two).
-    fn maybe_split_ambient(&mut self, now: Instant) {
+    /// The auto-stop: silence on BOTH tracks for longer than `autostop_sec` closes the
+    /// recording.
+    ///
+    /// Without it a recording nobody ended runs until the daemon dies: the cook waits for a
+    /// session that never closes, and the archive fills with hours of an empty room. The
+    /// reason lands in the meta, so this never looks like a crash.
+    fn maybe_autostop(&mut self, now: Instant) {
         let Some(s) = &self.settings else { return };
-        if self.in_meeting || !self.recorded_since_open {
+        if !self.armed || s.autostop_sec <= 0.0 {
             return;
         }
-        // the day: a daemon running for a week must not pile up a single ambient session
-        let day_changed = match (self.day, today()) {
-            (Some(d), t) => d != t,
-            (None, _) => false,
-        };
-        let silence_split = s.gap_sec > 0.0
-            && self
-                .last_voice
-                .map(|last| now.duration_since(last).as_secs_f64() >= s.gap_sec)
-                .unwrap_or(false);
-        if !day_changed && !silence_split {
+        let quiet = self
+            .last_voice
+            .map(|last| now.duration_since(last).as_secs_f64())
+            .unwrap_or(0.0);
+        if quiet < s.autostop_sec {
             return;
         }
-        let gap = s.gap_sec;
-        for rec in self.recorders.iter_mut().flatten() {
-            rec.finalize_current();
-        }
-        self.recorders = [None, None];
-        self.current = None; // the next speech will create a fresh ambient session
-        self.recorded_since_open = false;
-        // Disarm the timer until the next speech, otherwise loopback-only audio
-        // (last_voice does not move) would be cut into one session per chunk.
-        self.last_voice = None;
-        self.day = Some(today());
-        self.sync_marker();
-        if day_changed {
-            tracing::info!("ambient session closed on the change of day");
-        } else {
-            tracing::info!("ambient session closed on silence ({gap:.0} s)");
-        }
+        let minutes = (s.autostop_sec / 60.0).round().max(1.0);
+        self.stop(&format!("тишина {minutes:.0} мин"));
     }
 
     /// Pause: close the open chunks, but DO NOT touch the meeting's `ended_at` — the call is
@@ -769,24 +726,6 @@ impl ChunkLane {
             let _ = std::fs::remove_file(s.work_dir.join(crate::jobs::RECORDING_MARKER));
         }
     }
-}
-
-/// The ordinal number of the calendar day (local zone) — the key of the daily cut.
-fn today() -> i32 {
-    use chrono::Datelike;
-    chrono::Local::now().num_days_from_ce()
-}
-
-/// The directory label of a meeting session: the window title, otherwise the list of apps.
-fn meeting_label(apps: &[String], title: &str) -> String {
-    let base = if !title.trim().is_empty() {
-        title
-    } else if let Some(first) = apps.first() {
-        first
-    } else {
-        "call"
-    };
-    format!("call-{base}")
 }
 
 /// Microphone watchdog (F9): "went silent" = the PCM stream is flowing but the level is near
@@ -842,6 +781,96 @@ impl MicHealth {
         };
         self.warned = true;
         Some(format!("⚠ {what} уже {} с", elapsed.as_secs()))
+    }
+}
+
+/// The SYSTEM-AUDIO watchdog: a call is running, but the other side is not being recorded.
+///
+/// Why there was none, and why that reasoning was wrong. `MicHealth` above says: "only for source
+/// 0 — silence in loopback is normal (there is simply no sound in the system)". The premise is
+/// true. The conclusion is not: from «silence is sometimes normal» does not follow «silence is
+/// always normal». Half an hour of silence on the system track WHILE A CALL IS RUNNING is not
+/// normal — it means the other side's voice is going somewhere we are not listening.
+///
+/// Measured, session 20260716_164443 (16.07.2026). The call moved from Firefox to Chrome:
+///   16:46:51.7 — the last live sample of the other side
+///   16:46:52.9 — firefox.exe «Звонок в Яндекс Телемосте» closes (1.2 s later)
+///   16:47:07.9 → 17:13:41 — chrome.exe holds the call, 26.5 minutes, not one sample
+/// Chrome rendered past the endpoint we had bound to. The stream stayed alive and kept delivering
+/// packets — at ±1 LSB, the converter's dither — so nothing looked broken: `Integrity` measures
+/// TIME and honestly saw no gap; `MicHealth` was gated off for this source; `Backlog` watches the
+/// queue. Half the conversation was lost for 27 minutes and the owner learned it two days later,
+/// by ear. `rms=0` had been sitting in the meta since 17:33 with nobody to read it.
+///
+/// So the alarm is not on «quiet» but on the CORRELATION: the detector sees an app holding the
+/// microphone (a call is on) AND the system track has carried nothing for minutes. That is a fact
+/// about the world, not a guess — and it is the exact signal that was there to catch all along.
+struct LoopbackHealth {
+    warn_after: Duration,
+    /// Last time the system track carried actual sound.
+    last_loud: Option<Instant>,
+    /// Have we seen ANY system-audio data? `None` — loopback is off or has not started, and then
+    /// there is nothing to complain about: the human turned it off, that is their choice.
+    seen_data: bool,
+    /// Since when a call has been running. Silence is only counted from that moment: what happened
+    /// before the call is none of the watchdog's business.
+    call_since: Option<Instant>,
+    warned: bool,
+}
+
+impl LoopbackHealth {
+    fn new(warn_after_sec: f64) -> Self {
+        Self {
+            // Below a minute this would cry over an ordinary pause in a conversation.
+            warn_after: Duration::from_secs_f64(warn_after_sec.max(60.0)),
+            last_loud: None,
+            seen_data: false,
+            call_since: None,
+            warned: false,
+        }
+    }
+
+    fn on_chunk(&mut self, samples: &[i16], now: Instant) -> Option<String> {
+        self.seen_data = true;
+        // The same "digital silence" threshold as the microphone's. It catches the case measured
+        // here with room to spare: ±1 LSB is ~0.00001, the threshold is 0.003.
+        if crate::audio::pcm_level_i16(samples) > 0.003 {
+            self.last_loud = Some(now);
+            if self.warned {
+                self.warned = false;
+                return Some("Системный звук снова слышен".into());
+            }
+        }
+        None
+    }
+
+    /// `in_call` — the detector sees an application holding the microphone.
+    fn check(&mut self, now: Instant, in_call: bool) -> Option<String> {
+        if !in_call {
+            // No call — silence on the system track is the norm, and there is nothing to watch.
+            self.call_since = None;
+            self.warned = false;
+            return None;
+        }
+        let since = *self.call_since.get_or_insert(now);
+        if self.warned || !self.seen_data {
+            return None;
+        }
+        // Count the silence from the later of: the call's start, the last sound.
+        let quiet_since = match self.last_loud {
+            Some(loud) if loud > since => loud,
+            _ => since,
+        };
+        let quiet = now.duration_since(quiet_since);
+        if quiet <= self.warn_after {
+            return None;
+        }
+        self.warned = true;
+        Some(format!(
+            "⚠ идёт звонок, но системный звук молчит уже {} мин — собеседника не слышно, \
+             проверьте устройство вывода (звук ушёл на другое?)",
+            quiet.as_secs() / 60
+        ))
     }
 }
 
@@ -1155,7 +1184,6 @@ impl Backlog {
 
 pub fn run(
     cfg: PipelineConfig,
-    chunk_env: Option<(Arc<ChunkParams>, Arc<Mutex<SessionMeta>>)>,
     session_rx: Option<Receiver<SessionSignal>>,
     pcm_rx: Receiver<PcmChunk>,
     seg_tx: CrossbeamSender<SegmentReady>,
@@ -1167,19 +1195,22 @@ pub fn run(
     let silence_frames = (16000.0 * cfg.vad_silence_sec / FRAME_SAMPLES as f64).ceil() as u32;
 
     let mut sources: [Option<SourceState>; 2] = [None, None];
-    let mut chunk_lane = ChunkLane::new(chunk_env, &cfg);
+    let mut chunk_lane = ChunkLane::new(&cfg);
     let mut mic_health =
         (cfg.mic_silence_warn_sec > 0.0).then(|| MicHealth::new(cfg.mic_silence_warn_sec));
+    // Three minutes of a dead system track DURING A CALL. A call always has pauses; three minutes
+    // of them in a row is not a pause any more.
+    let mut loopback_health = LoopbackHealth::new(180.0);
     let mut backlog = Backlog::default();
 
     let timeout = std::time::Duration::from_millis(200);
     let mut prev_recording = true;
 
     while running.load(Ordering::Relaxed) {
-        // Sessionization signals (the start/end of a call) — before processing PCM, so that
-        // the pre-roll lands in the new session. While paused we DO NOT drain them: let them
-        // pile up in the channel and be applied in order on resume, otherwise
-        // CallStarted/Ended get lost and in_meeting goes out of sync.
+        // Detection signals (a call started / ended) — they mark a RUNNING recording and start
+        // nothing on their own. While paused we DO NOT drain them: let them pile up in the
+        // channel and be applied in order on resume, otherwise CallStarted/Ended get lost and
+        // in_meeting goes out of sync with the meta.
         if let Some(rx) = &session_rx {
             if record_pcm.load(Ordering::Relaxed) {
                 while let Ok(sig) = rx.try_recv() {
@@ -1187,7 +1218,9 @@ pub fn run(
                 }
             }
         }
-        chunk_lane.maybe_split_ambient(Instant::now());
+        // The silence auto-stop is checked on the loop, not on the audio frame: a recording of
+        // an empty room delivers frames just fine — that is exactly the case we must close.
+        chunk_lane.maybe_autostop(Instant::now());
 
         // THE QUEUE WATCHDOG. We no longer drop audio (the channel is unbounded), but we must
         // not stay silent about a stall either: a growing queue means this thread is not
@@ -1199,14 +1232,17 @@ pub fn run(
 
         match pcm_rx.recv_timeout(timeout) {
             Ok(c) => {
-                if c.source_id == 0 {
-                    if let Some(h) = mic_health.as_mut() {
-                        if let Some(msg) = h.on_chunk(&c.samples, Instant::now()) {
-                            if let Some(ref tx) = log_tx {
-                                let _ = tx.send(UiMsg::Status(msg));
-                            }
-                        }
-                    }
+                let recovered = if c.source_id == 0 {
+                    mic_health
+                        .as_mut()
+                        .and_then(|h| h.on_chunk(&c.samples, Instant::now()))
+                } else {
+                    // The system track gets a level watchdog of its own now. It used to have
+                    // none — and that is how half of a 30-minute call went missing unnoticed.
+                    loopback_health.on_chunk(&c.samples, Instant::now())
+                };
+                if let (Some(msg), Some(tx)) = (recovered, log_tx.as_ref()) {
+                    let _ = tx.send(UiMsg::Status(msg));
                 }
                 sync_pause_discard(
                     &mut sources,
@@ -1238,12 +1274,17 @@ pub fn run(
             Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break,
         }
         if record_pcm.load(Ordering::Relaxed) {
-            if let Some(h) = mic_health.as_mut() {
-                if let Some(warn) = h.check(Instant::now()) {
-                    tracing::warn!("{warn}");
-                    if let Some(ref tx) = log_tx {
-                        let _ = tx.send(UiMsg::Status(warn));
-                    }
+            let now = Instant::now();
+            let warnings = [
+                mic_health.as_mut().and_then(|h| h.check(now)),
+                // The system track is judged ONLY against a running call: without one, silence
+                // there is the normal state of a quiet machine and proves nothing.
+                loopback_health.check(now, chunk_lane.in_meeting),
+            ];
+            for warn in warnings.into_iter().flatten() {
+                tracing::warn!("{warn}");
+                if let Some(ref tx) = log_tx {
+                    let _ = tx.send(UiMsg::Status(warn));
                 }
             }
         }
@@ -1312,8 +1353,12 @@ mod tests {
             initial_seg_seq: [0, 0],
             segments_to_disk: to_disk,
             mic_silence_warn_sec: 0.0,
+            session_chunks: false,
+            chunk_sec: 3600.0, // do not rotate by length in tests
+            chunk_flac: false,
+            ffmpeg: PathBuf::from("ffmpeg"),
             preroll_sec: 0.0,
-            ambient_gap_sec: 0.0,
+            autostop_sec: 0.0,
         }
     }
 
@@ -1368,36 +1413,122 @@ mod tests {
         assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
     }
 
-    // ─── Ambient sessionization (WP-C6) ───
+    // ─── The system-audio watchdog (WP-C68) ───
 
-    fn sess_cfg(dir: &Path, preroll_sec: f64, gap_sec: f64) -> PipelineConfig {
+    /// Loud enough to count as real speech; the level check uses ~0.003.
+    fn loud() -> Vec<i16> {
+        vec![5000i16; 1600]
+    }
+
+    /// WHAT THE CONVERTER ACTUALLY GAVE US for 27 minutes: live packets of ±1 dither. This is NOT
+    /// our silence padding — the endpoint was alive, nothing was playing into it. The distinction
+    /// is the whole reason the incident went unnoticed, so the test uses the real thing.
+    fn dither() -> Vec<i16> {
+        (0..1600).map(|i| if i % 2 == 0 { 1 } else { -1 }).collect()
+    }
+
+    /// THE INCIDENT, 16.07.2026. A call is being recorded, the owner is talking, and the system
+    /// track has been dead for minutes because the call moved to another browser and renders into
+    /// an endpoint we are not listening to. Half the conversation is being lost, and before this
+    /// watchdog NOTHING said a word — he found out two days later, by ear.
+    #[test]
+    fn a_call_with_a_dead_system_track_is_reported() {
+        let t0 = Instant::now();
+        let mut h = LoopbackHealth::new(180.0);
+
+        // The other side is audible at first — as it was for the first two minutes.
+        h.on_chunk(&loud(), t0);
+        assert!(h.check(t0, true).is_none(), "a live call must not be reported");
+
+        // Then it dies: live packets keep coming, but there is no sound in them.
+        for m in 1..=2 {
+            h.on_chunk(&dither(), t0 + Duration::from_secs(60 * m));
+            assert!(
+                h.check(t0 + Duration::from_secs(60 * m), true).is_none(),
+                "reported after {m} min — too early, a call has pauses"
+            );
+        }
+
+        let warn = h
+            .check(t0 + Duration::from_secs(200), true)
+            .expect("the system track has been dead for over three minutes DURING A CALL — silence");
+        assert!(warn.contains("звонок"), "{warn}");
+        assert!(warn.contains("системный звук молчит"), "{warn}");
+        // Said once, not on every frame: a warning that repeats stops being read.
+        assert!(h.check(t0 + Duration::from_secs(400), true).is_none());
+    }
+
+    /// AND IT MUST NOT CRY WOLF. A voice note dictated alone: the microphone is loud, the system
+    /// is silent — and that is exactly right, there is no call and nothing is playing. This is the
+    /// case for which `MicHealth` was gated to source 0 in the first place, and the reasoning was
+    /// sound; only the conclusion («silence is ALWAYS normal») was wrong.
+    #[test]
+    fn silence_without_a_call_is_never_reported() {
+        let t0 = Instant::now();
+        let mut h = LoopbackHealth::new(180.0);
+        for m in 0..30 {
+            let now = t0 + Duration::from_secs(60 * m);
+            h.on_chunk(&dither(), now);
+            assert!(
+                h.check(now, false).is_none(),
+                "reported silence with no call — a false alarm teaches people to ignore alarms"
+            );
+        }
+    }
+
+    /// The wrong endpoint FROM THE VERY FIRST SECOND: the call never sounded at all, so there is
+    /// no "last time we heard it" to count from. The clock starts at the call.
+    #[test]
+    fn a_call_that_never_sounded_is_reported_too() {
+        let t0 = Instant::now();
+        let mut h = LoopbackHealth::new(180.0);
+        h.check(t0, true); // the call starts — nothing has ever been heard
+        h.on_chunk(&dither(), t0 + Duration::from_secs(60));
+        assert!(h.check(t0 + Duration::from_secs(60), true).is_none());
+        assert!(
+            h.check(t0 + Duration::from_secs(200), true).is_some(),
+            "a call that was mute from the start went unreported"
+        );
+    }
+
+    /// The sound comes back — say so. A warning that never lifts is indistinguishable from a
+    /// broken one, and the person stops believing it.
+    #[test]
+    fn the_system_track_coming_back_is_announced() {
+        let t0 = Instant::now();
+        let mut h = LoopbackHealth::new(180.0);
+        h.check(t0, true);
+        h.on_chunk(&dither(), t0 + Duration::from_secs(10));
+        assert!(h.check(t0 + Duration::from_secs(200), true).is_some());
+
+        let back = h
+            .on_chunk(&loud(), t0 + Duration::from_secs(240))
+            .expect("the return of the sound was not announced");
+        assert!(back.contains("снова"), "{back}");
+        // And it can report again if it dies a second time.
+        for m in 5..=9 {
+            h.on_chunk(&dither(), t0 + Duration::from_secs(60 * m));
+        }
+        assert!(h.check(t0 + Duration::from_secs(600), true).is_some());
+    }
+
+    // ─── Recording on command, with a pre-roll ring (WP-C60) ───
+
+    fn sess_cfg(dir: &Path, preroll_sec: f64, autostop_sec: f64) -> PipelineConfig {
         let mut c = cfg(dir, false);
         c.work_dir = dir.to_path_buf();
+        c.session_chunks = true;
         c.preroll_sec = preroll_sec;
-        c.ambient_gap_sec = gap_sec;
+        c.autostop_sec = autostop_sec;
         c
     }
 
-    fn lane(dir: &Path, c: &PipelineConfig) -> ChunkLane {
-        let (audio_dir, meta_path) = crate::chunks::create_session_dir(dir, None).unwrap();
-        let params = Arc::new(ChunkParams {
-            audio_dir,
-            meta_path,
-            chunk_sec: 3600.0, // do not rotate by length in the test
-            flac: false,
-            ffmpeg: PathBuf::from("ffmpeg"),
-        });
-        let meta = Arc::new(Mutex::new(SessionMeta {
-            started_at: crate::versions::now_rfc3339(),
-            sample_rate: 16_000,
-            chunks: Vec::new(),
-            ..Default::default()
-        }));
-        ChunkLane::new(Some((params, meta)), c)
-    }
-
     fn session_dirs(dir: &Path) -> Vec<String> {
-        let mut v: Vec<String> = std::fs::read_dir(dir.join("sessions"))
+        let sessions = dir.join("sessions");
+        if !sessions.exists() {
+            return Vec::new();
+        }
+        let mut v: Vec<String> = std::fs::read_dir(sessions)
             .unwrap()
             .flatten()
             .filter(|e| e.path().is_dir())
@@ -1412,134 +1543,206 @@ mod tests {
         serde_json::from_str(&s).unwrap()
     }
 
+    fn only_meta(dir: &Path) -> SessionMeta {
+        let dirs = session_dirs(dir);
+        assert_eq!(dirs.len(), 1, "expected exactly one session: {dirs:?}");
+        read_meta(&dir.join("sessions").join(&dirs[0]))
+    }
+
+    fn recorded_sec(meta: &SessionMeta, source_id: u8) -> f64 {
+        meta.chunks
+            .iter()
+            .filter(|c| c.source_id == source_id)
+            .map(|c| c.duration_sec)
+            .sum()
+    }
+
+    /// THE POINT OF THE WHOLE MODEL. Until a human says "record", the sound does not reach the
+    /// disk — not one directory, not one byte. A recorder running by itself through an office
+    /// writes people who never agreed to be written.
     #[test]
-    fn call_starts_own_session_seeded_with_preroll() {
+    fn nothing_reaches_the_disk_until_the_human_starts() {
         let dir = tempfile::tempdir().unwrap();
-        let c = sess_cfg(dir.path(), 1.0, 0.0); // 1 c pre-roll
-        let mut lane = lane(dir.path(), &c);
-        // 2 s of speech in ambient → the pre-roll ring is full (it holds the last 1 s)
-        let loud = vec![5000i16; 16_000];
-        lane.feed(0, &loud);
-        lane.feed(0, &loud);
-        // the call: a separate session "call-standup", seeded with the pre-roll
+        let c = sess_cfg(dir.path(), 60.0, 0.0);
+        let mut lane = ChunkLane::new(&c);
+        for _ in 0..20 {
+            lane.feed(0, &vec![5000i16; 16_000]); // 20 s of loud speech
+            lane.feed(1, &vec![5000i16; 16_000]);
+        }
+        lane.finalize_all();
+        assert!(
+            session_dirs(dir.path()).is_empty(),
+            "audio was written without a command: {:?}",
+            session_dirs(dir.path())
+        );
+        assert!(!lane.armed);
+    }
+
+    /// The button is late — the conversation is not. The ring holds the last minutes, and they
+    /// enter the session on the press.
+    #[test]
+    fn start_seeds_the_recording_with_the_preroll_ring() {
+        let dir = tempfile::tempdir().unwrap();
+        let c = sess_cfg(dir.path(), 1.0, 0.0); // the ring holds the last 1 s
+        let mut lane = ChunkLane::new(&c);
+        lane.feed(0, &vec![5000i16; 16_000]); // 1 s before the button
+        lane.feed(0, &vec![5000i16; 16_000]); // and another one (the ring keeps the last)
+        lane.start("Планёрка".into());
+        lane.feed(0, &vec![5000i16; 8_000]); // 0.5 s after the button
+        lane.finalize_all();
+
+        let dirs = session_dirs(dir.path());
+        assert_eq!(dirs.len(), 1, "{dirs:?}");
+        assert!(dirs[0].contains("planerka"), "the title is not in the name: {dirs:?}");
+        let meta = read_meta(&dir.path().join("sessions").join(&dirs[0]));
+        // pre-roll (1 s) + live (0.5 s) ≈ 1.5 s
+        let src0 = recorded_sec(&meta, 0);
+        assert!(src0 >= 1.4, "the pre-roll was not seeded: {src0:.2} s");
+        assert_eq!(meta.title.as_deref(), Some("Планёрка"));
+    }
+
+    /// The recording began BEFORE the button, so `started_at` must be moved back by exactly as
+    /// much audio as we seeded. Otherwise the archive's clock lies: the file opens with a
+    /// conversation that, by its own timestamps, had not started yet.
+    #[test]
+    fn started_at_is_shifted_back_by_the_seeded_preroll() {
+        let dir = tempfile::tempdir().unwrap();
+        let c = sess_cfg(dir.path(), 2.0, 0.0);
+        let mut lane = ChunkLane::new(&c);
+        lane.feed(0, &vec![5000i16; 32_000]); // 2 s into the ring
+        let pressed = chrono::Local::now();
+        lane.start(String::new());
+        lane.finalize_all();
+
+        let meta = only_meta(dir.path());
+        let began = chrono::DateTime::parse_from_rfc3339(&meta.started_at).unwrap();
+        let back = (pressed - began.with_timezone(&chrono::Local)).num_milliseconds();
+        assert!(
+            (1500..=2500).contains(&back),
+            "started_at is not shifted by the pre-roll: {back} ms back"
+        );
+    }
+
+    /// A second press is not a second session: splitting the conversation in half at the moment
+    /// the human doubted the button worked is the worst possible answer.
+    #[test]
+    fn pressing_start_twice_does_not_split_the_recording() {
+        let dir = tempfile::tempdir().unwrap();
+        let c = sess_cfg(dir.path(), 0.0, 0.0);
+        let mut lane = ChunkLane::new(&c);
+        lane.start("Раз".into());
+        lane.feed(0, &vec![5000i16; 1600]);
+        lane.start("Два".into());
+        lane.feed(0, &vec![5000i16; 1600]);
+        lane.finalize_all();
+        assert_eq!(session_dirs(dir.path()).len(), 1);
+    }
+
+    /// Silence on both tracks closes the recording — with a reason in the meta, so it never
+    /// looks like a crash.
+    #[test]
+    fn silence_auto_stops_the_recording() {
+        let dir = tempfile::tempdir().unwrap();
+        let c = sess_cfg(dir.path(), 0.0, 0.05); // stop after 50 ms of silence
+        let mut lane = ChunkLane::new(&c);
+        lane.start(String::new());
+        lane.feed(0, &vec![5000i16; 1600]); // speech → the timer is alive
+        std::thread::sleep(std::time::Duration::from_millis(70));
+        lane.maybe_autostop(Instant::now());
+
+        assert!(!lane.armed, "the recording was not stopped by silence");
+        let meta = only_meta(dir.path());
+        assert!(meta.stopped_at.is_some());
+        assert!(
+            meta.stopped_reason.as_deref().unwrap_or("").contains("тишина"),
+            "the reason for the stop is not in the meta: {:?}",
+            meta.stopped_reason
+        );
+        // and after the stop the sound does not reach the disk again
+        let before = recorded_sec(&meta, 0);
+        lane.feed(0, &vec![5000i16; 16_000]);
+        lane.finalize_all();
+        assert_eq!(session_dirs(dir.path()).len(), 1, "a new session opened by itself");
+        assert!((recorded_sec(&only_meta(dir.path()), 0) - before).abs() < 1e-6);
+    }
+
+    /// Detection only MARKS a running recording. It starts nothing: it cannot tell a work call
+    /// from a private one, and it cannot ask anyone's consent.
+    #[test]
+    fn call_detection_never_starts_a_recording_by_itself() {
+        let dir = tempfile::tempdir().unwrap();
+        let c = sess_cfg(dir.path(), 0.0, 0.0);
+        let mut lane = ChunkLane::new(&c);
         lane.on_signal(SessionSignal::CallStarted {
             apps: vec!["zoom.exe".into()],
             title: "Standup".into(),
         });
-        lane.feed(0, &vec![5000i16; 8_000]); // 0.5 s of live meeting sound
+        lane.feed(0, &vec![5000i16; 16_000]);
         lane.finalize_all();
-
-        let dirs = session_dirs(dir.path());
-        let call_dir = dirs
-            .iter()
-            .find(|d| d.contains("call-standup"))
-            .expect("there is no call session");
-        let meta = read_meta(&dir.path().join("sessions").join(call_dir));
-        assert_eq!(meta.meetings.len(), 1);
-        assert_eq!(meta.meetings[0].apps, vec!["zoom.exe"]);
-        // the first chunk of the meeting = pre-roll (1 s) + live (0.5 s) ≈ 1.5 s
-        let src0: f64 = meta
-            .chunks
-            .iter()
-            .filter(|c| c.source_id == 0)
-            .map(|c| c.duration_sec)
-            .sum();
-        assert!(src0 >= 1.4, "the pre-roll was not seeded: {src0:.2} s");
+        assert!(session_dirs(dir.path()).is_empty(), "detection started a recording");
     }
 
     #[test]
-    fn call_end_closes_meeting_and_opens_ambient() {
+    fn call_detection_marks_a_running_recording() {
         let dir = tempfile::tempdir().unwrap();
         let c = sess_cfg(dir.path(), 0.0, 0.0);
-        let mut lane = lane(dir.path(), &c);
-        lane.feed(0, &vec![100i16; 1600]);
+        let mut lane = ChunkLane::new(&c);
+        lane.start(String::new());
         lane.on_signal(SessionSignal::CallStarted {
             apps: vec!["teams.exe".into()],
-            title: String::new(),
+            title: "Планёрка".into(),
         });
-        lane.feed(0, &vec![100i16; 1600]);
+        lane.feed(0, &vec![5000i16; 1600]);
         lane.on_signal(SessionSignal::CallEnded);
         lane.finalize_all();
 
-        let dirs = session_dirs(dir.path());
-        // ambient(start) + call; the return to ambient is lazy, so there is no empty one
-        assert_eq!(dirs.len(), 2, "{dirs:?}");
-        let call_dir = dirs.iter().find(|d| d.contains("call-")).unwrap();
-        let meta = read_meta(&dir.path().join("sessions").join(call_dir));
-        assert!(meta.meetings[0].ended_at.is_some(), "the meeting was not closed");
-    }
-
-    #[test]
-    fn back_to_back_calls_leave_no_empty_ambient() {
-        let dir = tempfile::tempdir().unwrap();
-        let c = sess_cfg(dir.path(), 0.0, 0.0);
-        let mut lane = lane(dir.path(), &c);
-        lane.feed(0, &vec![100i16; 1600]);
-        // one call ended and another started right away (a single detection poll)
-        lane.on_signal(SessionSignal::CallEnded);
-        lane.on_signal(SessionSignal::CallStarted {
-            apps: vec!["discord.exe".into()],
-            title: String::new(),
-        });
-        lane.feed(0, &vec![100i16; 1600]);
-        lane.finalize_all();
-        let dirs = session_dirs(dir.path());
-        // ambient(start) + call-discord; there is no empty ambient between the calls
-        assert_eq!(dirs.len(), 2, "{dirs:?}");
-        assert!(dirs.iter().any(|d| d.contains("call-discord")));
+        let meta = only_meta(dir.path());
+        assert_eq!(meta.meetings.len(), 1);
+        assert_eq!(meta.meetings[0].apps, vec!["teams.exe"]);
+        assert!(meta.meetings[0].ended_at.is_some(), "the call was not closed");
+        // one recording, not two: the call did not rotate the session
+        assert_eq!(session_dirs(dir.path()).len(), 1);
     }
 
     #[test]
     fn orphan_samples_survive_transient_session_failure() {
         let dir = tempfile::tempdir().unwrap();
         let c = sess_cfg(dir.path(), 0.0, 0.0);
-        let mut lane = lane(dir.path(), &c);
-        // simulate "no home": current=None, but the settings are there
-        lane.current = None;
+        let mut lane = ChunkLane::new(&c);
         // put a file where the sessions directory should be — create_session_dir will fail
         let blocker = dir.path().join("blocker");
         std::fs::write(&blocker, b"x").unwrap();
-        // repoint the sessions work_dir to a path under the file (create_dir_all will fail)
         lane.settings.as_mut().unwrap().work_dir = blocker.clone();
-        lane.feed(0, &vec![7i16; 1600]);
+        lane.start(String::new());
         assert!(lane.current.is_none(), "the session must not have been created");
+
+        lane.feed(0, &vec![7i16; 1600]);
         assert_eq!(lane.orphan[0].len(), 1600, "the samples were not buffered");
-        // "repair" the path → the next speech creates a session and writes the orphan out
+        // "repair" the path → the next frame creates a session and writes the orphan out
         lane.settings.as_mut().unwrap().work_dir = dir.path().to_path_buf();
         lane.feed(0, &vec![7i16; 800]);
         lane.finalize_all();
         assert!(lane.orphan[0].is_empty(), "the orphan was not written out");
-        // in the new session the chunk contains both the orphaned 1600 and the new 800 = 2400 samples
-        let new_dir = session_dirs(dir.path()).into_iter().max().unwrap();
-        let meta = read_meta(&dir.path().join("sessions").join(&new_dir));
-        let dur: f64 = meta
-            .chunks
-            .iter()
-            .filter(|c| c.source_id == 0)
-            .map(|c| c.duration_sec)
-            .sum();
+
+        let meta = only_meta(dir.path());
+        let dur = recorded_sec(&meta, 0);
         assert!(
             dur >= 2400.0 / 16_000.0 - 1e-6,
             "the orphaned samples are lost: {dur}"
         );
     }
 
+    /// The ring is BOUNDED. It runs for months without anyone touching it, and an unbounded
+    /// buffer of raw PCM eats the machine in an afternoon.
     #[test]
-    fn ambient_splits_on_long_silence() {
+    fn the_preroll_ring_is_bounded() {
         let dir = tempfile::tempdir().unwrap();
-        let c = sess_cfg(dir.path(), 0.0, 0.05); // cut after 50 ms of silence
-        let mut lane = lane(dir.path(), &c);
-        lane.feed(0, &vec![5000i16; 1600]); // speech → last_voice, recorded_since_open
-        std::thread::sleep(std::time::Duration::from_millis(70));
-        lane.maybe_split_ambient(Instant::now());
-        assert!(lane.current.is_none(), "ambient was not cut on silence");
-        // the next speech opens a fresh session
-        lane.feed(0, &vec![5000i16; 1600]);
-        lane.finalize_all();
-        assert_eq!(
-            session_dirs(dir.path()).len(),
-            2,
-            "the new ambient session was not created"
-        );
+        let c = sess_cfg(dir.path(), 0.5, 0.0); // 0.5 s = 8000 samples
+        let mut lane = ChunkLane::new(&c);
+        for _ in 0..50 {
+            lane.feed(0, &vec![1i16; 16_000]); // 50 s of audio through a 0.5 s ring
+        }
+        assert_eq!(lane.preroll[0].len(), 8_000, "the ring grew past its bound");
+        assert!(session_dirs(dir.path()).is_empty());
     }
 }

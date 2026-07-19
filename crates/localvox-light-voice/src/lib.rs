@@ -65,6 +65,12 @@ pub struct VoiceConfig {
     pub retro_window: Duration,
     /// Phrases that start a MEETING. Everything said after the phrase is its title.
     pub meeting_phrases: Vec<String>,
+    /// Phrases that mean «take the link from the clipboard and transcribe it».
+    ///
+    /// The link is in the clipboard because that is where a link always is: it was just copied
+    /// from a browser or a messenger. Making a person paste it into a field by hand is asking
+    /// them to do with their hands what the machine can already see.
+    pub link_phrases: Vec<String>,
     /// Working directory: the meeting marker is dropped there (the recording engine reads it).
     pub work_dir: PathBuf,
     pub tts: Tts,
@@ -88,6 +94,16 @@ impl Default for VoiceConfig {
                 "начать встречу",
                 "новая встреча",
                 "запиши встречу",
+            ]
+            .into_iter()
+            .map(String::from)
+            .collect(),
+            link_phrases: [
+                "возьми ссылку",
+                "возьми ссылку из буфера",
+                "забери ссылку",
+                "расшифруй ссылку",
+                "ссылка из буфера",
             ]
             .into_iter()
             .map(String::from)
@@ -260,6 +276,15 @@ fn build_matchers(registry: &SlotRegistry) -> Vec<Matcher> {
     out
 }
 
+/// The text in the clipboard, if there is any. A clipboard we cannot read is not a failure of the
+/// command — it is an empty clipboard as far as we are concerned, and the person hears exactly
+/// that instead of silence.
+fn clipboard_text() -> Option<String> {
+    let text = arboard::Clipboard::new().ok()?.get_text().ok()?;
+    let text = text.trim().to_string();
+    (!text.is_empty()).then_some(text)
+}
+
 #[derive(Debug, PartialEq)]
 pub enum Action {
     /// Write the text into a slot (None — the default slot).
@@ -277,6 +302,12 @@ pub enum Action {
     /// has already sat down at the table and is talking, not when their hands are
     /// free and the browser is open.
     Meeting { title: String },
+    /// «Возьми ссылку»: take the link from the CLIPBOARD and transcribe it.
+    ///
+    /// The link is not dictated — it is copied. Nobody reads a URL out loud, and a recognizer
+    /// would mangle it anyway. But it is already in the clipboard: that is where it lands the
+    /// moment it is copied from a browser or a messenger. The voice only says «take it».
+    Ingest,
 }
 
 struct Command {
@@ -296,6 +327,19 @@ struct Capture {
     last_activity: Instant,
 }
 
+/// A dictation in progress, in the Brain's own terms.
+///
+/// `Action::Status` already carries this — as a rendered LINE, for the TUI status bar. A line is
+/// printf at a boundary: the screen cannot ask it which slot, and cannot draw the growing text
+/// any way but ours. So the fact is exposed as a fact, and the rendering stays where it belongs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Capturing {
+    /// The slot AS IT WAS SAID. `None` — «the default one»; only the registry knows its name.
+    pub slot: Option<String>,
+    /// Everything dictated so far, glued across pauses.
+    pub text: String,
+}
+
 pub struct Brain {
     commands: Vec<CommandDef>,
     matchers: Vec<Matcher>,
@@ -306,6 +350,7 @@ pub struct Brain {
     stop_words: Vec<String>,
     retro_window: Duration,
     meeting_phrases: Vec<String>,
+    link_phrases: Vec<String>,
     capture: Option<Capture>,
     /// Ring of the latest conversation phrases (mic + loopback) for «запиши это».
     recent: std::collections::VecDeque<(Instant, String)>,
@@ -326,6 +371,12 @@ impl Brain {
             retro_window: cfg.retro_window,
             meeting_phrases: cfg
                 .meeting_phrases
+                .iter()
+                .map(|p| p.trim().to_lowercase())
+                .filter(|p| !p.is_empty())
+                .collect(),
+            link_phrases: cfg
+                .link_phrases
                 .iter()
                 .map(|p| p.trim().to_lowercase())
                 .filter(|p| !p.is_empty())
@@ -477,6 +528,26 @@ impl Brain {
         None
     }
 
+    /// «Возьми ссылку» — the whole phrase, nothing after it. The link is not dictated: it is in
+    /// the clipboard.
+    fn is_link_command(&self, text: &str) -> bool {
+        let lower = text.to_lowercase();
+        let lower = lower.trim_matches(|c: char| !c.is_alphanumeric() && !c.is_whitespace());
+        self.link_phrases.iter().any(|p| lower == p.as_str())
+    }
+
+    /// What is being dictated right now — a read of the Brain's own state, no timers, no effects.
+    ///
+    /// The worker publishes this so the screen can say «пишу в [идеи]: …» while it happens. Without
+    /// it the module writes to a file on another disk in total silence, and «is it broken?» has no
+    /// answer that does not involve a file manager.
+    pub fn capturing(&self) -> Option<Capturing> {
+        self.capture.as_ref().map(|c| Capturing {
+            slot: c.slot.clone(),
+            text: c.parts.join(" "),
+        })
+    }
+
     pub fn on_mic_text(&mut self, text: &str, now: Instant) -> Vec<Action> {
         let text = text.trim();
         if text.is_empty() {
@@ -490,6 +561,13 @@ impl Brain {
                 return vec![];
             }
             self.last_spoken.clear();
+        }
+
+        // Before notes: «возьми ссылку» must not become the text of a note.
+        if self.is_link_command(text) {
+            let mut actions = self.flush_capture();
+            actions.push(Action::Ingest);
+            return actions;
         }
 
         if let Some(title) = self.parse_meeting(text) {
@@ -740,15 +818,23 @@ pub fn spawn_from_env(ui: Option<Sender<UiMsg>>) -> Result<Option<(VoiceHandle, 
         cfg.tts.describe(),
     );
     tracing::info!("voice module: {summary}");
-    Ok(Some((spawn(cfg, registry, commands, ui), summary)))
+    Ok(Some((
+        spawn(cfg, registry, commands, ui, summary.clone()),
+        summary,
+    )))
 }
 
 /// Assembles the module from ready-made parts (for tests and non-standard wiring).
+///
+/// `detail` is what the screen shows to answer «работает ли модуль вообще» — the triggers, the
+/// slots and the TTS in one line. It is passed in rather than rebuilt here because the caller has
+/// already composed it for the log, and two renderings of one fact drift.
 pub fn spawn(
     cfg: VoiceConfig,
     registry: SlotRegistry,
     commands: Vec<CommandDef>,
     ui: Option<Sender<UiMsg>>,
+    detail: String,
 ) -> VoiceHandle {
     let (tx, rx) = unbounded::<(u8, String)>();
     let mut brain = Brain::new(&cfg, &registry, commands);
@@ -758,7 +844,9 @@ pub fn spawn(
     let handle = std::thread::Builder::new()
         .name("voice".into())
         .spawn(move || {
-            let run_actions = |actions: Vec<Action>, brain_last: &mut String| {
+            let run_actions = |actions: Vec<Action>,
+                               brain_last: &mut String,
+                               status: &mut localvox_light_core::voice_note::VoiceStatus| {
                 for action in actions {
                     match action {
                         Action::Write { slot, text } => {
@@ -766,26 +854,96 @@ pub fn spawn(
                                 Some(name) => registry.resolve(name),
                                 None => registry.default_slot(),
                             };
+                            // THE RECEIPT. «Когда закончило писаться» is answered here and only
+                            // here — a failure included, because a note that vanished silently is
+                            // the worst outcome available: the person walks away believing it was
+                            // saved. The screen shows whichever of the two actually happened.
+                            let at = localvox_light_core::versions::now_rfc3339();
                             match target {
                                 Some(s) => match s.write_note(&text) {
                                     Ok(dest) => {
-                                        tracing::info!("voice → [{}] {dest}", s.name)
+                                        tracing::info!("voice → [{}] {dest}", s.name);
+                                        *status = localvox_light_core::voice_note::VoiceStatus {
+                                            last: Some(localvox_light_core::voice_note::Written {
+                                                slot: s.name.clone(),
+                                                text: text.clone(),
+                                                dest,
+                                                at,
+                                                error: None,
+                                            }),
+                                            ..status.clone()
+                                        };
                                     }
-                                    Err(e) => tracing::error!("voice: write failed: {e:#}"),
+                                    Err(e) => {
+                                        tracing::error!("voice: write failed: {e:#}");
+                                        *status = localvox_light_core::voice_note::VoiceStatus {
+                                            last: Some(localvox_light_core::voice_note::Written {
+                                                slot: s.name.clone(),
+                                                text: text.clone(),
+                                                dest: String::new(),
+                                                at,
+                                                error: Some(format!("{e:#}")),
+                                            }),
+                                            ..status.clone()
+                                        };
+                                    }
                                 },
-                                None => tracing::error!("voice: slot not found: {slot:?}"),
+                                None => {
+                                    tracing::error!("voice: slot not found: {slot:?}");
+                                    *status = localvox_light_core::voice_note::VoiceStatus {
+                                        last: Some(localvox_light_core::voice_note::Written {
+                                            slot: slot.clone().unwrap_or_default(),
+                                            text: text.clone(),
+                                            dest: String::new(),
+                                            at,
+                                            error: Some("такого слота нет".into()),
+                                        }),
+                                        ..status.clone()
+                                    };
+                                }
                             }
                         }
                         Action::Meeting { title } => {
-                            // We ask the recording engine: it will close the current
-                            // session and open a new one — as a meeting. Through a
-                            // file marker, because the engine lives in another thread
-                            // (if not another process), and a file is the cheapest way
-                            // to shout across.
-                            match localvox_light_core::jobs::request_meeting(&work_dir, &title) {
-                                Ok(()) => tracing::info!("voice → meeting: «{title}»"),
-                                Err(e) => tracing::error!("voice: could not start the meeting: {e}"),
+                            // We ask the recording engine to START RECORDING: nothing reaches
+                            // the disk before this, and the pre-roll ring is what makes the
+                            // command safe — the minutes before the words "record this" go
+                            // into the session too. Through a file marker, because the engine
+                            // lives in another thread (if not another process), and a file is
+                            // the cheapest way to shout across.
+                            match localvox_light_core::jobs::request_record_start(&work_dir, &title)
+                            {
+                                Ok(()) => tracing::info!("voice → recording: «{title}»"),
+                                Err(e) => {
+                                    tracing::error!("voice: could not start the recording: {e}")
+                                }
                             }
+                        }
+                        Action::Ingest => {
+                            // The link is taken from the CLIPBOARD, not from the speech: nobody
+                            // reads a URL out loud, and a recognizer would mangle it if they did.
+                            // But it is already copied — that is where a link lives the moment it
+                            // is worth transcribing.
+                            //
+                            // We answer out loud in every case. A voice command that silently does
+                            // nothing when the clipboard holds a phrase instead of a link is
+                            // indistinguishable from a command that was not heard.
+                            let phrase = match clipboard_text() {
+                                None => "Буфер обмена пуст".to_string(),
+                                Some(text) => {
+                                    match localvox_light_core::ingest::from_url(&work_dir, &text) {
+                                        Ok(session) => {
+                                            tracing::info!("voice → ingest: {session}");
+                                            "Взял ссылку, качаю".to_string()
+                                        }
+                                        Err(e) => {
+                                            tracing::warn!("voice: ingest failed: {e:#}");
+                                            "В буфере не ссылка".to_string()
+                                        }
+                                    }
+                                }
+                            };
+                            *brain_last = phrase.clone();
+                            tts.speak(&phrase);
                         }
                         Action::Say(phrase) => {
                             *brain_last = phrase.clone();
@@ -799,6 +957,45 @@ pub fn spawn(
                     }
                 }
             };
+            // Publish what is being dictated, for whoever draws the screen. ONE place, driven by
+            // the Brain's state rather than sprinkled over the five branches that emit
+            // `Action::Status` — a state published from five sites goes stale at the sixth.
+            //
+            // The slot is RESOLVED here, because this is where the registry is: the Brain hears
+            // «в идеи» or nothing at all, and «nothing at all» has a name only the registry knows.
+            // The name is the whole point — «идея» and «заметка» is exactly the distinction the
+            // person is looking at the screen to make.
+            // The slot is RESOLVED here, because this is where the registry is: the Brain hears
+            // «в идеи» or nothing at all, and «nothing at all» has a name only the registry knows.
+            let capturing_now = |brain: &Brain| {
+                brain.capturing().map(|c| {
+                    let slot = c
+                        .slot
+                        .as_deref()
+                        .and_then(|n| registry.resolve(n))
+                        .or_else(|| registry.default_slot())
+                        .map(|s| s.name.clone())
+                        // An unknown slot was named: the Brain will say so out loud and write
+                        // nothing. Show what was HEARD — «пишу в [ретро песня]» is how a person
+                        // finds out the recognizer misheard their slot.
+                        .or_else(|| c.slot.clone())
+                        .unwrap_or_default();
+                    localvox_light_core::voice_note::Capturing { slot, text: c.text }
+                })
+            };
+
+            // «Работает ли вообще» is answered BEFORE anyone says a word — that is the whole point
+            // of publishing at startup. A module that only appears on screen mid-phrase is
+            // indistinguishable from a dead one for as long as nobody speaks.
+            let mut status = localvox_light_core::voice_note::VoiceStatus {
+                active: true,
+                detail,
+                capturing: None,
+                last: None,
+            };
+            localvox_light_core::voice_note::publish(&work_dir, &status);
+            let mut published = status.clone();
+
             let mut last_said = String::new();
             loop {
                 match rx.recv_timeout(Duration::from_millis(300)) {
@@ -809,20 +1006,30 @@ pub fn spawn(
                             brain.on_sys_text(&text, Instant::now());
                             vec![]
                         };
-                        run_actions(actions, &mut last_said);
+                        run_actions(actions, &mut last_said, &mut status);
                     }
                     Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
                         let actions = brain.tick(Instant::now());
-                        run_actions(actions, &mut last_said);
+                        run_actions(actions, &mut last_said, &mut status);
                     }
                     Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
                         // the hook was dropped: write out the open dictation and exit
                         let actions = brain.finish();
-                        run_actions(actions, &mut last_said);
+                        run_actions(actions, &mut last_said, &mut status);
                         break;
                     }
                 }
+                status.capturing = capturing_now(&brain);
+                // Only on change: the loop turns three times a second, and rewriting an unchanged
+                // file that often is pure wear for nothing.
+                if status != published {
+                    localvox_light_core::voice_note::publish(&work_dir, &status);
+                    published = status.clone();
+                }
             }
+            // The module is gone — not merely idle. The marker must not outlive the thread that
+            // owns it, or the screen will claim a listener that is not there.
+            localvox_light_core::voice_note::clear(&work_dir);
             tracing::debug!("voice module stopped");
         })
         .expect("spawn voice worker");
@@ -876,6 +1083,34 @@ mod tests {
         })
     }
 
+    /// «Возьми ссылку» — the link is not dictated, it is in the clipboard. Nobody reads a URL out
+    /// loud, and a recognizer would mangle it if they tried.
+    #[test]
+    fn a_link_is_taken_from_the_clipboard_by_voice() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut b = brain(dir.path());
+
+        assert_eq!(b.on_mic_text("Возьми ссылку", now()), vec![Action::Ingest]);
+        assert_eq!(
+            b.on_mic_text("возьми ссылку из буфера", now()),
+            vec![Action::Ingest]
+        );
+    }
+
+    /// And it must not swallow a NOTE that merely mentions a link: «запиши, что ссылку прислал
+    /// Иван» is a note, not a command. Only the bare phrase is the command.
+    #[test]
+    fn a_note_about_a_link_is_still_a_note() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut b = brain(dir.path());
+
+        let a = b.on_mic_text("Запиши, что ссылку пришлёт Иван", now());
+        assert!(
+            !a.contains(&Action::Ingest),
+            "a note about a link was taken for the command: {a:?}"
+        );
+    }
+
     /// Marking a meeting by voice matters more than by button: it starts when the
     /// person has already sat down at the table and is talking, not when their hands
     /// are free and the browser is open.
@@ -910,6 +1145,48 @@ mod tests {
         // And an ordinary note does not turn into a meeting.
         let a = b.on_mic_text("Запиши купить молоко", now());
         assert!(meeting_of(&a).is_none(), "a note was taken for a meeting");
+    }
+
+    /// WHAT THE SCREEN SHOWS WHILE YOU DICTATE.
+    ///
+    /// The owner could not tell a working voice module from a dead one: a note is written in
+    /// silence into a file on another disk, and the daemon runs the module with no channel to any
+    /// screen. This is the fact the indicator is built on — it must appear with the command, grow
+    /// with every phrase, and be GONE the moment the note is closed. A pill that outlives the
+    /// dictation claims a recording that is not happening.
+    #[test]
+    fn the_screen_can_see_the_dictation_from_its_first_word_to_its_last() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut b = brain(dir.path());
+        assert_eq!(b.capturing(), None, "nothing is being dictated yet");
+
+        b.on_mic_text("запиши в идеи попробовать сортформер", now());
+        let c = b.capturing().expect("the command opened a dictation the screen cannot see");
+        assert_eq!(c.slot.as_deref(), Some("идеи"));
+        assert_eq!(c.text, "попробовать сортформер");
+
+        // It grows across pauses — that growth IS the proof it is still listening.
+        b.on_mic_text("и померить на живой записи", now());
+        assert_eq!(
+            b.capturing().unwrap().text,
+            "попробовать сортформер и померить на живой записи"
+        );
+
+        b.on_mic_text("всё", now());
+        assert_eq!(b.capturing(), None, "the pill outlived the note it was about");
+    }
+
+    /// «запиши купить кофе» — no slot said. The Brain honestly reports `None`, meaning «the default
+    /// one»: only the registry knows its name, and inventing one here would put the wrong word on
+    /// the screen.
+    #[test]
+    fn a_note_with_no_slot_said_reports_no_slot_rather_than_guessing() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut b = brain(dir.path());
+        b.on_mic_text("запиши купить кофе", now());
+        let c = b.capturing().unwrap();
+        assert_eq!(c.slot, None);
+        assert_eq!(c.text, "купить кофе");
     }
 
     /// The first Write in the action list.
@@ -1170,7 +1447,7 @@ mod tests {
             tts: Tts::Off,
             ..VoiceConfig::default()
         };
-        let (hook, handle) = spawn(cfg, reg, default_commands(), None);
+        let (hook, handle) = spawn(cfg, reg, default_commands(), None, "тест".into());
         hook(1, "запиши в идеи это loopback его игнорируем");
         hook(0, "запиши в идеи заметка через хук");
         hook(0, "и её продолжение");

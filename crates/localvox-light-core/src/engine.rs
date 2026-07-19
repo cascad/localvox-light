@@ -181,46 +181,32 @@ pub fn run_engine(
         ],
         segments_to_disk: cli.segments_to_disk,
         mic_silence_warn_sec: cli.mic_silence_warn_sec,
+
+        // THE ENGINE NO LONGER CREATES A SESSION ON STARTUP. Launching the daemon is not a
+        // decision to record: capture runs, the pre-roll ring fills, but the disk stays clean
+        // until a human presses "record" (or says so). The pipeline owns the session lifecycle
+        // and creates the directory at that moment.
+        session_chunks: !cli.no_session_chunks,
+        chunk_sec: cli.chunk_sec,
+        chunk_flac: cli.chunk_flac,
+        ffmpeg: std::env::var("LOCALVOX_LIGHT_YT_FFMPEG")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from("ffmpeg")),
         preroll_sec: cli.preroll_sec,
-        ambient_gap_sec: cli.ambient_gap_sec,
+        autostop_sec: cli.autostop_sec,
     };
-
-    // The sessionization channel: call detection → the pipeline (the sole writer of the meta).
-    let (session_tx, session_rx) = crossbeam_channel::unbounded::<crate::pipeline::SessionSignal>();
-
-    // F8: the chunk-recording environment (None — if disabled by a flag or the directory could
-    // not be created).
-    let chunk_env = if cli.no_session_chunks {
+    if cli.no_session_chunks {
         info!("Session chunks are disabled (--no-session-chunks)");
-        None
     } else {
-        match crate::chunks::create_session_dir(&work_dir, None) {
-            Ok((audio_dir, meta_path)) => {
-                info!("Session: {}", audio_dir.display());
-                let ffmpeg = std::env::var("LOCALVOX_LIGHT_YT_FFMPEG")
-                    .map(PathBuf::from)
-                    .unwrap_or_else(|_| PathBuf::from("ffmpeg"));
-                let params = Arc::new(crate::chunks::ChunkParams {
-                    audio_dir,
-                    meta_path,
-                    chunk_sec: cli.chunk_sec,
-                    flac: cli.chunk_flac,
-                    ffmpeg,
-                });
-                let meta = Arc::new(std::sync::Mutex::new(crate::chunks::SessionMeta {
-                    started_at: chrono::Local::now().to_rfc3339(),
-                    sample_rate: 16_000,
-                    chunks: Vec::new(),
-                    ..Default::default()
-                }));
-                Some((params, meta))
-            }
-            Err(e) => {
-                tracing::error!("The session directory was not created ({e}) — chunks are off");
-                None
-            }
-        }
-    };
+        info!(
+            "Ready to record: the pre-roll ring holds {:.0} s; nothing is written until you start",
+            cli.preroll_sec
+        );
+    }
+
+    // The detection channel: call detection → the pipeline (the sole writer of the meta). It
+    // marks a running recording; it does not start one.
+    let (session_tx, session_rx) = crossbeam_channel::unbounded::<crate::pipeline::SessionSignal>();
 
     // F3: automatic call detection (Windows) — a status in the UI + marks in the session meta.
     #[cfg(windows)]
@@ -259,7 +245,6 @@ pub fn run_engine(
         .spawn(move || {
             crate::pipeline::run(
                 pipeline_cfg,
-                chunk_env,
                 Some(session_rx),
                 pcm_rx,
                 pipeline_seg_tx,
@@ -575,6 +560,79 @@ pub fn run_engine(
             }
         })?;
 
+    // FOLLOW THE DEFAULT DEVICE.
+    //
+    // The capture streams bind to a device ONCE, at start. Set to "default" they remember whatever
+    // was default AT THAT MOMENT — and then you join a meeting, a headset connects, Windows moves
+    // the default, the call app follows it, and we keep listening to the old, now-idle endpoint.
+    // Loopback sends no packets when nothing plays there, so we pad with silence and record
+    // nothing, silently. Measured on the owner's recording (16.07.2026): the other side audible
+    // for 2 minutes, then 27 minutes of silence on a full-length track — and it had happened
+    // before, every time he joined a call.
+    //
+    // The restart machinery already existed (`reload_gen` — the device screen switches sources
+    // live with it). What was missing was someone to NOTICE. This is that someone: it watches the
+    // system default and bumps the counter when it moves; the supervisors above re-open their
+    // streams on the new device by themselves. No restart, no re-plugging, no human.
+    //
+    // Only for sources set to "default". A pinned device is the human's decision.
+    let watch_running = running.clone();
+    let watch_devices = Arc::clone(&audio_devices);
+    let watch_reload = Arc::clone(&reload_gen);
+    let watch_ui = ui_tx.clone();
+    let device_watch = thread::Builder::new()
+        .name("device-watch".into())
+        .spawn(move || {
+            // The FIRST poll is the baseline, not a change: we have just bound to these.
+            let mut last_render = crate::audio::default_render_id();
+            let mut last_capture = crate::audio::default_capture_id();
+            while watch_running.load(Ordering::Relaxed) {
+                thread::sleep(Duration::from_secs(2));
+                if !watch_running.load(Ordering::Relaxed) {
+                    break;
+                }
+                let Ok(cfg) = watch_devices.read().map(|g| g.clone()) else {
+                    break;
+                };
+                let mut moved: Option<String> = None;
+
+                if cfg.loopback && crate::audio::follows_default(&cfg.loopback_device) {
+                    let now = crate::audio::default_render_id();
+                    // `None` means "could not ask" — not "the device is gone". Restarting on a
+                    // failed query would fight the OS during its own hiccup.
+                    if now.is_some() && now != last_render {
+                        moved = Some("системный звук".into());
+                        last_render = now;
+                    }
+                }
+                if crate::audio::follows_default(&cfg.mic) {
+                    let now = crate::audio::default_capture_id();
+                    if now.is_some() && now != last_capture {
+                        moved = Some(match moved {
+                            Some(prev) => format!("{prev} и микрофон"),
+                            None => "микрофон".into(),
+                        });
+                        last_capture = now;
+                    }
+                }
+
+                if let Some(what) = moved {
+                    // Loud on purpose: the sound the person expects to be recorded has just moved
+                    // to another device. They must be able to learn this from the log, not from a
+                    // silent recording two days later.
+                    tracing::warn!(
+                        "устройство по умолчанию сменилось ({what}) — перезапускаю захват на новом"
+                    );
+                    if let Some(ref t) = watch_ui {
+                        let _ = t.send(UiMsg::Status(format!(
+                            "Устройство сменилось ({what}) — перехожу на новое"
+                        )));
+                    }
+                    watch_reload.fetch_add(1, Ordering::SeqCst);
+                }
+            }
+        })?;
+
     drop(pcm_tx);
     info!("Recording (WAV → disk); Vosk loads in parallel. Ctrl+C to stop.");
     if let Some(ref t) = ui_tx {
@@ -588,6 +646,7 @@ pub fn run_engine(
     pipeline_handle.join().ok();
     mic_handle.join().ok();
     loopback_handle.join().ok();
+    device_watch.join().ok();
     asr_handle.join().ok();
     // detection closes an open meeting in the meta on exit — wait for it
     #[cfg(windows)]

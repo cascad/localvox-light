@@ -28,6 +28,11 @@ pub fn download_audio(
     ));
     let out_template = base.with_extension("%(ext)s");
     let mut args = vec![
+        // Same reason as in `source_title`: on Windows yt-dlp writes a redirected stream in the
+        // ANSI code page, so without this its error text reaches our log as mojibake — and an
+        // unreadable error is barely better than the discarded one it replaced.
+        "--encoding",
+        "utf-8",
         "-x",
         "-f",
         "bestaudio",
@@ -45,15 +50,42 @@ pub fn download_audio(
     args.push(url);
     let mut cmd = Command::new(yt_dlp);
     cmd.args(&args);
-    if !verbose {
-        cmd.stdout(std::process::Stdio::null());
-        cmd.stderr(std::process::Stdio::null());
-    }
-    let status = cmd
-        .status()
-        .context("yt-dlp (install it: https://github.com/yt-dlp/yt-dlp)")?;
+    // STDERR IS CAPTURED, NOT DISCARDED.
+    //
+    // It used to be thrown away, and the failure surfaced as «yt-dlp exited with an error (without
+    // --verbose its stderr is hidden)» — a message that tells the operator to go and reproduce by
+    // hand what the daemon had already been told. Measured 18.07.2026: an ingest failed three
+    // times with that text, and the real reason was sitting in the discarded stderr —
+    // «Requested format is not available», YouTube's SABR experiment against a four-month-old
+    // yt-dlp. Diagnosing it took a manual re-run of the exact command.
+    //
+    // An error is a value with context. The child's own words ARE the context, and the only
+    // moment they exist is right here.
+    let out = if verbose {
+        cmd.status().map(|s| (s, String::new()))
+    } else {
+        cmd.stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::piped())
+            .output()
+            .map(|o| (o.status, String::from_utf8_lossy(&o.stderr).into_owned()))
+    };
+    let (status, stderr) =
+        out.context("yt-dlp (install it: https://github.com/yt-dlp/yt-dlp)")?;
     if !status.success() {
-        anyhow::bail!("yt-dlp exited with an error (without --verbose its stderr is hidden)");
+        // The tail, not the whole log: yt-dlp narrates every step, and the reason is what it says
+        // last. The whole thing would bury the answer in the progress it printed getting there.
+        let why: Vec<&str> = stderr
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .rev()
+            .take(3)
+            .collect();
+        let why = why.into_iter().rev().collect::<Vec<_>>().join(" / ");
+        if why.is_empty() {
+            anyhow::bail!("yt-dlp завершился с ошибкой и ничего не сказал");
+        }
+        anyhow::bail!("yt-dlp: {why}");
     }
     for ext in ["webm", "m4a", "opus", "ogg", "mp3"] {
         let p = base.with_extension(ext);

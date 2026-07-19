@@ -8,6 +8,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use anyhow::{bail, Context, Result};
 use serde::Serialize;
+use serde_json::{json, Value};
 
 use localvox_light_core::versions::{read_transcript_lines, VersionStore};
 use localvox_light_integrations::SlotRegistry;
@@ -142,6 +143,32 @@ pub struct JobsStatus {
     pub last_error: Option<String>,
 }
 
+/// One line of the QUEUE — a session waiting for the pot, in the order it will get there.
+///
+/// Counts alone («варится: 1, в очереди: 7») answer «is it working», not «what is it working on
+/// and what is after that». Clicking them used to jump to the stage chain of one session, which
+/// showed its LAST FINISHED run — all green, all done, while the cook was still going. A queue is
+/// a list with an order; that is the whole point of it.
+#[derive(Serialize)]
+pub struct QueueItem {
+    pub session: String,
+    /// What a person calls it, not the directory name.
+    pub title: String,
+    pub started_at: Option<String>,
+    /// `running` | `pending` | `failed`. Done jobs are not a queue — they are history.
+    pub state: String,
+    /// `cook` — the audio is here; `ingest` — it still has to be fetched from a link.
+    pub kind: String,
+    /// Place in the line. 1 — next. `None` for what is already running.
+    pub position: Option<usize>,
+    pub attempts: u32,
+    /// Why it failed, if it did — the reason belongs next to the fact, not in a log nobody opens.
+    pub last_error: Option<String>,
+    /// It has burned its retry budget: it will not move again on its own, only by a human's
+    /// «переварить заново». Saying that plainly beats a queue that silently never advances.
+    pub stuck: bool,
+}
+
 /// Why a record ended up in the results. Strings, not an enum: this is a caption for
 /// a human, and it goes into the JSON as is.
 const WHY_WORDS: &str = "слова";
@@ -166,6 +193,18 @@ fn llm_client_from_env_with(timeout_sec: u64) -> localvox_light_llm::LlmClient {
 /// fragments that literally talk about a cake — it answered correctly once and refused
 /// («В записях этого нет») the next time. An answer that depends on a dice roll is not an
 /// answer.
+/// The same, with a ceiling on the answer. A bounded output is not a nicety: without it a model
+/// that has started looping runs until the timeout, and the person gets a page of noise.
+fn llm_client_capped(
+    timeout_sec: u64,
+    temperature: Option<f32>,
+    max_tokens: u32,
+) -> localvox_light_llm::LlmClient {
+    let mut client = llm_client_tuned(timeout_sec, temperature);
+    client.set_max_tokens(max_tokens);
+    client
+}
+
 fn llm_client_tuned(timeout_sec: u64, temperature: Option<f32>) -> localvox_light_llm::LlmClient {
     let base_url = std::env::var("LOCALVOX_LLM_BASE_URL")
         .unwrap_or_else(|_| "http://localhost:11434/v1".into());
@@ -270,6 +309,48 @@ fn env_secs(name: &str, default: u64) -> u64 {
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(default)
+}
+
+fn env_f64(name: &str, default: f64) -> f64 {
+    std::env::var(name)
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(default)
+}
+
+/// A byte slice of the recording's WAV, for a Range request. `total` is the whole file's length
+/// (for `Content-Range`); `start..end` is what `bytes` covers.
+pub struct AudioSlice {
+    pub total: u64,
+    pub start: u64,
+    pub end: u64,
+    pub bytes: Vec<u8>,
+}
+
+/// What the recorder is doing right now.
+///
+/// `engine` and `recording` are DIFFERENT facts, and the app needs both: with a dead
+/// daemon a "record" button would look pressable and lead nowhere, and the person would
+/// walk away believing they are being recorded. That is the one lie this system must
+/// never tell.
+#[derive(serde::Serialize)]
+pub struct RecordState {
+    /// Is the engine alive at all (it holds a lock on the work directory for its lifetime).
+    pub engine: bool,
+    pub recording: bool,
+    /// The session being written into right now.
+    pub session: Option<String>,
+    /// Seconds of the past held in memory: press "record" and they enter the session.
+    pub preroll_sec: f64,
+    /// What the voice module is doing — a DIFFERENT thing from `recording`, and both can be true
+    /// at once: a note can be dictated in the middle of a meeting.
+    ///
+    /// A session is the microphone going to disk here; a note is a phrase on its way into a slot —
+    /// someone else's file, on another disk, written in silence. This carries whether the module is
+    /// alive at all, what it is dictating, and the receipt for the last note that landed. The first
+    /// version carried only the dictation in flight, and a module that had heard nothing looked
+    /// exactly like a module that was not running.
+    pub voice: Option<localvox_light_core::voice_note::VoiceStatus>,
 }
 
 /// Is the recording engine alive AT ALL.
@@ -573,7 +654,7 @@ impl Archive {
                         .map(|s| s.load().versions.len())
                         .unwrap_or(0),
                     has_summary: dir.join("summary.md").exists(),
-                    has_processed: dir.join("processed.md").exists(),
+                    has_processed: localvox_light_core::readable::exists(&dir),
                     // The marker is the engine's own word. We check not "file
                     // freshness" but whether the engine is alive: an empty newborn
                     // session is a recording, not a corpse.
@@ -634,6 +715,12 @@ impl Archive {
             .context("у сессии нет транскрипта (сначала localvox-process)")?;
         let path = store.resolve(best.id).context("файл версии не найден")?;
         let lines = read_transcript_lines(&path)?;
+        // Who «Я» actually is depends on where the audio came from — a link is not the owner
+        // speaking — and on what the human called the source. One place decides: `source_label`.
+        let meta: localvox_light_core::chunks::SessionMeta = fs::read(dir.join("meta.json"))
+            .ok()
+            .and_then(|b| serde_json::from_slice(&b).ok())
+            .unwrap_or_default();
         Ok(TranscriptDoc {
             session: session.to_string(),
             label: best.label,
@@ -644,8 +731,7 @@ impl Archive {
                     // Diarization gives the real speaker; without it — the audio source.
                     who: match l.speaker.clone() {
                         Some(name) => name,
-                        None if l.source_id == 0 => "Я".into(),
-                        None => "Собеседники".into(),
+                        None => localvox_light_core::chunks::source_label(&meta, l.source_id),
                     },
                     source_id: l.source_id,
                     start_sec: l.start_sec,
@@ -725,7 +811,7 @@ impl Archive {
         // it.
         let flag = match file {
             "summary.md" => "--summary",
-            "processed.md" => "--cleanup",
+            f if f == localvox_light_core::readable::FILE => "--cleanup",
             _ => "--summary --cleanup",
         };
         bail!(
@@ -765,10 +851,16 @@ impl Archive {
             anyhow::bail!("сессия уже варится прямо сейчас — дождитесь окончания");
         }
 
+        // A NEW RUN STARTS HERE, at the press — not when the daemon gets round to it. Until then
+        // the chain of stages would show the PREVIOUS run: all green, all finished, while the work
+        // has not started. A person pressed "re-cook" and waited for movement in a picture that
+        // had already ended.
+        localvox_light_core::progress::new_run(&dir);
+
         let mut dropped = Vec::new();
         for f in [
             "summary.md",
-            "processed.md",
+            localvox_light_core::readable::FILE,
             "summary.unverified.md",
             "processed.unverified.md",
         ] {
@@ -821,6 +913,43 @@ impl Archive {
         Ok(())
     }
 
+    /// Delete a session ENTIRELY — audio and everything derived from it.
+    ///
+    /// This is the ONLY irreversible action in the whole system. Everywhere else the audio is the
+    /// source of truth and the derivatives are disposable — a bad summary is re-cooked, a wrong
+    /// language is redone, all from the audio. Here the audio itself goes, and nothing brings it
+    /// back. So the guards are real, not decorative:
+    ///
+    ///  * a session being RECORDED right now is not deletable — stop it first, or the engine keeps
+    ///    writing into a directory we just removed;
+    ///  * the caller must pass the session's own name back as `confirm`. A generic "yes" is too
+    ///    easy to click through; echoing the name means the deletion was aimed, not fat-fingered.
+    ///
+    /// The queue entry goes too — a job pointing at a directory that no longer exists would fail
+    /// forever. The search index rebuilds itself from the session files, so the deleted session
+    /// drops out of it on the next search with no extra work here.
+    pub fn delete_session(&self, session: &str, confirm: &str) -> Result<String> {
+        let dir = self.session_dir(session)?;
+        if !dir.exists() {
+            bail!("сессия не найдена — возможно, уже удалена");
+        }
+        if localvox_light_core::jobs::recording_session(&self.work_dir).as_deref() == Some(session) {
+            bail!("сессия записывается прямо сейчас — сначала остановите запись");
+        }
+        if confirm != session {
+            // Not a user-facing message: the UI names the session itself. This only fires if a
+            // script calls the API by hand, and then it must say exactly what it wants.
+            bail!("удаление не подтверждено: передайте имя сессии в поле confirm");
+        }
+
+        let mut queue = localvox_light_core::jobs::JobQueue::load(&self.work_dir);
+        queue.forget_session(session);
+
+        std::fs::remove_dir_all(&dir).with_context(|| format!("не удалось удалить {session}"))?;
+        tracing::info!("session deleted: {session}");
+        Ok(session.to_string())
+    }
+
     /// Change the language of the recording. `None` — go back to auto-detection.
     ///
     /// There is no need for separate code to reset the derivatives: the language is
@@ -858,21 +987,43 @@ impl Archive {
         })
     }
 
-    /// "This is a meeting": close the current recording and start a new one — with a
-    /// title.
+    /// What the recorder is doing right now.
     ///
-    /// Auto-detection sees a call in an application (who holds the microphone), but it
-    /// will never see a face-to-face stand-up around a table: to the system that is
-    /// the same background noise as the whole day. There is no reliable automatic sign
-    /// of a meeting in a room — which is why the person's word is decisive here.
-    pub fn start_meeting(&self, title: &str) -> Result<String> {
+    /// `engine` is a separate fact from `recording`, and the app needs both: with a dead
+    /// daemon a "record" button would look pressable and go nowhere, and the person would
+    /// be left believing they are being recorded. That is the one lie this system must
+    /// never tell.
+    pub fn record_state(&self) -> RecordState {
+        let session = localvox_light_core::jobs::recording_session(&self.work_dir);
+        let engine = engine_alive(&self.work_dir);
+        RecordState {
+            engine,
+            recording: engine && session.is_some(),
+            session: session.filter(|_| engine),
+            preroll_sec: env_f64("LOCALVOX_LIGHT_PREROLL_SEC", 300.0),
+            // Gated on `engine` for the same reason as `session`: the marker is a file, and a
+            // killed daemon does not clear it. Without the engine there is nobody listening, and
+            // a screen saying otherwise is the one lie this system must never tell.
+            voice: engine
+                .then(|| localvox_light_core::voice_note::read(&self.work_dir))
+                .flatten(),
+        }
+    }
+
+    /// Start recording. Nothing is written to disk until this is asked for — but the last
+    /// minutes are held in memory, and they go into the session, so a conversation that
+    /// began before the button is not lost.
+    pub fn start_recording(&self, title: &str) -> Result<String> {
+        if let Some(name) = localvox_light_core::jobs::recording_session(&self.work_dir) {
+            bail!("запись уже идёт: {name}");
+        }
         let title = title.trim();
-        localvox_light_core::jobs::request_meeting(&self.work_dir, title)
-            .context("не удалось попросить движок начать встречу")?;
+        localvox_light_core::jobs::request_record_start(&self.work_dir, title)
+            .context("не удалось попросить движок начать запись")?;
         Ok(if title.is_empty() {
-            "встреча начата".into()
+            "запись начата".into()
         } else {
-            format!("встреча начата: {title}")
+            format!("запись начата: {title}")
         })
     }
 
@@ -894,6 +1045,86 @@ impl Archive {
             .collect())
     }
 
+    /// What each audio SOURCE is called in this session — with the name in force right now.
+    ///
+    /// Sources are not speakers: they are «which input the sound came through». Diarization names
+    /// voices; this names the fallback used when it has not. The two live in different places
+    /// because they are different facts.
+    pub fn sources(&self, session: &str) -> Result<Vec<serde_json::Value>> {
+        let dir = self.session_dir(session)?;
+        let meta: localvox_light_core::chunks::SessionMeta =
+            serde_json::from_slice(&fs::read(dir.join("meta.json")).context("нет meta.json")?)?;
+        // Only the sources this recording actually HAS: a session that arrived by link has no
+        // second track, and offering to rename one would invent a participant.
+        let ids: Vec<u8> = if meta.source.is_some() { vec![0] } else { vec![0, 1] };
+        Ok(ids
+            .into_iter()
+            .map(|id| {
+                json!({
+                    "source_id": id,
+                    "name": localvox_light_core::chunks::source_label(&meta, id),
+                    "custom": meta.source_names.contains_key(&id.to_string()),
+                    "what": if id == 0 {
+                        if meta.source.is_some() { "звук из источника" } else { "микрофон" }
+                    } else {
+                        "системный звук"
+                    },
+                })
+            })
+            .collect())
+    }
+
+    /// Rename a source: the narrator of a downloaded video is not «Я».
+    ///
+    /// ONLY THE SUMMARY IS REBUILT. It is prose the model wrote, with the name inside its
+    /// sentences — «Я рассказываю про…» can only become «Арсен рассказывает про…» by writing the
+    /// summary again. Leaving it would pass the correction off as taken into account.
+    ///
+    /// The readable text is NOT rebuilt and NOT deleted, and that is the whole point of storing it
+    /// as a delta: it holds no name at all. The label is joined in from `meta.json` on every read,
+    /// so it already says the new name — before this function returns. Re-cooking it would burn
+    /// minutes of LLM time to arrive at exactly the file that is already on disk.
+    pub fn name_source(&self, session: &str, source_id: u8, name: &str) -> Result<String> {
+        let dir = self.session_dir(session)?;
+        let meta_path = dir.join("meta.json");
+        let mut meta: localvox_light_core::chunks::SessionMeta =
+            serde_json::from_slice(&fs::read(&meta_path).context("нет meta.json")?)?;
+        let name = name.trim();
+        if name.is_empty() {
+            // Back to the default — which depends on where the audio came from.
+            meta.source_names.remove(&source_id.to_string());
+        } else {
+            meta.source_names
+                .insert(source_id.to_string(), name.to_string());
+        }
+        localvox_light_core::chunks::save_meta_public(&meta_path, &meta);
+        let now = localvox_light_core::chunks::source_label(&meta, source_id);
+
+        // Neither the transcript lines nor the readable text are touched: the label is not stored
+        // in either of them, it is rendered from the source id on every read. Only the summary
+        // QUOTES it, inside sentences the model composed, and only the summary is rebuilt.
+        let (summary, _cleanup, refine) = localvox_light_core::jobs::post_processing_from_env();
+        let mut queue = localvox_light_core::jobs::JobQueue::load(&self.work_dir);
+        let queued = queue.requeue_for_artifacts(session, summary, false, refine);
+        if queued {
+            let _ = fs::remove_file(dir.join("summary.md"));
+            // No file — no record of it either, or discovery decides there is nothing to do and
+            // the artifact never comes back.
+            localvox_light_core::processing::forget(
+                &dir,
+                &[localvox_light_core::processing::SUMMARY],
+            );
+        }
+        Ok(format!(
+            "теперь «{now}» — читаемый текст и расшифровка переподписаны сразу{}",
+            if queued {
+                ", сводка пересобирается"
+            } else {
+                "; сессия уже в работе — сводка пересоберётся там"
+            }
+        ))
+    }
+
     /// Name a voice: «Участник 2» is Ivan.
     ///
     /// Does three things, and all three are mandatory:
@@ -902,9 +1133,10 @@ impl Archive {
     ///    recognized by itself;
     /// 2. **re-labels the lines** in every version of the transcript — WITHOUT
     ///    re-recognition: the audio has not changed, only one caption has to change;
-    /// 3. **throws away the summary and the cleaned-up text** and queues them for a
-    ///    rebuild — they say «Участник 2», and leaving that means lying that the name
-    ///    was taken into account.
+    /// 3. **throws away the summary** and queues it for a rebuild — it says «Участник 2»
+    ///    inside sentences the model composed, and leaving that means lying that the name
+    ///    was taken into account. The readable text needs nothing: it stores no name, and
+    ///    step 2 is already the only place the caption lives.
     ///
     /// A person's voice is biometrics. A profile appears only when it has been named
     /// HERE, by hand: we MUST NOT silently accumulate prints of everyone who got into
@@ -940,25 +1172,21 @@ impl Archive {
         let store = VersionStore::open(&dir)?;
         let lines = store.relabel_speaker(label, name)?;
 
-        // The summary and the cleaned-up text are written about «Участник 2» — they
-        // have to be rebuilt. The audio is not touched: re-cooking half an hour of
-        // sound for the sake of a name is a mockery, and then names simply would not
-        // be used at all.
-        let (summary, cleanup, refine) = localvox_light_core::jobs::post_processing_from_env();
+        // Only the SUMMARY is written about «Участник 2» — it is prose, and the name is inside
+        // its sentences. The readable text quotes nothing: it renders the caption from the very
+        // lines just relabelled, so it already says the new name. The audio is not touched
+        // either: re-cooking half an hour of sound for the sake of a name is a mockery, and then
+        // names simply would not be used at all.
+        let (summary, _cleanup, refine) = localvox_light_core::jobs::post_processing_from_env();
         let mut queue = localvox_light_core::jobs::JobQueue::load(&self.work_dir);
-        let queued = queue.requeue_for_artifacts(session, summary, cleanup, refine);
+        let queued = queue.requeue_for_artifacts(session, summary, false, refine);
         if queued {
-            for f in ["summary.md", "processed.md"] {
-                let _ = fs::remove_file(dir.join(f));
-            }
+            let _ = fs::remove_file(dir.join("summary.md"));
             // No file — no record of it either: otherwise discovery will decide there
             // is nothing to do, and the artifact will not come back.
             localvox_light_core::processing::forget(
                 &dir,
-                &[
-                    localvox_light_core::processing::SUMMARY,
-                    localvox_light_core::processing::PROCESSED,
-                ],
+                &[localvox_light_core::processing::SUMMARY],
             );
         }
 
@@ -1001,7 +1229,16 @@ impl Archive {
     /// `chat::ask`).
     pub fn ask(&self, question: &str) -> Result<crate::chat::Answer> {
         // Temperature 0: the answer must not depend on a dice roll.
-        let client = llm_client_tuned(env_secs("LOCALVOX_LLM_CHAT_TIMEOUT_SEC", 120), Some(0.0));
+        //
+        // And a CEILING on the answer. An answer about your own recordings is a few sentences —
+        // the default 8192 tokens is a licence to ramble, and the model took it: asked «про код»,
+        // it produced seventy lines of «в записях нет информации о том, как код связан с…»
+        // (14.07.2026). The prompt asks for brevity; a ceiling enforces it.
+        let client = llm_client_capped(
+            env_secs("LOCALVOX_LLM_CHAT_TIMEOUT_SEC", 120),
+            Some(0.0),
+            env_secs("LOCALVOX_LLM_CHAT_MAX_TOKENS", 800) as u32,
+        );
         crate::chat::ask(self, question, &client)
     }
 
@@ -1024,15 +1261,222 @@ impl Archive {
         out
     }
 
-    /// "Finish the session": the engine will close the current one and start a new
-    /// one, and the cook will pick up the closed one. Previously one had to kill the
-    /// daemon just to get a summary.
-    pub fn finish_session(&self) -> Result<String> {
+    /// The WHOLE recording as one WAV, sliced to a byte range.
+    ///
+    /// This is what makes the player instant. Instead of us re-fetching a window on every click,
+    /// the browser is handed one `audio.wav` with HTTP Range support and does the seeking itself —
+    /// it asks for exactly the bytes around the target and lands there at once. The daemon never
+    /// holds the whole file: each range request produces only its own slice, mixed on the fly.
+    ///
+    /// `range` is `(start, end_inclusive)` from the `Range: bytes=` header; `None` — the whole
+    /// file (which is still served slice-by-slice, never built entire).
+    pub fn audio_wav(&self, session: &str, range: Option<(u64, Option<u64>)>) -> Result<AudioSlice> {
+        let dir = self.session_dir(session)?;
+        let meta: localvox_light_core::chunks::SessionMeta =
+            serde_json::from_slice(&fs::read(dir.join("meta.json")).context("нет meta.json")?)
+                .context("meta.json не читается")?;
+
+        let duration = meta
+            .chunks
+            .iter()
+            .map(|c| c.start_offset_sec + c.duration_sec)
+            .fold(0.0_f64, f64::max);
+        // Even/whole samples: a WAV frame is 2 bytes, and an odd data length would desync s16.
+        let pcm_len = ((duration * SR) as u64) * 2;
+        let file_len = 44 + pcm_len;
+
+        let (start, end) = match range {
+            Some((s, e)) => {
+                let end = e.map(|e| (e + 1).min(file_len)).unwrap_or(file_len);
+                (s.min(file_len), end.max(s.min(file_len)))
+            }
+            None => (0, file_len),
+        };
+
+        let mut bytes = Vec::with_capacity((end - start) as usize);
+        // The header, if the range reaches into the first 44 bytes.
+        if start < 44 {
+            let header = wav_header(pcm_len as u32);
+            bytes.extend_from_slice(&header[start as usize..end.min(44) as usize]);
+        }
+        // The PCM part, mixed on the fly for exactly the samples this range covers.
+        let pcm_from = start.max(44) - 44;
+        let pcm_to = end.max(44) - 44;
+        if pcm_to > pcm_from {
+            let sample_from = pcm_from / 2;
+            let sample_to = pcm_to.div_ceil(2);
+            let mic = source_pcm(&dir, &meta, 0, sample_from, sample_to).unwrap_or_default();
+            let sys = source_pcm(&dir, &meta, 1, sample_from, sample_to).unwrap_or_default();
+            let mixed = mix(&mic, &sys);
+            // `mixed` begins at byte `sample_from*2`; take the exact window the range asked for.
+            let off = (pcm_from - sample_from * 2) as usize;
+            let want = (pcm_to - pcm_from) as usize;
+            let avail = mixed.len().saturating_sub(off);
+            bytes.extend_from_slice(&mixed[off..off + want.min(avail)]);
+            // A track can end before the timeline does (system audio goes quiet). Pad with silence
+            // so the file's length always matches its declared duration — or the browser's clock
+            // drifts against ours.
+            if want > avail {
+                bytes.resize(bytes.len() + (want - avail), 0);
+            }
+        }
+
+        Ok(AudioSlice { total: file_len, start, end, bytes })
+    }
+
+    /// The shape of the recording: peak loudness per bucket, for the waveform in the player.
+    ///
+    /// It is REAL. A drawn wave (a sine, noise, anything "pretty") is worse than no wave at all:
+    /// people navigate a recording by it — they aim at the loud part where the argument was — and
+    /// a wave that does not match the sound sends them to the wrong place while looking exactly
+    /// as trustworthy as one that does.
+    ///
+    /// One pass over the audio, cached in `peaks.json`. The cache is derived data and therefore
+    /// disposable: delete it and it is recomputed from the chunks, which are the truth.
+    pub fn peaks(&self, name: &str, buckets: usize) -> Result<Value> {
+        let buckets = buckets.clamp(32, 2000);
+        let dir = self.session_dir(name)?;
+        let meta: localvox_light_core::chunks::SessionMeta =
+            serde_json::from_slice(&fs::read(dir.join("meta.json")).context("нет meta.json")?)
+                .context("meta.json не читается")?;
+
+        let duration = meta
+            .chunks
+            .iter()
+            .map(|c| c.start_offset_sec + c.duration_sec)
+            .fold(0.0_f64, f64::max);
+        if duration <= 0.0 {
+            return Ok(json!({ "duration_sec": 0.0, "peaks": [] }));
+        }
+
+        let cache = dir.join("peaks.json");
+        if let Some(v) = fs::read(&cache)
+            .ok()
+            .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+            .filter(|v| v["buckets"] == json!(buckets))
+            .filter(|v| (v["duration_sec"].as_f64().unwrap_or(0.0) - duration).abs() < 0.5)
+        {
+            return Ok(v);
+        }
+
+        // In windows, not all at once: an hour of a track is 115 MB, and holding two of them in
+        // the daemon's memory to draw a strip 300 pixels wide is not an honest trade.
+        const WINDOW_SEC: f64 = 60.0;
+        let mut acc = vec![0f32; buckets];
+        let mut from = 0.0_f64;
+        while from < duration {
+            let to = (from + WINDOW_SEC).min(duration);
+            for source_id in 0..2u8 {
+                // A chunk that cannot be read must not cost us the whole wave: the player is more
+                // useful with a gap in the picture than absent because of one broken file.
+                let pcm = source_pcm(
+                    &dir,
+                    &meta,
+                    source_id,
+                    (from * SR) as u64,
+                    (to * SR) as u64,
+                )
+                .unwrap_or_default();
+                for (i, s) in pcm.chunks_exact(2).enumerate() {
+                    let v = f32::from(i16::from_le_bytes([s[0], s[1]]).saturating_abs());
+                    let at = from + i as f64 / SR;
+                    let b = ((at / duration) * buckets as f64) as usize;
+                    let b = b.min(buckets - 1);
+                    // The two tracks are NOT summed but taken at their max: the wave answers
+                    // "was it loud here", and a sum would make a moment where both speak at once
+                    // look twice as loud as the argument that followed it.
+                    if v > acc[b] {
+                        acc[b] = v;
+                    }
+                }
+            }
+            from = to;
+        }
+
+        // Normalized against the loudest moment of THIS recording, and through a square root: a
+        // quiet conversation must be visible as speech, not as a flat line at the bottom.
+        let loudest = acc.iter().copied().fold(0f32, f32::max).max(1.0);
+        let peaks: Vec<f32> = acc.iter().map(|v| (v / loudest).sqrt()).collect();
+
+        let out = json!({ "duration_sec": duration, "buckets": buckets, "peaks": peaks });
+        let _ = fs::write(&cache, serde_json::to_vec(&out).unwrap_or_default());
+        Ok(out)
+    }
+
+    /// A link → a session. The same code the voice command uses: one writer, not two.
+    pub fn ingest(&self, raw_url: &str) -> Result<String> {
+        localvox_light_core::ingest::from_url(&self.work_dir, raw_url)
+    }
+
+    /// What is happening with the session, stage by stage. "⚙ cooking" for ten minutes answers
+    /// "is anything happening at all" but not "where is it now" — and, when it breaks, not "what
+    /// exactly broke".
+    /// «Всё верно» — человек прочитал документ и снял пометку сомнения.
+    ///
+    /// Антоним «переварить заново»: там человек говорит «машина ошиблась, переделай», здесь —
+    /// «машина придирается, всё нормально». Наша проверка сверяет буквально и всегда будет
+    /// ошибаться (измерено: «Сергей» и «муж» помечены выдумкой, хотя прозвучали вслух). Человек
+    /// читал текст и может послушать запись — машина не может. Его слово весомее, и оно
+    /// ЗАПОМИНАЕТСЯ: предупреждение, которое возвращается после ответа, перестают читать вообще.
+    ///
+    /// Кнопка была, а этого метода и его адреса не было вовсе — она стучалась в никуда и молча
+    /// ничего не делала.
+    pub fn confirm(&self, session: &str, artifact: &str) -> Result<String> {
+        // Только то, что мы правда умеем подтверждать: чужое имя артефакта не должно молча
+        // создавать запись в журнале.
+        let artifact = match artifact {
+            "summary" => localvox_light_core::processing::SUMMARY,
+            "processed" => localvox_light_core::processing::PROCESSED,
+            other => bail!("неизвестный документ: {other}"),
+        };
+        let dir = self.session_dir(session)?;
+        if localvox_light_core::processing::confirm(&dir, artifact) {
+            tracing::info!("{session}/{artifact}: человек подтвердил — пометка снята");
+            Ok("Отмечено: всё верно".into())
+        } else {
+            // Не ошибка: подтверждать было нечего (пометки нет или её уже сняли).
+            Ok("Пометки и так не было".into())
+        }
+    }
+
+    pub fn progress(&self, name: &str) -> Result<Value> {
+        let dir = self.session_dir(name)?;
+        let stages = localvox_light_core::progress::fold(&localvox_light_core::progress::read(&dir));
+        let source: Option<localvox_light_core::chunks::Source> =
+            std::fs::read(dir.join("meta.json"))
+                .ok()
+                .and_then(|b| serde_json::from_slice::<localvox_light_core::chunks::SessionMeta>(&b).ok())
+                .and_then(|m| m.source);
+        // WHETHER THE RUN IS STILL GOING cannot be read off the stages, and this is why the chain
+        // used to read "finished" mid-cook. A stage only appears once it has spoken, so in the gap
+        // between one stage ending and the next starting — 42 seconds while the model loads, in the
+        // logs — every stage present says "done" and the picture says the work is over.
+        //
+        // The stages cannot answer it even in principle: the last one to speak has no idea whether
+        // anyone comes after it. The queue knows — it holds the job — so the answer comes from
+        // there, and the chain stops guessing.
+        let live = localvox_light_core::jobs::JobQueue::load(&self.work_dir)
+            .jobs()
+            .iter()
+            .any(|j| {
+                j.session == name
+                    && matches!(
+                        j.state,
+                        localvox_light_core::jobs::JobState::Running
+                            | localvox_light_core::jobs::JobState::Pending
+                    )
+            });
+        Ok(json!({ "stages": stages, "source": source, "running": live }))
+    }
+
+    /// Stop recording: the engine closes the session, and the cook picks it up. The reason
+    /// goes into `meta.json` — the archive must be able to say who ended the recording.
+    pub fn stop_recording(&self) -> Result<String> {
         let Some(name) = localvox_light_core::jobs::recording_session(&self.work_dir) else {
             bail!("сейчас ничего не записывается");
         };
-        localvox_light_core::jobs::request_finish(&self.work_dir, "вручную")
-            .context("не удалось попросить движок закрыть сессию")?;
+        localvox_light_core::jobs::request_record_stop(&self.work_dir, "вручную")
+            .context("не удалось попросить движок остановить запись")?;
         Ok(name)
     }
 
@@ -1044,6 +1488,69 @@ impl Archive {
         SlotRegistry::load(&config)
             .map(|r| r.names().into_iter().map(str::to_string).collect())
             .unwrap_or_default()
+    }
+
+    /// Remove one note from a slot.
+    ///
+    /// This deletes from the person's OWN vault — a file they also edit by hand — so the note is
+    /// identified by its text and its file, never by a position in a list that may already be
+    /// stale. The slot's configured path is the boundary of what can be touched, and that is
+    /// enforced inside the integration rather than trusted from here.
+    /// `raw` is the line AS IT IS IN THE FILE — the screen shows a cleaned rendering (no bullet, no
+    /// date prefix), and deleting by that rendering would either miss the line or match a different
+    /// one that happens to render identically.
+    pub fn delete_slot_note(&self, slot: &str, raw: &str, source: &str) -> Result<()> {
+        let config = SlotRegistry::default_config_path(None);
+        let registry = SlotRegistry::load(&config).context("не прочитан slots.toml")?;
+        let target = registry
+            .resolve(slot)
+            .with_context(|| format!("слота «{slot}» нет"))?;
+        target.delete_note(&localvox_light_integrations::StoredNote {
+            text: raw.to_string(),
+            date: None,
+            raw: raw.to_string(),
+            source: source.to_string(),
+        })
+    }
+
+    /// The notes that are actually IN the slots — «полистать посмотреть».
+    ///
+    /// Until this existed, a voice note left for a file on another disk and the app never mentioned
+    /// it again: the only way to check that anything had been written was a file manager. A
+    /// secretary that takes dictation and then refuses to show you the notebook is half a
+    /// secretary.
+    ///
+    /// A slot that cannot be read back (an MCP server we only send to) is reported as such, with
+    /// its reason — never as an empty list, because «нельзя прочитать» and «здесь пусто» are
+    /// opposite facts.
+    pub fn slot_notes(&self, limit: usize) -> Vec<serde_json::Value> {
+        let config = SlotRegistry::default_config_path(None);
+        let Ok(registry) = SlotRegistry::load(&config) else {
+            return Vec::new();
+        };
+        registry
+            .slots()
+            .iter()
+            .map(|s| {
+                let (notes, error) = if s.can_read() {
+                    match s.read_notes(limit) {
+                        Ok(n) => (n, None),
+                        // A destination configured but unreachable — an unplugged drive, a path
+                        // that moved. Saying which beats an empty list that reads as «нет идей».
+                        Err(e) => (Vec::new(), Some(format!("{e:#}"))),
+                    }
+                } else {
+                    (Vec::new(), Some("сюда можно только писать".to_string()))
+                };
+                json!({
+                    "name": s.name,
+                    "default": s.default,
+                    "readable": s.can_read(),
+                    "notes": notes,
+                    "error": error,
+                })
+            })
+            .collect()
     }
 
     /// The transcript versions of a session. Not "×7" on the card — that number
@@ -1086,6 +1593,63 @@ impl Archive {
 
     /// State of the background cook queue (WP-C7) — visibility of the autopilot:
     /// "N cooking, M queued, K failed". Reads `jobs.json` (P5: files only).
+    /// THE QUEUE: what is being cooked now, and what comes after it, in order.
+    ///
+    /// Order is the queue's whole meaning, and it is the file's own order — the daemon takes
+    /// pending jobs exactly as they lie, oldest first. So the list is not sorted by anything
+    /// clever here: reordering it for looks would make it a lie about what happens next.
+    ///
+    /// `Done` is deliberately absent. A queue is what is left to do; what is finished lives in the
+    /// archive, with its own card and its own stages.
+    pub fn queue(&self) -> Vec<QueueItem> {
+        use localvox_light_core::jobs::{JobKind, JobState as S, MAX_REVIVALS};
+        let q = localvox_light_core::jobs::JobQueue::load(&self.work_dir);
+        let mut place = 0usize;
+        q.jobs()
+            .iter()
+            .filter(|j| !matches!(j.state, S::Done))
+            .map(|j| {
+                // The meta gives the human name; without it the person reads directory stamps.
+                let meta: Option<localvox_light_core::chunks::SessionMeta> =
+                    fs::read(self.sessions_root().join(&j.session).join("meta.json"))
+                        .ok()
+                        .and_then(|b| serde_json::from_slice(&b).ok());
+                let title = meta
+                    .as_ref()
+                    .and_then(|m| m.title.clone())
+                    .or_else(|| meta.as_ref().and_then(|m| m.source.as_ref().map(|s| s.url.clone())))
+                    .unwrap_or_else(|| j.session.clone());
+                let position = if j.state == S::Pending {
+                    place += 1;
+                    Some(place)
+                } else {
+                    None // what is running is not waiting
+                };
+                QueueItem {
+                    session: j.session.clone(),
+                    title,
+                    started_at: meta.and_then(|m| Some(m.started_at)),
+                    state: match j.state {
+                        S::Running => "running",
+                        S::Pending => "pending",
+                        S::Failed => "failed",
+                        S::Done => "done",
+                    }
+                    .into(),
+                    kind: match j.kind {
+                        JobKind::Cook => "cook",
+                        JobKind::Ingest => "ingest",
+                    }
+                    .into(),
+                    position,
+                    attempts: j.attempts,
+                    last_error: j.last_error.clone(),
+                    stuck: j.state == S::Failed && j.revivals >= MAX_REVIVALS,
+                }
+            })
+            .collect()
+    }
+
     pub fn jobs_status(&self) -> JobsStatus {
         let q = localvox_light_core::jobs::JobQueue::load(&self.work_dir);
         let mut st = JobsStatus::default();
@@ -1192,6 +1756,117 @@ mod tests {
         assert!(mix(&[], &[]).is_empty());
     }
 
+    /// THE BUTTON THAT DID NOTHING. «Всё верно» called `POST /api/sessions/{name}/confirm`, and
+    /// neither the route nor this method existed — the click went into the void, the plaque stayed,
+    /// and the person kept being told the same doubt about a document he had already read.
+    ///
+    /// A warning that comes back after it has been answered stops being read altogether. That is
+    /// why the human's verdict must be REMEMBERED, and why this is tested end to end from the
+    /// archive's own surface, not from the check inside the core.
+    #[test]
+    fn confirming_a_doubt_removes_the_plaque_for_good() {
+        use localvox_light_core::processing::{self, Outcome};
+        let dir = tempfile::tempdir().unwrap();
+        let sdir = dir.path().join("sessions/20260716_x");
+        std::fs::create_dir_all(&sdir).unwrap();
+        let a = Archive::new(dir.path().to_path_buf());
+
+        // The check flagged the summary — exactly as it did on the live recording where «Сергей»
+        // and «муж» were called inventions although both were said out loud.
+        processing::record(
+            &sdir,
+            processing::SUMMARY,
+            "summary/ru/qwen3.5:9b/p2",
+            Outcome::Unverified,
+            Some("имена/названия: сергей".into()),
+            None,
+        );
+        assert!(
+            processing::doubts(&sdir, processing::SUMMARY).is_some(),
+            "the doubt was not recorded — the test proves nothing"
+        );
+
+        assert!(a.confirm("20260716_x", "summary").is_ok());
+
+        assert!(
+            processing::doubts(&sdir, processing::SUMMARY).is_none(),
+            "the plaque survived the click — this is the bug the owner hit"
+        );
+        // And it must not come back on the next read of the archive.
+        assert!(processing::doubts(&sdir, processing::SUMMARY).is_none());
+
+        // Pressing it again is not an error: there is simply nothing left to confirm.
+        assert!(a.confirm("20260716_x", "summary").is_ok());
+        // An artifact we do not know is refused rather than silently invented in the ledger.
+        assert!(a.confirm("20260716_x", "нечто").is_err());
+    }
+
+    /// THE GREEN CHAIN. Between two stages the cook says nothing — in the owner's own logs, 42
+    /// seconds of it while the model loaded. Every stage that had spoken said "done", so the chain
+    /// read as finished while the work was very much going, and he watched a picture that had
+    /// nothing left to show him.
+    ///
+    /// The stages cannot answer this: the last one to speak does not know whether anyone follows.
+    /// The queue holds the job, so the queue is asked.
+    #[test]
+    fn a_chain_between_two_stages_does_not_claim_to_be_finished() {
+        use localvox_light_core::jobs::JobQueue;
+        use localvox_light_core::progress::{self, Stage, StageState};
+
+        let dir = tempfile::tempdir().unwrap();
+        let sdir = dir.path().join("sessions/20260716_g");
+        std::fs::create_dir_all(&sdir).unwrap();
+        let a = Archive::new(dir.path().to_path_buf());
+
+        // The exact shape of the gap: the run is open, transcribe and refine are done, and summary
+        // has not started yet — the model is loading.
+        progress::new_run(&sdir);
+        progress::mark(&sdir, Stage::Transcribe, StageState::Done, Some("149 строк"));
+        progress::mark(&sdir, Stage::Refine, StageState::Done, None);
+
+        let mut q = JobQueue::load(dir.path());
+        assert!(q.enqueue_cook("20260716_g", true, true, true));
+        let id = q.pending_ids()[0];
+        q.start(id).expect("the job did not start");
+
+        let p = a.progress("20260716_g").unwrap();
+        // Every stage present says done — which is exactly why the chain used to lie.
+        assert!(
+            p["stages"].as_array().unwrap().iter().all(|s| s["state"] == "done"),
+            "the gap was not reproduced, so this test proves nothing: {p}"
+        );
+        assert_eq!(
+            p["running"], true,
+            "the chain says the cook is over while the job is still running — the owner's bug"
+        );
+
+        // The job finishes: only now is the chain entitled to read as finished.
+        let mut q = JobQueue::load(dir.path());
+        q.mark_done(id);
+        assert_eq!(a.progress("20260716_g").unwrap()["running"], false);
+    }
+
+    /// Deletion is the one irreversible action. The wrong `confirm` must never remove anything —
+    /// the guard is the difference between "redo" and "gone".
+    #[test]
+    fn delete_needs_the_session_name_and_is_final() {
+        let dir = tempfile::tempdir().unwrap();
+        let sdir = dir.path().join("sessions/20260715_x");
+        std::fs::create_dir_all(sdir.join("audio")).unwrap();
+        std::fs::write(sdir.join("audio/src0.wav"), b"x").unwrap();
+        let a = Archive::new(dir.path().to_path_buf());
+
+        // Wrong confirmation: nothing happens, the audio stays.
+        assert!(a.delete_session("20260715_x", "не то").is_err());
+        assert!(sdir.exists(), "a wrong confirm still deleted the session");
+
+        // The name echoed back: gone, and gone for good.
+        assert_eq!(a.delete_session("20260715_x", "20260715_x").unwrap(), "20260715_x");
+        assert!(!sdir.exists());
+        // Deleting again is an honest error, not a panic.
+        assert!(a.delete_session("20260715_x", "20260715_x").is_err());
+    }
+
     #[test]
     fn session_dir_rejects_everything_but_plain_names() {
         let dir = tempfile::tempdir().unwrap();
@@ -1212,6 +1887,79 @@ mod tests {
             let err = a.session_dir(bad).unwrap_err().to_string();
             assert_eq!(err, "некорректное имя сессии", "not rejected: {bad:?}");
         }
+    }
+
+    /// THE DEFECT THIS EXISTS FOR, caught live on 19.07.2026, session
+    /// `20260718_230541_youtube`. Renaming the source deleted the readable text and queued it for
+    /// a re-cook — the behaviour from when the label was baked into the document at cook time.
+    ///
+    /// It is not baked in any more: the artifact is a delta holding no name at all, and the label
+    /// is joined in on every read. So the rename must reach the text by CHANGING NOTHING, and
+    /// burning minutes of LLM time to rebuild a file byte-for-byte identical to the one on disk is
+    /// not a small waste — it is the whole reason the artifact was reshaped.
+    #[test]
+    fn renaming_a_source_does_not_touch_the_readable_text() {
+        use localvox_light_core::readable;
+        let dir = tempfile::tempdir().unwrap();
+        let sess = dir.path().join("sessions/20260718_rename");
+        std::fs::create_dir_all(&sess).unwrap();
+        std::fs::write(
+            sess.join("meta.json"),
+            serde_json::json!({"started_at": "t", "sample_rate": 16000, "chunks": []}).to_string(),
+        )
+        .unwrap();
+
+        let store = VersionStore::open(&sess).unwrap();
+        let (id, path) = store.next_version("test").unwrap();
+        let line = localvox_light_core::versions::TranscriptLine {
+            source_id: 0,
+            start_sec: 0.0,
+            end_sec: 2.0,
+            text: "ну это самое".into(),
+            speaker: None,
+        };
+        std::fs::write(&path, serde_json::to_string(&line).unwrap() + "\n").unwrap();
+        store
+            .commit(localvox_light_core::versions::VersionEntry {
+                id,
+                label: "test".into(),
+                file: path.file_name().unwrap().to_string_lossy().into(),
+                model: "m".into(),
+                params: serde_json::json!({}),
+                created_at: localvox_light_core::versions::now_rfc3339(),
+                parents: vec![],
+            })
+            .unwrap();
+        readable::save(
+            &sess,
+            &readable::Readable {
+                version_id: id,
+                edits: [(0usize, "Это самое.".to_string())].into_iter().collect(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let before = std::fs::read(readable::path(&sess)).unwrap();
+
+        let a = Archive::new(dir.path().to_path_buf());
+        assert_eq!(readable::lines(&sess).unwrap()[0].who, "Я");
+
+        a.name_source("20260718_rename", 0, "Арсен Маркарян").unwrap();
+
+        assert!(
+            readable::exists(&sess),
+            "the rename deleted the readable text — this is the bug"
+        );
+        assert_eq!(
+            std::fs::read(readable::path(&sess)).unwrap(),
+            before,
+            "the readable artifact was rewritten by a rename"
+        );
+        assert_eq!(
+            readable::lines(&sess).unwrap()[0].who,
+            "Арсен Маркарян",
+            "the new name did not reach the text"
+        );
     }
 
     #[test]
@@ -1313,23 +2061,29 @@ fn chunk_pcm_range(audio: &Path, file: &str, from: u64, to: u64) -> Option<Vec<u
 }
 
 /// Wraps s16le PCM (16 kHz mono) into a minimal WAV container.
-fn wav_16k_mono(pcm: &[u8]) -> Vec<u8> {
+/// The 44-byte WAV header for `data_len` bytes of PCM (16 kHz mono s16).
+fn wav_header(data_len: u32) -> [u8; 44] {
     const SR: u32 = 16_000;
-    let data_len = pcm.len() as u32;
+    let mut h = [0u8; 44];
+    h[0..4].copy_from_slice(b"RIFF");
+    h[4..8].copy_from_slice(&(data_len + 36).to_le_bytes());
+    h[8..12].copy_from_slice(b"WAVE");
+    h[12..16].copy_from_slice(b"fmt ");
+    h[16..20].copy_from_slice(&16u32.to_le_bytes());
+    h[20..22].copy_from_slice(&1u16.to_le_bytes()); // PCM
+    h[22..24].copy_from_slice(&1u16.to_le_bytes()); // mono
+    h[24..28].copy_from_slice(&SR.to_le_bytes());
+    h[28..32].copy_from_slice(&(SR * 2).to_le_bytes()); // byte rate
+    h[32..34].copy_from_slice(&2u16.to_le_bytes()); // block align
+    h[34..36].copy_from_slice(&16u16.to_le_bytes()); // bits
+    h[36..40].copy_from_slice(b"data");
+    h[40..44].copy_from_slice(&data_len.to_le_bytes());
+    h
+}
+
+fn wav_16k_mono(pcm: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(44 + pcm.len());
-    out.extend_from_slice(b"RIFF");
-    out.extend_from_slice(&(data_len + 36).to_le_bytes());
-    out.extend_from_slice(b"WAVE");
-    out.extend_from_slice(b"fmt ");
-    out.extend_from_slice(&16u32.to_le_bytes());
-    out.extend_from_slice(&1u16.to_le_bytes()); // PCM
-    out.extend_from_slice(&1u16.to_le_bytes()); // mono
-    out.extend_from_slice(&SR.to_le_bytes());
-    out.extend_from_slice(&(SR * 2).to_le_bytes()); // byte rate
-    out.extend_from_slice(&2u16.to_le_bytes()); // block align
-    out.extend_from_slice(&16u16.to_le_bytes()); // bits
-    out.extend_from_slice(b"data");
-    out.extend_from_slice(&data_len.to_le_bytes());
+    out.extend_from_slice(&wav_header(pcm.len() as u32));
     out.extend_from_slice(pcm);
     out
 }

@@ -39,13 +39,12 @@ impl ExportFormat {
     }
 }
 
-/// Who said it. Diarization gives the real speaker; without it — only the source of the
-/// sound. Empty is an HONEST answer, not a forgotten field.
-fn speaker(l: &TranscriptLine) -> String {
+/// Who said it. Diarization gives the real speaker; without it — the name of the SOURCE, which
+/// depends on where the audio came from and on what the human called it (`chunks::source_label`).
+fn speaker(l: &TranscriptLine, meta: &crate::chunks::SessionMeta) -> String {
     match l.speaker.as_deref() {
         Some(name) => name.to_string(),
-        None if l.source_id == 0 => "Я".into(),
-        None => "Собеседники".into(),
+        None => crate::chunks::source_label(meta, l.source_id),
     }
 }
 
@@ -86,22 +85,29 @@ pub fn export_session(session_dir: &Path, format: ExportFormat) -> Result<PathBu
         .unwrap_or_default()
         .to_string_lossy()
         .to_string();
+    // The source names live in the session's meta: who «Я» actually is depends on where the audio
+    // came from, and on what the human called it. A missing meta is not fatal here — the defaults
+    // still apply; an export refusing to run over a naming detail would be the wrong trade.
+    let meta: crate::chunks::SessionMeta = std::fs::read(session_dir.join("meta.json"))
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default();
     let body = match format {
-        ExportFormat::Txt => render_txt(&lines),
-        ExportFormat::Md => render_md(&lines, &session_name, &best.label, &best.model),
-        ExportFormat::Srt => render_srt(&lines),
+        ExportFormat::Txt => render_txt(&lines, &meta),
+        ExportFormat::Md => render_md(&lines, &meta, &session_name, &best.label, &best.model),
+        ExportFormat::Srt => render_srt(&lines, &meta),
     };
     let out = session_dir.join(format!("transcript.{}", format.extension()));
     fs::write(&out, body).with_context(|| format!("writing {}", out.display()))?;
     Ok(out)
 }
 
-fn render_txt(lines: &[TranscriptLine]) -> String {
+fn render_txt(lines: &[TranscriptLine], meta: &crate::chunks::SessionMeta) -> String {
     let mut s = String::new();
     for l in lines {
         s.push_str(&format!(
             "[{}] ({}) {}\n",
-            speaker(l),
+            speaker(l, meta),
             fmt_mmss(l.start_sec),
             l.text
         ));
@@ -109,12 +115,14 @@ fn render_txt(lines: &[TranscriptLine]) -> String {
     s
 }
 
-fn render_md(lines: &[TranscriptLine], session: &str, label: &str, model: &str) -> String {
+fn render_md(
+    lines: &[TranscriptLine],
+    meta: &crate::chunks::SessionMeta, session: &str, label: &str, model: &str) -> String {
     let mut s = format!("# Транскрипт: {session}\n\n> версия: {label} · модель: {model}\n\n");
     for l in lines {
         s.push_str(&format!(
             "**[{}]** `{}`\n{}\n\n",
-            speaker(l),
+            speaker(l, meta),
             fmt_mmss(l.start_sec),
             l.text
         ));
@@ -122,7 +130,7 @@ fn render_md(lines: &[TranscriptLine], session: &str, label: &str, model: &str) 
     s
 }
 
-fn render_srt(lines: &[TranscriptLine]) -> String {
+fn render_srt(lines: &[TranscriptLine], meta: &crate::chunks::SessionMeta) -> String {
     let mut s = String::new();
     for (i, l) in lines.iter().enumerate() {
         s.push_str(&format!(
@@ -130,7 +138,7 @@ fn render_srt(lines: &[TranscriptLine]) -> String {
             i + 1,
             fmt_srt(l.start_sec),
             fmt_srt(l.end_sec),
-            speaker(l),
+            speaker(l, meta),
             l.text
         ));
     }

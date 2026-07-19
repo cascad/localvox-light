@@ -31,6 +31,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
+use rust_embed::Embed;
 use serde_json::{json, Value};
 use tiny_http::{Header, Method, Response, Server};
 
@@ -114,7 +115,19 @@ pub fn serve(server: Server, archive: Arc<Archive>, cfg: HttpConfig) -> Result<(
     Ok(())
 }
 
-/// The embedded web page of the archive (search/sessions/notes from a phone).
+/// The application: the built frontend (`ui/dist`), embedded into the binary. It is
+/// the same code that runs in the desktop shell, in the browser and on a phone over
+/// the LAN — the shell only opens a window onto this origin.
+///
+/// If `ui/dist` is absent, build.rs puts a page there that says how to build it: a
+/// missing frontend must not break `cargo build` for someone who has no Node.
+#[derive(Embed)]
+#[folder = "../../ui/dist"]
+struct WebApp;
+
+/// The previous single-file page. Kept at `/legacy` until the new UI reaches parity —
+/// removing the only working interface before its replacement is proven is how you end
+/// up with no interface at all.
 pub const WEBAPP_HTML: &str = include_str!("webapp.html");
 
 /// The PWA manifest: the page installs onto the home screen as an application.
@@ -137,14 +150,35 @@ const WEBAPP_MANIFEST: &str = r##"{
   ]
 }"##;
 
-/// CSP + anti-sniff + no-cache for the static page: the only inline script is ours,
-/// but connections go only to our own origin (the token from localStorage MUST NOT
-/// leak outward), and the cache does not stick to an old version after a daemon
-/// update.
+/// CSP for the app: scripts and styles are our own files and nothing else. Connections
+/// go only to our own origin — the token lives in localStorage and MUST NOT leak
+/// outward. `style-src` keeps 'unsafe-inline' because React writes style attributes;
+/// scripts have no such loophole.
+const APP_CSP: &str = "default-src 'none'; script-src 'self'; \
+style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; \
+media-src 'self' blob:; manifest-src 'self'; base-uri 'none'; form-action 'none'; \
+frame-ancestors 'none'";
+
+/// The legacy single-file page: its script IS inline, so it needs its own CSP.
 const WEBAPP_CSP: &str = "default-src 'none'; script-src 'unsafe-inline'; \
 style-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; \
 media-src 'self' blob:; manifest-src 'self'; base-uri 'none'; form-action 'none'; \
 frame-ancestors 'none'";
+
+/// Content type by extension. A wrong type on a module script means the browser
+/// refuses to run it, and the app shows a blank page with no error anywhere.
+fn content_type(path: &str) -> &'static str {
+    match path.rsplit_once('.').map(|(_, e)| e) {
+        Some("html") => "text/html; charset=utf-8",
+        Some("js") => "text/javascript; charset=utf-8",
+        Some("css") => "text/css; charset=utf-8",
+        Some("svg") => "image/svg+xml",
+        Some("png") => "image/png",
+        Some("woff2") => "font/woff2",
+        Some("json") => "application/json; charset=utf-8",
+        _ => "application/octet-stream",
+    }
+}
 
 fn header(name: &str, value: &str) -> Header {
     Header::from_bytes(name.as_bytes(), value.as_bytes()).expect("valid header")
@@ -162,6 +196,51 @@ fn host_is_loopback(h: &str) -> bool {
         .unwrap_or(hostport);
     let host = host.trim_start_matches('[').trim_end_matches(']');
     host == "127.0.0.1" || host == "::1" || host.eq_ignore_ascii_case("localhost")
+}
+
+/// `Range: bytes=START-END` → `(start, end_inclusive?)`. Only a single range is honoured — that is
+/// all a media element ever sends. Anything unparseable means "the whole file".
+fn parse_range(request: &tiny_http::Request) -> Option<(u64, Option<u64>)> {
+    let raw = request
+        .headers()
+        .iter()
+        .find(|h| h.field.equiv("Range"))
+        .map(|h| h.value.as_str().to_string())?;
+    let spec = raw.trim().strip_prefix("bytes=")?;
+    let (a, b) = spec.split_once('-')?;
+    let start: u64 = a.trim().parse().ok()?;
+    let end = b.trim();
+    let end = if end.is_empty() { None } else { Some(end.parse().ok()?) };
+    Some((start, end))
+}
+
+/// Serve the recording's WAV, honouring Range so the browser seeks natively.
+fn serve_audio_wav(archive: &Archive, request: tiny_http::Request, name: &str) {
+    let range = parse_range(&request);
+    let partial = range.is_some();
+    match archive.audio_wav(name, range) {
+        Ok(slice) => {
+            let status = if partial { 206 } else { 200 };
+            let mut response = Response::from_data(slice.bytes)
+                .with_status_code(status)
+                .with_header(header("Content-Type", "audio/wav"))
+                // Without this the browser will not even try to seek by range — it re-downloads
+                // from the start on every seek, which is exactly the lag we are removing.
+                .with_header(header("Accept-Ranges", "bytes"));
+            if partial {
+                response = response.with_header(header(
+                    "Content-Range",
+                    &format!("bytes {}-{}/{}", slice.start, slice.end.saturating_sub(1), slice.total),
+                ));
+            }
+            let _ = request.respond(response);
+        }
+        Err(e) => {
+            let msg = format!("{e:#}");
+            tracing::warn!("audio {name}: {msg}");
+            respond_json(request, 404, json!({"error": msg}));
+        }
+    }
 }
 
 fn handle_request(archive: &Archive, cfg: &HttpConfig, mut request: tiny_http::Request) {
@@ -183,15 +262,44 @@ fn handle_request(archive: &Archive, cfg: &HttpConfig, mut request: tiny_http::R
 
     // Static content without authorization: it holds no secrets, the data is behind
     // /api/*.
-    if method == Method::Get && matches!(split_url(&url).0, "/" | "/app") {
-        let response = Response::from_string(WEBAPP_HTML)
-            .with_status_code(200)
-            .with_header(header("Content-Type", "text/html; charset=utf-8"))
-            .with_header(header("Content-Security-Policy", WEBAPP_CSP))
-            .with_header(header("X-Content-Type-Options", "nosniff"))
-            .with_header(header("Cache-Control", "no-cache"));
-        let _ = request.respond(response);
-        return;
+    if method == Method::Get {
+        let path = split_url(&url).0;
+
+        // The app. Asset names carry a content hash, so they may be cached forever;
+        // index.html must not be, or a daemon update leaves the browser on the old one.
+        let asset = match path {
+            "/" | "/app" => Some("index.html"),
+            p if p.starts_with("/assets/") => Some(p.trim_start_matches('/')),
+            _ => None,
+        };
+        if let Some(name) = asset {
+            if let Some(file) = WebApp::get(name) {
+                let immutable = name != "index.html";
+                let response = Response::from_data(file.data.into_owned())
+                    .with_status_code(200)
+                    .with_header(header("Content-Type", content_type(name)))
+                    .with_header(header("Content-Security-Policy", APP_CSP))
+                    .with_header(header("X-Content-Type-Options", "nosniff"))
+                    .with_header(header(
+                        "Cache-Control",
+                        if immutable { "public, max-age=31536000, immutable" } else { "no-cache" },
+                    ));
+                let _ = request.respond(response);
+                return;
+            }
+        }
+
+        // The old page while the new one is being finished.
+        if path == "/legacy" {
+            let response = Response::from_string(WEBAPP_HTML)
+                .with_status_code(200)
+                .with_header(header("Content-Type", "text/html; charset=utf-8"))
+                .with_header(header("Content-Security-Policy", WEBAPP_CSP))
+                .with_header(header("X-Content-Type-Options", "nosniff"))
+                .with_header(header("Cache-Control", "no-cache"));
+            let _ = request.respond(response);
+            return;
+        }
     }
 
     let is_local = request
@@ -203,6 +311,31 @@ fn handle_request(archive: &Archive, cfg: &HttpConfig, mut request: tiny_http::R
         .iter()
         .find(|h| h.field.equiv("Authorization"))
         .map(|h| h.value.as_str().to_string());
+
+    // The full recording as one streamable WAV — the player hands this straight to an <audio>
+    // element, which then seeks NATIVELY via HTTP Range: instant, exact, fetching only the bytes
+    // around the target. Handled here, before the header-only auth, because an <audio> element
+    // sends no Authorization header — it authenticates by loopback, or by a `?token=` the client
+    // appends (a local media stream; the query-token trade-off is scoped to this one route).
+    if method == Method::Get {
+        let (path, query) = split_url(&url);
+        if let Some(rest) = path.strip_prefix("/api/sessions/") {
+            if let Some((name, "audio.wav")) = rest.split_once('/') {
+                let q_token = query_param(query, "token");
+                let ok = match &cfg.token {
+                    Some(t) => q_token.as_deref() == Some(t.as_str())
+                        || auth_header.as_deref() == Some(&format!("Bearer {t}")),
+                    None => is_local,
+                };
+                if !ok {
+                    respond_json(request, 401, json!({"error": "unauthorized"}));
+                    return;
+                }
+                serve_audio_wav(archive, request, name);
+                return;
+            }
+        }
+    }
 
     // The default (no token) trusts loopback — but then Host/Origin MUST be loopback
     // too, otherwise a third-party site, through the victim's browser (CSRF / DNS
@@ -275,7 +408,8 @@ fn handle_request(archive: &Archive, cfg: &HttpConfig, mut request: tiny_http::R
     }
 
     let mut body = String::new();
-    if method == Method::Post {
+    // DELETE carries a body too: the session name is echoed back in it as confirmation.
+    if method == Method::Post || method == Method::Delete {
         use std::io::Read as _;
         let declared_too_big = request.body_length().is_some_and(|n| n > MAX_BODY_BYTES);
         if !declared_too_big {
@@ -361,6 +495,9 @@ pub fn respond(
             }
             // Visibility of the autopilot: what is cooking / how many are queued (WP-C13)
             (Method::Get, "/api/jobs") => Ok(serde_json::to_value(archive.jobs_status())?),
+            // The queue itself: what is cooking now and what comes after it, in order. Counts
+            // answer «is it working»; only a list answers «on what, and what is next».
+            (Method::Get, "/api/queue") => Ok(json!({"queue": archive.queue()})),
             (Method::Get, "/api/sessions") => {
                 let limit = query_param(query, "limit")
                     .and_then(|v| v.parse().ok())
@@ -434,7 +571,83 @@ pub fn respond(
             // puts the session up for cooking anew. The audio is not touched:
             // everything is recreated from it, so throwing away a derivative is not a
             // loss.
+            // What the session's audio sources are called. Not speakers: «which input», and the
+            // name matters most for a session that arrived by link, where source 0 is not the owner.
+            (Method::Get, p) if p.ends_with("/sources") => {
+                let name = p
+                    .strip_prefix("/api/sessions/")
+                    .and_then(|r| r.strip_suffix("/sources"))
+                    .context("не найдено")?;
+                Ok(json!({ "sources": archive.sources(name)? }))
+            }
+            (Method::Post, p) if p.ends_with("/sources") => {
+                let name = p
+                    .strip_prefix("/api/sessions/")
+                    .and_then(|r| r.strip_suffix("/sources"))
+                    .context("не найдено")?;
+                let parsed: Value = serde_json::from_str(body).context("тело — JSON")?;
+                let source_id = parsed
+                    .get("source_id")
+                    .and_then(Value::as_u64)
+                    .context("нужно поле source_id")? as u8;
+                // An empty name is a REQUEST, not a mistake: it means «back to the default».
+                let new_name = parsed.get("name").and_then(Value::as_str).unwrap_or("");
+                Ok(json!({"ok": true, "msg": archive.name_source(name, source_id, new_name)?}))
+            }
             (Method::Get, "/api/slots") => Ok(json!({"slots": archive.slots()})),
+            // What is actually IN the slots. Without this the app takes dictation and then never
+            // mentions the note again — the only way to check it landed was a file manager.
+            (Method::Get, p) if p.starts_with("/api/slots/notes") => {
+                let (_, query) = split_url(p);
+                let limit = query_param(query, "limit")
+                    .and_then(|v| v.parse::<usize>().ok())
+                    .unwrap_or(50)
+                    .clamp(1, 500);
+                Ok(json!({ "slots": archive.slot_notes(limit) }))
+            }
+            // Remove a note. DELETE, not POST: this destroys something in the person's own vault,
+            // and the method should say so. The note is named by its text and its file — never by a
+            // position in a list, which the file's own editor may have shifted already.
+            (Method::Delete, "/api/slots/notes") => {
+                let parsed: Value = serde_json::from_str(body).context("тело — JSON")?;
+                let slot = parsed
+                    .get("slot")
+                    .and_then(Value::as_str)
+                    .context("нужно поле slot")?;
+                // `raw` — the line as it is in the file, not the cleaned text the screen shows.
+                let raw = parsed
+                    .get("raw")
+                    .and_then(Value::as_str)
+                    .context("нужно поле raw")?;
+                let source = parsed
+                    .get("source")
+                    .and_then(Value::as_str)
+                    .context("нужно поле source")?;
+                archive.delete_slot_note(slot, raw, source)?;
+                Ok(json!({"ok": true, "deleted": raw}))
+            }
+            // The shape of the recording for the player's waveform. Real, not drawn: people aim
+            // at the loud stretch by it, and a wave that does not match the sound sends them to
+            // the wrong place while looking just as trustworthy.
+            (Method::Get, p) if p.ends_with("/peaks") => {
+                let name = p
+                    .strip_prefix("/api/sessions/")
+                    .and_then(|r| r.strip_suffix("/peaks"))
+                    .context("не найдено")?;
+                let buckets = query_param(query, "buckets")
+                    .and_then(|v| v.parse::<usize>().ok())
+                    .unwrap_or(160);
+                archive.peaks(name, buckets)
+            }
+            // Where the session is RIGHT NOW: the chain of stages, each with its state, its
+            // time and — if it broke — its reason.
+            (Method::Get, p) if p.ends_with("/progress") => {
+                let name = p
+                    .strip_prefix("/api/sessions/")
+                    .and_then(|r| r.strip_suffix("/progress"))
+                    .context("не найдено")?;
+                archive.progress(name)
+            }
             // Transcript versions: what it was cooked with, when, which is the working
             // one right now.
             (Method::Get, p) if p.ends_with("/versions") => {
@@ -443,6 +656,16 @@ pub fn respond(
                     .and_then(|r| r.strip_suffix("/versions"))
                     .context("не найдено")?;
                 Ok(json!({"versions": archive.versions(name)?}))
+            }
+            // Delete the session entirely — audio and all derivatives. The ONLY irreversible
+            // action here: everywhere else the audio is kept and the rest is recomputable. The
+            // body echoes the session name back as confirmation; the guard against deleting a live
+            // recording lives in the archive.
+            (Method::Delete, p) if p.starts_with("/api/sessions/") => {
+                let name = p.strip_prefix("/api/sessions/").context("не найдено")?;
+                let parsed: Value = serde_json::from_str(body).unwrap_or(json!({}));
+                let confirm = parsed.get("confirm").and_then(Value::as_str).unwrap_or("");
+                Ok(json!({"ok": true, "deleted": archive.delete_session(name, confirm)?}))
             }
             // Make a version the working one — the summary, the search and the export
             // are computed from it.
@@ -459,18 +682,125 @@ pub fn respond(
                 archive.set_best(name, id)?;
                 Ok(json!({"ok": true, "best": id}))
             }
-            // "Finish the session" — to get a summary one no longer has to kill the
-            // daemon.
-            (Method::Post, "/api/session/finish") => {
-                Ok(json!({"ok": true, "session": archive.finish_session()?}))
-            }
-            // "This is a meeting": close the current recording and start a new one,
-            // with a title. Auto-detection will never see a face-to-face stand-up —
-            // that is why there is a button.
-            (Method::Post, "/api/session/meeting") => {
+            // Is a recording running right now, and can one be started at all. Without this
+            // the app would offer a "record" button while the engine is not even alive — and
+            // the press would go nowhere.
+            (Method::Get, "/api/record") => Ok(serde_json::to_value(archive.record_state())?),
+            // Start recording. Nothing reaches the disk before this — but the last minutes
+            // are held in memory and go INTO the session, so a conversation that began
+            // before the button is not lost.
+            (Method::Post, "/api/record/start") => {
                 let parsed: Value = serde_json::from_str(body).unwrap_or(json!({}));
                 let title = parsed.get("title").and_then(Value::as_str).unwrap_or("");
-                Ok(json!({"ok": true, "msg": archive.start_meeting(title)?}))
+                Ok(json!({"ok": true, "msg": archive.start_recording(title)?}))
+            }
+            // Stop recording — the cook picks the session up at once.
+            (Method::Post, "/api/record/stop") => {
+                Ok(json!({"ok": true, "session": archive.stop_recording()?}))
+            }
+            // The settings screen. ONE config file — `.env`: defaults live in the code, `.env`
+            // overrides them, and this endpoint edits `.env`. There is no second config file, on
+            // purpose: two sources of truth for one fact drift apart the first time either moves.
+            //
+            // We report what is IN THE FILE, not what is in the daemon's environment. Those differ
+            // the moment someone saves — the process keeps the value it started with — and showing
+            // the live environment would make a saved change look like it had not been saved.
+            (Method::Get, "/api/settings") => {
+                let path = localvox_light_core::env_file::resolve_path();
+                let content = std::fs::read_to_string(&path).unwrap_or_default();
+                let in_file = localvox_light_core::env_file::parse(&content);
+                let catalogue: Vec<Value> = localvox_light_core::settings::CATALOGUE
+                    .iter()
+                    .map(|s| {
+                        let set = in_file.get(s.key);
+                        // Devices are PICKED, not typed. A name entered by hand is a name that can
+                        // be misspelled, and the recording then silently opens a different
+                        // microphone — or none. Enumerated live: devices come and go.
+                        let options = match s.key {
+                            "LOCALVOX_LIGHT_MIC" => {
+                                Some(localvox_light_core::audio::input_device_choices())
+                            }
+                            "LOCALVOX_LIGHT_LOOPBACK_DEVICE" => {
+                                Some(localvox_light_core::audio::output_device_choices())
+                            }
+                            _ => None,
+                        };
+                        json!({
+                            "key": s.key,
+                            "group": s.group,
+                            "label": s.label,
+                            "hint": s.hint,
+                            "kind": s.kind,
+                            "options": options,
+                            // A secret is never echoed back — only whether it is set. A token that
+                            // travels to the screen on every poll is a token in every log and cache
+                            // between here and there.
+                            "value": if s.secret() { None } else { set.cloned() },
+                            "set": set.is_some(),
+                        })
+                    })
+                    .collect();
+                // Everything else the file already holds — the raw area. The owner's `.env` carries
+                // far more than the catalogue, and a screen that hid it would be lying about what
+                // is in effect.
+                let known: std::collections::BTreeSet<&str> =
+                    localvox_light_core::settings::CATALOGUE.iter().map(|s| s.key).collect();
+                let extra: Vec<Value> = in_file
+                    .iter()
+                    .filter(|(k, _)| !known.contains(k.as_str()))
+                    .map(|(k, v)| json!({ "key": k, "value": v }))
+                    .collect();
+                Ok(json!({
+                    "path": path.to_string_lossy(),
+                    "exists": path.is_file(),
+                    "settings": catalogue,
+                    "extra": extra,
+                }))
+            }
+            // Save. The write is surgical — one line per key, every comment and untouched line
+            // preserved (`env_file::apply`). A null value unsets the key: it is commented out and
+            // the code default takes over again.
+            (Method::Post, "/api/settings") => {
+                let parsed: Value = serde_json::from_str(body).context("тело — JSON")?;
+                let obj = parsed
+                    .get("set")
+                    .and_then(Value::as_object)
+                    .context("нужно поле set — объект {ключ: значение}")?;
+                let mut changes: Vec<(String, Option<String>)> = Vec::new();
+                for (k, v) in obj {
+                    if !localvox_light_core::settings::writable(k) {
+                        anyhow::bail!("нельзя писать ключ «{k}»: только LOCALVOX_* и RUST_LOG");
+                    }
+                    let value = match v {
+                        Value::Null => None,
+                        Value::String(s) if s.trim().is_empty() => None,
+                        Value::String(s) => Some(s.to_string()),
+                        Value::Bool(b) => Some(if *b { "on".into() } else { "off".into() }),
+                        Value::Number(n) => Some(n.to_string()),
+                        other => anyhow::bail!("значение «{k}» должно быть строкой: {other}"),
+                    };
+                    changes.push((k.clone(), value));
+                }
+                let path = localvox_light_core::env_file::save(&changes)?;
+                Ok(json!({
+                    "ok": true,
+                    "path": path.to_string_lossy(),
+                    "saved": changes.len(),
+                    // Said plainly, because it is the difference between "did not work" and "not
+                    // yet": these values are read once, when the daemon starts.
+                    "msg": "Сохранено в .env — применится после перезапуска",
+                }))
+            }
+            // A link → a session. The session appears in the archive AT ONCE, empty, carrying
+            // the stages of its own arrival: a link that vanishes for ten minutes with nothing
+            // to look at is indistinguishable from a link that was dropped.
+            (Method::Post, "/api/ingest") => {
+                let parsed: Value = serde_json::from_str(body).unwrap_or(json!({}));
+                let url = parsed
+                    .get("url")
+                    .and_then(Value::as_str)
+                    .context("нужно поле url")?;
+                Ok(json!({"ok": true, "session": archive.ingest(url)?}))
             }
             (Method::Post, p) if p.ends_with("/recook") => {
                 let rest = p
@@ -478,6 +808,21 @@ pub fn respond(
                     .and_then(|r| r.strip_suffix("/recook"))
                     .context("не найдено")?;
                 Ok(json!({"ok": true, "msg": archive.recook(rest)?}))
+            }
+            // «Всё верно»: человек снимает пометку сомнения, и его слово запоминается.
+            //
+            // Кнопка в интерфейсе была, а этого адреса — нет: она молча стучалась в никуда.
+            (Method::Post, p) if p.ends_with("/confirm") => {
+                let name = p
+                    .strip_prefix("/api/sessions/")
+                    .and_then(|r| r.strip_suffix("/confirm"))
+                    .context("не найдено")?;
+                let parsed: Value = serde_json::from_str(body).unwrap_or(json!({}));
+                let artifact = parsed
+                    .get("artifact")
+                    .and_then(Value::as_str)
+                    .context("нужно поле artifact")?;
+                Ok(json!({"ok": true, "msg": archive.confirm(name, artifact)?}))
             }
             // The languages we can REALLY recognize (the model is on disk).
             (Method::Get, "/api/langs") => Ok(json!({"langs": archive.langs()})),
@@ -549,13 +894,39 @@ pub fn respond(
                     // A verified result and a draft not confirmed by the recording are
                     // DIFFERENT files and different tabs: an invention MUST NOT look
                     // like the summary.
-                    "summary" => Ok(json!({"markdown": archive.artifact(name, "summary.md")?})),
+                    "summary" => document(archive.artifact(name, "summary.md")?),
                     "summary-unverified" => {
-                        Ok(json!({"markdown": archive.artifact(name, "summary.unverified.md")?}))
+                        document(archive.artifact(name, "summary.unverified.md")?)
                     }
-                    "processed" => Ok(json!({"markdown": archive.artifact(name, "processed.md")?})),
+                    // The readable text is DATA. It goes out as lines — who, when, the wording,
+                    // and the recognizer's own words wherever the cleanup changed something — so
+                    // that a client draws it however it likes and a person can check the model
+                    // instead of trusting it. `?format=md` renders the markdown for those who
+                    // want a document (export, the clipboard, a script).
+                    "processed" => {
+                        let dir = archive.session_dir(name)?;
+                        // Missing artifact — through the archive, so the answer is the one that
+                        // names the command that creates it («… localvox-process <сессия>
+                        // --cleanup») instead of a bare «file not found».
+                        if !localvox_light_core::readable::exists(&dir) {
+                            archive.artifact(name, localvox_light_core::readable::FILE)?;
+                        }
+                        let lines = localvox_light_core::readable::lines(&dir)?;
+                        if query_param(query, "format").as_deref() == Some("md") {
+                            Ok(json!({"markdown": localvox_light_core::readable::render_markdown(&lines)}))
+                        } else {
+                            let r = localvox_light_core::readable::load(&dir)?;
+                            Ok(json!({
+                                "lines": lines,
+                                "version_id": r.version_id,
+                                "provenance": r.provenance,
+                                "omitted": r.omitted,
+                                "rejected": r.rejected,
+                            }))
+                        }
+                    }
                     "processed-unverified" => {
-                        Ok(json!({"markdown": archive.artifact(name, "processed.unverified.md")?}))
+                        document(archive.artifact(name, "processed.unverified.md")?)
                     }
                     // Who spoke in this recording. Empty means the voices were not
                     // counted (no model) or not found: both reasons are honest.
@@ -601,6 +972,17 @@ pub fn respond(
             (code, json!({"error": public}))
         }
     }
+}
+
+/// A derived document, with its provenance header taken off the text and handed over as a fact.
+///
+/// The header stays in the FILE — it is the only record of what produced this text, and a person
+/// reading the file outside the app must still find it. It is off the `markdown` because a
+/// comment carrying our own bookkeeping has no business inside a document someone forwards to
+/// colleagues: it used to render as the document's first paragraph and travelled with every copy.
+fn document(text: String) -> anyhow::Result<serde_json::Value> {
+    let (prov, body) = localvox_light_core::provenance::split(&text);
+    Ok(json!({"markdown": body, "provenance": prov}))
 }
 
 fn split_url(url: &str) -> (&str, &str) {
@@ -653,7 +1035,13 @@ mod tests {
     fn archive(dir: &Path) -> Archive {
         let session = dir.join("sessions/20260711_http");
         fs::create_dir_all(&session).unwrap();
-        fs::write(session.join("summary.md"), "## Решения\nвсё хорошо\n").unwrap();
+        // With the provenance header a real summary carries — the endpoint must hand it over as a
+        // fact, not as the document's first paragraph.
+        fs::write(
+            session.join("summary.md"),
+            "<!-- localvox: summary-ru | модель qwen3.5:9b | глоссарий: 0 замен | 2026-07-11T10:00:00+03:00 -->\n\n## Решения\nвсё хорошо\n",
+        )
+        .unwrap();
         Archive::new(dir.to_path_buf())
     }
 
@@ -764,6 +1152,23 @@ mod tests {
         assert_eq!(split_url("/").0, "/");
     }
 
+    /// The app must be INSIDE the binary. If the embedded folder is empty, the daemon
+    /// starts and serves a blank page — and nothing anywhere says why.
+    #[test]
+    fn app_is_embedded() {
+        let index = WebApp::get("index.html").expect("ui/dist/index.html is not embedded");
+        assert!(!index.data.is_empty());
+    }
+
+    /// A module script served as text/plain is refused by the browser, and the app shows
+    /// an empty page with no error to be found.
+    #[test]
+    fn assets_get_their_content_type() {
+        assert_eq!(content_type("assets/index-a1b2.js"), "text/javascript; charset=utf-8");
+        assert_eq!(content_type("assets/index-a1b2.css"), "text/css; charset=utf-8");
+        assert_eq!(content_type("index.html"), "text/html; charset=utf-8");
+    }
+
     #[test]
     fn host_loopback_check_matches_only_local() {
         assert!(host_is_loopback("127.0.0.1:3017"));
@@ -803,7 +1208,15 @@ mod tests {
             "",
         );
         assert_eq!(code, 200);
-        assert!(v["markdown"].as_str().unwrap().contains("всё хорошо"));
+        let md = v["markdown"].as_str().unwrap();
+        assert!(md.contains("всё хорошо"));
+        assert!(
+            !md.contains("<!--"),
+            "the bookkeeping comment travelled inside the document: {md}"
+        );
+        assert!(md.starts_with("## Решения"), "the body lost its first line: {md}");
+        assert_eq!(v["provenance"]["model"], "qwen3.5:9b");
+        assert_eq!(v["provenance"]["template"], "summary-ru");
         let (code, _) = respond(
             &a,
             &cfg(None),

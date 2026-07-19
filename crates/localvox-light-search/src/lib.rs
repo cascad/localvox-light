@@ -27,6 +27,31 @@ use tantivy::{doc, Index, IndexWriter, TantivyDocument};
 
 use localvox_light_core::versions::{read_transcript_lines, VersionStore};
 
+/// The derived documents of a session, as text for the index.
+///
+/// The summary is a file and is indexed as it is written. The readable text is NOT a file any
+/// more: it is a delta over a transcript version, and its words are joined at read time. What
+/// goes into the index is the SPEECH alone — no speaker labels, no timecodes.
+///
+/// That is deliberate, not a simplification. The label is the one part of the readable text that
+/// moves: rename a source and every line says a different name, while nothing anyone searched for
+/// has changed. Indexing it would make the index stale on a rename that touches no artifact at
+/// all. And «(00:15)» in the index makes the query «15» match every recording that ran a quarter
+/// of a minute.
+pub(crate) fn derived_docs(session_dir: &Path) -> Vec<(&'static str, String)> {
+    let mut out = Vec::new();
+    if let Ok(body) = fs::read_to_string(session_dir.join("summary.md")) {
+        out.push(("summary", body));
+    }
+    if let Ok(lines) = localvox_light_core::readable::lines(session_dir) {
+        out.push((
+            "processed",
+            localvox_light_core::readable::render_speech(&lines),
+        ));
+    }
+    out
+}
+
 const TOKENIZER_RU: &str = "lv_ru";
 
 /// Revision of the ANALYZER. It changes — the index is rebuilt.
@@ -264,12 +289,8 @@ impl SearchIndex {
                 }
             }
 
-            // Derived md files — by paragraph
-            for (file, kind) in [("summary.md", "summary"), ("processed.md", "processed")] {
-                let p = session_dir.join(file);
-                let Ok(body) = fs::read_to_string(&p) else {
-                    continue;
-                };
+            // Derived documents — by paragraph
+            for (kind, body) in derived_docs(&session_dir) {
                 for para in body
                     .split("\n\n")
                     .map(str::trim)

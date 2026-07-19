@@ -5,6 +5,8 @@ edition.workspace = true
 description = "Voice module (F2, WP-B2): commands from the fast-lane transcript, writing notes into slots, TTS confirmation (SAPI/Piper). Fully switchable off."
 
 [dependencies]
+# The clipboard: «возьми ссылку» takes the link from where it already is.
+arboard = "3"
 localvox-light-core.workspace = true
 localvox-light-integrations = { path = "../localvox-light-integrations" }
 anyhow.workspace = true

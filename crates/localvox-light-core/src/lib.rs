@@ -17,11 +17,14 @@ pub mod cook;
 pub mod detect;
 pub mod diarize;
 pub mod engine;
+pub mod env_file;
 pub mod events;
 pub mod export;
+pub mod ingest;
 pub mod jobs;
 pub mod lang;
 pub mod lexicon;
+pub mod links;
 pub mod light_config;
 /// Entity extraction WITHOUT a generative model (GLiNER via ONNX).
 /// Behind the `onnx` feature: the model is optional — without it names are simply not checked.
@@ -33,9 +36,14 @@ pub mod onnx;
 pub mod num2words;
 pub mod pipeline;
 pub mod processing;
+pub mod progress;
+pub mod provenance;
+pub mod readable;
 pub mod session;
+pub mod settings;
 pub mod transcript;
 pub mod versions;
+pub mod voice_note;
 
 pub use cli::{
     init_tracing, join_engine_thread, merge_env_bools, normalized_model_path, print_devices,

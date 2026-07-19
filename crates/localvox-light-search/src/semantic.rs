@@ -250,7 +250,7 @@ impl SemanticIndex {
                 // The derived md files (summary/processed) are indexed by paragraph —
                 // «find by meaning» must work over the summaries too, not only over
                 // the raw utterances. The freshness key is their mtime.
-                let md_mtime = ["summary.md", "processed.md"]
+                let md_mtime = ["summary.md", localvox_light_core::readable::FILE]
                     .iter()
                     .filter_map(|f| {
                         fs::metadata(dir.join(f))
@@ -297,10 +297,7 @@ impl SemanticIndex {
                         )
                     }));
                 }
-                for (file, kind) in [("summary.md", "summary"), ("processed.md", "processed")] {
-                    let Ok(body) = fs::read_to_string(dir.join(file)) else {
-                        continue;
-                    };
+                for (kind, body) in crate::derived_docs(&dir) {
                     for para in body
                         .split("\n\n")
                         .map(str::trim)

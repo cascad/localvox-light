@@ -156,13 +156,15 @@ pub struct Cli {
     )]
     pub mic_silence_warn_sec: f64,
 
-    /// Pre-roll: seconds "before" the call is detected to pull into the meeting session (WP-C6)
-    #[arg(long, default_value = "15", env = "LOCALVOX_LIGHT_PREROLL_SEC")]
+    /// Pre-roll ring: seconds of the past kept IN MEMORY (never on disk). Pressing "record"
+    /// pulls them into the session — a conversation that began before the button is not lost.
+    /// Five minutes of two tracks ≈ 19 MB.
+    #[arg(long, default_value = "300", env = "LOCALVOX_LIGHT_PREROLL_SEC")]
     pub preroll_sec: f64,
 
-    /// Ambient sessionization: silence longer than N sec cuts the session into a new one; 0 — never cut
-    #[arg(long, default_value = "0", env = "LOCALVOX_LIGHT_SESSION_GAP_SEC")]
-    pub ambient_gap_sec: f64,
+    /// Auto-stop: silence on both tracks for longer than N sec closes the recording; 0 — never
+    #[arg(long, default_value = "900", env = "LOCALVOX_LIGHT_AUTOSTOP_SEC")]
+    pub autostop_sec: f64,
 
     /// Background mode: a tray icon instead of the TUI (Windows; recording + voice + HTTP API)
     #[arg(long)]

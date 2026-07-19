@@ -250,6 +250,105 @@ pub fn device_id_save_token(dev: &cpal::Device) -> Option<String> {
     dev.id().ok().map(|id| id.to_string())
 }
 
+/// One pickable device: what to WRITE into the config, and what to SHOW.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DeviceChoice {
+    /// The value that goes into `.env`. For inputs this is the STABLE ID, not an index and not a
+    /// name: indices shift the moment anything is plugged in, and a headset that reconnects can
+    /// come back under a slightly different name — either would silently point the recording at
+    /// somebody else's microphone.
+    pub value: String,
+    /// What the person reads.
+    pub label: String,
+    /// True for the entry that means «whatever the system default is». It is a real choice, and
+    /// often the right one: it follows the headset the person actually plugs in.
+    pub is_default: bool,
+}
+
+/// A short, stable fragment of a device id — just enough to tell two same-named devices apart.
+///
+/// The LAST characters, not the first: a WASAPI id looks like
+/// `wasapi:{0.0.1.00000000}.{4029964e-…}`, and everything up to the second brace is identical
+/// across devices. A prefix would print the same thing twice and solve nothing.
+fn id_tail(value: &str) -> String {
+    let core: String = value
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .collect();
+    let n = core.chars().count();
+    core.chars().skip(n.saturating_sub(6)).collect()
+}
+
+/// Microphones, for the settings screen.
+///
+/// Same pair `print_devices()` prints in the CLI — the stable id plus the human name. Enumerated on
+/// request rather than cached: devices come and go while the daemon runs, and a cached list would
+/// offer a microphone that is no longer there.
+pub fn input_device_choices() -> Vec<DeviceChoice> {
+    let mut out = vec![DeviceChoice {
+        value: "default".into(),
+        label: "по умолчанию (системный)".into(),
+        is_default: true,
+    }];
+    let found = collect_input_devices();
+    // Windows hands out several inputs literally called «Микрофон» — measured on the owner's
+    // machine, two of them. Their ids differ, so the CHOICE is unambiguous, but the list is not:
+    // picking between two identical lines is a coin toss. Only the ambiguous ones get the
+    // manufacturer appended — decorating every entry would add noise to answer a question nobody
+    // asked.
+    let mut seen: std::collections::BTreeMap<&str, usize> = std::collections::BTreeMap::new();
+    for (_, name) in &found {
+        *seen.entry(name.as_str()).or_insert(0) += 1;
+    }
+    for (dev, name) in &found {
+        let ambiguous = seen.get(name.as_str()).copied().unwrap_or(0) > 1;
+        let maker = dev
+            .description()
+            .ok()
+            .and_then(|d| d.manufacturer().map(str::to_string))
+            .filter(|m| !m.trim().is_empty());
+        // No stable id — the device is still offered under its name, which is what the resolver
+        // falls back to anyway. Dropping it would hide a working microphone.
+        let value = device_id_save_token(dev).unwrap_or_else(|| name.clone());
+        let label = match (ambiguous, maker) {
+            (false, _) => name.clone(),
+            (true, Some(m)) => format!("{name} — {m}"),
+            // Nothing readable tells them apart: on this machine WASAPI reports no manufacturer,
+            // and the two «Микрофон» differ only by GUID. So a piece of that GUID goes on screen.
+            // Ugly, and still the right answer — it belongs to the DEVICE. Numbering them «(1)»
+            // and «(2)» would read better and lie: enumeration order is not guaranteed, so the
+            // number could point at the other microphone tomorrow, which is the exact failure the
+            // stable id was chosen to prevent.
+            (true, None) => format!("{name} · {}", id_tail(&value)),
+        };
+        out.push(DeviceChoice {
+            value,
+            label,
+            is_default: false,
+        });
+    }
+    out
+}
+
+/// Outputs whose sound can be captured (loopback).
+///
+/// Here the NAME is the value: that is what the loopback resolver matches on, and index 0 is
+/// literally called `default-output`.
+pub fn output_device_choices() -> Vec<DeviceChoice> {
+    list_output_device_names()
+        .into_iter()
+        .map(|(i, name)| DeviceChoice {
+            is_default: i == 0,
+            label: if i == 0 {
+                "по умолчанию (то, что звучит в колонках)".into()
+            } else {
+                name.clone()
+            },
+            value: name,
+        })
+        .collect()
+}
+
 fn resolve_input_device_by_id_str(id_str: &str) -> Result<cpal::Device> {
     let host = cpal::default_host();
     let id = DeviceId::from_str(id_str.trim())
@@ -273,6 +372,48 @@ fn resolve_device_by_id_for_loopback(id_str: &str) -> Result<cpal::Device> {
         .with_context(|| format!("Invalid CPAL device id: {id_str}"))?;
     host.device_by_id(&id)
         .with_context(|| format!("No device for id {id_str} (unplugged, or a different host name)"))
+}
+
+/// Does this setting FOLLOW the system default, or is it pinned to a device the human chose?
+///
+/// A pinned device is a decision, and we must never second-guess it: if someone said "record from
+/// this mixer", they meant that mixer, even when Windows thinks otherwise. Following makes sense
+/// only where the human said "whatever the system uses".
+pub fn follows_default(query: &str) -> bool {
+    let q = query.trim();
+    q.is_empty() || q.eq_ignore_ascii_case("default") || q.eq_ignore_ascii_case("default-output")
+}
+
+/// Identity of the CURRENT default playback device — the one the system sends sound to now.
+///
+/// THIS IS THE THING THAT MOVES UNDER OUR FEET. The loopback stream binds to a device ONCE, when
+/// it starts. You join a meeting, a headset connects, Windows makes it the default, the call app
+/// follows it — and our stream keeps listening to the old, now-idle endpoint. WASAPI loopback
+/// sends no packets when nothing plays there, so we dutifully pad with silence and record nothing
+/// at all, without a single complaint. Measured on the owner's recording (16.07.2026): the other
+/// side was audible for two minutes, then 27 minutes of silence on a full-length track.
+///
+/// `None` — we could not ask; the caller must treat that as "unknown", not as "changed".
+#[cfg(windows)]
+pub fn default_render_id() -> Option<String> {
+    // COM is per-thread; the watcher calls this from its own thread. Repeat calls are harmless.
+    let _ = wasapi::initialize_mta();
+    let enumerator = wasapi::DeviceEnumerator::new().ok()?;
+    let dev = enumerator
+        .get_default_device(&wasapi::Direction::Render)
+        .ok()?;
+    dev.get_id().ok()
+}
+
+#[cfg(not(windows))]
+pub fn default_render_id() -> Option<String> {
+    cpal::default_host().default_output_device()?.name().ok()
+}
+
+/// Identity of the current default microphone — it moves for the same reasons (a headset is one
+/// device: reconnect it and both the mic and the speakers change under you).
+pub fn default_capture_id() -> Option<String> {
+    cpal::default_host().default_input_device()?.name().ok()
 }
 
 pub fn resolve_mic(query: &str) -> Result<cpal::Device> {
@@ -769,6 +910,34 @@ pub fn loopback_capture(
         reload_gen,
         reload_snapshot,
     )
+}
+
+#[cfg(test)]
+mod device_choice_tests {
+    use super::*;
+
+    /// Two devices with the same name must not produce two identical lines on screen — picking
+    /// between them would be a coin toss. Measured on the owner's machine: Windows reports two
+    /// inputs both called «Микрофон», with no manufacturer, differing only by GUID.
+    ///
+    /// The tail, because a WASAPI id starts with an identical `wasapi:{0.0.1.00000000}.` on every
+    /// device: a prefix would print the same six characters twice and solve nothing.
+    #[test]
+    fn same_named_devices_are_told_apart_by_the_end_of_their_id() {
+        let a = "wasapi:{0.0.1.00000000}.{4029964e-6b79-4452-9b74-df7f32c2599e}";
+        let b = "wasapi:{0.0.1.00000000}.{b1f75504-1cef-418d-9b90-e5097f957553}";
+        assert_ne!(id_tail(a), id_tail(b), "two microphones would look identical");
+        assert_eq!(id_tail(a).chars().count(), 6);
+    }
+
+    /// A short or odd id must not panic or come back empty — the label still has to say something.
+    #[test]
+    fn a_short_id_still_yields_a_tail() {
+        assert_eq!(id_tail("abc"), "abc");
+        assert_eq!(id_tail(""), "");
+        // Non-ASCII ids are stripped to what can be read aloud; the point is only distinguishing.
+        assert!(id_tail("устройство-42").ends_with("42"));
+    }
 }
 
 #[cfg(test)]

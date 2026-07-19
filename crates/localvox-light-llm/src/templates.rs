@@ -7,8 +7,12 @@ use std::path::Path;
 
 use anyhow::{bail, Result};
 
+/// THERE IS NO `cleanup-*` TEMPLATE, and that is deliberate. The readable text is not a document
+/// the model writes from a prompt: `pipeline::cleanup_by_lines` hands it one numbered line at a
+/// time and rebuilds the document from our own list, so its instruction is a const next to that
+/// code (`CLEANUP_PROMPT`), exactly like refine's. A template file here would shape nothing while
+/// looking like it shaped everything — and a reader editing it would change no output at all.
 const SUMMARY_RU: &str = include_str!("../templates/summary-ru.md");
-const CLEANUP_RU: &str = include_str!("../templates/cleanup-ru.md");
 const VIDEO_NOTES_RU: &str = include_str!("../templates/video-notes-ru.md");
 /// A short recording (a thought out loud, a quick call): a 1–3 sentence digest instead
 /// of a summary. A layout with an «Action items» section provokes the model to invent them.
@@ -21,7 +25,6 @@ const STANDUP_RU: &str = include_str!("../templates/standup-ru.md");
 const ONE_ON_ONE_RU: &str = include_str!("../templates/one-on-one-ru.md");
 
 const SUMMARY_EN: &str = include_str!("../templates/summary-en.md");
-const CLEANUP_EN: &str = include_str!("../templates/cleanup-en.md");
 const NOTE_EN: &str = include_str!("../templates/note-en.md");
 
 /// A question to the archive. It has its own placeholders — `{{question}}` and
@@ -40,19 +43,17 @@ pub fn load(name: &str, dir: Option<&Path>) -> Result<String> {
     }
     match name {
         "summary-ru" => Ok(SUMMARY_RU.to_string()),
-        "cleanup-ru" => Ok(CLEANUP_RU.to_string()),
         "video-notes-ru" => Ok(VIDEO_NOTES_RU.to_string()),
         "note-ru" => Ok(NOTE_RU.to_string()),
         "standup-ru" => Ok(STANDUP_RU.to_string()),
         "one-on-one-ru" => Ok(ONE_ON_ONE_RU.to_string()),
         "summary-en" => Ok(SUMMARY_EN.to_string()),
-        "cleanup-en" => Ok(CLEANUP_EN.to_string()),
         "note-en" => Ok(NOTE_EN.to_string()),
         "chat-ru" => Ok(CHAT_RU.to_string()),
         "chat-en" => Ok(CHAT_EN.to_string()),
         other => bail!(
             "template «{other}» not found (neither a file nor a baked-in one); baked-in: \
-             summary-ru, cleanup-ru, video-notes-ru, note-ru, summary-en, cleanup-en, note-en"
+             summary-ru, video-notes-ru, standup-ru, one-on-one-ru, note-ru, summary-en, note-en"
         ),
     }
 }
@@ -129,13 +130,11 @@ mod tests {
         // without a transcript.
         for name in [
             "summary-ru",
-            "cleanup-ru",
             "note-ru",
             "video-notes-ru",
             "standup-ru",
             "one-on-one-ru",
             "summary-en",
-            "cleanup-en",
             "note-en",
         ] {
             let t = load(name, None).unwrap();

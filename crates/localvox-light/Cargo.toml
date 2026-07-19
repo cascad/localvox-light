@@ -22,6 +22,7 @@ tray-item = "0.10"
 [dependencies]
 localvox-light-api = { path = "../localvox-light-api" }
 localvox-light-core.workspace = true
+localvox-light-ingest = { path = "../localvox-light-ingest" }
 localvox-light-search = { path = "../localvox-light-search" }
 localvox-light-tui = { workspace = true, optional = true }
 localvox-light-voice = { path = "../localvox-light-voice" }
@@ -30,5 +31,6 @@ clap.workspace = true
 ctrlc.workspace = true
 crossbeam-channel.workspace = true
 dotenvy.workspace = true
+serde_json.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
