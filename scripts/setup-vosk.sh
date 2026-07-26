@@ -1,27 +1,28 @@
 #!/usr/bin/env bash
-# Скачивает нативную библиотеку Vosk (GitHub) в vosk-lib/ и модель в models/.
+# Скачивает НАТИВНУЮ БИБЛИОТЕКУ Vosk (GitHub) в vosk-lib/. Только её: она своя под каждую
+# ОС и архитектуру, и её грузит системный загрузчик ДО main().
+#
+# Модели (в том числе модель Vosk) ставит fetch-models.sh по scripts/models.json — один
+# список на все платформы. Здесь их адреса лежали вторым экземпляром, и списки разошлись.
+#
 # Нужны: bash, curl, unzip.
 #
 #   ./scripts/setup-vosk.sh
-#   ./scripts/setup-vosk.sh --skip-model
 #   ./scripts/setup-vosk.sh --preset=linux-x86_64   # явная архитектура (см. также setup-vosk-linux-*.sh)
-#   ./scripts/setup-vosk.sh --install-root=/opt/localvox   # vosk-lib + models в этой папке (для install-release.sh)
+#   ./scripts/setup-vosk.sh --install-root=/opt/localvox   # vosk-lib в этой папке (для install-release.sh)
 #
-# Переменные: LOCALVOX_VOSK_API_TAG (по умолчанию v0.3.42), LOCALVOX_SETUP_MODEL_URL, LOCALVOX_SETUP_FORCE=1
+# Переменные: LOCALVOX_VOSK_API_TAG (по умолчанию v0.3.42)
 
 set -euo pipefail
 
 VOSK_TAG="${LOCALVOX_VOSK_API_TAG:-v0.3.42}"
 VER="${VOSK_TAG#v}"
-MODEL_URL="${LOCALVOX_SETUP_MODEL_URL:-https://huggingface.co/mychen76/vosk-models/resolve/main/ru/vosk-model-ru-0.42.zip}"
-SKIP_MODEL=0
 FORCE=0
 PRESET=""
 INSTALL_ROOT=""
 
 for a in "$@"; do
   case "$a" in
-    --skip-model) SKIP_MODEL=1 ;;
     --force) FORCE=1 ;;
     --preset=*) PRESET="${a#*=}" ;;
     --install-root=*) INSTALL_ROOT="${a#*=}" ;;
@@ -110,42 +111,12 @@ install_native() {
   echo "Нативная библиотека -> $VOSK_LIB_DIR"
 }
 
-model_dir_name() {
-  basename "${MODEL_URL%.zip}"
-}
-
-install_model() {
-  [ "$SKIP_MODEL" = 1 ] && return 0
-  local name dest tmp
-  name="$(model_dir_name)"
-  dest="$ROOT/models/$name"
-  if [ -f "$dest/am/final.mdl" ] && [ "$FORCE" != 1 ]; then
-    echo "Модель уже есть: $dest (пропуск). Для перекачки: --force или LOCALVOX_SETUP_FORCE=1"
-    return 0
-  fi
-  echo "Скачивание модели $MODEL_URL"
-  tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' RETURN
-  curl -fsSL -A "localvox-light-setup/1.0" -o "$tmp/model.zip" "$MODEL_URL"
-  mkdir -p "$ROOT/models"
-  if [ "$FORCE" = 1 ] && [ -d "$dest" ]; then
-    rm -rf "$dest"
-  fi
-  unzip -q "$tmp/model.zip" -d "$ROOT/models"
-  if [ ! -f "$dest/am/final.mdl" ]; then
-    echo "После распаковки не найден $dest/am/final.mdl (нужен полный архив модели Vosk)" >&2
-    exit 1
-  fi
-  echo "Модель -> $dest"
-}
-
 install_native
-install_model
 
 echo ""
 echo "--- Дальше ---"
-echo "В .env:"
-echo "  LOCALVOX_LIGHT_MODEL=$ROOT/models/$(model_dir_name)"
+echo "Модели (включая модель Vosk) ставит fetch-models.sh:"
+echo "  ./scripts/fetch-models.sh --root \"$ROOT\""
 echo "Перед запуском бинарника (если линкер не находит libvosk):"
 echo "  export LD_LIBRARY_PATH=\"$VOSK_LIB_DIR:\$LD_LIBRARY_PATH\""
 echo "(macOS при необходимости: DYLD_LIBRARY_PATH)"

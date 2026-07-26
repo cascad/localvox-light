@@ -1,17 +1,26 @@
 #!/usr/bin/env bash
-# Download GitHub Release binary + vosk-lib + model into one directory.
-# Requires: bash, curl, unzip; jq for JSON (brew install jq / apt install jq).
-# One self-contained folder (default ./localvox-light under current directory):
-#   localvox-light  .env  vosk-lib/  models/
-# macOS/Windows: нативные либы Vosk копируются рядом с бинарником (dyld/loader до main — DYLD_LIBRARY_PATH из процесса не помогает).
+# Установка localvox одной папкой (macOS / Linux).
 #
-#   cd ~/apps && bash install-release.sh
-#   ./localvox-light/localvox-light --tui
-#
-# One-liner:
 #   curl -fsSL https://raw.githubusercontent.com/cascad/localvox-light/main/scripts/install-release.sh | bash
 #
-# Optional: --install-dir=~/lv --tag=v0.1.0 --repo=owner/repo --branch=main
+# Что получится в <каталог>:
+#   localvox-light        демон: запись, варка, HTTP-интерфейс
+#   localvox-process      повар: расшифровка и сводка (БЕЗ НЕГО АРХИВ НЕ РАСШИФРУЕТСЯ)
+#   localvox-desktop      окно (если есть в релизе; иначе интерфейс в браузере)
+#   libvosk.dylib/.so     нативная библиотека — грузится ДО main(), поэтому лежит рядом
+#   models/               vosk-model-ru-0.42, gigaam-v3-e2e-ctc, diarize, ner-gliner
+#   .env                  пути, прописанные абсолютно
+#
+# Порядок: бинари → модели → ПРОВЕРКА. Проверяет сам продукт (`localvox-light --doctor`), а не
+# этот скрипт: демон знает, ГДЕ он ищет, а скрипт знает только то, что сам разложил. Эти два
+# ответа уже расходились — модель на другом диске по LOCALVOX_LIGHT_MODEL скрипт считает
+# отсутствующей, хотя всё работает.
+#
+# Ключи: --install-dir=~/lv  --tag=v0.1.0  --repo=owner/repo  --branch=main
+#        --required-only (без диаризации и проверки имён, экономит ~630 МБ)
+#        --skip-models  --skip-binary
+#
+# Нужны: curl, unzip, tar, jq.
 
 set -euo pipefail
 
@@ -19,6 +28,9 @@ REPO="cascad/localvox-light"
 TAG="latest"
 BRANCH="main"
 INSTALL_DIR="$(pwd)/localvox-light"
+MODEL_ARGS=()
+SKIP_MODELS=0
+SKIP_BINARY=0
 
 for a in "$@"; do
   case "$a" in
@@ -26,145 +38,124 @@ for a in "$@"; do
     --tag=*) TAG="${a#*=}" ;;
     --install-dir=*) INSTALL_DIR="${a#*=}" ;;
     --branch=*) BRANCH="${a#*=}" ;;
-    --skip-vosk) SKIP_VOSK=1 ;;
+    --required-only) MODEL_ARGS+=(--required-only) ;;
+    --skip-models) SKIP_MODELS=1 ;;
     --skip-binary) SKIP_BINARY=1 ;;
-    *)
-      echo "Unknown arg: $a" >&2
-      exit 1
-      ;;
+    -h|--help) sed -n '2,23p' "$0"; exit 0 ;;
+    *) echo "Неизвестный аргумент: $a" >&2; exit 2 ;;
   esac
 done
 
-command -v curl >/dev/null || { echo "Need curl" >&2; exit 1; }
-command -v unzip >/dev/null || { echo "Need unzip" >&2; exit 1; }
-command -v jq >/dev/null || { echo "Need jq (parse GitHub API). Install: apt install jq / brew install jq" >&2; exit 1; }
+for t in curl unzip tar jq; do
+  command -v "$t" >/dev/null || { echo "Нужен $t. Поставить: brew install $t / apt install $t" >&2; exit 1; }
+done
 
 mkdir -p "$INSTALL_DIR"
 INSTALL_DIR="$(cd "$INSTALL_DIR" && pwd)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-if [ -z "${SKIP_VOSK:-}" ]; then
-  echo "Fetching setup-vosk.sh (branch $BRANCH)..."
-  curl -fsSL -A "localvox-light-install/1.0" \
-    "https://raw.githubusercontent.com/$REPO/$BRANCH/scripts/setup-vosk.sh" \
-    -o "$TMP/setup-vosk.sh"
-  bash "$TMP/setup-vosk.sh" --install-root="$INSTALL_DIR"
+RAW="https://raw.githubusercontent.com/$REPO/$BRANCH/scripts"
+say() { printf '\n\033[1m%s\033[0m\n' "$*"; }
+
+# ── Целевая тройка. Ошибиться тут — скачать чужой бинарь и получить «Exec format error»
+#    вместо внятного сообщения.
+case "$(uname -s)" in
+  Darwin) case "$(uname -m)" in
+            arm64) TARGET="aarch64-apple-darwin" ;;
+            x86_64) TARGET="x86_64-apple-darwin" ;;
+            *) echo "Неизвестная архитектура macOS: $(uname -m)" >&2; exit 1 ;;
+          esac ;;
+  Linux)  case "$(uname -m)" in
+            x86_64) TARGET="x86_64-unknown-linux-gnu" ;;
+            aarch64|arm64) TARGET="aarch64-unknown-linux-gnu" ;;
+            *) echo "Неизвестная архитектура Linux: $(uname -m)" >&2; exit 1 ;;
+          esac ;;
+  *) echo "Эта ОС не поддерживается: $(uname -s). Для Windows — install-release.ps1" >&2; exit 1 ;;
+esac
+
+# ── Нативная библиотека Vosk. Её грузит загрузчик ДО main(), поэтому она обязана лежать
+#    рядом с бинарём: переменные среды уже запущенного процесса тут не помогают.
+say "Нативная библиотека Vosk"
+curl -fsSL -A "localvox-install/1.0" "$RAW/setup-vosk.sh" -o "$TMP/setup-vosk.sh"
+bash "$TMP/setup-vosk.sh" --install-root="$INSTALL_DIR"
+if [ -d "$INSTALL_DIR/vosk-lib" ]; then
+  find "$INSTALL_DIR/vosk-lib" -maxdepth 1 -name 'libvosk.*' -exec cp -f {} "$INSTALL_DIR/" \;
 fi
 
-if [ -z "${SKIP_BINARY:-}" ]; then
-  if [ "$TAG" = "latest" ]; then
-    API="https://api.github.com/repos/$REPO/releases/latest"
-  else
-    API="https://api.github.com/repos/$REPO/releases/tags/$TAG"
-  fi
-  echo "Release API: $API"
-  JSON="$(curl -fsSL -H "Accept: application/vnd.github+json" -A "localvox-light-install/1.0" "$API")"
+# ── Бинари. ОДНИМ архивом на платформу: демон, повар и окно приезжают вместе. Раздельные
+#    файлы уже привели к установке без повара — продукт писал звук и не расшифровывал ничего.
+if [ "$SKIP_BINARY" = 0 ]; then
+  say "Бинари ($TARGET)"
+  if [ "$TAG" = "latest" ]; then API="https://api.github.com/repos/$REPO/releases/latest"
+  else API="https://api.github.com/repos/$REPO/releases/tags/$TAG"; fi
 
-  case "$(uname -s)" in
-    Linux)
-      case "$(uname -m)" in
-        x86_64)
-          URL="$(echo "$JSON" | jq -r '.assets[] | select(.name | test("x86_64-unknown-linux-gnu")) | .browser_download_url' | head -1)"
-          ;;
-        aarch64 | arm64)
-          URL="$(echo "$JSON" | jq -r '.assets[] | select(.name | test("aarch64-unknown-linux-gnu")) | .browser_download_url' | head -1)"
-          ;;
-        *)
-          echo "Unsupported Linux arch: $(uname -m)" >&2
-          exit 1
-          ;;
-      esac
-      ;;
-    Darwin)
-      case "$(uname -m)" in
-        arm64)
-          URL="$(echo "$JSON" | jq -r '.assets[] | select(.name | test("aarch64-apple-darwin")) | .browser_download_url' | head -1)"
-          ;;
-        *)
-          URL="$(echo "$JSON" | jq -r '.assets[] | select(.name | test("x86_64-apple-darwin")) | .browser_download_url' | head -1)"
-          ;;
-      esac
-      ;;
-    *)
-      echo "Use install-release.ps1 on Windows." >&2
-      exit 1
-      ;;
-  esac
-
-  if [ -z "$URL" ] || [ "$URL" = "null" ]; then
-    echo "No matching asset. Assets in this release:" >&2
-    echo "$JSON" | jq -r '.assets[].name' >&2 || true
-    echo "Create a GitHub Release and upload binaries (names like CI artifacts)." >&2
+  rel="$(curl -fsSL -H 'Accept: application/vnd.github+json' -A 'localvox-install/1.0' "$API")"
+  url="$(jq -r --arg t "$TARGET" '.assets[] | select(.name | contains($t)) | .browser_download_url' <<<"$rel" | head -1)"
+  if [ -z "$url" ] || [ "$url" = "null" ]; then
+    echo "В релизе нет сборки под $TARGET. Что есть:" >&2
+    jq -r '.assets[].name' <<<"$rel" 2>/dev/null | sed 's/^/  - /' >&2 || true
     exit 1
   fi
+  echo "  ⇣ $(basename "$url")"
+  curl -fL --progress-bar -A "localvox-install/1.0" "$url" -o "$TMP/bin.tar.gz"
+  tar -xzf "$TMP/bin.tar.gz" -C "$INSTALL_DIR"
 
-  NAME="$(basename "$URL" | cut -d'?' -f1)"
-  OUT="$TMP/$NAME"
-  echo "Downloading $URL"
-  curl -fsSL -A "localvox-light-install/1.0" -L "$URL" -o "$OUT"
+  for f in localvox-light localvox-process localvox-desktop; do
+    [ -f "$INSTALL_DIR/$f" ] && chmod +x "$INSTALL_DIR/$f"
+  done
+  # macOS вешает карантин на всё скачанное, и Gatekeeper убивает бинарь без объяснений
+  # («не удаётся проверить разработчика»). Снимаем метку явно: мы только что сами это
+  # скачали и знаем откуда. Настоящая подпись — отдельный разговор с Apple Developer ID.
+  if [ "$(uname -s)" = "Darwin" ]; then
+    xattr -dr com.apple.quarantine "$INSTALL_DIR" 2>/dev/null || true
+  fi
+  [ -f "$INSTALL_DIR/localvox-process" ] ||
+    echo "  ВНИМАНИЕ: в архиве нет localvox-process — архив не будет расшифровываться" >&2
+fi
 
-  if [[ "$NAME" == *.zip ]]; then
-    unzip -o -q "$OUT" -d "$INSTALL_DIR"
-    BIN_PATH="$(find "$INSTALL_DIR" -type f \( -name 'localvox-light' -o -name 'localvox-light-*' \) ! -name '*.dll' 2>/dev/null | head -1)"
-  else
-    BIN_PATH="$INSTALL_DIR/$NAME"
-    chmod +x "$OUT"
-    cp -f "$OUT" "$BIN_PATH"
-  fi
-  if [ -z "${BIN_PATH:-}" ] || [ ! -f "$BIN_PATH" ]; then
-    echo "No binary found under $INSTALL_DIR" >&2
-    exit 1
-  fi
-  TARGET="$INSTALL_DIR/localvox-light"
-  if [ "$BIN_PATH" != "$TARGET" ]; then
-    rm -f "$TARGET"
-    mv -f "$BIN_PATH" "$TARGET"
-  fi
-  chmod +x "$TARGET"
+# ── Модели. Список — в models.json, механика — в fetch-models.sh. Оба скачиваются рядом,
+#    потому что скрипт ищет манифест возле себя.
+if [ "$SKIP_MODELS" = 0 ]; then
+  say "Модели"
+  mkdir -p "$TMP/s"
+  curl -fsSL -A "localvox-install/1.0" "$RAW/models.json" -o "$TMP/s/models.json"
+  curl -fsSL -A "localvox-install/1.0" "$RAW/fetch-models.sh" -o "$TMP/s/fetch-models.sh"
+  bash "$TMP/s/fetch-models.sh" --root "$INSTALL_DIR" ${MODEL_ARGS[@]+"${MODEL_ARGS[@]}"}
+fi
 
-  # macOS: dyld resolves libvosk.dylib до вызова main() — как на Windows с DLL, кладём *.dylib рядом с бинарником.
-  # Linux: при отсутствии RPATH $ORIGIN то же самое для загрузки по LD_LIBRARY_PATH из окружения до exec;
-  # дублируем *.so рядом с exe на случай сборки с rpath к каталогу исполняемого файла.
-  if [ -z "${SKIP_VOSK:-}" ] && [ -d "$INSTALL_DIR/vosk-lib" ]; then
-    case "$(uname -s)" in
-      Darwin)
-        shopt -s nullglob
-        for f in "$INSTALL_DIR/vosk-lib"/*.dylib; do
-          cp -f "$f" "$INSTALL_DIR/"
-        done
-        shopt -u nullglob
-        if [ ! -f "$INSTALL_DIR/libvosk.dylib" ]; then
-          echo "Warning: libvosk.dylib not next to binary after copy from vosk-lib; check $INSTALL_DIR/vosk-lib" >&2
-        fi
-        ;;
-      Linux)
-        shopt -s nullglob
-        for f in "$INSTALL_DIR/vosk-lib"/*.so "$INSTALL_DIR/vosk-lib"/*.so.*; do
-          [ -f "$f" ] || continue
-          cp -f "$f" "$INSTALL_DIR/"
-        done
-        shopt -u nullglob
-        ;;
-    esac
-  fi
+# ── .env. Пути АБСОЛЮТНЫЕ намеренно: под launchd рабочий каталог не наш, и относительный
+#    `models/…` не найдётся — ровно тот отказ, который потом ищут полдня.
+say "Настройки"
+ENV_PATH="$INSTALL_DIR/.env"
+if [ -f "$ENV_PATH" ]; then
+  echo "  .env уже есть — не трогаю, правки ваши"
+else
+  cat > "$ENV_PATH" <<EOF
+# Создано install-release.sh. Пути абсолютные намеренно: рабочий каталог демона под
+# автозапуском не совпадает с этой папкой.
+LOCALVOX_LIGHT_MODEL=$INSTALL_DIR/models/vosk-model-ru-0.42
+LOCALVOX_ASR_MODEL_DIR=$INSTALL_DIR/models/gigaam-v3-e2e-ctc
+LOCALVOX_LIGHT_AUDIO_DIR=$INSTALL_DIR/archive
 
-  MDL_FILE=""
-  if [ -d "$INSTALL_DIR/models" ]; then
-    MDL_FILE="$(find "$INSTALL_DIR/models" -type f -path '*/am/final.mdl' 2>/dev/null | head -1)"
-  fi
-  if [ -n "$MDL_FILE" ]; then
-    MODEL_DIR="$(dirname "$(dirname "$MDL_FILE")")"
-  else
-    MODEL_DIR="$INSTALL_DIR/models/vosk-model-ru-0.42"
-  fi
-
-  cat >"$INSTALL_DIR/.env" <<EOF
-# Generated by install-release.sh — edit LOCALVOX_LIGHT_MODEL if the model lives elsewhere.
-LOCALVOX_LIGHT_MODEL=$MODEL_DIR
+# Сводка и чистовик. Без Ollama расшифровка всё равно работает.
+LOCALVOX_LLM_BASE_URL=http://localhost:11434/v1
+LOCALVOX_LLM_MODEL=qwen3.5:9b
 EOF
-
-  echo ""
-  echo "Bundle ready: $INSTALL_DIR"
-  echo "Run: cd \"$INSTALL_DIR\" && ./localvox-light --tui"
+  echo "  записан $ENV_PATH"
 fi
+
+# ── Проверка. Спрашиваем сам продукт.
+say "Проверка"
+if [ -x "$INSTALL_DIR/localvox-light" ]; then
+  ( cd "$INSTALL_DIR" && ./localvox-light --doctor ) || true
+else
+  echo "  бинаря нет — проверять нечего"
+fi
+
+say "Готово: $INSTALL_DIR"
+cat <<EOF
+  Запуск:            cd "$INSTALL_DIR" && ./localvox-light --daemon
+  Проверить ещё раз: cd "$INSTALL_DIR" && ./localvox-light --doctor
+  Интерфейс:         http://127.0.0.1:3017/
+EOF

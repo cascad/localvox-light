@@ -37,6 +37,12 @@ humming, fragments of words), do not compose a summary. Return exactly one line
 and nothing else:
 No meaningful speech was recognised in this recording.
 
+SOURCE REFERENCES. Every transcript line is numbered: `[12] [Я] (00:47) text`. At the end of
+EVERY bullet, and at the end of the opening paragraph, put the numbers of the lines it came
+from in double square brackets: [[12,15]]. One to three lines per claim — the ones where it
+was actually said. Do not guess the numbers: they are verified, and a wrong reference is
+removed along with the trust in the rest.
+
 {{glossary}}
 
 Transcript (labels: [Я] — the author's microphone, [Собеседники] — system audio;

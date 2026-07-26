@@ -196,6 +196,55 @@ impl JobQueue {
         true
     }
 
+    /// Force ONE session's stuck-`Running` job back to `Pending`. Used when a human re-cooks a cook
+    /// that is stalled (the daemon died mid-work): unlike the enqueue methods, this does NOT refuse
+    /// a Running job — the caller has already judged it abandoned (stale progress). Returns whether a
+    /// Running job was reset. Targeted, so it never disturbs a genuinely-live cook of another session.
+    pub fn reclaim_session(&mut self, session: &str) -> bool {
+        if let Some(j) = self
+            .file
+            .jobs
+            .iter_mut()
+            .find(|j| j.session == session && j.state == JobState::Running)
+        {
+            j.state = JobState::Pending;
+            j.force = false;
+            self.save();
+            true
+        } else {
+            false
+        }
+    }
+
+    /// A SCOPED re-cook (only the summary, or the text+summary): re-queue with these exact
+    /// post-processing flags and WITHOUT force — the transcript stays, only the dropped derivatives
+    /// are remade. Handles Done, Failed and Pending alike (a person may press it again while it
+    /// waits in the queue); refuses only a job that is Running RIGHT NOW, which must finish first.
+    pub fn requeue_derivatives(
+        &mut self,
+        session: &str,
+        summary: bool,
+        cleanup: bool,
+        refine: bool,
+    ) -> bool {
+        let Some(job) = self.file.jobs.iter_mut().find(|j| j.session == session) else {
+            return self.enqueue_cook(session, summary, cleanup, refine);
+        };
+        if matches!(job.state, JobState::Running) {
+            return false;
+        }
+        job.state = JobState::Pending;
+        job.attempts = 0;
+        job.last_error = None;
+        job.failed_at = None;
+        job.summary = summary;
+        job.cleanup = cleanup;
+        job.refine = refine;
+        job.force = false;
+        self.save();
+        true
+    }
+
     /// «This is bad — re-cook it». A human rejected the result: we throw the derived
     /// artifacts away and cook again from scratch, regardless of dedup, of the recipe
     /// and of the version that is already there. The audio we do not touch — everything
@@ -361,13 +410,21 @@ impl JobQueue {
     /// So the replay is a NORMAL job: it fills in what `processing.json` says is missing and skips
     /// what is done. If the forced run was killed before it managed anything, the replay does
     /// nothing and the human presses «переварить» again — one word, one wipe.
-    pub fn reclaim_abandoned(&mut self) -> usize {
+    pub fn reclaim_abandoned(&mut self, work_dir: &Path) -> usize {
         let mut taken = 0;
         for j in &mut self.file.jobs {
             if j.state == JobState::Running {
                 j.state = JobState::Pending;
                 j.force = false;
                 taken += 1;
+                // Reset the visible chain too, so it does not keep showing the corpse's «transcribe
+                // running» forever. We START A NEW RUN rather than marking «прервано»: the work is
+                // simply back in the queue and will be re-cooked — that is «в очереди», not a failure
+                // to wave a person at. No «оборвалось», no manual button — the daemon just redoes it.
+                let dir = work_dir.join("sessions").join(&j.session);
+                if crate::progress::interrupted_stage(&dir).is_some() {
+                    crate::progress::new_run(&dir);
+                }
             }
         }
         if taken > 0 {
@@ -1073,9 +1130,82 @@ mod tests {
             assert_eq!(q.jobs()[0].state, JobState::Running);
         }
         let mut q = JobQueue::load(dir.path());
-        assert_eq!(q.reclaim_abandoned(), 1);
+        assert_eq!(q.reclaim_abandoned(dir.path()), 1);
         assert_eq!(q.jobs()[0].state, JobState::Pending, "the crashed cook was lost");
         assert!(q.claim_next().is_some());
+    }
+
+    /// A human re-cooking a STALLED cook must win: `reclaim_session` flips that session's stuck
+    /// `Running` back to `Pending` so the following `enqueue_recook` (which otherwise refuses a
+    /// Running job) can proceed. It touches only the named session.
+    #[test]
+    fn reclaim_session_frees_a_stuck_running_job_for_recook() {
+        let dir = tempdir().unwrap();
+        let mut q = JobQueue::load(dir.path());
+        q.enqueue_cook("s1", true, true, true);
+        q.enqueue_cook("s2", true, true, true);
+        q.claim_next().unwrap(); // s1 → Running (the "stuck" one)
+        // enqueue_recook refuses it while Running…
+        assert!(!q.enqueue_recook("s1", true, true, true));
+        // …reclaim frees exactly s1…
+        assert!(q.reclaim_session("s1"));
+        assert!(!q.reclaim_session("s2"), "s2 is Pending, not Running — untouched");
+        // …and now the re-cook goes through, forced.
+        assert!(q.enqueue_recook("s1", true, true, true));
+        assert!(q.jobs().iter().find(|j| j.session == "s1").unwrap().force);
+    }
+
+    /// A scoped re-cook must work even when a job for the session is already Pending — a person may
+    /// press «Переварить» on the Summary tab, then on the Text tab, before the daemon gets to it.
+    /// `requeue_stale` refused anything but Done; `requeue_derivatives` re-flags Done/Failed/Pending
+    /// alike and only a Running job is left to finish. force stays off — the transcript is kept.
+    #[test]
+    fn requeue_derivatives_handles_a_pending_job_not_just_done() {
+        let dir = tempdir().unwrap();
+        let mut q = JobQueue::load(dir.path());
+        // First scoped re-cook: no job yet → enqueued Pending (summary only).
+        assert!(q.requeue_derivatives("s1", true, false, false));
+        assert_eq!(q.jobs()[0].state, JobState::Pending);
+        // Second scoped re-cook while still Pending: must succeed and update the flags, not bail.
+        assert!(q.requeue_derivatives("s1", true, true, false), "a pending job blocked the re-cook");
+        assert!(q.jobs()[0].cleanup, "the new flags did not take");
+        assert!(!q.jobs()[0].force, "a scoped re-cook must not force a re-transcribe");
+        // But a job cooking RIGHT NOW is left alone.
+        q.claim_next().unwrap(); // → Running
+        assert!(!q.requeue_derivatives("s1", true, true, false));
+    }
+
+    /// Reclaim resets the visible STATUS, not just the queue: a session left «transcribe running»
+    /// must not read as running forever. The daemon marks the dangling stage interrupted itself, so
+    /// the re-queued job resumes without a human pressing anything.
+    #[test]
+    fn reclaim_resets_the_stuck_progress_of_the_abandoned_session() {
+        let dir = tempdir().unwrap();
+        let sess = dir.path().join("sessions").join("s1");
+        std::fs::create_dir_all(&sess).unwrap();
+        // A cook that died mid-transcribe: a heartbeat with no terminal event after it.
+        crate::progress::new_run(&sess);
+        crate::progress::progress(&sess, crate::progress::Stage::Transcribe, 3, 12);
+        assert_eq!(
+            crate::progress::interrupted_stage(&sess),
+            Some(crate::progress::Stage::Transcribe),
+            "precondition: the run looks stuck"
+        );
+
+        let mut q = JobQueue::load(dir.path());
+        q.enqueue_cook("s1", true, true, true);
+        q.claim_next().unwrap(); // Running
+        drop(q);
+
+        let mut q = JobQueue::load(dir.path());
+        assert_eq!(q.reclaim_abandoned(dir.path()), 1);
+        assert_eq!(q.jobs()[0].state, JobState::Pending);
+        // The status is reset — the dangling «running» is now closed with a terminal event.
+        assert_eq!(
+            crate::progress::interrupted_stage(&sess),
+            None,
+            "the stuck progress was not reset"
+        );
     }
 
     /// THE COOK THAT IS COOKING RIGHT NOW MUST BE LEFT ALONE.
@@ -1135,7 +1265,7 @@ mod tests {
         // Restart after restart, the replay must never carry the wipe again.
         for restart in 1..=5 {
             let mut q = JobQueue::load(dir.path());
-            q.reclaim_abandoned();
+            q.reclaim_abandoned(dir.path());
             let again = q.claim_next().expect("the interrupted cook was lost");
             assert!(
                 !again.force,

@@ -5,13 +5,14 @@ import {
   type Participant,
   type Provenance as Prov,
   type ReadableLine,
+  type SummaryBlock,
   type Session,
   type Version,
 } from "./api";
 import { ProgressChain } from "./Progress";
-import { Markdown, mmss, sessionTitle, stateOf } from "./lib";
+import { mmss, sessionTitle, stateOf } from "./lib";
 
-export type Tab = "summary" | "transcript" | "processed" | "speakers" | "versions" | "progress";
+export type Tab = "summary" | "transcript" | "processed" | "speakers" | "progress";
 
 const TABS: [Tab, string][] = [
   ["summary", "Сводка"],
@@ -20,7 +21,6 @@ const TABS: [Tab, string][] = [
   ["transcript", "Реплики"],
   ["processed", "Текст"],
   ["speakers", "Участники"],
-  ["versions", "Версии"],
   ["progress", "Ход"],
 ];
 
@@ -55,11 +55,16 @@ export function DocumentPane({ session, tab, setTab, pos, onSeek, onChanged, say
     }
   };
 
+  // The one «Переварить» does what the tab implies: on «Сводка» — only the summary; on
+  // «Реплики»/«Текст» — the cleaned text and the summary that follows; elsewhere — everything.
+  const scope: "summary" | "text" | "all" =
+    tab === "summary" ? "summary" : tab === "transcript" || tab === "processed" ? "text" : "all";
+  const scopeWord =
+    scope === "summary" ? "сводку" : scope === "text" ? "текст и сводку" : "всё (расшифровку, текст, сводку)";
   const recook = async () => {
-    if (!confirm("Выбросить всё, что сварено из этой записи, и сварить заново?\n\nАудиозапись не пострадает."))
-      return;
+    if (!confirm(`Переварить ${scopeWord}?\n\nАудиозапись не пострадает.`)) return;
     try {
-      const r = await api.recook(session.name);
+      const r = await api.recook(session.name, scope);
       say(r.msg ?? "Поставлено на переварку");
       onChanged();
     } catch (e) {
@@ -92,20 +97,21 @@ export function DocumentPane({ session, tab, setTab, pos, onSeek, onChanged, say
           <button className="tool" onClick={copy} title="Скопировать документ (без служебных сносок)">
             ⧉ Копировать
           </button>
-          <button className="tool" onClick={recook} title="Выбросить производное и сварить заново из аудио">
+          <button className="tool" onClick={recook} title={`Переварить ${scopeWord}`}>
             ♻ Переварить
           </button>
         </div>
       </div>
 
       <div className="doc" ref={doc}>
-        {tab === "transcript" && <Transcript session={session} pos={pos} onSeek={onSeek} />}
+        {tab === "transcript" && (
+          <Transcript session={session} pos={pos} onSeek={onSeek} onChanged={onChanged} say={say} />
+        )}
         {tab === "summary" && (
-          <Article session={session} kind="summary" onChanged={onChanged} say={say} />
+          <Article session={session} onSeek={onSeek} onChanged={onChanged} say={say} />
         )}
         {tab === "processed" && <Readable session={session} onChanged={onChanged} say={say} />}
         {tab === "speakers" && <Speakers session={session} say={say} />}
-        {tab === "versions" && <Versions session={session} say={say} />}
         {tab === "progress" && <ProgressChain session={session} />}
       </div>
     </main>
@@ -141,20 +147,74 @@ function Transcript({
   session,
   pos,
   onSeek,
+  onChanged,
+  say,
 }: {
   session: Session;
   pos: number;
   onSeek: (sec: number, until?: number) => void;
+  onChanged: () => void;
+  say: (m: string) => void;
 }) {
-  const { data, err } = useArtifact(session.name, () => api.transcript(session.name));
+  // The version switch lives HERE, in the tab, not in a section of its own: versions ARE the
+  // transcript, and switching the working one just reloads this view. `gen` forces that reload.
+  const [gen, setGen] = useState(0);
+  const { data, err } = useArtifact(`${session.name}/tr/${gen}`, () => api.transcript(session.name));
+  const vers = useArtifact(`${session.name}/vr/${gen}`, () => api.versions(session.name));
+  const versions: Version[] = vers.data?.versions ?? [];
+  const bestId = versions.find((v) => v.best)?.id;
+  const [switching, setSwitching] = useState(false);
+
+  const switchTo = async (id: number) => {
+    setSwitching(true);
+    try {
+      await api.setBest(session.name, id);
+      say(`Рабочей стала v${String(id).padStart(3, "0")}`);
+      setGen((g) => g + 1);
+      onChanged(); // the whole document (summary, search) reads from best — refresh the shell too
+    } catch (e) {
+      say((e as Error).message);
+    } finally {
+      setSwitching(false);
+    }
+  };
+
   if (err) return <p className="err">{err}</p>;
   if (!data) return <p className="hint">загрузка…</p>;
   const lines: Line[] = data.lines ?? [];
-  if (!lines.length) return <p className="hint">пусто</p>;
+
+  const switcher = versions.length > 1 && (
+    <div className="ver-switch" data-nocopy>
+      <span className="lbl">Версия:</span>
+      <select
+        value={bestId ?? ""}
+        disabled={switching}
+        onChange={(e) => void switchTo(Number(e.target.value))}
+      >
+        {versions.map((v) => (
+          <option key={v.id} value={v.id}>
+            v{String(v.id).padStart(3, "0")} · {v.derived ? "причёсано LLM" : "из аудио"} ·{" "}
+            {v.lines} строк
+          </option>
+        ))}
+      </select>
+      <span className="hint">от рабочей считаются текст, сводка и поиск</span>
+    </div>
+  );
+
+  if (!lines.length)
+    return (
+      <>
+        {switcher}
+        <p className="hint">пусто</p>
+      </>
+    );
 
   return (
-    <div className="lines">
-      {lines.map((l, i) => {
+    <>
+      {switcher}
+      <div className="lines">
+        {lines.map((l, i) => {
         // The lit line is wherever the ONE player is now. Clicking ▶ moves the player to this
         // line's start, and load() sets the position at once (the clip begins exactly there), so
         // the right line lights immediately — no lag, no "previous line first".
@@ -173,23 +233,35 @@ function Transcript({
             <span className="tx">{l.text}</span>
           </div>
         );
-      })}
-    </div>
+        })}
+      </div>
+    </>
   );
 }
 
+/** THE SUMMARY, with every claim tied to the seconds it came from.
+ *
+ *  A summary is the one artifact a person cannot check by reading it: the line-by-line view sits
+ *  next to the recording, but this is prose about half an hour of speech. So each claim carries
+ *  the lines the model drew it from — verified at cook time, because an unverified citation is
+ *  just another confident answer — and the button beside it plays exactly that moment.
+ *
+ *  A claim with no button is one whose references did not check out. It keeps its words: the
+ *  check is literal and gets things wrong, and a summary emptied by its own verifier is a failure
+ *  this app has already paid for twice. */
 function Article({
   session,
-  kind,
+  onSeek,
   onChanged,
   say,
 }: {
   session: Session;
-  kind: "summary";
+  onSeek: (sec: number, until?: number) => void;
   onChanged: () => void;
   say: (m: string) => void;
 }) {
-  const { data, err } = useArtifact(`${session.name}/${kind}`, () => api.markdown(session.name, kind));
+  const { data, err } = useArtifact(`${session.name}/summary`, () => api.summary(session.name));
+  const kind = "summary" as const;
   const doubts = session.summary_doubts;
 
   const confirm = async () => {
@@ -204,7 +276,7 @@ function Article({
 
   const recook = async () => {
     try {
-      const r = await api.recook(session.name);
+      const r = await api.recook(session.name, "summary");
       say(r.msg ?? "Поставлено на переварку");
       onChanged();
     } catch (e) {
@@ -240,7 +312,32 @@ function Article({
         </div>
       )}
       <Provenance p={data.provenance} />
-      <Markdown text={data.markdown} />
+      <div className="summary">
+        {(data.blocks ?? []).map((b: SummaryBlock, i: number) => {
+          if (b.kind === "heading") return <h2 key={i}>{b.text}</h2>;
+          const src = b.sources?.[0];
+          const cite = src && (
+            <button
+              className="cite"
+              data-nocopy
+              title={`Послушать, откуда это: ${mmss(src.start_sec)}`}
+              onClick={() => onSeek(src.start_sec, b.sources[b.sources.length - 1].end_sec)}
+            >
+              ▶ {mmss(src.start_sec)}
+            </button>
+          );
+          return b.kind === "bullet" ? (
+            <div className="claim" key={i}>
+              <span className="tx">{b.text}</span>
+              {cite}
+            </div>
+          ) : (
+            <p key={i}>
+              {b.text} {cite}
+            </p>
+          );
+        })}
+      </div>
     </>
   );
 }
@@ -391,7 +488,7 @@ function Readable({
 
   const recook = async () => {
     try {
-      const r = await api.recook(session.name);
+      const r = await api.recook(session.name, "text");
       say(r.msg ?? "Поставлено на переварку");
       onChanged();
     } catch (e) {
@@ -618,62 +715,6 @@ function Speakers({ session, say }: { session: Session; say: (m: string) => void
           </div>
         ))
       )}
-    </>
-  );
-}
-
-function Versions({ session, say }: { session: Session; say: (m: string) => void }) {
-  const [gen, setGen] = useState(0);
-  const { data, err } = useArtifact(`${session.name}/versions/${gen}`, () =>
-    api.versions(session.name),
-  );
-
-  const makeBest = async (id: number) => {
-    try {
-      await api.setBest(session.name, id);
-      say(`Рабочей стала v${String(id).padStart(3, "0")}`);
-      setGen((g) => g + 1);
-    } catch (e) {
-      say((e as Error).message);
-    }
-  };
-
-  if (err) return <p className="err">{err}</p>;
-  if (!data) return <p className="hint">загрузка…</p>;
-  const versions: Version[] = (data.versions ?? []).slice().reverse();
-
-  return (
-    <>
-      <p className="note" data-nocopy>
-        <span className="i" aria-hidden="true">
-          ⓘ
-        </span>
-        <span>
-          От <b>рабочей</b> версии считаются сводка, поиск и экспорт. Старые не удаляются: аудио
-          первично, и из него всё можно сварить заново.
-        </span>
-      </p>
-      {versions.map((v) => (
-        <div className="voice" key={v.id}>
-          <span className="grow">
-            <b>
-              v{String(v.id).padStart(3, "0")} · {v.derived ? "причёсано LLM" : "сварено из аудио"}
-            </b>
-            <div className="sub">
-              {v.model} · {(v.created_at ?? "").slice(0, 16).replace("T", " ")} · {v.lines} строк
-            </div>
-          </span>
-          {v.best ? (
-            <span className="st done">рабочая</span>
-          ) : (
-            <span className="acts">
-              <button className="btn sm" onClick={() => makeBest(v.id)}>
-                ↑ Сделать рабочей
-              </button>
-            </span>
-          )}
-        </div>
-      ))}
     </>
   );
 }

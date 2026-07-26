@@ -10,6 +10,7 @@ localvox-light-integrations = { path = "../localvox-light-integrations" }
 localvox-light-llm = { path = "../localvox-light-llm" }
 localvox-light-search = { path = "../localvox-light-search" }
 anyhow.workspace = true
+chrono.workspace = true
 clap.workspace = true
 dotenvy.workspace = true
 rust-embed = "8"

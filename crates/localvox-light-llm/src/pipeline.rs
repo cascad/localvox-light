@@ -132,6 +132,19 @@ fn chat_grounded(
     ner: Option<&dyn grounding::Entities>,
 ) -> Result<(String, usize, grounding::Ungrounded)> {
     let check = |a: &str| {
+        // THE CITATION MARKERS COME OUT FIRST. They are OUR numbers — line indices we asked for —
+        // and numbers in an answer are grounded only by the speech, so `[[3,4,5]]` reads to the
+        // check as three invented figures. Measured the first time this ran: a clean summary came
+        // back marked «стоит перепроверить: числа: 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13» — every
+        // one of them a reference we ourselves had requested, and the re-ask it triggered cost a
+        // second call to say the same thing again.
+        let a: String = localvox_light_core::citations::parse(a)
+            .into_iter()
+            .map(|b| b.text)
+            .collect::<Vec<_>>()
+            .join("
+");
+        let a = a.as_str();
         // Words may be grounded by the template (we gave them to the model), NUMBERS only
         // by the speech: the «1–3 предложения» from our own prompt used to ground the
         // invented «3 задачи» in the answer.
@@ -141,7 +154,10 @@ fn chat_grounded(
             None => grounding::check_parts(lex, source, speech, a),
         }
     };
-    let answer = client.chat(&[user(prompt.to_string())])?;
+    // Every answer is shape-checked AS IT ARRIVES, not only at the end. A part of a map-reduce
+    // that looped would otherwise be joined into the reduce prompt, and we would pay for its
+    // 30 KB twice — once to receive it, once to send it back.
+    let answer = degeneration_checked(client.chat(&[user(prompt.to_string())])?);
     let bad = check(&answer);
     if bad.is_empty() {
         return Ok((answer, 1, bad));
@@ -172,11 +188,11 @@ fn chat_grounded(
                ответа — начни с чистого листа. Ни одного имени, числа, срока или \
                названия, которого нет в записи."
         .to_string();
-    let retry = client.chat(&[
+    let retry = degeneration_checked(client.chat(&[
         user(prompt.to_string()),
         crate::assistant(answer.clone()),
         user(fix),
-    ])?;
+    ])?);
     // AN ANSWER THAT SAYS NOTHING ABOUT THE RECORDING NEVER WINS — no matter how clean it looks.
     //
     // This is the trap the whole thing kept falling into: emptiness passes the check perfectly,
@@ -241,6 +257,139 @@ fn place_result(session_dir: &Path, task: &Task) -> PathBuf {
     // The drafts of the old quarantine — out. There is no such thing any more.
     let _ = fs::remove_file(session_dir.join(task.unverified_file()));
     session_dir.join(task.out_file())
+}
+
+/// The lines the summary was built from — the same version `render_transcript` numbered, so a
+/// citation index means the same line in both.
+fn transcript_lines(session_dir: &Path) -> Option<Vec<TranscriptLine>> {
+    let store = VersionStore::open(session_dir).ok()?;
+    let best = store.best()?;
+    let path = store.resolve(best.id)?;
+    read_transcript_lines(&path).ok()
+}
+
+/// Check what the model said about where it got things — and keep only what holds.
+///
+/// A citation is the model's ANSWER, not evidence. Asked to cite, a model produces plausible
+/// numbers as readily as plausible facts, so the numbers are checked here: the line has to exist,
+/// and the claim has to share content with the lines it names. A claim whose sources check out
+/// gets a play button next to it; one whose sources do not keeps its text and loses the button,
+/// because a wrong citation is worse than none — it invites a person to verify and shows them the
+/// wrong place.
+///
+/// Never deletes a claim. The check is literal and will be wrong sometimes (that is why the
+/// doubt mark exists at all), and a summary emptied by its own verifier is the failure this
+/// codebase has already paid for twice.
+fn verify_citations(
+    blocks: &mut [localvox_light_core::citations::Block],
+    lines: &[TranscriptLine],
+) -> (usize, usize) {
+    let mut kept = 0usize;
+    let mut dropped = 0usize;
+    for b in blocks.iter_mut() {
+        if b.lines.is_empty() {
+            continue;
+        }
+        let before = b.lines.len();
+        b.lines.retain(|&i| i < lines.len());
+        // Content, not merely existence: a number that points at a real line the claim has
+        // nothing to do with is exactly the confident wrong answer we are guarding against.
+        let source: String = b
+            .lines
+            .iter()
+            .map(|&i| lines[i].text.as_str())
+            .collect::<Vec<_>>()
+            .join(" ");
+        if !shares_content(&b.text, &source) {
+            b.lines.clear();
+        }
+        if b.lines.is_empty() {
+            dropped += before;
+        } else {
+            kept += b.lines.len();
+            dropped += before - b.lines.len();
+        }
+    }
+    (kept, dropped)
+}
+
+/// Do a claim and its cited lines talk about the same thing at all?
+///
+/// One shared meaningful word is the bar, and it is deliberately low. A summary PARAPHRASES —
+/// demanding more would reject honest work, and this check exists to catch a citation pointing
+/// somewhere else entirely, not to grade the writing.
+fn shares_content(claim: &str, source: &str) -> bool {
+    let words = |t: &str| -> std::collections::HashSet<String> {
+        t.to_lowercase()
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|w| w.chars().count() >= 4)
+            .map(|w| w.chars().take(5).collect())
+            .collect()
+    };
+    let src = words(source);
+    words(claim).iter().any(|w| src.contains(w))
+}
+
+/// Pure markup: a separator, a rule, a row of hashes. These repeat in any healthy document and
+/// carry no content, so they are skipped rather than counted as repetition.
+fn is_markup_only(p: &str) -> bool {
+    !p.is_empty() && p.chars().all(|c| "-*_=#>| \t".contains(c))
+}
+
+/// Cut off a degenerate tail: THE MODEL REPEATED ITSELF.
+///
+/// Measured on the owner's session 20260719_145849. The summary was 31 028 bytes, of which the
+/// first 1 379 were a summary and the rest were the same three paragraphs again and again:
+///
+/// ```text
+/// ×31  «## О чём запись / Спикер рассказывает историю двух программистов…»  (280 chars)
+/// ×31  «## Главное / * Длительная изолированная работа…»                    (654 chars)
+/// ×30  «--- **Исправленный вариант (строго по тексту):**»                   ( 48 chars)
+/// ```
+///
+/// The readable text has been guarded against this since the cleanup was rewritten line by line —
+/// every line is judged against its own original, so a loop cannot survive. The summary had NO
+/// such guard, because it is free prose with nothing to key it by. This is the guard: not the
+/// model's words, but its STRUCTURE. A summary that says the same 80+ characters twice has
+/// stopped writing a summary, whatever those characters are.
+///
+/// NO LENGTH THRESHOLD. The first cut of this carried one — «a paragraph under 80 characters may
+/// legitimately repeat» — and 80 was a number I made up. Measured over the owner's 24 summaries:
+/// neither the rule with the threshold nor the rule without it fires on a single healthy
+/// document, so the constant bought nothing and only had to be defended. What is skipped instead
+/// is what genuinely repeats in prose: pure markup, a separator, a rule.
+///
+/// We cut rather than retry. The prefix before the first repetition IS the answer — retrying
+/// would spend another minute of the model's time to get, at best, the same text again.
+/// Returns the text and how many paragraphs were dropped, so the caller can say so out loud.
+/// `cut_repetition` with the loud part attached: a model that loops has failed, and the artifact
+/// is a rescued prefix rather than what it wrote. Silence here is how 31 KB of repetition reached
+/// the owner's screen.
+fn degeneration_checked(answer: String) -> String {
+    let (cut, dropped) = cut_repetition(&answer);
+    if dropped > 0 {
+        tracing::warn!(
+            "the LLM looped — {dropped} repeated paragraphs cut, {} chars kept of {}",
+            cut.len(),
+            answer.len()
+        );
+    }
+    cut
+}
+
+fn cut_repetition(text: &str) -> (String, usize) {
+    let paras: Vec<&str> = text.split("\n\n").collect();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for (i, p) in paras.iter().enumerate() {
+        let key: String = p.split_whitespace().collect::<Vec<_>>().join(" ");
+        if is_markup_only(&key) {
+            continue;
+        }
+        if !seen.insert(key) {
+            return (paras[..i].join("\n\n").trim_end().to_string(), paras.len() - i);
+        }
+    }
+    (text.to_string(), 0)
 }
 
 /// Drop the sections that SAY NOTHING ABOUT THE RECORDING.
@@ -524,8 +673,41 @@ pub fn process_session(
     // recording, not a search for the words «отсутствуют»/«нет». The model changes the
     // wording however it likes, while the fact «there is not a single word from the
     // recording in this section» is impossible to fake.
+    // A loop first, then the empty sections: dropping sections out of a document that repeats
+    // itself thirty times would be tidying up the wrong document.
     let result = if matches!(task, Task::Summary) {
-        drop_empty_sections(&result, &speech, &template)
+        let (cut, dropped) = cut_repetition(&result);
+        if dropped > 0 {
+            // Loud: the model failed, and the artifact is a rescued prefix rather than what it
+            // wrote. Silence here is how 30 KB of repetition reached the owner's screen.
+            tracing::warn!(
+                "summary: the model looped — {dropped} repeated paragraphs cut, {} chars kept of {}",
+                cut.len(),
+                result.len()
+            );
+        }
+        let cleaned = drop_empty_sections(&cut, &speech, &template);
+
+        // THE CITATIONS. The model named the lines each claim came from; we check them and keep
+        // only what holds — see `verify_citations`. The markers stay in the file, because they
+        // are the provenance of a claim; the app strips them for reading and for the clipboard.
+        let mut blocks = localvox_light_core::citations::parse(&cleaned);
+        let src_lines = transcript_lines(session_dir).unwrap_or_default();
+        let (kept, dropped) = verify_citations(&mut blocks, &src_lines);
+        let cited = blocks
+            .iter()
+            .filter(|b| matches!(b.kind, localvox_light_core::citations::Kind::Bullet))
+            .filter(|b| !b.lines.is_empty())
+            .count();
+        let bullets = blocks
+            .iter()
+            .filter(|b| matches!(b.kind, localvox_light_core::citations::Kind::Bullet))
+            .count();
+        tracing::info!(
+            "summary: {cited} of {bullets} claims carry a checked source ({kept} line refs kept, \
+             {dropped} dropped as wrong)"
+        );
+        localvox_light_core::citations::render(&blocks)
     } else {
         result
     };
@@ -551,9 +733,20 @@ pub fn process_session(
     // teaches them to stop reading the marks that do matter.
     let ungrounded = if matches!(task, Task::Summary) {
         let lex = localvox_light_core::lexicon::active();
+        // Without the citation markers, for the same reason as inside `chat_grounded`: they are
+        // OUR line numbers, and a number in the answer is grounded only by the speech. The first
+        // fix only covered the in-flight check, so the FINAL one still wrote the references into
+        // the doubt mark — «числа: 3, 4, 5, 6, 7…» — and the header of a clean summary told the
+        // reader to double-check eleven numbers we had asked for ourselves.
+        let plain: String = localvox_light_core::citations::parse(&result)
+            .into_iter()
+            .map(|b| b.text)
+            .collect::<Vec<_>>()
+            .join("
+");
         match ner {
-            Some(n) => grounding::check_with_entities(lex, &base, &speech, &result, n),
-            None => grounding::check_parts(lex, &base, &speech, &result),
+            Some(n) => grounding::check_with_entities(lex, &base, &speech, &plain, n),
+            None => grounding::check_parts(lex, &base, &speech, &plain),
         }
     } else {
         grounding::Ungrounded::default()
@@ -733,16 +926,31 @@ pub fn refine_session(
         batch.clear();
         Ok(())
     };
+    let total = lines.len() as u32;
     for (i, l) in lines.iter().enumerate() {
         let n = i + 1;
         if !batch.is_empty() && batch_chars + l.text.len() > p.map_reduce_chars {
             flush(&mut batch, &mut corrected, &mut llm_calls)?;
             batch_chars = 0;
+            // Heartbeat per batch: the percentage a person watches, and the liveness a stall is
+            // read from — cleanup is the LLM-bound stage and used to run in total silence.
+            localvox_light_core::progress::progress(
+                session_dir,
+                localvox_light_core::progress::Stage::Refine,
+                i as u32,
+                total,
+            );
         }
         batch.push((n, &l.text));
         batch_chars += l.text.len() + 8;
     }
     flush(&mut batch, &mut corrected, &mut llm_calls)?;
+    localvox_light_core::progress::progress(
+        session_dir,
+        localvox_light_core::progress::Stage::Refine,
+        total,
+        total,
+    );
 
     // We assemble the cleaned-up lines: where the LLM gave a replacement — we take it,
     // otherwise the original (after the glossary). We do not touch the timecodes/source.
@@ -953,14 +1161,17 @@ pub fn render_transcript(session_dir: &Path) -> Result<String> {
             .unwrap_or_default();
 
     let mut out = String::new();
-    for l in &lines {
+    for (i, l) in lines.iter().enumerate() {
         let who = match l.speaker.clone() {
             Some(name) => name,
             None => localvox_light_core::chunks::source_label(&meta, l.source_id),
         };
         let mins = (l.start_sec / 60.0) as u64;
         let secs = l.start_sec as u64 % 60;
-        out.push_str(&format!("[{who}] ({mins:02}:{secs:02}) {}\n", l.text));
+        // The line NUMBER comes first, and it is what a summary cites. It is stripped before the
+        // grounding check together with the label and the timecode (`speech_only`), or every
+        // invented figure up to the line count would find itself grounded.
+        out.push_str(&format!("[{i}] [{who}] ({mins:02}:{secs:02}) {}\n", l.text));
     }
     Ok(out)
 }
@@ -1305,6 +1516,128 @@ mod tests {
         let ranges = cleanup_batches(&one);
         assert_eq!(ranges[0], 0..1);
         assert_eq!(ranges.len(), 2);
+    }
+
+    /// …AND THE CITATION MARKERS MUST NOT REACH THE CHECK EITHER. Measured live on the first
+    /// cook with citations: a clean summary came back marked «стоит перепроверить: числа: 3, 4,
+    /// 5, 6, 7, 8, 9, 10, 11, 12, 13» — every one of them a line reference the prompt had asked
+    /// for. A doubt mark made of our own request is worse than no mark: it teaches the reader to
+    /// ignore the ones that matter.
+    #[test]
+    fn citation_markers_are_not_invented_numbers() {
+        let answer = "* Собрали лишь пятьсот евро. [[3,4,5]]";
+        let stripped: String = localvox_light_core::citations::parse(answer)
+            .into_iter()
+            .map(|b| b.text)
+            .collect::<Vec<_>>()
+            .join("
+");
+        assert_eq!(stripped, "Собрали лишь пятьсот евро.");
+        for n in ["3", "4", "5"] {
+            assert!(!stripped.contains(n), "a reference «{n}» reached the check");
+        }
+    }
+
+    /// THE LINE NUMBER MUST NOT REACH THE GROUNDING SOURCE. Numbers in the answer are grounded
+    /// ONLY by the speech, and a transcript numbered `[12] [Я] (00:47) …` would ground an invented
+    /// «12» in the summary. `speech_only` has to strip the number along with the label and the
+    /// timecode — it does, and this holds it to that.
+    #[test]
+    fn the_line_numbers_do_not_leak_into_the_grounding_source() {
+        let numbered = "[0] [Я] (00:00) Привет.
+[17] [Собеседники] (01:30) Ответ.
+";
+        let speech = speech_only(numbered);
+        assert_eq!(speech, "Привет.
+Ответ.
+");
+        assert!(!speech.contains("17"), "a line number reached the grounding source: {speech}");
+    }
+
+    /// A citation is the model's ANSWER, not evidence: it must be checked. A number that points
+    /// past the end of the transcript, or at a line the claim has nothing to do with, loses its
+    /// play button — but never takes the claim with it.
+    #[test]
+    fn a_citation_that_does_not_check_out_is_dropped_but_the_claim_stays() {
+        use localvox_light_core::citations::{Block, Kind};
+        let lines = vec![
+            line(0, 0, "Из семнадцати тысяч евро собрали лишь пятьсот"),
+            line(15, 0, "Потом продажи упали и мы снова оказались на грани"),
+        ];
+        let mut blocks = vec![
+            // Real and on topic.
+            Block { kind: Kind::Bullet, text: "Собрали лишь пятьсот евро из семнадцати тысяч.".into(), lines: vec![0] },
+            // Points past the end of the transcript.
+            Block { kind: Kind::Bullet, text: "Что-то ещё про продажи.".into(), lines: vec![99] },
+            // Exists, but about something else entirely.
+            Block { kind: Kind::Bullet, text: "Обсудили миграцию базы данных.".into(), lines: vec![1] },
+        ];
+        let (kept, dropped) = verify_citations(&mut blocks, &lines);
+
+        assert_eq!(blocks[0].lines, vec![0], "a good citation was thrown away");
+        assert!(blocks[1].lines.is_empty(), "a citation past the end survived");
+        assert!(blocks[2].lines.is_empty(), "a citation to an unrelated line survived");
+        assert_eq!((kept, dropped), (1, 2));
+        for b in &blocks {
+            assert!(!b.text.is_empty(), "the verifier deleted a claim instead of its citation");
+        }
+    }
+
+    /// THE 31 KB SUMMARY, from the owner's session 20260719_145849. Three paragraphs repeated
+    /// ~30 times each after 1 379 characters of an actual summary.
+    #[test]
+    fn a_looping_summary_is_cut_at_its_first_repetition() {
+        let head = "## О чём запись\nСпикер рассказывает историю двух программистов, которые \
+                    создали игру без опыта и столкнулись с провалом краудфандинга.";
+        let body = "## Главное\n* Первая попытка сбора средств провалилась: из 17 000 евро собрали \
+                    лишь 500, в основном от друзей.";
+        let mut text = format!("{head}\n\n{body}");
+        for _ in 0..30 {
+            text.push_str(&format!("\n\n---\n\n{head}\n\n{body}"));
+        }
+        assert_eq!(
+            text.matches("## О чём запись").count(),
+            31,
+            "the fixture does not reproduce the shape of the failure"
+        );
+
+        let (cut, dropped) = cut_repetition(&text);
+
+        assert!(dropped > 0, "the loop was not noticed");
+        assert!(cut.contains("Спикер рассказывает"), "the real summary was thrown away: {cut}");
+        assert_eq!(cut.matches("## О чём запись").count(), 1, "the repetition survived");
+        assert!(cut.len() < 1_000, "the tail was not cut: {} chars", cut.len());
+    }
+
+    /// A normal summary must pass through untouched — including one that repeats SHORT things,
+    /// which is what a list of bullets or a dash between sections is.
+    #[test]
+    fn a_summary_that_does_not_repeat_is_left_alone() {
+        let text = "## О чём запись\nВстреча про миграцию базы и сроки релиза.\n\n                    ## Главное\n* Миграцию берёт Иван.\n* Релиз двигаем на пятницу.\n\n                    ---\n\n## Решения\n* Договорились не трогать прод в четверг.";
+        let (cut, dropped) = cut_repetition(text);
+        assert_eq!(dropped, 0);
+        assert_eq!(cut, text, "a healthy summary was mutilated");
+    }
+
+    /// A separator repeats in any healthy document. Cutting there would truncate a real summary
+    /// at its second section — and this is what the (invented) 80-character threshold used to be
+    /// defending against, at the cost of missing a short repeated line that IS a loop.
+    #[test]
+    fn repeated_markup_is_not_a_loop() {
+        let text = "---\n\n## Главное\n\n---\n\n## Решения";
+        let (cut, dropped) = cut_repetition(text);
+        assert_eq!(dropped, 0, "a separator was mistaken for a loop");
+        assert_eq!(cut, text);
+    }
+
+    /// …and a SHORT line with words in it is not markup. «--- **Исправленный вариант:**» is
+    /// 48 characters — under the old threshold, and it was part of the loop that reached the
+    /// owner's screen.
+    #[test]
+    fn a_short_repeated_line_with_words_is_still_a_loop() {
+        let text = "Начало документа, вполне осмысленное.\n\n                    Исправленный вариант:\n\nчто-то\n\nИсправленный вариант:";
+        let (_, dropped) = cut_repetition(text);
+        assert!(dropped > 0, "a short repeat with words in it was let through");
     }
 
     /// An essay carries no `[N]` markers, so it parses to NOTHING. That is the whole test: an empty

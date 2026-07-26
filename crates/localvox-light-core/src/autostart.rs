@@ -1,6 +1,9 @@
 //! Start with the system (Windows, WP-C5): a value under
 //! `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` — no admin rights,
-//! no Task Scheduler. We launch the current exe with `--tray`.
+//! no Task Scheduler. We launch the current exe with `--daemon`.
+//!
+//! The macOS counterpart is a LaunchAgent plist under `~/Library/LaunchAgents`; it does not exist
+//! yet, which is why this module is Windows-only rather than a trait with one implementation.
 
 #![cfg(windows)]
 
@@ -21,7 +24,23 @@ fn run_command(exe: &str) -> String {
     let cwd = std::env::current_dir()
         .map(|p| p.display().to_string())
         .unwrap_or_default();
-    format!("\"{exe}\" --tray --cwd \"{cwd}\"")
+    format!("\"{exe}\" --daemon --cwd \"{cwd}\"")
+}
+
+/// The executable a stored `Run` value launches — the first quoted token, or the whole line
+/// if someone wrote it by hand without quotes.
+///
+/// We compare PATHS, not command lines. The flags in that value are ours and may be spelled
+/// differently by an older build (`--tray`); the working directory is pinned at the moment the
+/// switch is flipped and legitimately differs. Byte-comparing the whole line made the switch read
+/// «disabled» while the system dutifully launched us at every login — a checkbox lying in the
+/// direction that hides a running process is the worst of the two lies.
+fn exe_in(command: &str) -> &str {
+    let c = command.trim();
+    match c.strip_prefix('"').and_then(|r| r.split_once('"')) {
+        Some((exe, _rest)) => exe,
+        None => c.split_whitespace().next().unwrap_or(c),
+    }
 }
 
 fn current_exe() -> io::Result<String> {
@@ -42,7 +61,7 @@ pub fn is_enabled() -> bool {
     };
     match current_exe() {
         // Windows paths are case-insensitive
-        Ok(exe) => stored.eq_ignore_ascii_case(&run_command(&exe)),
+        Ok(exe) => exe_in(&stored).eq_ignore_ascii_case(&exe),
         Err(_) => true, // the exe cannot be determined — no worse than the previous behaviour
     }
 }
@@ -70,11 +89,35 @@ mod tests {
     fn run_command_quotes_exe_and_pins_workdir() {
         let cmd = run_command(r"C:\Program Files\lv\localvox-light.exe");
         assert!(
-            cmd.starts_with(r#""C:\Program Files\lv\localvox-light.exe" --tray --cwd ""#),
+            cmd.starts_with(r#""C:\Program Files\lv\localvox-light.exe" --daemon --cwd ""#),
             "{cmd}"
         );
         // the working directory is pinned (for autostart cwd = system32)
         let cwd = std::env::current_dir().unwrap().display().to_string();
         assert!(cmd.contains(&cwd), "{cmd}");
+    }
+
+    /// A path with spaces is the normal case (`C:\Program Files\…`), so the quotes are what
+    /// carries the answer — not whitespace.
+    #[test]
+    fn the_switch_reads_the_exe_out_of_a_stored_command() {
+        assert_eq!(
+            exe_in(r#""C:\Program Files\lv\localvox-light.exe" --daemon --cwd "D:\work""#),
+            r"C:\Program Files\lv\localvox-light.exe"
+        );
+        // Written by hand, without quotes — still an answer, not a panic.
+        assert_eq!(exe_in(r"C:\lv\localvox-light.exe --daemon"), r"C:\lv\localvox-light.exe");
+    }
+
+    /// The switch answers «does this launch THIS exe», not «is this byte-identical to what I
+    /// would write today». An entry left by an older build says `--tray` and carries the working
+    /// directory of the day it was flipped; both are ours, and neither means autostart is off.
+    /// Reading it as off hid a process that kept starting at every login.
+    #[test]
+    fn an_older_spelling_of_our_own_command_still_counts_as_enabled() {
+        let exe = r"C:\lv\localvox-light.exe";
+        let legacy = format!(r#""{exe}" --tray --cwd "D:\somewhere-else""#);
+        assert_eq!(exe_in(&legacy), exe);
+        assert_ne!(legacy, run_command(exe), "otherwise the test proves nothing");
     }
 }

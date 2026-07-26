@@ -1,136 +1,155 @@
-﻿# Portable bundle under ONE directory (default: .\localvox-light in current folder):
-#   localvox-light.exe  .env  vosk-lib\  models\
-# .env sets LOCALVOX_LIGHT_MODEL; Vosk *.dll are copied next to the exe (Windows loader resolves them before main — PATH alone is too late).
+# Установка localvox одной папкой (Windows).
 #
-#   cd D:\apps
-#   .\install-release.ps1
-#   .\localvox-light\localvox-light.exe --tui
+#   cd $HOME\Desktop
+#   $u='https://raw.githubusercontent.com/cascad/localvox-light/main/scripts/install-release.ps1'
+#   $p="$env:TEMP\lv-install.ps1"; iwr -useb $u -OutFile $p; & $p
 #
-# One-liner (installs to .\localvox-light where you run it — cd first if needed):
-#   cd $HOME\Desktop; $u='https://raw.githubusercontent.com/cascad/localvox-light/main/scripts/install-release.ps1'; $p="$env:TEMP\lv-install.ps1"; iwr -useb $u -OutFile $p; & $p
-# Release tag / other script params go AFTER & $p only (not on Invoke-WebRequest — it has no -Tag):
-#   ... iwr -useb $u -OutFile $p; & $p -Tag v0.1.1
+# Ключи ставятся ПОСЛЕ `& $p` (у Invoke-WebRequest их нет):  & $p -Tag v0.1.1 -RequiredOnly
 #
-# Optional (for & $p): -InstallDir D:\lv  -Tag v0.1.0  -Repo owner/repo  -Branch main  -SkipVosk  -SkipBinary
+# Что получится в <каталог>:
+#   localvox-light.exe    демон: запись, варка, HTTP-интерфейс
+#   localvox-process.exe  повар: расшифровка и сводка (БЕЗ НЕГО АРХИВ НЕ РАСШИФРУЕТСЯ)
+#   localvox-desktop.exe  окно (если есть в релизе; иначе интерфейс в браузере)
+#   libvosk.dll           нативная библиотека — грузится ДО main(), поэтому лежит рядом
+#   models\               vosk-model-ru-0.42, gigaam-v3-e2e-ctc, diarize, ner-gliner
+#   .env                  пути, прописанные абсолютно
 #
-# setup-vosk.ps1 is fetched once to populate vosk-lib + models (same layout as dev).
+# Порядок: бинари → модели → ПРОВЕРКА. Проверяет сам продукт (`localvox-light --doctor`), а не
+# этот скрипт: демон знает, ГДЕ он ищет, а скрипт знает только то, что сам разложил. Эти два
+# ответа уже расходились — модель на другом диске по LOCALVOX_LIGHT_MODEL скрипт считает
+# отсутствующей, хотя всё работает.
 
 param(
     [string]$InstallDir = "",
     [string]$Repo = "cascad/localvox-light",
     [string]$Tag = "latest",
     [string]$Branch = "main",
-    [switch]$SkipVosk,
+    [switch]$RequiredOnly,
+    [switch]$SkipModels,
     [switch]$SkipBinary
 )
 
 $ErrorActionPreference = "Stop"
+$ProgressPreference = 'SilentlyContinue'   # иначе Invoke-WebRequest режет скорость в разы
+
 if ([string]::IsNullOrWhiteSpace($InstallDir)) {
     $InstallDir = Join-Path -Path (Get-Location).Path -ChildPath "localvox-light"
 }
-
 New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
 $InstallDir = (Resolve-Path -LiteralPath $InstallDir).Path
 
-if (-not $SkipVosk) {
-    $setupUrl = "https://raw.githubusercontent.com/$Repo/$Branch/scripts/setup-vosk.ps1"
-    $tmpSetup = Join-Path $env:TEMP ("lv-setup-vosk-" + [Guid]::NewGuid().ToString() + ".ps1")
-    Write-Host "Fetching $setupUrl"
-    Invoke-WebRequest -Uri $setupUrl -OutFile $tmpSetup -UserAgent "localvox-light-install/1.0"
-    try {
-        & powershell -NoProfile -ExecutionPolicy Bypass -File $tmpSetup -InstallRoot $InstallDir
-    } finally {
-        Remove-Item -LiteralPath $tmpSetup -Force -ErrorAction SilentlyContinue
-    }
-}
+$raw = "https://raw.githubusercontent.com/$Repo/$Branch/scripts"
+$tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("lv-" + [Guid]::NewGuid().ToString())
+New-Item -ItemType Directory -Force -Path $tmp | Out-Null
 
-if (-not $SkipBinary) {
-    $api = if ($Tag -eq "latest") {
-        "https://api.github.com/repos/$Repo/releases/latest"
-    } else {
-        "https://api.github.com/repos/$Repo/releases/tags/$Tag"
-    }
-    Write-Host "Release API: $api"
-    $rel = Invoke-RestMethod -Uri $api -Headers @{ "User-Agent" = "localvox-light-install/1.0" }
+function Say([string]$t) { Write-Host ''; Write-Host $t -ForegroundColor Cyan }
 
-    $patterns = @()
-    if ($env:OS -eq "Windows_NT") {
-        if ($env:PROCESSOR_ARCHITECTURE -eq "AMD64") {
-            $patterns = @("*x86_64-pc-windows-msvc*", "*windows*x86_64*", "*.exe")
-        } elseif ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") {
-            $patterns = @("*aarch64-pc-windows-msvc*", "*windows*arm64*", "*.exe")
-        } else {
-            $patterns = @("*win32*", "*.exe")
-        }
-    } else {
-        throw "Use install-release.sh on non-Windows."
+try {
+    # ── Целевая тройка. Ошибиться — скачать чужой бинарь и получить «не является приложением
+    #    Win32» вместо внятного сообщения.
+    $target = switch ($env:PROCESSOR_ARCHITECTURE) {
+        'AMD64' { 'x86_64-pc-windows-msvc' }
+        'ARM64' { 'aarch64-pc-windows-msvc' }
+        default { throw "Неизвестная архитектура: $env:PROCESSOR_ARCHITECTURE" }
     }
 
-    $assets = @($rel.assets)
-    $asset = $null
-    foreach ($pat in $patterns) {
-        $asset = $assets | Where-Object { $_.name -like $pat } | Select-Object -First 1
-        if ($asset) { break }
-    }
-    if (-not $asset) {
-        Write-Host "Assets in this release:"
-        $assets | ForEach-Object { Write-Host "  -" $_.name }
-        throw "No matching Windows asset."
-    }
-
-    $outPath = Join-Path $InstallDir $asset.name
-    Write-Host "Downloading" $asset.browser_download_url
-    Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $outPath -UserAgent "localvox-light-install/1.0"
-
-    if ($asset.name -like "*.zip") {
-        Expand-Archive -Path $outPath -DestinationPath $InstallDir -Force
-        Remove-Item -LiteralPath $outPath -Force
-        $mainExe = Get-ChildItem -Path $InstallDir -Filter "localvox-light*.exe" -Recurse -File -ErrorAction SilentlyContinue |
-            Select-Object -First 1
-        if (-not $mainExe) {
-            $mainExe = Get-ChildItem -Path $InstallDir -Filter "*.exe" -Recurse -File -ErrorAction SilentlyContinue |
-                Select-Object -First 1
-        }
-    } else {
-        $mainExe = Get-Item -LiteralPath $outPath
-    }
-    if (-not $mainExe) {
-        throw "No .exe found in $InstallDir after download."
-    }
-    $targetExe = Join-Path $InstallDir "localvox-light.exe"
-    if ($mainExe.FullName -ne $targetExe) {
-        if (Test-Path -LiteralPath $targetExe) { Remove-Item -LiteralPath $targetExe -Force }
-        Move-Item -LiteralPath $mainExe.FullName -Destination $targetExe -Force
-    }
-
-    $voskLib = Join-Path $InstallDir "vosk-lib"
+    # ── Нативная библиотека Vosk. Её грузит загрузчик Windows ДО main(), поэтому она обязана
+    #    лежать рядом с exe: PATH из уже запущенного процесса — слишком поздно.
+    Say "Нативная библиотека Vosk"
+    $setupVosk = Join-Path $tmp 'setup-vosk.ps1'
+    Invoke-WebRequest -Uri "$raw/setup-vosk.ps1" -OutFile $setupVosk -UserAgent 'localvox-install/1.0'
+    & powershell -NoProfile -ExecutionPolicy Bypass -File $setupVosk -InstallRoot $InstallDir
+    $voskLib = Join-Path $InstallDir 'vosk-lib'
     if (Test-Path -LiteralPath $voskLib) {
-        Get-ChildItem -Path $voskLib -Filter "*.dll" -File -ErrorAction SilentlyContinue |
+        Get-ChildItem -LiteralPath $voskLib -Filter '*.dll' -File -ErrorAction SilentlyContinue |
             ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination $InstallDir -Force }
     }
 
-    $modelDir = Get-ChildItem -Path (Join-Path $InstallDir "models") -Directory -ErrorAction SilentlyContinue |
-        Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName "am\final.mdl") } |
-        Select-Object -First 1
-    if (-not $modelDir) {
-        $modelAbs = Join-Path $InstallDir "models\vosk-model-ru-0.42"
-        Write-Warning "Could not find models\*\am\final.mdl; .env uses default path: $modelAbs"
-    } else {
-        $modelAbs = $modelDir.FullName
+    # ── Бинари. ОДНИМ архивом на платформу: демон, повар и окно приезжают вместе. Раздельные
+    #    файлы уже привели к установке без повара — продукт писал звук и не расшифровывал ничего.
+    if (-not $SkipBinary) {
+        Say "Бинари ($target)"
+        $api = if ($Tag -eq 'latest') {
+            "https://api.github.com/repos/$Repo/releases/latest"
+        } else {
+            "https://api.github.com/repos/$Repo/releases/tags/$Tag"
+        }
+        $rel = Invoke-RestMethod -Uri $api -Headers @{ 'User-Agent' = 'localvox-install/1.0' }
+        $asset = @($rel.assets) | Where-Object { $_.name -like "*$target*" } | Select-Object -First 1
+        if (-not $asset) {
+            Write-Host "В релизе нет сборки под ${target}. Что есть:"
+            @($rel.assets) | ForEach-Object { Write-Host "  -" $_.name }
+            throw "Нет подходящего файла в релизе."
+        }
+        $zip = Join-Path $tmp $asset.name
+        Write-Host "  ⇣ $($asset.name)"
+        Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $zip -UserAgent 'localvox-install/1.0'
+        Expand-Archive -LiteralPath $zip -DestinationPath $InstallDir -Force
+
+        if (-not (Test-Path -LiteralPath (Join-Path $InstallDir 'localvox-process.exe'))) {
+            Write-Warning "В архиве нет localvox-process.exe — архив не будет расшифровываться"
+        }
+        # Windows помечает скачанное как «из интернета» (Zone.Identifier); на exe это даёт
+        # предупреждение SmartScreen при каждом запуске. Снимаем: мы это только что скачали сами.
+        Get-ChildItem -LiteralPath $InstallDir -Filter '*.exe' -File |
+            ForEach-Object { Unblock-File -LiteralPath $_.FullName -ErrorAction SilentlyContinue }
     }
 
-    $modelForEnv = ($modelAbs -replace '\\', '/')
-    $envLines = @(
-        "# Generated by install-release.ps1 — edit LOCALVOX_LIGHT_MODEL if the model lives elsewhere.",
-        "LOCALVOX_LIGHT_MODEL=$modelForEnv",
-        ""
-    ) -join "`r`n"
-    $envPath = Join-Path $InstallDir ".env"
-    [System.IO.File]::WriteAllText($envPath, $envLines, [System.Text.UTF8Encoding]::new($false))
+    # ── Модели. Список — в models.json, механика — в fetch-models.ps1. Оба кладём рядом,
+    #    потому что скрипт ищет манифест возле себя.
+    if (-not $SkipModels) {
+        Say "Модели"
+        $sdir = Join-Path $tmp 's'
+        New-Item -ItemType Directory -Force -Path $sdir | Out-Null
+        Invoke-WebRequest -Uri "$raw/models.json" -OutFile (Join-Path $sdir 'models.json') -UserAgent 'localvox-install/1.0'
+        Invoke-WebRequest -Uri "$raw/fetch-models.ps1" -OutFile (Join-Path $sdir 'fetch-models.ps1') -UserAgent 'localvox-install/1.0'
+        # НЕ $args: это автоматическая переменная PowerShell, и присваивание в неё внутри
+        # скрипта работает не так, как читается.
+        $fetchArgs = @('-Root', $InstallDir)
+        if ($RequiredOnly) { $fetchArgs += '-RequiredOnly' }
+        & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $sdir 'fetch-models.ps1') @fetchArgs
+    }
 
-    Write-Host ""
-    Write-Host "Bundle ready (everything under):"
-    Write-Host "  $InstallDir"
-    Write-Host "Run (from that folder, or double-click the exe):"
-    Write-Host "  .\localvox-light.exe --tui"
+    # ── .env. Пути АБСОЛЮТНЫЕ намеренно: под автозапуском рабочий каталог демона — system32,
+    #    и относительный `models\…` не найдётся. Слэши прямые: обратные в .env съедаются
+    #    как экранирование.
+    Say "Настройки"
+    $envPath = Join-Path $InstallDir '.env'
+    if (Test-Path -LiteralPath $envPath) {
+        Write-Host "  .env уже есть — не трогаю, правки ваши"
+    } else {
+        $d = $InstallDir -replace '\\', '/'
+        $lines = @(
+            "# Создано install-release.ps1. Пути абсолютные намеренно: под автозапуском рабочий",
+            "# каталог демона — system32, и относительный models/... не найдётся.",
+            "LOCALVOX_LIGHT_MODEL=$d/models/vosk-model-ru-0.42",
+            "LOCALVOX_ASR_MODEL_DIR=$d/models/gigaam-v3-e2e-ctc",
+            "LOCALVOX_LIGHT_AUDIO_DIR=$d/archive",
+            "",
+            "# Сводка и чистовик. Без Ollama расшифровка всё равно работает.",
+            "LOCALVOX_LLM_BASE_URL=http://localhost:11434/v1",
+            "LOCALVOX_LLM_MODEL=qwen3.5:9b",
+            ""
+        ) -join "`r`n"
+        [System.IO.File]::WriteAllText($envPath, $lines, [System.Text.UTF8Encoding]::new($false))
+        Write-Host "  записан $envPath"
+    }
+
+    # ── Проверка. Спрашиваем сам продукт.
+    Say "Проверка"
+    $exe = Join-Path $InstallDir 'localvox-light.exe'
+    if (Test-Path -LiteralPath $exe) {
+        Push-Location $InstallDir
+        try { & $exe --doctor } finally { Pop-Location }
+    } else {
+        Write-Host "  бинаря нет — проверять нечего"
+    }
+
+    Say "Готово: $InstallDir"
+    Write-Host "  Запуск:            cd `"$InstallDir`"; .\localvox-light.exe --daemon"
+    Write-Host "  Проверить ещё раз: cd `"$InstallDir`"; .\localvox-light.exe --doctor"
+    Write-Host "  Интерфейс:         http://127.0.0.1:3017/"
+}
+finally {
+    Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
 }

@@ -23,8 +23,12 @@ use ratatui::Terminal;
 
 #[cfg(not(windows))]
 use localvox_light_core::audio::list_loopback_capture_devices;
+// Loopback is asked about differently per platform: Windows enumerates OUTPUTS (WASAPI listens
+// in on one), elsewhere it is a capture device in its own right.
+#[cfg(windows)]
+use localvox_light_core::audio::list_output_device_names;
 use localvox_light_core::audio::{
-    collect_input_devices, device_id_save_token, format_device_display, list_output_device_names,
+    collect_input_devices, device_id_save_token, format_device_display,
 };
 use localvox_light_core::events::{StructuredLog, UiMsg};
 use localvox_light_core::light_config::LightDeviceConfig;

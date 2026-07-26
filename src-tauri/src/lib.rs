@@ -73,7 +73,7 @@ fn ensure_daemon(addr: &str) -> bool {
         .and_then(|exe| exe.parent().map(|d| d.join(daemon_exe())))
         .filter(|p| p.exists())
     {
-        let _ = std::process::Command::new(daemon).arg("--tray").spawn();
+        let _ = std::process::Command::new(daemon).arg("--daemon").spawn();
     }
     let deadline = std::time::Instant::now() + STARTUP_WAIT;
     while std::time::Instant::now() < deadline {
@@ -95,8 +95,9 @@ color:%23e3e8ee;background:%2315181d}}code{{background:%2321262d;padding:.15rem 
 border-radius:4px}}</style>\
 <h2>Движок не отвечает</h2>\
 <p>Это окно — только вид на демон localvox, а он не слушает <code>{addr}</code>.</p>\
-<p>Запустите его и откройте интерфейс из трея:</p>\
-<p><code>localvox-light.exe --tray</code></p>"
+<p>Запустите его — и откройте интерфейс из трея (Windows) или прямо по этому адресу:</p>\
+<p><code>{exe} --daemon</code></p>",
+        exe = daemon_exe()
     )
 }
 

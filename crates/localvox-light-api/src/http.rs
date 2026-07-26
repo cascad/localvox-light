@@ -567,6 +567,19 @@ pub fn respond(
                     .context("нужно поле question")?;
                 Ok(serde_json::to_value(archive.ask(question)?)?)
             }
+            // «Спросить у LLM про файл/текст» — CREATE the request (Pending) and return at once. The
+            // model call happens in the daemon's ask-worker, so no RouteGuard and no long wait here:
+            // this endpoint is now instant, and the answer is polled from GET /api/asks/{id}.
+            (Method::Post, "/api/asks") => {
+                let req: crate::archive::AskRequest =
+                    serde_json::from_str(body).context("тело — JSON {text, prompt?, provider?}")?;
+                Ok(serde_json::to_value(archive.create_ask(req)?)?)
+            }
+            (Method::Get, "/api/asks") => Ok(json!({ "asks": archive.list_asks() })),
+            (Method::Get, p) if p.starts_with("/api/asks/") => {
+                let id = p.strip_prefix("/api/asks/").context("не найдено")?;
+                archive.get_ask(id)
+            }
             // "The model lied — re-cook it." Throws away the derived artifacts and
             // puts the session up for cooking anew. The audio is not touched:
             // everything is recreated from it, so throwing away a derivative is not a
@@ -824,7 +837,12 @@ pub fn respond(
                     .strip_prefix("/api/sessions/")
                     .and_then(|r| r.strip_suffix("/recook"))
                     .context("не найдено")?;
-                Ok(json!({"ok": true, "msg": archive.recook(rest)?}))
+                // `?scope=summary|text|all` — the tab the person pressed on. Absent → full redo,
+                // the old behaviour, so an older client keeps working.
+                let scope = crate::archive::RecookScope::from_tab(
+                    query_param(query, "scope").as_deref().unwrap_or_default(),
+                );
+                Ok(json!({"ok": true, "msg": archive.recook(rest, scope)?}))
             }
             // «Всё верно»: человек снимает пометку сомнения, и его слово запоминается.
             //
@@ -911,7 +929,15 @@ pub fn respond(
                     // A verified result and a draft not confirmed by the recording are
                     // DIFFERENT files and different tabs: an invention MUST NOT look
                     // like the summary.
-                    "summary" => document(archive.artifact(name, "summary.md")?),
+                    // Blocks, not a page: each claim carries the seconds it came from, so the
+                    // client can offer to play them. `?format=md` still returns the document.
+                    "summary" => {
+                        if query_param(query, "format").as_deref() == Some("md") {
+                            document(archive.artifact(name, "summary.md")?)
+                        } else {
+                            archive.summary_blocks(name)
+                        }
+                    }
                     "summary-unverified" => {
                         document(archive.artifact(name, "summary.unverified.md")?)
                     }
@@ -1056,7 +1082,7 @@ mod tests {
         // fact, not as the document's first paragraph.
         fs::write(
             session.join("summary.md"),
-            "<!-- localvox: summary-ru | модель qwen3.5:9b | глоссарий: 0 замен | 2026-07-11T10:00:00+03:00 -->\n\n## Решения\nвсё хорошо\n",
+            "<!-- localvox: summary-ru | модель qwen3.5:9b | глоссарий: 0 замен | 2026-07-11T10:00:00+03:00 -->\n\n## Решения\n* всё хорошо [[0]]\n",
         )
         .unwrap();
         Archive::new(dir.to_path_buf())
@@ -1225,15 +1251,32 @@ mod tests {
             "",
         );
         assert_eq!(code, 200);
-        let md = v["markdown"].as_str().unwrap();
-        assert!(md.contains("всё хорошо"));
+        // Blocks by default: a claim is a thing with a source, not a line of a page.
+        let blocks = v["blocks"].as_array().expect("no blocks");
+        assert_eq!(blocks[0]["kind"], "heading");
+        assert_eq!(blocks[0]["text"], "Решения");
+        assert_eq!(blocks[1]["kind"], "bullet");
+        // The citation marker is out of the text — it is provenance, not something to read.
+        assert_eq!(blocks[1]["text"], "всё хорошо");
         assert!(
-            !md.contains("<!--"),
-            "the bookkeeping comment travelled inside the document: {md}"
+            !v.to_string().contains("<!--"),
+            "the bookkeeping comment travelled inside the document"
         );
-        assert!(md.starts_with("## Решения"), "the body lost its first line: {md}");
         assert_eq!(v["provenance"]["model"], "qwen3.5:9b");
         assert_eq!(v["provenance"]["template"], "summary-ru");
+
+        // `?format=md` still hands over the document, markers and all — that is the file.
+        let (code, doc) = respond(
+            &a,
+            &cfg(None),
+            &Method::Get,
+            "/api/sessions/20260711_http/summary?format=md",
+            None,
+            true,
+            "format=md",
+        );
+        assert_eq!(code, 200);
+        assert!(doc["markdown"].as_str().unwrap().contains("всё хорошо"));
         let (code, _) = respond(
             &a,
             &cfg(None),

@@ -60,7 +60,7 @@ pub struct Cli {
     #[arg(long, env = "LOCALVOX_LIGHT_CONFIG")]
     pub config: Option<std::path::PathBuf>,
 
-    /// Vosk model directory (as downloaded by scripts/setup-vosk.* → models/vosk-model-ru-0.42)
+    /// Vosk model directory (as downloaded by scripts/fetch-models.* → models/vosk-model-ru-0.42)
     #[arg(
         long,
         default_value = "models/vosk-model-ru-0.42",
@@ -103,6 +103,13 @@ pub struct Cli {
     /// List audio devices and exit
     #[arg(long)]
     pub list_devices: bool,
+
+    /// Check the installation and exit: models, the cook, the archive, the LLM.
+    ///
+    /// Exit code: 0 — everything works; 1 — something is missing but the product runs without
+    /// it; 2 — it will not work. A machine can branch on that; a human reads the lines.
+    #[arg(long)]
+    pub doctor: bool,
 
     /// Full-screen TUI (transcript + stage table)
     #[arg(long)]
@@ -166,9 +173,14 @@ pub struct Cli {
     #[arg(long, default_value = "900", env = "LOCALVOX_LIGHT_AUTOSTOP_SEC")]
     pub autostop_sec: f64,
 
-    /// Background mode: a tray icon instead of the TUI (Windows; recording + voice + HTTP API)
-    #[arg(long)]
-    pub tray: bool,
+    /// Background mode: recording + voice + cooking + HTTP API, no terminal interface.
+    ///
+    /// This is the product as it normally runs. On Windows a tray icon is raised on top of it;
+    /// elsewhere there is simply no icon, and that is not a lesser mode — the interface lives at
+    /// the HTTP address either way. The old spelling `--tray` still works: it named the garnish,
+    /// not the dish.
+    #[arg(long, alias = "tray")]
+    pub daemon: bool,
 
     /// Chdir into this directory before reading any config (set by autostart: its
     /// cwd = system32, while `.env`, `models/` and slots all depend on the directory)
@@ -240,9 +252,13 @@ pub fn merge_env_bools(cli: &mut Cli) {
             cli.segments_to_disk = t;
         }
     }
-    if !long_flag_in_argv("--tray") {
-        if let Some(t) = env_truthy("LOCALVOX_LIGHT_TRAY") {
-            cli.tray = t;
+    // Both spellings, on the command line and in the environment: `--tray` is what autostart
+    // entries and the desktop shell in the wild already say.
+    if !long_flag_in_argv("--daemon") && !long_flag_in_argv("--tray") {
+        if let Some(t) =
+            env_truthy("LOCALVOX_LIGHT_DAEMON").or_else(|| env_truthy("LOCALVOX_LIGHT_TRAY"))
+        {
+            cli.daemon = t;
         }
     }
 }
@@ -423,7 +439,7 @@ pub fn normalized_model_path(cli: &Cli) -> String {
 pub fn validate_vosk_model_dir(p: &Path) -> Result<()> {
     if !p.exists() {
         anyhow::bail!(
-            "Vosk model: directory not found: {}. By default models/vosk-model-ru-0.42 is expected after scripts/setup-vosk.* (or pass --model).",
+            "Vosk model: directory not found: {}. By default models/vosk-model-ru-0.42 is expected after scripts/fetch-models.* (or pass --model).",
             p.display()
         );
     }

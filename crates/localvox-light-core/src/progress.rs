@@ -69,6 +69,14 @@ pub struct StageEvent {
     /// log: "failed" without it sends one digging through the daemon's log.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
+    /// How far into the stage we are — units done out of the total (chunks transcribed, batches
+    /// cleaned). The percentage a person watches, AND the heartbeat a stall is read from: a long
+    /// stage used to run in total silence, so 3 quiet minutes looked identical to a dead process.
+    /// Optional — a stage that has no natural unit (download) simply never sets it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub done: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total: Option<u32>,
 }
 
 const FILE: &str = "progress.jsonl";
@@ -104,12 +112,37 @@ pub fn new_run(session_dir: &Path) {
 /// Append a fact. Failing to write progress must NEVER break the work itself: the log is a
 /// story about the work, not the work.
 pub fn mark(session_dir: &Path, stage: Stage, state: StageState, note: Option<&str>) {
-    let event = StageEvent {
-        stage,
-        state,
-        at: crate::versions::now_rfc3339(),
-        note: note.map(str::to_string),
-    };
+    append(
+        session_dir,
+        StageEvent {
+            stage,
+            state,
+            at: crate::versions::now_rfc3339(),
+            note: note.map(str::to_string),
+            done: None,
+            total: None,
+        },
+    );
+}
+
+/// A heartbeat inside a running stage: `done` of `total` units are finished. Emitted often (per
+/// chunk transcribed, per batch cleaned) so a person sees a percentage AND a stall is detectable —
+/// the freshness of the last such event is what tells a watcher the process is still alive.
+pub fn progress(session_dir: &Path, stage: Stage, done: u32, total: u32) {
+    append(
+        session_dir,
+        StageEvent {
+            stage,
+            state: StageState::Running,
+            at: crate::versions::now_rfc3339(),
+            note: None,
+            done: Some(done),
+            total: Some(total),
+        },
+    );
+}
+
+fn append(session_dir: &Path, event: StageEvent) {
     let Ok(mut line) = serde_json::to_string(&event) else {
         return;
     };
@@ -168,6 +201,17 @@ pub fn read(session_dir: &Path) -> Vec<StageEvent> {
     current
 }
 
+/// The stage a run was interrupted in — the last event of the current run is still `Running`, so
+/// nothing terminal ever followed. `None` when the run ended cleanly (or never started). Used at
+/// daemon startup to reset an abandoned cook's status before replaying it.
+pub fn interrupted_stage(session_dir: &Path) -> Option<Stage> {
+    let events = read(session_dir);
+    match events.last() {
+        Some(e) if e.state == StageState::Running => Some(e.stage),
+        _ => None,
+    }
+}
+
 /// The state of one stage, as shown to a person.
 #[derive(Serialize, Clone, Debug)]
 pub struct StageStatus {
@@ -176,7 +220,15 @@ pub struct StageStatus {
     /// When the stage last started — so "running for 4 minutes" is answerable.
     pub started_at: Option<String>,
     pub ended_at: Option<String>,
+    /// The timestamp of the MOST RECENT event for this stage — a heartbeat or the terminal mark.
+    /// A running stage whose `updated_at` is old is stalled: the freshness answers "is it alive".
+    pub updated_at: Option<String>,
     pub note: Option<String>,
+    /// Progress within the stage, when it reports it (chunks/batches). `done` of `total`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub done: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total: Option<u32>,
 }
 
 /// The derived view: the LATEST state of every stage that has been heard from, in the order of
@@ -197,12 +249,21 @@ pub fn fold(events: &[StageEvent]) -> Vec<StageStatus> {
             .rev()
             .find(|e| e.state == StageState::Running)
             .map(|e| e.at.clone());
+        // The freshest done/total for this stage, even if the very last event was a bare mark
+        // without them — a heartbeat carries the count, the terminal Done usually does not.
+        let progress = mine.iter().rev().find_map(|e| e.done.zip(e.total));
+        // The freshest human note, likewise: heartbeats have none, so a stage that finished with
+        // «421 строк» keeps it rather than blanking on a trailing progress event.
+        let note = mine.iter().rev().find_map(|e| e.note.clone());
         out.push(StageStatus {
             stage,
             state: last.state,
             started_at,
             ended_at: (last.state != StageState::Running).then(|| last.at.clone()),
-            note: last.note.clone(),
+            updated_at: Some(last.at.clone()),
+            note,
+            done: progress.map(|(d, _)| d),
+            total: progress.map(|(_, t)| t),
         });
     }
     out

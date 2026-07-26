@@ -1,17 +1,18 @@
-# Dev: vosk-lib + models under repo root (run from clone: .\scripts\setup-vosk.ps1).
+# Устанавливает НАТИВНУЮ БИБЛИОТЕКУ Vosk (vosk-lib\). Только её: она своя под каждую ОС.
+# Модели ставит fetch-models.ps1 по scripts\models.json — один список на все платформы.
+#
+# Dev: vosk-lib under repo root (run from clone: .\scripts\setup-vosk.ps1).
 # Standalone copy of this file: same folder as script becomes root (e.g. F:\kit\vosk-lib).
 # User bundle: use install-release.ps1 with -InstallRoot, or -InstallRoot here.
 #
-#   -SkipModel  - native library only
-#   -Force      - re-download model even if am/final.mdl exists
-#   -InstallRoot "D:\path" - put vosk-lib + models there (absolute path recommended)
+#   -Force      - перекачать библиотеку, даже если она уже на месте
+#   -InstallRoot "D:\path" - put vosk-lib there (absolute path recommended)
 #
-# Env: LOCALVOX_VOSK_API_TAG, LOCALVOX_SETUP_MODEL_URL, LOCALVOX_SETUP_FORCE=1
+# Env: LOCALVOX_VOSK_API_TAG, LOCALVOX_SETUP_FORCE=1
 #
 # UTF-8 BOM: required so Windows PowerShell 5.x reads this file as UTF-8.
 
 param(
-    [switch]$SkipModel,
     [switch]$Force,
     [string]$InstallRoot = ""
 )
@@ -32,9 +33,6 @@ if ($InstallRoot) {
 
 $VoskTag = if ($env:LOCALVOX_VOSK_API_TAG) { $env:LOCALVOX_VOSK_API_TAG } else { "v0.3.42" }
 $Ver = $VoskTag.TrimStart("v")
-$ModelUrl = if ($env:LOCALVOX_SETUP_MODEL_URL) { $env:LOCALVOX_SETUP_MODEL_URL } else {
-    "https://huggingface.co/mychen76/vosk-models/resolve/main/ru/vosk-model-ru-0.42.zip"
-}
 if ($env:LOCALVOX_SETUP_FORCE -match "^(1|true|yes|on)$") { $Force = $true }
 
 $arch = $env:PROCESSOR_ARCHITECTURE
@@ -75,34 +73,6 @@ try {
     Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
 }
 
-if (-not $SkipModel) {
-    $modelBase = [System.IO.Path]::GetFileNameWithoutExtension($ModelUrl)
-    $dest = Join-Path $root "models\$modelBase"
-    $finalMdl = Join-Path $dest "am\final.mdl"
-    if ((Test-Path $finalMdl) -and -not $Force) {
-        Write-Host "Model already present: $dest (skip). Re-download: -Force"
-    } else {
-        Write-Host "Downloading model $ModelUrl"
-        $tmp2 = Join-Path ([System.IO.Path]::GetTempPath()) ([Guid]::NewGuid().ToString())
-        New-Item -ItemType Directory -Path $tmp2 | Out-Null
-        try {
-            $mz = Join-Path $tmp2 "model.zip"
-            Invoke-WebRequest -Uri $ModelUrl -OutFile $mz -UserAgent "localvox-light-setup/1.0"
-            $modelsRoot = Join-Path $root "models"
-            if ($Force -and (Test-Path $dest)) { Remove-Item -Recurse -Force $dest }
-            New-Item -ItemType Directory -Path $modelsRoot -Force | Out-Null
-            Expand-Archive -Path $mz -DestinationPath $modelsRoot -Force
-            if (-not (Test-Path $finalMdl)) {
-                throw "After extract, missing $dest\am\final.mdl (need full Vosk model zip)"
-            }
-            Write-Host "Model -> $dest"
-        } finally {
-            Remove-Item -Recurse -Force $tmp2 -ErrorAction SilentlyContinue
-        }
-    }
-}
-
-$modelPath = Join-Path $root "models\$([System.IO.Path]::GetFileNameWithoutExtension($ModelUrl))"
 Write-Host ""
 Write-Host "--- Next steps ---"
 Write-Host "In .env:"

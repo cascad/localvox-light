@@ -14,6 +14,60 @@ use localvox_light_core::versions::{read_transcript_lines, VersionStore};
 use localvox_light_integrations::SlotRegistry;
 use localvox_light_search::SearchIndex;
 
+/// A request to «спросить у LLM»: the material plus how to treat it. Deserialized from the POST
+/// body; every field but `text` is optional (a bare paste with the default prompt is valid).
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct AskRequest {
+    /// The material — pasted text, or a dropped file's text read on the client.
+    pub text: String,
+    /// The person's own instruction; empty/absent → the default prompt.
+    #[serde(default)]
+    pub prompt: Option<String>,
+    /// `claude` (default) — subscription via the CLI; anything else — the OpenAI-compatible client.
+    #[serde(default)]
+    pub provider: Option<String>,
+    /// A label for the input (file name / URL), for the list. Purely cosmetic.
+    #[serde(default)]
+    pub input_name: Option<String>,
+}
+
+/// How much of the pipeline a re-cook throws away and remakes — chosen by the tab the person is
+/// looking at, so ONE «Переварить» does the right thing per section (WP: granular re-cook).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum RecookScope {
+    /// Only the summary (`summary.md`). Transcript and cleaned text are kept.
+    Summary,
+    /// The cleaned text (processed.json = «Реплики»/«Текст», one artifact) and the summary that
+    /// derives from it. The transcript version is kept.
+    Text,
+    /// Everything, from the audio up: transcript, cleanup, summary. Forces past an existing version.
+    All,
+}
+
+impl RecookScope {
+    /// From the UI tab name. Unknown → the safe full redo.
+    pub fn from_tab(s: &str) -> Self {
+        match s {
+            "summary" => Self::Summary,
+            "processed" | "transcript" | "text" => Self::Text,
+            _ => Self::All,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Summary => "только сводка",
+            Self::Text => "текст и сводка",
+            Self::All => "всё заново",
+        }
+    }
+}
+
+/// A cook counts as stalled when its progress has not moved for this long — above any normal quiet
+/// stretch (a summary ~4 min, a model load ~2.5 min), and far above the per-chunk/per-batch
+/// heartbeat interval, so only a dead process trips it.
+const COOK_STALL_SEC: i64 = 360;
+
 pub struct Archive {
     work_dir: PathBuf,
 }
@@ -459,6 +513,127 @@ impl Archive {
         self.work_dir.join("sessions")
     }
 
+    fn asks_root(&self) -> PathBuf {
+        self.work_dir.join(localvox_light_core::asks::DIR)
+    }
+
+    /// CREATE an ad-hoc «спросить у LLM» request — saved as `Pending` and returned AT ONCE. The
+    /// model is NOT called here: that is the worker's job (see [`Self::process_ask`]). This is the
+    /// whole point of the async rework — the button returns instantly, and the answer arrives in the
+    /// background, surviving a navigation away or a daemon restart, exactly like a session's cook.
+    pub fn create_ask(&self, req: AskRequest) -> Result<localvox_light_core::asks::Ask> {
+        use localvox_light_core::asks::{self, Ask, AskStatus};
+
+        // A cap that is generous for documents but keeps one request from swallowing memory or
+        // blowing past the CLI's stdin limit (~10 MB). Well past a long PDF's text.
+        const MAX_INPUT_CHARS: usize = 400_000;
+        let input = req.text;
+        anyhow::ensure!(!input.trim().is_empty(), "нечего отправлять: пустой материал");
+        anyhow::ensure!(
+            input.chars().count() <= MAX_INPUT_CHARS,
+            "материал слишком большой (> {MAX_INPUT_CHARS} символов) — сократите или разбейте"
+        );
+
+        let provider = req
+            .provider
+            .as_deref()
+            .map(str::trim)
+            .filter(|p| !p.is_empty())
+            .unwrap_or("claude")
+            .to_string();
+
+        let now = chrono::Local::now();
+        let ask = Ask {
+            id: asks::new_id(now),
+            status: AskStatus::Pending,
+            created_at: now.to_rfc3339(),
+            provider,
+            model: None,
+            prompt: asks::effective_prompt(req.prompt.as_deref()),
+            input_kind: "text".into(),
+            input_name: req.input_name.filter(|s| !s.trim().is_empty()),
+            input_chars: input.chars().count(),
+            answer: None,
+            cost_usd: None,
+            error: None,
+        };
+        asks::save(&self.asks_root(), &ask, &input).context("сохранение запроса в asks/")?;
+        Ok(ask)
+    }
+
+    /// PROCESS one pending request — the worker's single step. Marks it `Running`, calls the model,
+    /// then writes the answer (or the error) and the terminal status. A FAILURE is saved, not
+    /// thrown: the person's material and the reason are kept, and the worker moves on.
+    pub fn process_ask(&self, id: &str) -> Result<localvox_light_core::asks::Ask> {
+        use localvox_light_core::asks::{self, AskStatus};
+        let root = self.asks_root();
+        let mut ask = asks::load(&root, id)?;
+        let input = asks::input(&root, id)?;
+
+        ask.status = AskStatus::Running;
+        asks::update(&root, &ask).context("отметить запрос выполняющимся")?;
+
+        // Dispatch. `claude` — the subscription via the official CLI (claude_cli). Anything else —
+        // the OpenAI-compatible client (Ollama / Gemini free-tier / an API key), which the rest of
+        // the product already speaks; no new provider code for those.
+        let outcome: Result<(String, Option<f64>, Option<String>)> = if ask.provider == "claude" {
+            let cfg = localvox_light_llm::claude_cli::ClaudeCliConfig::from_env();
+            localvox_light_llm::claude_cli::run(&cfg, &ask.prompt, Some(&input))
+                .map(|a| (a.text, a.cost_usd, cfg.model.clone()))
+        } else {
+            let client = llm_client_from_env_with(300);
+            let model = client.model().to_string();
+            client
+                .chat(&[
+                    localvox_light_llm::system(ask.prompt.clone()),
+                    localvox_light_llm::user(input),
+                ])
+                .map(|text| (text, None, Some(model)))
+        };
+
+        match outcome {
+            Ok((text, cost, model)) => {
+                ask.answer = Some(text);
+                ask.cost_usd = cost;
+                ask.model = model;
+                ask.error = None;
+                ask.status = AskStatus::Done;
+            }
+            Err(e) => {
+                ask.error = Some(format!("{e:#}"));
+                ask.status = AskStatus::Failed;
+            }
+        }
+        asks::update(&root, &ask).context("сохранение ответа")?;
+        Ok(ask)
+    }
+
+    /// The oldest request still waiting — the worker's next unit of work. `None` — the queue is dry.
+    pub fn next_pending_ask(&self) -> Option<String> {
+        localvox_light_core::asks::pending(&self.asks_root()).into_iter().next()
+    }
+
+    /// At startup, put any request left `Running` (the daemon died mid-call) back into the queue.
+    pub fn reclaim_running_asks(&self) -> usize {
+        localvox_light_core::asks::reclaim_running(&self.asks_root())
+    }
+
+    /// The list of past requests, newest first (for the section's sidebar).
+    pub fn list_asks(&self) -> Vec<localvox_light_core::asks::AskSummary> {
+        localvox_light_core::asks::list(&self.asks_root())
+    }
+
+    /// One request in full: the record plus the material it was made about.
+    pub fn get_ask(&self, id: &str) -> Result<Value> {
+        let ask = localvox_light_core::asks::load(&self.asks_root(), id)?;
+        let input = localvox_light_core::asks::input(&self.asks_root(), id).unwrap_or_default();
+        let mut v = serde_json::to_value(&ask)?;
+        if let Value::Object(ref mut m) = v {
+            m.insert("input".into(), Value::String(input));
+        }
+        Ok(v)
+    }
+
     pub fn search(&self, query: &str, limit: usize) -> Result<Vec<Hit>> {
         let index = SearchIndex::open_or_build(&self.work_dir, false)?;
         Ok(index
@@ -800,6 +975,43 @@ impl Archive {
         })
     }
 
+    /// The summary, as blocks with their sources RESOLVED TO TIMECODES.
+    ///
+    /// The file stores line indices — that is the durable form, since a timecode belongs to the
+    /// transcript and would go stale the moment a recording is cooked again. The client gets
+    /// seconds, because what it does with a source is play it, and making every client re-open
+    /// the transcript to turn 12 into 01:30 would be handing them our homework.
+    ///
+    /// A citation whose line no longer exists is dropped here rather than sent as a dead button.
+    /// The claim stays: it was checked when it was written, and a re-cooked transcript does not
+    /// make it false — only unlocatable.
+    pub fn summary_blocks(&self, session: &str) -> Result<serde_json::Value> {
+        let dir = self.session_dir(session)?;
+        let text = self.artifact(session, "summary.md")?;
+        let (prov, body) = localvox_light_core::provenance::split(&text);
+        let blocks = localvox_light_core::citations::parse(body);
+
+        let lines = VersionStore::open(&dir)
+            .ok()
+            .and_then(|s| s.best().and_then(|b| s.resolve(b.id)))
+            .and_then(|p| read_transcript_lines(&p).ok())
+            .unwrap_or_default();
+
+        let out: Vec<serde_json::Value> = blocks
+            .into_iter()
+            .map(|b| {
+                let sources: Vec<serde_json::Value> = b
+                    .lines
+                    .iter()
+                    .filter_map(|&i| lines.get(i).map(|l| (i, l)))
+                    .map(|(i, l)| json!({"line": i, "start_sec": l.start_sec, "end_sec": l.end_sec}))
+                    .collect();
+                json!({"kind": b.kind, "text": b.text, "sources": sources})
+            })
+            .collect();
+        Ok(json!({"blocks": out, "provenance": prov}))
+    }
+
     /// Audio clip of a fragment (F6 player): sample-accurately glues the needed range
     /// out of the source's chunks → WAV 16 kHz mono s16. For "found it in search →
     /// listened to it". `dur_sec` is bounded, the audio may have been deleted by
@@ -889,59 +1101,99 @@ impl Archive {
     ///
     /// Old transcript versions stay in the manifest (version history — P2): `--force`
     /// adds a new one and makes it `best` instead of erasing the previous ones.
-    pub fn recook(&self, session: &str) -> Result<String> {
+    /// Has the current run's progress not moved for longer than any normal quiet stretch (a summary
+    /// ~4 min, a model load ~2.5 min)? With per-chunk/per-batch heartbeats a live cook updates every
+    /// few seconds, so a long silence means a dead process. Shared by the progress view (to show
+    /// «оборвалось») and by recook (to let a human override a stalled job).
+    fn progress_stale(&self, dir: &Path) -> bool {
+        let stages =
+            localvox_light_core::progress::fold(&localvox_light_core::progress::read(dir));
+        let ts = |s: &str| chrono::DateTime::parse_from_rfc3339(s).ok().map(|t| t.timestamp());
+        let now = chrono::Local::now().timestamp();
+        stages
+            .iter()
+            .filter_map(|s| s.updated_at.as_deref())
+            .filter_map(ts)
+            .max()
+            .is_some_and(|t| now - t > COOK_STALL_SEC)
+    }
+
+    pub fn recook(&self, session: &str, scope: RecookScope) -> Result<String> {
+        use localvox_light_core::processing as proc;
         let dir = self.session_dir(session)?;
         // Preconditions first, destruction after.
         self.ensure_recookable(session, &dir)?;
 
-        // The post-processing flags are EXACTLY the same as the auto-cook's, from the
-        // shared place. Our own reading of the same variables gave "no variable —
-        // disabled", whereas for the daemon it means "enabled": the button erased the
-        // summary and queued a job without the flag to make it. A person pressed
-        // "redo" — and got "delete", and the summary never came back.
-        let (summary, cleanup, refine) = localvox_light_core::jobs::post_processing_from_env();
-
-        // We queue the work FIRST and destroy afterwards. Otherwise a queue refusal
-        // ("already cooking") would leave the session without derived files and
-        // without the work that would bring them back.
+        let readable = localvox_light_core::readable::FILE;
         let mut queue = localvox_light_core::jobs::JobQueue::load(&self.work_dir);
-        if !queue.enqueue_recook(session, summary, cleanup, refine) {
+
+        // A human's «Переварить» must WIN over a stalled cook — a job stuck `Running` because the
+        // daemon (or the cook) died mid-work. The enqueue methods refuse a Running job to protect a
+        // LIVE cook; so if nothing has moved for a long time, we reclaim that job first and let the
+        // re-cook proceed. A genuinely-live cook is not stale and is still refused below — its own
+        // work finishes, and the message «оборвалось, нажмите Переварить» does what it promises.
+        if self.progress_stale(&dir)
+            && queue.jobs().iter().any(|j| {
+                j.session == session
+                    && matches!(j.state, localvox_light_core::jobs::JobState::Running)
+            })
+        {
+            queue.reclaim_session(session);
+        }
+
+        // What each scope THROWS AWAY, what records it FORGETS (no file → no «done» record, or
+        // discovery would decide there is nothing to remake), and how it re-queues. «Реплики» and
+        // «Текст» are one artifact — processed.json — so both mean «cleanup + summary»; «Сводка» is
+        // the leaf; «Всё» redoes the transcript too. Summary and Text re-queue WITHOUT force (the
+        // transcript stays, only the missing derivatives are remade); All forces from the audio up.
+        //
+        // We queue the work FIRST and destroy afterwards: a queue refusal («already cooking») must
+        // not leave the session stripped of its derivatives with no job to bring them back.
+        let (files, forget, queued): (Vec<&str>, Vec<&str>, bool) = match scope {
+            RecookScope::Summary => (
+                vec!["summary.md", "summary.unverified.md"],
+                vec![proc::SUMMARY],
+                queue.requeue_derivatives(session, true, false, false),
+            ),
+            RecookScope::Text => (
+                vec!["summary.md", readable, "summary.unverified.md", "processed.unverified.md"],
+                vec![proc::PROCESSED, proc::SUMMARY],
+                queue.requeue_derivatives(session, true, true, false),
+            ),
+            RecookScope::All => {
+                // Full redo uses the daemon's post-processing flags, from the SHARED place — our own
+                // reading of the same env once diverged («no variable = disabled» here, «enabled» for
+                // the daemon), so «redo» erased the summary and queued a job that never remade it.
+                let (summary, cleanup, refine) =
+                    localvox_light_core::jobs::post_processing_from_env();
+                (
+                    vec!["summary.md", readable, "summary.unverified.md", "processed.unverified.md"],
+                    vec![proc::SUMMARY, proc::PROCESSED, proc::TRANSCRIPT],
+                    queue.enqueue_recook(session, summary, cleanup, refine),
+                )
+            }
+        };
+
+        if !queued {
             anyhow::bail!("сессия уже варится прямо сейчас — дождитесь окончания");
         }
 
-        // A NEW RUN STARTS HERE, at the press — not when the daemon gets round to it. Until then
-        // the chain of stages would show the PREVIOUS run: all green, all finished, while the work
-        // has not started. A person pressed "re-cook" and waited for movement in a picture that
-        // had already ended.
+        // A NEW RUN STARTS HERE, at the press — not when the daemon gets round to it. Until then the
+        // chain would show the PREVIOUS run: all green, all finished, while the work has not started.
         localvox_light_core::progress::new_run(&dir);
 
         let mut dropped = Vec::new();
-        for f in [
-            "summary.md",
-            localvox_light_core::readable::FILE,
-            "summary.unverified.md",
-            "processed.unverified.md",
-        ] {
+        for f in files {
             if fs::remove_file(dir.join(f)).is_ok() {
                 dropped.push(f);
             }
         }
-        // Erasing the file and leaving "done by this recipe" in the journal means
-        // lying to discovery: it will see the entry, decide there is nothing to do,
-        // and the artifact will not come back. Invariant: no file — no record of it
-        // either.
-        localvox_light_core::processing::forget(
-            &dir,
-            &[
-                localvox_light_core::processing::SUMMARY,
-                localvox_light_core::processing::PROCESSED,
-                localvox_light_core::processing::TRANSCRIPT,
-            ],
-        );
+        proc::forget(&dir, &forget);
 
-        tracing::info!("re-cook on demand: {session} (dropped: {dropped:?})");
+        tracing::info!("re-cook on demand: {session} ({}, dropped: {dropped:?})", scope.label());
         Ok(format!(
-            "поставлено на переварку; выброшено производных файлов: {}",
+            "поставлено на переварку ({}); выброшено производных файлов: {}",
+            scope.label(),
             dropped.len()
         ))
     }
@@ -1038,7 +1290,9 @@ impl Archive {
         if !localvox_light_core::lang::set(&dir, lang)? {
             return Ok("язык не изменился".into());
         }
-        let msg = self.recook(session)?;
+        // A language change invalidates EVERYTHING (the transcript picks the model by language), so
+        // it is always a full redo.
+        let msg = self.recook(session, RecookScope::All)?;
         Ok(match lang {
             Some(code) => format!("язык: {code}; {msg}"),
             None => format!("язык: авто; {msg}"),
@@ -1635,7 +1889,37 @@ impl Archive {
                             | localvox_light_core::jobs::JobState::Pending
                     )
             });
-        Ok(json!({ "stages": stages, "source": source, "running": live }))
+
+        // Seconds since a timestamp string, or None if it will not parse. Whole seconds across
+        // offsets — the log is RFC3339 with a zone, so instants compare correctly.
+        let ts = |s: &str| chrono::DateTime::parse_from_rfc3339(s).ok().map(|t| t.timestamp());
+
+        // How long the WHOLE run took, once it is done — the same time we show live, kept for the
+        // finished session: earliest a stage started to latest one ended.
+        let first = stages
+            .iter()
+            .filter_map(|s| s.started_at.as_deref())
+            .filter_map(ts)
+            .min();
+        let last = stages
+            .iter()
+            .filter_map(|s| s.ended_at.as_deref())
+            .filter_map(ts)
+            .max();
+        let elapsed_sec = match (first, last) {
+            (Some(a), Some(b)) if !live && b >= a => Some(b - a),
+            _ => None,
+        };
+
+        // No «stalled»: a live job is «в работе»/«в очереди», period. Abandoned work is re-queued at
+        // startup and re-cooked automatically — there is no hung state to wave a person at. (recook
+        // still uses `progress_stale` so a human CAN force a redo of a genuinely wedged cook.)
+        Ok(json!({
+            "stages": stages,
+            "source": source,
+            "running": live,
+            "elapsed_sec": elapsed_sec,
+        }))
     }
 
     /// Stop recording: the engine closes the session, and the cook picks it up. The reason

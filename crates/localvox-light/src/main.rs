@@ -128,17 +128,21 @@ fn main() -> Result<()> {
     if cli.no_tui {
         cli.tui = false;
     }
-    // The tray is background mode: the interface lives in the tray, not in the terminal.
-    // Autostart (HKCU\Run) has no console at all — a TUI enabled in .env must not kill the
-    // daemon.
-    if cli.tray {
+    // Background mode: the interface lives at the HTTP address, not in the terminal. Autostart
+    // (HKCU\Run, launchd) has no console at all — a TUI enabled in .env must not kill the daemon.
+    //
+    // The one-shot commands are in the same list, and that is a defect being fixed, not a
+    // precaution: with `LOCALVOX_LIGHT_TUI=1` in .env, `--doctor` and `--list-devices` piped
+    // anywhere died with «stdout is not a TTY» — the doctor refusing to speak because there is no
+    // terminal to draw a full-screen interface it was never asked for.
+    if cli.daemon || cli.doctor || cli.list_devices {
         cli.tui = false;
     }
     // Portable install without LOCALVOX_LIGHT_TUI in .env: in a normal terminal we open the TUI
     // by default.
     #[cfg(feature = "tui")]
     if !cli.no_tui
-        && !cli.tray
+        && !cli.daemon
         && io::stdout().is_terminal()
         && std::env::var("LOCALVOX_LIGHT_TUI").is_err()
         && !cli.tui
@@ -164,11 +168,18 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
+    // BEFORE validate_vosk_model — the doctor exists precisely for the case where something is
+    // missing. A check that refuses to run until everything is in place answers only the
+    // question nobody asks.
+    if cli.doctor {
+        std::process::exit(run_doctor(&cli));
+    }
+
     validate_vosk_model(&cli)?;
 
     init_tracing(cli.debug, cli.tui);
 
-    if !cli.tui {
+    if !cli.tui && !cli.daemon {
         eprintln!(
             "localvox-light: no-TUI mode — recording and logs (Ctrl+C to exit). For the interface: {} --tui",
             std::env::current_exe()
@@ -197,8 +208,8 @@ fn main() -> Result<()> {
         reload_gen: Arc::clone(&reload_gen),
     });
 
-    if cli.tray {
-        return run_tray_mode(cli, devices_shared, reload_gen, running);
+    if cli.daemon {
+        return run_daemon_mode(cli, devices_shared, reload_gen, running);
     }
 
     if cli.tui {
@@ -328,13 +339,384 @@ fn drain_voice(handle: Option<std::thread::JoinHandle<()>>) {
     }
 }
 
-/// Messages to the tray from menu callbacks and from the engine (the main loop owns TrayItem).
+/// `--doctor`: does this installation actually work, and if not — what to do about it.
+///
+/// The checks themselves live in `core::doctor` and are pure. Here is the composition root: the
+/// environment is read, the paths are resolved, and the two questions that need a socket are
+/// asked — «is anything listening where the LLM should be» and «is our port free».
+///
+/// Exit code, so a script can branch: 0 — works, 1 — runs but cannot do everything, 2 — will not
+/// work.
+fn run_doctor(cli: &Cli) -> i32 {
+    use localvox_light_core::doctor::{self, State};
+
+    let vosk = std::path::PathBuf::from(localvox_light_core::cli::normalized_model_path(cli));
+    let layout = doctor::Layout::from_env(vosk, std::path::PathBuf::from(&cli.audio_dir));
+    let mut findings = doctor::inspect(&layout);
+    findings.push(probe_llm(&layout));
+    findings.push(probe_api_port(&layout));
+
+    println!("localvox — проверка установки\n");
+    for f in &findings {
+        println!("  [{}] {}", f.state.mark(), f.what);
+        println!("         {}", f.detail);
+        if let Some(fix) = &f.fix {
+            println!("         → {fix}");
+        }
+    }
+
+    let worst = doctor::worst(&findings);
+    println!();
+    match worst {
+        State::Ok => {
+            println!("Всё на месте.");
+            0
+        }
+        State::Warn => {
+            println!("Работать будет, но не всё: строки с «ЖДЁТ» говорят, чего именно не будет.");
+            1
+        }
+        State::Fail => {
+            println!("Не заработает: сначала строки с «НЕТ».");
+            2
+        }
+    }
+}
+
+/// Отвечает ли что-нибудь там, где должна быть Ollama.
+///
+/// Именно TCP-проверка, и об её границе сказано вслух: она НЕ проверяет, что модель скачана.
+/// Проверка, которая молчит о том, чего не смотрела, — та же ложь, только вежливая.
+fn probe_llm(l: &localvox_light_core::doctor::Layout) -> localvox_light_core::doctor::Finding {
+    use localvox_light_core::doctor::{Finding, State};
+    let host = l
+        .llm_base_url
+        .split("://")
+        .nth(1)
+        .unwrap_or(&l.llm_base_url)
+        .split('/')
+        .next()
+        .unwrap_or_default()
+        .to_string();
+    let alive = std::net::ToSocketAddrs::to_socket_addrs(&host)
+        .map(|addrs| {
+            addrs.into_iter().any(|a| {
+                std::net::TcpStream::connect_timeout(&a, std::time::Duration::from_millis(700))
+                    .is_ok()
+            })
+        })
+        .unwrap_or(false);
+    if alive {
+        Finding {
+            what: "LLM (сводка и чистовик)".into(),
+            state: State::Ok,
+            detail: format!(
+                "{host} отвечает; модель в настройках: {}. Скачана ли она — здесь НЕ проверяется, \
+                 это видно по первой же варке",
+                l.llm_model
+            ),
+            fix: None,
+        }
+    } else {
+        Finding {
+            what: "LLM (сводка и чистовик)".into(),
+            state: State::Warn,
+            detail: format!("{host} не отвечает — расшифровка будет, сводки и чистовика нет"),
+            fix: Some(format!(
+                "запустить Ollama и скачать модель: ollama pull {}",
+                l.llm_model
+            )),
+        }
+    }
+}
+
+/// Свободен ли порт, на котором поднимется интерфейс. Занятый порт — самая частая причина
+/// «демон работает, а страница не открывается», и узнать о ней надо до запуска, а не после.
+fn probe_api_port(l: &localvox_light_core::doctor::Layout) -> localvox_light_core::doctor::Finding {
+    use localvox_light_core::doctor::{Finding, State};
+    match std::net::TcpListener::bind(&l.api_bind) {
+        Ok(_) => Finding {
+            what: "Порт интерфейса".into(),
+            state: State::Ok,
+            detail: format!("{} свободен", l.api_bind),
+            fix: None,
+        },
+        Err(e) => Finding {
+            what: "Порт интерфейса".into(),
+            state: State::Warn,
+            detail: format!("{} занят ({e}) — возможно, демон уже запущен", l.api_bind),
+            fix: Some("остановить прежний демон или задать другой LOCALVOX_API_BIND".into()),
+        },
+    }
+}
+
+/// How often a waiting loop re-reads `running`. Short enough that «Выход» feels immediate,
+/// long enough to be invisible on a power meter.
+const IDLE_TICK: std::time::Duration = std::time::Duration::from_millis(300);
+
+/// Everything localvox IS when nobody is looking: capture, the voice module, background cooking
+/// and the HTTP API.
+///
+/// It owns no interface. The tray icon and the window are VIEWS onto this, and on a machine with
+/// neither — a Mac, a Linux box, a login session started by launchd — the product must be exactly
+/// as complete. That is the whole reason this type exists: all of it used to live inside
+/// `run_tray_mode`, behind `#[cfg(windows)]`, so everywhere else `--tray` was an error message and
+/// the daemon was a dictaphone with no archive, no interface and no cooking.
+///
+/// Shutdown is ordered and bounded (see [`Daemon::shutdown`]) — an unattended process must be able
+/// to stop as deliberately as it starts.
+struct Daemon {
+    running: Arc<AtomicBool>,
+    /// Capture on/off, without tearing the streams down. Shared with the engine.
+    ///
+    /// Only the tray touches it today, so off Windows the daemon records or does not record and
+    /// there is no third state. That is a REAL GAP, not a platform quirk: pause belongs in the
+    /// HTTP API, where every interface can reach it. Until it is there, the honest thing is a
+    /// suppression that says so out loud rather than a shrug.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    record_pcm: Arc<AtomicBool>,
+    /// Where the interface actually answers — already normalised to something connectable
+    /// (`0.0.0.0` is an address to LISTEN on, never one to open). `None`: the API did not come up.
+    api_addr: Option<String>,
+    work_dir: String,
+    /// Why the engine stopped, if it stopped on its own. Set once, by the engine thread.
+    ///
+    /// The engine dying is a STATE OF THE DAEMON, not a message to a user interface. It used to be
+    /// a `TrayMsg`, which meant only the tray could ever learn of it — a headless daemon would go
+    /// on reporting itself healthy with nothing recording.
+    fatal: Arc<std::sync::Mutex<Option<String>>>,
+    engine: std::thread::JoinHandle<()>,
+    autocook: Option<std::thread::JoinHandle<()>>,
+    voice: Option<std::thread::JoinHandle<()>>,
+    /// Processes «Спросить у LLM» requests one at a time in the background — the async lifecycle
+    /// that lets the button return at once (WP: ask section as a 1-stage pipeline).
+    ask_worker: std::thread::JoinHandle<()>,
+}
+
+impl Daemon {
+    /// Bring the parts up. The API comes first on purpose: the archive is readable whether or not
+    /// anything is being recorded, and a failure to capture must not take the archive down with
+    /// it.
+    fn start(
+        cli: &Cli,
+        devices_shared: Arc<RwLock<localvox_light_core::LightDeviceConfig>>,
+        reload_gen: Arc<std::sync::atomic::AtomicU64>,
+        running: Arc<AtomicBool>,
+    ) -> Result<Daemon> {
+        let api_addr = spawn_http_api(&cli.audio_dir).map(|bind| connectable(&bind));
+
+        let (voice_hook, voice, voice_status) = init_voice(None);
+        eprintln!("Voice module: {voice_status}");
+
+        // Autocook (WP-C7): the daemon finishes cooking closed sessions in the background itself.
+        let autocook = spawn_autocook(cli.audio_dir.clone(), running.clone());
+
+        // Ask-worker: the same idea for «Спросить у LLM» — a background thread drains pending
+        // requests one at a time, so the button returns instantly and the answer arrives later.
+        let ask_worker = spawn_ask_worker(cli.audio_dir.clone(), running.clone());
+
+        let record_pcm = Arc::new(AtomicBool::new(true));
+        let fatal = Arc::new(std::sync::Mutex::new(None));
+        let (_reset_tx, reset_rx) = crossbeam_channel::unbounded::<()>();
+        let cli_engine = cli.clone();
+        let r_engine = running.clone();
+        let record_engine = Arc::clone(&record_pcm);
+        let fatal_engine = Arc::clone(&fatal);
+        let engine = std::thread::Builder::new()
+            .name("engine".into())
+            .spawn(move || {
+                if let Err(e) = run_engine(
+                    cli_engine,
+                    devices_shared,
+                    None,
+                    reset_rx,
+                    r_engine.clone(),
+                    record_engine,
+                    reload_gen,
+                    voice_hook,
+                ) {
+                    tracing::error!("Engine stopped: {e:#}");
+                    if let Ok(mut slot) = fatal_engine.lock() {
+                        *slot = Some(format!("{e:#}"));
+                    }
+                    // Without capture the daemon is lying about what it does. It stops.
+                    r_engine.store(false, Ordering::SeqCst);
+                }
+            });
+        // The engine is the LAST thing started, so it is the only one that can fail with the
+        // others already running. Bailing out with `?` here would leave the autocook thread
+        // polling for ever and the voice thread waiting on a queue nobody will close — a process
+        // that failed to start and never finished exiting.
+        let engine = match engine {
+            Ok(h) => h,
+            Err(e) => {
+                // running=false makes the ask-worker exit on its next tick too; we join it so no
+                // thread outlives a failed start.
+                running.store(false, Ordering::SeqCst);
+                if let Some(h) = autocook {
+                    localvox_light_core::join_engine_thread(h, std::time::Duration::from_secs(10));
+                }
+                let _ = ask_worker.join();
+                drain_voice(voice);
+                return Err(anyhow::Error::new(e).context("spawning the recording engine"));
+            }
+        };
+
+        Ok(Daemon {
+            running,
+            record_pcm,
+            api_addr,
+            work_dir: cli.audio_dir.clone(),
+            fatal,
+            engine,
+            autocook,
+            voice,
+            ask_worker,
+        })
+    }
+
+    fn is_running(&self) -> bool {
+        self.running.load(Ordering::Relaxed)
+    }
+
+    /// Ask for shutdown. Off Windows the same thing arrives as a signal, straight into `running`.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    fn stop(&self) {
+        self.running.store(false, Ordering::SeqCst);
+    }
+
+    /// Flip capture; returns the state it landed in (`true` — recording).
+    #[cfg_attr(not(windows), allow(dead_code))]
+    fn toggle_pause(&self) -> bool {
+        let now = !self.record_pcm.load(Ordering::Relaxed);
+        self.record_pcm.store(now, Ordering::Relaxed);
+        tracing::info!("recording {}", if now { "resumed" } else { "paused" });
+        now
+    }
+
+    /// Block until something asks us to stop — a signal, the tray, or the engine dying.
+    ///
+    /// On Windows the tray's own message loop does this waiting, so this one is unused there.
+    #[cfg_attr(windows, allow(dead_code))]
+    fn run_until_stopped(self) -> Result<()> {
+        while self.is_running() {
+            std::thread::sleep(IDLE_TICK);
+        }
+        self.shutdown()
+    }
+
+    /// Stop in an order that leaves nothing behind.
+    ///
+    /// Autocook first: its poll loop sees `running == false`, kills the child `localvox-process`
+    /// and exits — otherwise the cook is orphaned and burns a core with nobody left to read its
+    /// output. Then the engine, which closes the current chunk and drops the voice hook, which
+    /// closes the voice queue, which lets the voice thread finish its last note.
+    fn shutdown(self) -> Result<()> {
+        if let Some(h) = self.autocook {
+            localvox_light_core::join_engine_thread(h, std::time::Duration::from_secs(10));
+        }
+        localvox_light_core::join_engine_thread(self.engine, std::time::Duration::from_secs(10));
+        // Best-effort: if idle, the worker exits within its poll tick; if it is mid-model-call it
+        // may take longer, and then we proceed rather than block shutdown — the ask stays `Running`
+        // and the next startup's reclaim revives it.
+        join_bounded(self.ask_worker, std::time::Duration::from_secs(5), "ask-worker");
+        drain_voice(self.voice);
+        let fatal = self.fatal.lock().ok().and_then(|g| g.clone());
+        match fatal {
+            Some(e) => Err(anyhow::anyhow!("recording engine died: {e}")),
+            None => Ok(()),
+        }
+    }
+}
+
+/// Join a thread but never longer than `wait` — a background worker mid-blocking-call must not hold
+/// shutdown hostage. Unlike `join_engine_thread`, a timeout here just logs and moves on (it does not
+/// `process::exit`): the worker's own work is idempotent and recovered at the next startup.
+fn join_bounded(handle: std::thread::JoinHandle<()>, wait: std::time::Duration, what: &str) {
+    let (tx, rx) = std::sync::mpsc::sync_channel::<()>(0);
+    std::thread::spawn(move || {
+        let _ = handle.join();
+        let _ = tx.send(());
+    });
+    if rx.recv_timeout(wait).is_err() {
+        tracing::debug!("{what}: still busy at shutdown — leaving it, work resumes on restart");
+    }
+}
+
+/// The ask-worker: drains `asks/` of pending «Спросить у LLM» requests, one at a time, in the
+/// background. On startup it revives anything left `Running` by a dead daemon (self-healing, like a
+/// session's cook). Failures are recorded on the ask itself, not retried in a loop.
+fn spawn_ask_worker(work_dir: String, running: Arc<AtomicBool>) -> std::thread::JoinHandle<()> {
+    std::thread::Builder::new()
+        .name("ask-worker".into())
+        .spawn(move || {
+            let archive =
+                localvox_light_api::archive::Archive::new(std::path::PathBuf::from(&work_dir));
+            let revived = archive.reclaim_running_asks();
+            if revived > 0 {
+                tracing::info!("ask-worker: {revived} request(s) abandoned by a dead daemon — replaying");
+            }
+            while running.load(Ordering::Relaxed) {
+                match archive.next_pending_ask() {
+                    Some(id) => {
+                        tracing::info!("ask-worker: processing {id}");
+                        match archive.process_ask(&id) {
+                            Ok(a) if a.error.is_some() => {
+                                tracing::warn!("ask-worker: {id} failed: {}", a.error.unwrap_or_default())
+                            }
+                            Ok(_) => tracing::info!("ask-worker: {id} done"),
+                            Err(e) => tracing::warn!("ask-worker: {id}: {e:#}"),
+                        }
+                    }
+                    // Nothing waiting — poll again shortly. Cheap: a directory scan.
+                    None => std::thread::sleep(std::time::Duration::from_secs(2)),
+                }
+            }
+        })
+        .expect("spawn ask-worker thread")
+}
+
+/// An address to CONNECT to, from an address we LISTEN on. `0.0.0.0` / `[::]` mean "every
+/// interface" to a listener and nothing at all to a client — handing it to the window or the
+/// browser produces a connection that cannot succeed.
+fn connectable(bind: &str) -> String {
+    match bind.parse::<std::net::SocketAddr>() {
+        Ok(a) if a.ip().is_unspecified() => format!("127.0.0.1:{}", a.port()),
+        _ => bind.to_string(),
+    }
+}
+
+/// Background mode where there is no tray to attach: the interface is the HTTP address, and the
+/// process is stopped by a signal (Ctrl+C, `SIGTERM` from launchd/systemd) — both already route
+/// into `running` through the handler installed in `main`.
+#[cfg(not(windows))]
+fn run_daemon_mode(
+    cli: Cli,
+    devices_shared: Arc<RwLock<localvox_light_core::LightDeviceConfig>>,
+    reload_gen: Arc<std::sync::atomic::AtomicU64>,
+    running: Arc<AtomicBool>,
+) -> Result<()> {
+    let daemon = Daemon::start(&cli, devices_shared, reload_gen, running)?;
+    // The two facts an operator needs from a process with no window: where to look at it, and
+    // where its data lives. Both, at startup, in the log — because under launchd this is the only
+    // thing anyone will ever see of it.
+    match daemon.api_addr.as_deref() {
+        Some(addr) => eprintln!("localvox-light: daemon — interface at http://{addr}/"),
+        None => eprintln!(
+            "localvox-light: daemon — WITHOUT the HTTP interface (see the log: port busy? \
+             LOCALVOX_API_BIND without LOCALVOX_API_TOKEN?)"
+        ),
+    }
+    eprintln!("localvox-light: archive at {}", daemon.work_dir);
+    daemon.run_until_stopped()
+}
+
+/// Messages to the tray from its menu callbacks (the main loop owns TrayItem).
 #[cfg(windows)]
 enum TrayMsg {
     TogglePause,
     ToggleAutostart,
     Quit,
-    EngineDead(String),
 }
 
 #[cfg(windows)]
@@ -346,32 +728,25 @@ fn autostart_label(enabled: bool) -> &'static str {
     }
 }
 
-/// Background mode (WP-C3): headless engine + voice module + HTTP API, controlled from the
-/// system tray. A first cut of the phase-C daemon.
+/// Ids of the two menu items whose LABEL is state: they say what the daemon is doing, so they
+/// have to be rewritten when it changes.
 #[cfg(windows)]
-fn run_tray_mode(
-    cli: Cli,
-    devices_shared: Arc<RwLock<localvox_light_core::LightDeviceConfig>>,
-    reload_gen: Arc<std::sync::atomic::AtomicU64>,
-    running: Arc<AtomicBool>,
-) -> Result<()> {
-    use tray_item::{IconSource, TrayItem};
+struct StatefulItems {
+    pause: u32,
+    autostart: u32,
+}
 
-    let record_pcm = Arc::new(AtomicBool::new(true));
-    let (msg_tx, msg_rx) = crossbeam_channel::unbounded::<TrayMsg>();
-
-    // The tray comes BEFORE the engine: if there is no icon/menu, we find out immediately
-    // rather than after capture has started (otherwise we get a zombie process with no UI
-    // whatsoever).
-    let mut tray = TrayItem::new("localvox — идёт запись", IconSource::Resource("tray-icon"))
-        .map_err(|e| anyhow::anyhow!("tray: {e} (exe built without assets/localvox.ico?)"))?;
-
-    // The HTTP API is part of the daemon (the archive is readable regardless of recording).
-    // We bring it up before the menu: the "Открыть веб-архив" item is only shown if the API is
-    // really listening (otherwise it would lead to a refused connection).
-    let api_bind = spawn_http_api(&cli.audio_dir);
-
-    let pause_id = {
+/// The tray menu, over an already-running daemon.
+///
+/// «Открыть интерфейс» appears only if the API really came up: an item that leads to a refused
+/// connection is worse than a missing one — it blames the person for clicking.
+#[cfg(windows)]
+fn build_tray_menu(
+    tray: &mut tray_item::TrayItem,
+    msg_tx: &crossbeam_channel::Sender<TrayMsg>,
+    daemon: &Daemon,
+) -> Result<StatefulItems> {
+    let pause = {
         let t = msg_tx.clone();
         tray.inner_mut()
             .add_menu_item_with_id("Пауза", move || {
@@ -380,23 +755,17 @@ fn run_tray_mode(
             .map_err(|e| anyhow::anyhow!("tray menu: {e}"))?
     };
     {
-        let dir = cli.audio_dir.clone();
+        let dir = daemon.work_dir.clone();
         tray.add_menu_item("Открыть папку архива", move || {
             let _ = std::process::Command::new("explorer").arg(&dir).spawn();
         })
         .map_err(|e| anyhow::anyhow!("tray menu: {e}"))?;
     }
-    if let Some(bind) = api_bind {
-        // 0.0.0.0/[::] is a LISTEN address, not a destination: the window and the browser get the
-        // loopback one, or they would try to connect to "everything" and fail.
-        let addr = match bind.parse::<std::net::SocketAddr>() {
-            Ok(a) if a.ip().is_unspecified() => format!("127.0.0.1:{}", a.port()),
-            _ => bind.clone(),
-        };
+    if let Some(addr) = daemon.api_addr.clone() {
         tray.add_menu_item("Открыть интерфейс", move || open_window(&addr))
             .map_err(|e| anyhow::anyhow!("tray menu: {e}"))?;
     }
-    let autostart_id = {
+    let autostart = {
         let t = msg_tx.clone();
         tray.inner_mut()
             .add_menu_item_with_id(
@@ -414,58 +783,53 @@ fn run_tray_mode(
         })
         .map_err(|e| anyhow::anyhow!("tray menu: {e}"))?;
     }
+    Ok(StatefulItems { pause, autostart })
+}
 
-    let (voice_hook, voice_handle, voice_status) = init_voice(None);
-    eprintln!("Voice module: {voice_status}");
+/// Background mode on Windows: the same daemon as everywhere, with a tray icon attached as its
+/// control surface.
+///
+/// The ICON is raised before anything starts: if there is going to be no way to reach this
+/// process, we find out while there is still nothing to reach — not after capture has begun.
+#[cfg(windows)]
+fn run_daemon_mode(
+    cli: Cli,
+    devices_shared: Arc<RwLock<localvox_light_core::LightDeviceConfig>>,
+    reload_gen: Arc<std::sync::atomic::AtomicU64>,
+    running: Arc<AtomicBool>,
+) -> Result<()> {
+    use tray_item::{IconSource, TrayItem};
 
-    // Autocook (WP-C7): the daemon finishes cooking closed sessions in the background itself.
-    let autocook_handle = spawn_autocook(cli.audio_dir.clone(), running.clone());
+    let mut tray = TrayItem::new("localvox — идёт запись", IconSource::Resource("tray-icon"))
+        .map_err(|e| anyhow::anyhow!("tray: {e} (exe built without assets/localvox.ico?)"))?;
 
-    let (_reset_tx, reset_rx) = crossbeam_channel::unbounded::<()>();
-    let cli_engine = cli.clone();
-    let r_engine = running.clone();
-    let record_engine = Arc::clone(&record_pcm);
-    let engine_tx = msg_tx.clone();
-    let engine_handle = std::thread::Builder::new()
-        .name("engine".into())
-        .spawn(move || {
-            if let Err(e) = run_engine(
-                cli_engine,
-                devices_shared,
-                None,
-                reset_rx,
-                r_engine,
-                record_engine,
-                reload_gen,
-                voice_hook,
-            ) {
-                tracing::error!("Engine stopped: {e:#}");
-                let _ = engine_tx.send(TrayMsg::EngineDead(format!("{e:#}")));
-            }
-        })?;
+    let daemon = Daemon::start(&cli, devices_shared, reload_gen, running)?;
+
+    let (msg_tx, msg_rx) = crossbeam_channel::unbounded::<TrayMsg>();
+    // A half-built menu leaves a daemon with no way to stop it. We take it down deliberately
+    // rather than letting `?` drop the threads on the floor.
+    let items = match build_tray_menu(&mut tray, &msg_tx, &daemon) {
+        Ok(items) => items,
+        Err(e) => {
+            daemon.stop();
+            let _ = daemon.shutdown();
+            return Err(e);
+        }
+    };
 
     eprintln!("localvox-light: background mode — icon in the tray (exit via the tray menu)");
 
-    let mut fatal: Option<String> = None;
-    while running.load(Ordering::Relaxed) {
-        match msg_rx.recv_timeout(std::time::Duration::from_millis(300)) {
+    while daemon.is_running() {
+        // The timeout is what notices `running` going false without a click — the engine dying,
+        // or a signal.
+        match msg_rx.recv_timeout(IDLE_TICK) {
             Ok(TrayMsg::TogglePause) => {
-                let now = !record_pcm.load(Ordering::Relaxed);
-                record_pcm.store(now, Ordering::Relaxed);
-                tracing::info!(
-                    "tray: recording {}",
-                    if now {
-                        "resumed"
-                    } else {
-                        "paused"
-                    }
-                );
-                let (item, tip) = if now {
+                let (item, tip) = if daemon.toggle_pause() {
                     ("Пауза", "localvox — идёт запись")
                 } else {
                     ("Продолжить запись", "localvox — ПАУЗА")
                 };
-                let _ = tray.inner_mut().set_menu_item_label(item, pause_id);
+                let _ = tray.inner_mut().set_menu_item_label(item, items.pause);
                 let _ = tray.inner_mut().set_tooltip(tip);
             }
             Ok(TrayMsg::ToggleAutostart) => {
@@ -488,44 +852,16 @@ fn run_tray_mode(
                         );
                         let _ = tray
                             .inner_mut()
-                            .set_menu_item_label(autostart_label(target), autostart_id);
+                            .set_menu_item_label(autostart_label(target), items.autostart);
                     }
                     Err(e) => tracing::warn!("autostart: {e}"),
                 }
             }
-            Ok(TrayMsg::Quit) => running.store(false, Ordering::SeqCst),
-            Ok(TrayMsg::EngineDead(e)) => {
-                // without the engine the icon lies about "recording" — we exit honestly
-                eprintln!("localvox-light: engine died: {e}");
-                fatal = Some(e);
-                running.store(false, Ordering::SeqCst);
-            }
+            Ok(TrayMsg::Quit) => daemon.stop(),
             Err(_) => {} // timeout — re-check running
         }
     }
-    // Autocook is joined first: its poll loop sees running=false, kills the child
-    // localvox-process (no orphan) and exits.
-    if let Some(h) = autocook_handle {
-        localvox_light_core::join_engine_thread(h, std::time::Duration::from_secs(10));
-    }
-    localvox_light_core::join_engine_thread(engine_handle, std::time::Duration::from_secs(10));
-    drain_voice(voice_handle);
-    match fatal {
-        Some(e) => Err(anyhow::anyhow!("recording engine died: {e}")),
-        None => Ok(()),
-    }
-}
-
-#[cfg(not(windows))]
-fn run_tray_mode(
-    _cli: Cli,
-    _devices_shared: Arc<RwLock<localvox_light_core::LightDeviceConfig>>,
-    _reload_gen: Arc<std::sync::atomic::AtomicU64>,
-    _running: Arc<AtomicBool>,
-) -> Result<()> {
-    anyhow::bail!(
-        "--tray is implemented on Windows only so far (mac/linux — phase C, cross-platform tray)"
-    )
+    daemon.shutdown()
 }
 
 /// The autocook scheduler (WP-C7): a background thread finds closed, not-yet-cooked sessions
@@ -533,6 +869,18 @@ fn run_tray_mode(
 /// `<work_dir>/jobs.json` (survives a restart), with an attempt limit per session.
 /// Turn it off with: `LOCALVOX_LIGHT_AUTOCOOK=off`. Returns a handle — it is joined on exit so
 /// that the child `localvox-process` is not left an orphan.
+/// The cook binary that lives next to us. Only Windows spells an executable with a suffix; the
+/// name used to be hardcoded as `localvox-process.exe`, so anywhere else autocook could never
+/// find its own cook and disabled itself with a warning naming a file that would never exist on
+/// that machine.
+fn cook_exe_name() -> &'static str {
+    if cfg!(windows) {
+        "localvox-process.exe"
+    } else {
+        "localvox-process"
+    }
+}
+
 fn spawn_autocook(
     work_dir: String,
     running: Arc<AtomicBool>,
@@ -579,9 +927,9 @@ fn spawn_autocook(
     // `localvox-process` sits next to our exe (in the same distribution).
     let exe = std::env::current_exe()
         .ok()
-        .and_then(|p| p.parent().map(|d| d.join("localvox-process.exe")));
+        .and_then(|p| p.parent().map(|d| d.join(cook_exe_name())));
     let Some(exe) = exe.filter(|p| p.exists()) else {
-        tracing::warn!("autocook: no localvox-process.exe next to us — disabled");
+        tracing::warn!("autocook: no {} next to us — disabled", cook_exe_name());
         return None;
     };
     // The ASR model by ABSOLUTE path: under autostart the daemon's cwd is system32, and a
@@ -631,7 +979,7 @@ fn spawn_autocook(
             // living inside `load()`, is what re-cooked this archive for months.
             {
                 let mut q = localvox_light_core::jobs::JobQueue::load(&wd);
-                let taken = q.reclaim_abandoned();
+                let taken = q.reclaim_abandoned(&wd);
                 if taken > 0 {
                     tracing::info!("autocook: {taken} job(s) abandoned by a dead daemon — replaying");
                 }
@@ -776,6 +1124,24 @@ fn spawn_autocook(
                         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
                         const BELOW_NORMAL_PRIORITY_CLASS: u32 = 0x0000_4000;
                         cmd.creation_flags(CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS);
+                    }
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::process::CommandExt;
+                        // The same judgement as BELOW_NORMAL_PRIORITY_CLASS above, spelled the
+                        // way Unix spells it. Without it the cook competes with the recording
+                        // for the cores, and the recording is the side that cannot be redone.
+                        //
+                        // +5, not +19: a fully de-prioritised process on a busy machine may
+                        // never get the CPU, and then the archive never finishes cooking.
+                        // `nice` is a bare syscall — safe to call between fork and exec, where
+                        // almost nothing else is.
+                        unsafe {
+                            cmd.pre_exec(|| {
+                                libc::nice(5);
+                                Ok(())
+                            });
+                        }
                     }
                     // We capture the child's output and relay it into our own log: without this
                     // the cook is silent (neither progress nor reason is visible — only

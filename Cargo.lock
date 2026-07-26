@@ -2830,6 +2830,7 @@ dependencies = [
  "crossbeam-channel",
  "ctrlc",
  "dotenvy",
+ "libc",
  "localvox-light-api",
  "localvox-light-core",
  "localvox-light-ingest",
@@ -2848,6 +2849,7 @@ name = "localvox-light-api"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "clap",
  "dotenvy",
  "localvox-light-core",

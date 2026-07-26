@@ -261,6 +261,16 @@ pub fn cook_session_asr(session_dir: &Path, p: &CookParams) -> Result<CookOutcom
     let mut audio_sec = 0.0f64;
     let mut tracks: Vec<crate::diarize::Track> = Vec::new();
 
+    // Total chunks across both sources — the denominator of the transcribe progress bar. Counted
+    // up front so the very first heartbeat can say «0 of N» instead of an unbounded spinner.
+    let total_chunks: u32 = [0u8, 1u8]
+        .iter()
+        .filter_map(|&s| chunk_files_for_source(session_dir, s).ok())
+        .map(|c| c.len() as u32)
+        .sum();
+    let mut done_chunks: u32 = 0;
+    crate::progress::progress(session_dir, crate::progress::Stage::Transcribe, 0, total_chunks);
+
     let mut any_chunks = false;
     for source_id in [0u8, 1u8] {
         let chunks = chunk_files_for_source(session_dir, source_id)?;
@@ -308,6 +318,15 @@ pub fn cook_session_asr(session_dir: &Path, p: &CookParams) -> Result<CookOutcom
                 d.push(&pcm)?;
             }
             windower.feed(&samples, &mut classify, &mut emit)?;
+            // One chunk done — a heartbeat. This is both the percentage a person watches and the
+            // liveness a stall is read from: while these keep coming the transcribe is alive.
+            done_chunks += 1;
+            crate::progress::progress(
+                session_dir,
+                crate::progress::Stage::Transcribe,
+                done_chunks,
+                total_chunks,
+            );
         }
         windower.finish(&mut emit)?;
 

@@ -9,8 +9,8 @@ const NAME: Record<Stage, string> = {
   summary: "Собрали сводку",
 };
 
-/** `waiting` is ours, not the daemon's: the daemon only reports stages that have spoken.
- *  A stage that has not started yet is a real state and must be drawn, not omitted. */
+/** `waiting` and `interrupted` are ours, not the daemon's. `waiting`: a stage that has not started
+ *  yet is a real state and must be drawn, not omitted. */
 type Shown = StageState | "waiting";
 
 const STATE: Record<Shown, { cls: string; label: string }> = {
@@ -21,6 +21,12 @@ const STATE: Record<Shown, { cls: string; label: string }> = {
   // "still coming", and a person waits for something that will never happen.
   skipped: { cls: "mute", label: "пропущено" },
   waiting: { cls: "mute", label: "не начиналось" },
+};
+
+/** A duration in whole minutes/seconds, for «обработано за N». */
+const dur = (sec?: number | null) => {
+  if (sec == null || !isFinite(sec) || sec < 0) return "";
+  return sec < 60 ? `${Math.round(sec)} с` : `${Math.round(sec / 60)} мин`;
 };
 
 const CHAIN: Stage[] = ["download", "extract", "transcribe", "refine", "summary"];
@@ -83,7 +89,14 @@ export function ProgressChain({ session }: { session: Session }) {
   // happens to have spoken already.
   const rows = chainFor(!!prog.source, [...heard.keys()]).map((stage) => {
     const s = heard.get(stage);
-    return { stage, state: (s?.state ?? "waiting") as Shown, started_at: s?.started_at, note: s?.note };
+    return {
+      stage,
+      state: (s?.state ?? "waiting") as Shown,
+      started_at: s?.started_at,
+      note: s?.note,
+      done: s?.done,
+      total: s?.total,
+    };
   });
 
   return (
@@ -120,8 +133,14 @@ export function ProgressChain({ session }: { session: Session }) {
             </>
           )}
         </p>
+      ) : stages.length === 0 ? (
+        <p className="hint">Обработка этой записи не начиналась.</p>
       ) : (
-        stages.length === 0 && <p className="hint">Обработка этой записи не начиналась.</p>
+        prog.elapsed_sec != null && (
+          <p className="hint">
+            Обработано за <b>{dur(prog.elapsed_sec)}</b>.
+          </p>
+        )
       )}
 
       <div className="chain">
@@ -136,8 +155,15 @@ export function ProgressChain({ session }: { session: Session }) {
                 <span className="t">
                   <b>{NAME[s.stage]}</b>
                   <span className={`st ${st.cls}`}>{st.label}</span>
-                  {s.state === "running" && s.started_at && (
-                    <span className="hint">{since(s.started_at)}</span>
+                  {s.state === "running" && s.total ? (
+                    // A real fraction reads better than a bare clock: «12/40 · 30%» says how much
+                    // is left, not just how long it has been going.
+                    <span className="hint">
+                      {s.done ?? 0}/{s.total} · {Math.round(((s.done ?? 0) / s.total) * 100)}%
+                    </span>
+                  ) : (
+                    s.state === "running" &&
+                    s.started_at && <span className="hint">{since(s.started_at)}</span>
                   )}
                 </span>
                 {s.note && <span className={s.state === "failed" ? "err" : "hint"}>{s.note}</span>}

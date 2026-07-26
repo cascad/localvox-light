@@ -1,0 +1,132 @@
+{
+  "_": [
+    "ЧТО ЭТО. Полный список моделей, из которых состоит рабочий localvox. Это ДАННЫЕ, а не код,",
+    "и читают их оба установщика — fetch-models.ps1 и fetch-models.sh.",
+    "",
+    "ПОЧЕМУ ДАННЫЕ. Раньше список жил в пяти скриптах сразу (setup-vosk.*, setup-gigaam.ps1,",
+    "setup-diarize.ps1, setup-ner.ps1, setup-models.sh), они разошлись, а install-release звал из",
+    "них ровно один — из-за чего установленный продукт записывал звук и НИКОГДА его не",
+    "расшифровывал: GigaAM просто не качался. Один список нельзя рассинхронизировать с самим собой.",
+    "",
+    "ХЕШИ. sha256 сверяется всегда, когда он известен: молча получить не ту модель — это не",
+    "«другая версия», это тихо испорченная расшифровка. Где вверху хеш не публикуют, стоит null",
+    "и причина в sha256_note — чтобы не выглядело, будто про него забыли.",
+    "",
+    "ЧТО ЗДЕСЬ НЕТ. Нативная библиотека Vosk (dll/dylib/so): она своя под каждую ОС и",
+    "архитектуру, её ставит setup-vosk.ps1 / setup-vosk.sh. Здесь только модели — они одинаковы",
+    "везде."
+  ],
+
+  "components": [
+    {
+      "id": "vosk",
+      "title": "Vosk ru 0.42 — живое распознавание",
+      "why": "Захват → VAD → Vosk → transcript.jsonl: отсюда голосовые триггеры («запиши», «отметь мысль») и строки в TUI. Демон проверяет каталог в main() и БЕЗ НЕГО НЕ СТАРТУЕТ.",
+      "required": true,
+      "approx": "1.8 ГБ",
+      "items": [
+        {
+          "kind": "zip",
+          "url": "https://huggingface.co/mychen76/vosk-models/resolve/main/ru/vosk-model-ru-0.42.zip",
+          "unpack_to": "models/vosk-model-ru-0.42",
+          "strip_root": true,
+          "marker": "am/final.mdl",
+          "size": 1937602113,
+          "sha256": null,
+          "sha256_note": "ни зеркало HuggingFace, ни alphacephei.com не публикуют sha256. Целостность проверяют CRC внутри самого zip (их считает распаковщик) и наличие am/final.mdl после распаковки."
+        }
+      ]
+    },
+    {
+      "id": "gigaam",
+      "title": "GigaAM v3 e2e CTC — расшифровка архива",
+      "why": "Работает в поваре (localvox-process), offline и начисто: ставит знаки препинания и нормализует числа, чего Vosk не умеет. Без него записи не расшифровываются.",
+      "required": true,
+      "approx": "215 МБ",
+      "items": [
+        {
+          "kind": "file",
+          "url": "https://huggingface.co/istupakov/gigaam-v3-onnx/resolve/main/v3_e2e_ctc.int8.onnx",
+          "dest": "models/gigaam-v3-e2e-ctc/v3_e2e_ctc.int8.onnx",
+          "sha256": "2e3fcb7a7b66030336fd10c2fcfb033bd1dc7e1bf238fe5cfd83b1d0cfc9d28e"
+        },
+        {
+          "kind": "file",
+          "url": "https://huggingface.co/istupakov/gigaam-v3-onnx/resolve/main/v3_e2e_ctc.yaml",
+          "dest": "models/gigaam-v3-e2e-ctc/v3_e2e_ctc.yaml",
+          "sha256": "e67eca3a311ad7c8813d36dff6b8eeba7ad3459fd811d6faea2a26535754a358"
+        },
+        {
+          "kind": "file",
+          "url": "https://huggingface.co/istupakov/gigaam-v3-onnx/resolve/main/v3_e2e_ctc_vocab.txt",
+          "dest": "models/gigaam-v3-e2e-ctc/v3_e2e_ctc_vocab.txt",
+          "sha256": "142de7570b3de5b3035ce111a89c228e80e6085273731d944093ddf24fa539cd"
+        }
+      ]
+    },
+    {
+      "id": "diarize",
+      "title": "Диаризация — «кто говорит»",
+      "why": "Две модели, и обе обязательны: сегментация говорит, кто говорит в каждом кадре, эмбеддер даёт вектор голоса. Без них записи расшифруются, но без разметки говорящих. Квантованные версии НЕ БРАТЬ (измерено): int8-сегментация выдумывает перекрытие речи, int8-эмбеддер ломает углы между векторами, а кластеризация работает именно углами.",
+      "required": false,
+      "approx": "46 МБ",
+      "items": [
+        {
+          "kind": "file",
+          "url": "https://huggingface.co/onnx-community/pyannote-segmentation-3.0/resolve/main/onnx/model.onnx",
+          "dest": "models/diarize/segmentation.onnx",
+          "sha256": "057ee564753071c0b09b5b611648b50ac188d50846bff5f01e9f7bbf1591ea25"
+        },
+        {
+          "kind": "file",
+          "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_eres2net_base_200k_sv_zh-cn_16k-common.onnx",
+          "dest": "models/diarize/embedding.onnx",
+          "sha256": "e2d2048292e055f7b61cdec3db010503f35369b245bf0b3bbad021c9a91e4053"
+        },
+        {
+          "kind": "text",
+          "dest": "models/diarize/LICENSES.txt",
+          "why": "MIT и Apache-2.0 требуют сохранять текст лицензии, а в зеркале onnx-community файла LICENSE нет — значит это наша обязанность.",
+          "content": [
+            "Модели в этом каталоге — сторонние, распространяются на своих условиях.",
+            "",
+            "segmentation.onnx — pyannote/segmentation-3.0 (реэкспорт onnx-community)",
+            "  MIT License, Copyright (c) CNRS",
+            "  https://huggingface.co/pyannote/segmentation-3.0",
+            "",
+            "embedding.onnx — 3D-Speaker ERes2Net base 200k",
+            "  Apache License 2.0",
+            "  https://github.com/modelscope/3D-Speaker"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ner",
+      "title": "GLiNER — проверка имён в ответах LLM",
+      "why": "Без него LLM-проверка не сможет судить об именах (числа проверяются всегда). НЕ БРАТЬ int8/quantized: у mDeBERTa квантизация разваливает калибровку, и модель молча перестаёт находить имена — что неотличимо от честной пустой записи.",
+      "required": false,
+      "approx": "580 МБ",
+      "items": [
+        {
+          "kind": "file",
+          "url": "https://huggingface.co/onnx-community/gliner_multi-v2.1/resolve/main/onnx/model_fp16.onnx",
+          "dest": "models/ner-gliner/model_fp16.onnx",
+          "sha256": "9cec3c771bfa7e886e029cd013326b13ad7d18f58fac33824f43c106fbdfe920"
+        },
+        {
+          "kind": "file",
+          "url": "https://huggingface.co/onnx-community/gliner_multi-v2.1/resolve/main/tokenizer.json",
+          "dest": "models/ner-gliner/tokenizer.json",
+          "sha256": "914bd3c8fb7b525af9e23b60d0ec7b1248ddb2b99014efd9c02ebeb022f8cab7"
+        },
+        {
+          "kind": "file",
+          "url": "https://huggingface.co/onnx-community/gliner_multi-v2.1/resolve/main/gliner_config.json",
+          "dest": "models/ner-gliner/gliner_config.json",
+          "sha256": "1ef59c57fe6816a155697a5670ca8d0faf0babe13f199a2c2b5b65113399ed72"
+        }
+      ]
+    }
+  ]
+}

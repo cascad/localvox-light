@@ -34,8 +34,6 @@ fn ort_err<E: std::fmt::Display>(ctx: &'static str) -> impl FnOnce(E) -> anyhow:
     move |e| anyhow::anyhow!("{ctx}: {e}")
 }
 
-/// The model directory: `LOCALVOX_NER_MODEL_DIR` → next to the ASR model → `models/ner-gliner`.
-const DIR_NAME: &str = "ner-gliner";
 
 /// The maximum number of words in a window. The model's limit is 384 tokens including the
 /// label prompt; on Cyrillic, mDeBERTa gives ~2 tokens per word, so 120 words + the labels
@@ -93,24 +91,7 @@ pub fn model_dir() -> Option<PathBuf> {
 /// The same class of bug already happened with languages. The rule is one: if the caller
 /// knows the path to the models — ask him, not the current directory.
 pub fn model_dir_near(asr_model_dir: Option<&Path>) -> Option<PathBuf> {
-    if let Some(d) = std::env::var_os("LOCALVOX_NER_MODEL_DIR") {
-        let d = PathBuf::from(d);
-        return d.is_dir().then_some(d);
-    }
-    // Next to the ASR model: first the one the caller named, then the one that was found.
-    let roots = [
-        asr_model_dir.map(Path::to_path_buf),
-        crate::lang::default_model_dir(),
-    ];
-    for root in roots.into_iter().flatten() {
-        if let Some(p) = root.parent().map(|p| p.join(DIR_NAME)) {
-            if p.is_dir() {
-                return Some(p);
-            }
-        }
-    }
-    let in_cwd = PathBuf::from("models").join(DIR_NAME);
-    in_cwd.is_dir().then_some(in_cwd)
+    crate::lang::sibling_model_dir(crate::lang::NER, asr_model_dir)
 }
 
 impl Ner {

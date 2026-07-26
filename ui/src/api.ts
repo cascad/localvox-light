@@ -238,6 +238,24 @@ export interface ReadableDoc {
   rejected: number;
 }
 
+/** Where a claim in the summary came from — already resolved to seconds, so the button beside it
+ *  can simply play that moment. */
+export interface Source {
+  line: number;
+  start_sec: number;
+  end_sec: number;
+}
+
+/** One block of the summary. The citation markers are already out of `text`; a claim with no
+ *  sources is one whose references did not survive verification — it keeps its words and loses
+ *  its button, because a wrong source is worse than none: it sends a person to check, and shows
+ *  them the wrong place. */
+export interface SummaryBlock {
+  kind: "heading" | "bullet" | "para";
+  text: string;
+  sources: Source[];
+}
+
 /** A note read back out of a slot. */
 export interface StoredNote {
   /** The note as a person reads it — the markdown bullet and the date prefix removed. */
@@ -284,7 +302,12 @@ export interface StageStatus {
   state: StageState;
   started_at?: string | null;
   ended_at?: string | null;
+  /** Timestamp of the most recent event for this stage — the heartbeat freshness. */
+  updated_at?: string | null;
   note?: string | null;
+  /** Progress within the stage, when it reports it: `done` of `total` (chunks / batches). */
+  done?: number | null;
+  total?: number | null;
 }
 
 export interface Progress {
@@ -294,6 +317,8 @@ export interface Progress {
    *  spoken, so in the gap between two of them every stage present says "done" and the chain
    *  reads as finished mid-cook. The queue holds the job and answers this. */
   running?: boolean;
+  /** How long the whole run took, once finished (seconds). Absent while running. */
+  elapsed_sec?: number | null;
 }
 
 const TOKEN_KEY = "lv-token";
@@ -342,6 +367,41 @@ const post = <T,>(path: string, body: unknown = {}, timeoutMs?: number) =>
 
 const enc = encodeURIComponent;
 
+// «Спросить у LLM про файл/текст» — an ad-hoc request stored under asks/, mirror of a session.
+export type AskStatus = "pending" | "running" | "done" | "failed";
+
+export interface AskSummary {
+  id: string;
+  created_at: string;
+  provider: string;
+  input_name?: string | null;
+  input_chars: number;
+  status: AskStatus;
+}
+
+export interface AskRecord {
+  id: string;
+  status: AskStatus;
+  created_at: string;
+  provider: string;
+  model?: string | null;
+  prompt: string;
+  input_kind: string;
+  input_name?: string | null;
+  input_chars: number;
+  answer?: string | null;
+  cost_usd?: number | null;
+  error?: string | null;
+  input?: string;
+}
+
+export interface AskRequest {
+  text: string;
+  prompt?: string;
+  provider?: string;
+  input_name?: string;
+}
+
 export const api = {
   sessions: (limit = 50) => call<Session[]>(`/api/sessions?limit=${limit}`),
   jobs: () => call<Jobs>("/api/jobs"),
@@ -350,7 +410,14 @@ export const api = {
 
   transcript: (s: string) => call<{ lines: Line[] }>(`/api/sessions/${enc(s)}/transcript`),
   markdown: (s: string, kind: "summary" | "processed") =>
-    call<{ markdown: string; provenance?: Provenance | null }>(`/api/sessions/${enc(s)}/${kind}`),
+    call<{ markdown: string; provenance?: Provenance | null }>(
+      `/api/sessions/${enc(s)}/${kind}?format=md`,
+    ),
+  /** The summary as blocks, each claim carrying the seconds it was drawn from. */
+  summary: (s: string) =>
+    call<{ blocks: SummaryBlock[]; provenance?: Provenance | null }>(
+      `/api/sessions/${enc(s)}/summary`,
+    ),
   /** The readable text as DATA — lines, not a page. The speaker names are joined in by the daemon
    *  on every read, which is why renaming one needs no re-cooking. */
   readable: (s: string) => call<ReadableDoc>(`/api/sessions/${enc(s)}/processed`),
@@ -362,6 +429,11 @@ export const api = {
   // The model reads thousands of characters of the found fragments. Cutting it off
   // after 15 seconds would show "no answer" where it is honestly thinking.
   ask: (question: string) => post<Answer>("/api/ask", { question }, 180_000),
+
+  // Ad-hoc «спросить у LLM про файл/текст». Long timeout: a document + the model's read can run.
+  asks: () => call<{ asks: AskSummary[] }>("/api/asks"),
+  getAsk: (id: string) => call<AskRecord>(`/api/asks/${enc(id)}`),
+  createAsk: (req: AskRequest) => post<AskRecord>("/api/asks", req, 300_000),
 
   note: (text: string, slot?: string) =>
     post<{ dest?: string }>("/api/notes", slot ? { text, slot } : { text }),
@@ -420,7 +492,11 @@ export const api = {
   record: () => call<RecordState>("/api/record"),
   startRecording: (title: string) => post<{ msg: string }>("/api/record/start", { title }),
   stopRecording: () => post<{ session: string }>("/api/record/stop"),
-  recook: (s: string) => post<{ msg?: string }>(`/api/sessions/${enc(s)}/recook`),
+  // Granular re-cook: the scope follows the tab the person is on. `summary` — only the summary;
+  // `text` — the cleaned text (Реплики/Текст, one artifact) plus the summary that derives from it;
+  // `all` (or omitted) — everything from the audio up.
+  recook: (s: string, scope?: "summary" | "text" | "all") =>
+    post<{ msg?: string }>(`/api/sessions/${enc(s)}/recook${scope ? `?scope=${scope}` : ""}`),
   /** Delete a session entirely — audio and all derivatives. The ONLY irreversible action:
    *  everywhere else the audio is kept and the rest recomputes from it. The name is echoed back
    *  as `confirm` so a stray call cannot wipe the wrong recording. */

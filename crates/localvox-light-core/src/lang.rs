@@ -166,6 +166,59 @@ pub fn default_model_dir() -> Option<PathBuf> {
     in_cwd.is_dir().then_some(in_cwd)
 }
 
+/// A model that is not the recogniser: it stands NEXT TO one and is found by the same rule.
+///
+/// The pair travels together on purpose. The override variable and the directory name were
+/// written out separately in every place that needed them, and the doctor would have been one
+/// more — a check spelling a directory differently from the code it checks is worse than no
+/// check, because it reports on something that does not exist.
+#[derive(Debug, Clone, Copy)]
+pub struct SideModel {
+    pub env: &'static str,
+    pub dir: &'static str,
+}
+
+/// «Кто говорит» — сегментация + вектор голоса.
+pub const DIARIZE: SideModel = SideModel {
+    env: "LOCALVOX_DIARIZE_MODEL_DIR",
+    dir: "diarize",
+};
+
+/// GLiNER — проверка имён в ответах LLM.
+pub const NER: SideModel = SideModel {
+    env: "LOCALVOX_NER_MODEL_DIR",
+    dir: "ner-gliner",
+};
+
+/// Where a SIDE model lives (diarization, NER): `<env>` → next to the ASR model → `models/<name>`.
+///
+/// One rule, one implementation. It used to be written out twice — in `ner` and in
+/// `diarize::segment` — and the second copy carried a comment saying «the same way of searching as
+/// NER's, and for the same reason», which is a duplicate announcing itself. The third copy would
+/// have been the doctor's.
+///
+/// «Next to the ASR model», not «by cwd»: on Windows autostart the working directory is
+/// `system32`, and a model looked up by cwd is silently not found — the name check then simply
+/// does not happen, and nothing says so.
+pub fn sibling_model_dir(m: SideModel, asr_model_dir: Option<&Path>) -> Option<PathBuf> {
+    let (env_var, dir_name) = (m.env, m.dir);
+    if let Some(d) = std::env::var_os(env_var) {
+        let d = PathBuf::from(d);
+        return d.is_dir().then_some(d);
+    }
+    // First the model the caller named, then the one we can find ourselves.
+    let roots = [asr_model_dir.map(Path::to_path_buf), default_model_dir()];
+    for root in roots.into_iter().flatten() {
+        if let Some(p) = root.parent().map(|p| p.join(dir_name)) {
+            if p.is_dir() {
+                return Some(p);
+            }
+        }
+    }
+    let in_cwd = PathBuf::from("models").join(dir_name);
+    in_cwd.is_dir().then_some(in_cwd)
+}
+
 /// The model for a language. `default_dir` is the model of the default language (the
 /// caller knows its path: next to the exe in a built application, `models/…` in
 /// development).

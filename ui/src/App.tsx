@@ -7,9 +7,10 @@ import { NotesPane } from "./Notes";
 import { QueuePane } from "./Queue";
 import { RecordBar } from "./RecordBar";
 import { SettingsPane } from "./Settings";
+import { AskHistory, AskPane } from "./Ask";
 import { dayLabel, mmss, shortTitle, stateOf } from "./lib";
 
-type View = "archive" | "note" | "queue" | "settings";
+type View = "archive" | "note" | "queue" | "settings" | "ask";
 
 /** Cheap and deliberately dumb: only http(s), no spaces. A `file://` from the clipboard would
  *  be an invitation to read any file on the machine through an interface that is open on the
@@ -24,6 +25,10 @@ export default function App() {
   const [current, setCurrent] = useState<string | null>(null);
   const [view, setView] = useState<View>("archive");
   const [tab, setTab] = useState<Tab>("summary");
+  // Selected question in the «Спросить» section (null = the new-question form); `askGen` bumps to
+  // refresh the history after a create or when a request finishes.
+  const [currentAsk, setCurrentAsk] = useState<string | null>(null);
+  const [askGen, setAskGen] = useState(0);
   // A request to move the ONE player to a second. Clicking a transcript line, a search hit or a
   // source in an answer all funnel through here — the player has no other "fragment mode".
   const [seek, setSeek] = useState<SeekRequest | null>(null);
@@ -216,6 +221,11 @@ export default function App() {
             <button aria-selected={view === "note"} onClick={() => setView("note")}>
               📝 Заметки
             </button>
+            {/* Ad-hoc question to an LLM about a dropped file or pasted text — not tied to a
+                recording. Its own place, its own archive under asks/. */}
+            <button aria-selected={view === "ask"} onClick={() => setView("ask")}>
+              💬 Спросить
+            </button>
             <button aria-selected={view === "settings"} onClick={() => setView("settings")}>
               ⚙ Настройки
             </button>
@@ -224,7 +234,10 @@ export default function App() {
 
         <div className="list">
           {err && <p className="err">{err}</p>}
-          {isLink(q) ? (
+          {view === "ask" ? (
+            // In the «Спросить» section the left rail is the QUESTION history, not the sessions.
+            <AskHistory current={currentAsk} onOpen={setCurrentAsk} gen={askGen} />
+          ) : isLink(q) ? (
             // A link in the search box is not a search — nobody looks for a URL in their own
             // recordings. It is an intent: "take this and transcribe it".
             <div className="link-offer">
@@ -265,6 +278,13 @@ export default function App() {
 
       {view === "note" ? (
         <NotesPane voice={record?.voice ?? null} say={say} />
+      ) : view === "ask" ? (
+        <AskPane
+          current={currentAsk}
+          onOpen={setCurrentAsk}
+          onChanged={() => setAskGen((g) => g + 1)}
+          say={say}
+        />
       ) : view === "settings" ? (
         <SettingsPane say={say} />
       ) : view === "queue" ? (

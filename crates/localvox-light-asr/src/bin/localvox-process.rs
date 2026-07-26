@@ -680,7 +680,7 @@ fn build_entities(
     let Some(dir) = localvox_light_core::ner::model_dir_near(Some(asr_model_dir)) else {
         // We must not keep quiet: "names are not being checked" must be audible.
         eprintln!("  name checking is OFF: no NER model (models/ner-gliner)");
-        eprintln!("    numbers are always checked; names are not. To install: scripts/setup-ner.ps1");
+        eprintln!("    numbers are always checked; names are not. To install: scripts/fetch-models.sh --only ner (fetch-models.ps1 -Only ner)");
         return None;
     };
     match localvox_light_core::ner::Ner::open(&dir) {

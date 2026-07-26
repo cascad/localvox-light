@@ -87,7 +87,6 @@ export function QueuePane({
                       <span className="st err">{i.stuck ? "остановлено" : "сорвалось, повторю"}</span>
                     )}
                     {i.kind === "ingest" && <span>· по ссылке</span>}
-                    {i.attempts > 1 && <span>· попытка {i.attempts}</span>}
                   </span>
                   {i.last_error && <span className="qerr">{i.last_error}</span>}
                 </button>

@@ -149,9 +149,11 @@ fn play_wav(wav: &std::path::Path) -> anyhow::Result<()> {
 
 #[cfg(not(windows))]
 fn play_wav(wav: &std::path::Path) -> anyhow::Result<()> {
-    // aplay (Linux) / afplay (macOS) — whichever is present
+    // aplay (Linux) / afplay (macOS) — whichever is present.
+    // `matches!`, not `== Ok(true)`: io::Error is not PartialEq, and that comparison never
+    // compiled. Nothing caught it because this file's non-Windows half had never been built.
     for player in ["afplay", "aplay"] {
-        if Command::new(player).arg(wav).status().map(|s| s.success()) == Ok(true) {
+        if matches!(Command::new(player).arg(wav).status(), Ok(s) if s.success()) {
             return Ok(());
         }
     }

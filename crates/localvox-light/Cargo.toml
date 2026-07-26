@@ -19,6 +19,11 @@ winres = "0.1"
 [target.'cfg(windows)'.dependencies]
 tray-item = "0.10"
 
+# `nice` for the cook child: background work must yield to the recording (the Windows side of
+# this is BELOW_NORMAL_PRIORITY_CLASS, set through creation_flags).
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
 [dependencies]
 localvox-light-api = { path = "../localvox-light-api" }
 localvox-light-core.workspace = true

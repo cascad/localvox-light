@@ -5,17 +5,20 @@
 //!
 //! The TUI lives in the `localvox-light-tui` crate.
 
+pub mod asks;
 pub mod asr;
 pub mod audio;
 #[cfg(windows)]
 pub mod autostart;
 pub mod chunks;
+pub mod citations;
 pub mod cli;
 #[cfg(feature = "onnx")]
 pub mod cook;
 #[cfg(windows)]
 pub mod detect;
 pub mod diarize;
+pub mod doctor;
 pub mod engine;
 pub mod env_file;
 pub mod events;

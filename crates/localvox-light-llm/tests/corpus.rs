@@ -112,7 +112,7 @@ fn grounding_holds_on_the_reference_corpus() {
     if ner.is_none() {
         eprintln!(
             "WARNING: there is no NER model (models/ner-gliner) — the cases that are \
-             impossible to catch without it were SKIPPED. Full run: scripts/setup-ner.ps1"
+             impossible to catch without it were SKIPPED. Full run: scripts/fetch-models.sh --only ner"
         );
     }
 

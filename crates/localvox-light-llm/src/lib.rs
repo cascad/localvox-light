@@ -6,6 +6,7 @@
 //! Processing does not mutate the sources: the result is written as new files
 //! alongside (`processed.md`, `summary.md`) — principle P2.
 
+pub mod claude_cli;
 pub mod glossary;
 pub mod grounding;
 pub mod pipeline;
