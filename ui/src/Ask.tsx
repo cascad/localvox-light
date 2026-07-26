@@ -130,6 +130,7 @@ function NewAsk({ onCreated, say }: { onCreated: (id: string) => void; say: (m: 
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [drag, setDrag] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const readFile = async (f: File) => {
     const c = await f.text();
@@ -205,6 +206,26 @@ function NewAsk({ onCreated, say }: { onCreated: (id: string) => void; say: (m: 
           rows={10}
         />
         {name && <span className="badge">📄 {name}</span>}
+        {/* The reliable path in. Drag-and-drop from Explorer can be silently blocked by Windows
+            itself (a drop across processes of different integrity levels — e.g. one of them running
+            as admin — is refused by UIPI, and no app config fixes that), so a plain file picker is
+            always here as the way that cannot fail. */}
+        <div className="pickrow">
+          <button type="button" className="pick" onClick={() => fileRef.current?.click()}>
+            📎 Выбрать файл
+          </button>
+          <span className="hint">или перетащите сюда из проводника</span>
+        </div>
+        <input
+          ref={fileRef}
+          type="file"
+          hidden
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) void readFile(f);
+            e.currentTarget.value = ""; // let the same file be chosen again
+          }}
+        />
       </div>
       <input
         className="ask-prompt"

@@ -127,6 +127,12 @@ pub fn run() {
                 .inner_size(1360.0, 860.0)
                 // Below this the three panes stop being three panes.
                 .min_inner_size(900.0, 560.0)
+                // Tauri's native OS drag-drop handler is on by default, and it SWALLOWS a file
+                // dropped from Explorer before the webview ever sees an HTML5 `drop` event — so the
+                // page's own drop zone («Спросить») gets an empty `dataTransfer.files`. Turn it off:
+                // the same HTML5 drag-drop that already works in the browser then works here too.
+                // One frontend, one behaviour — no "but in the desktop it's different" branch.
+                .disable_drag_drop_handler()
                 .build()?;
             Ok(())
         })

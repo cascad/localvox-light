@@ -706,6 +706,13 @@ mark { background: var(--mark); color: inherit; padding: 0 .1em; border-radius: 
   position: absolute; top: 6px; right: 8px; font-size: 12px; color: var(--dim);
   background: var(--surface); border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px;
 }
+.dropzone .pickrow { display: flex; gap: 10px; align-items: center; padding: 0 12px 10px; }
+.dropzone .pick {
+  padding: 4px 10px; font-size: 12px; border-radius: var(--r);
+  background: var(--surface); border: 1px solid var(--line); color: var(--ink); cursor: pointer;
+}
+.dropzone .pick:hover { border-color: var(--accent); color: var(--accent); }
+.dropzone .pickrow .hint { font-size: 12px; }
 .ask-prompt {
   width: 100%; box-sizing: border-box; margin-top: 8px; padding: 8px 10px;
   background: var(--raise); border: 1px solid var(--line); border-radius: var(--r); color: var(--ink); font: 14px var(--ui);
