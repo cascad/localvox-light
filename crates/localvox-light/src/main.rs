@@ -1087,7 +1087,10 @@ fn spawn_autocook(
                 // Autocook used to keep its own in-memory copy for the whole life of the
                 // daemon, and a re-cook request was simply lost — even though the web had
                 // already managed to delete the derived artifacts.
-                let mut queue = localvox_light_core::jobs::JobQueue::load(&wd);
+                // Maintenance + discovery: ONE critical section, on fresh data under the queue lock.
+                // The queue is NOT kept past here — holding it across the cook is exactly what lost
+                // the owner's ingest job (see `JobQueue::mutate`).
+                localvox_light_core::jobs::JobQueue::mutate(&wd, |queue| {
                 // 0a) Ghosts first, and BEFORE reviving anything: a session deleted while the
                 // daemon runs leaves work behind, and the next line would faithfully bring it back
                 // to life. The owner then watches «сорвалось, повторю» against a recording they
@@ -1127,14 +1130,24 @@ fn spawn_autocook(
                         tracing::info!("autocook: {name} — cooked, but no summary → finishing it");
                     }
                 }
+                }); // ← end of the maintenance critical section; the queue is dropped here
                 // 2) run the pending jobs — each exactly once per cycle
-                // (a failed one is retried on the next interval, it does not burn through attempts)
+                // (a failed one is retried on the next interval, it does not burn through attempts).
+                // Each `start`/`mark_*` below reloads the queue FRESH under the lock, so an ingest or
+                // re-cook the HTTP thread adds WHILE a cook runs survives instead of being overwritten
+                // by a stale snapshot — the lost-update bug that vanished the owner's link.
                 let mut cooked_any = false;
-                for id in queue.pending_ids() {
+                let ids = localvox_light_core::jobs::JobQueue::mutate(&wd, |q| q.pending_ids());
+                for id in ids {
                     if !running.load(Ordering::Relaxed) {
                         break;
                     }
-                    let Some(job) = queue.start(id) else { continue };
+                    // Claim it under the lock, on fresh data — None: it was taken/changed since the
+                    // snapshot, or is no longer pending. `start` marks it Running and returns a copy.
+                    let Some(job) = localvox_light_core::jobs::JobQueue::mutate(&wd, |q| q.start(id))
+                    else {
+                        continue;
+                    };
                     let session = wd.join("sessions").join(&job.session);
                     // The work over the session begins HERE. Everything the stages say from now on
                     // belongs to this run: an auto-cook picked up after a recording has no button
@@ -1150,7 +1163,9 @@ fn spawn_autocook(
                     {
                         if let Err(e) = ingest_into_session(&session) {
                             let msg = format!("{e:#}");
-                            queue.mark_failed(job.id, &msg, MAX_ATTEMPTS);
+                            localvox_light_core::jobs::JobQueue::mutate(&wd, |q| {
+                                q.mark_failed(job.id, &msg, MAX_ATTEMPTS)
+                            });
                             tracing::warn!("ingest: {} — {msg}", job.session);
                             continue;
                         }
@@ -1253,7 +1268,9 @@ fn spawn_autocook(
                             loop {
                                 match child.try_wait() {
                                     Ok(Some(s)) if s.success() => {
-                                        queue.mark_done(job.id);
+                                        localvox_light_core::jobs::JobQueue::mutate(&wd, |q| {
+                                            q.mark_done(job.id)
+                                        });
                                         cooked_any = true;
                                         break;
                                     }
@@ -1269,7 +1286,9 @@ fn spawn_autocook(
                                         // would re-cook the session on every attempt and breed
                                         // transcript versions.
                                         if post_only {
-                                            queue.clear_force(job.id);
+                                            localvox_light_core::jobs::JobQueue::mutate(&wd, |q| {
+                                                q.clear_force(job.id)
+                                            });
                                         }
                                         // The reason comes from the child's output, not from
                                         // "exit 2": it is stored in jobs.json and shown in
@@ -1283,7 +1302,9 @@ fn spawn_autocook(
                                             (false, Some(r)) => format!("exit {s}: {r}"),
                                             (false, None) => format!("exit {s}"),
                                         };
-                                        queue.mark_failed(job.id, &msg, MAX_ATTEMPTS);
+                                        localvox_light_core::jobs::JobQueue::mutate(&wd, |q| {
+                                            q.mark_failed(job.id, &msg, MAX_ATTEMPTS)
+                                        });
                                         tracing::warn!("autocook: {} — {msg}", job.session);
                                         // warming the index is worth it in both cases:
                                         // a transcript version may have been committed
@@ -1304,7 +1325,9 @@ fn spawn_autocook(
                                         std::thread::sleep(std::time::Duration::from_millis(200));
                                     }
                                     Err(e) => {
-                                        queue.mark_failed(job.id, &e.to_string(), MAX_ATTEMPTS);
+                                        localvox_light_core::jobs::JobQueue::mutate(&wd, |q| {
+                                            q.mark_failed(job.id, &e.to_string(), MAX_ATTEMPTS)
+                                        });
                                         break;
                                     }
                                 }
@@ -1315,7 +1338,11 @@ fn spawn_autocook(
                                 let _ = p.join();
                             }
                         }
-                        Err(e) => queue.mark_failed(job.id, &e.to_string(), MAX_ATTEMPTS),
+                        Err(e) => {
+                            localvox_light_core::jobs::JobQueue::mutate(&wd, |q| {
+                                q.mark_failed(job.id, &e.to_string(), MAX_ATTEMPTS)
+                            });
+                        }
                     }
                 }
                 // 2b) one warm-up for the whole drain of the queue (not after every job —
@@ -1327,7 +1354,8 @@ fn spawn_autocook(
                 // A silent daemon is indistinguishable from a broken one: once a minute we say
                 // that the queue is empty and everything has been processed. On acceptance the
                 // owner was looking for anything at all in the logs — and found nothing.
-                let pending = queue.pending_ids().len();
+                // A read for the idle log — no lock needed (the atomic rename means a whole file).
+                let pending = localvox_light_core::jobs::JobQueue::load(&wd).pending_ids().len();
                 if pending == 0 && !cooked_any {
                     let now = std::time::Instant::now();
                     if last_idle_log

@@ -1131,21 +1131,10 @@ impl Archive {
         self.ensure_recookable(session, &dir)?;
 
         let readable = localvox_light_core::readable::FILE;
-        let mut queue = localvox_light_core::jobs::JobQueue::load(&self.work_dir);
-
-        // A human's «Переварить» must WIN over a stalled cook — a job stuck `Running` because the
-        // daemon (or the cook) died mid-work. The enqueue methods refuse a Running job to protect a
-        // LIVE cook; so if nothing has moved for a long time, we reclaim that job first and let the
-        // re-cook proceed. A genuinely-live cook is not stale and is still refused below — its own
-        // work finishes, and the message «оборвалось, нажмите Переварить» does what it promises.
-        if self.progress_stale(&dir)
-            && queue.jobs().iter().any(|j| {
-                j.session == session
-                    && matches!(j.state, localvox_light_core::jobs::JobState::Running)
-            })
-        {
-            queue.reclaim_session(session);
-        }
+        // Stale is a filesystem read on `&self` — do it BEFORE the lock so the critical section stays
+        // short. Everything that TOUCHES the queue then happens in ONE locked, fresh-loaded section,
+        // so an unlocked load+save here can neither clobber nor be clobbered by the autocook thread.
+        let stale = self.progress_stale(&dir);
 
         // What each scope THROWS AWAY, what records it FORGETS (no file → no «done» record, or
         // discovery would decide there is nothing to remake), and how it re-queues. «Реплики» and
@@ -1155,30 +1144,46 @@ impl Archive {
         //
         // We queue the work FIRST and destroy afterwards: a queue refusal («already cooking») must
         // not leave the session stripped of its derivatives with no job to bring them back.
-        let (files, forget, queued): (Vec<&str>, Vec<&str>, bool) = match scope {
-            RecookScope::Summary => (
-                vec!["summary.md", "summary.unverified.md"],
-                vec![proc::SUMMARY],
-                queue.requeue_derivatives(session, true, false, false),
-            ),
-            RecookScope::Text => (
-                vec!["summary.md", readable, "summary.unverified.md", "processed.unverified.md"],
-                vec![proc::PROCESSED, proc::SUMMARY],
-                queue.requeue_derivatives(session, true, true, false),
-            ),
-            RecookScope::All => {
-                // Full redo uses the daemon's post-processing flags, from the SHARED place — our own
-                // reading of the same env once diverged («no variable = disabled» here, «enabled» for
-                // the daemon), so «redo» erased the summary and queued a job that never remade it.
-                let (summary, cleanup, refine) =
-                    localvox_light_core::jobs::post_processing_from_env();
-                (
-                    vec!["summary.md", readable, "summary.unverified.md", "processed.unverified.md"],
-                    vec![proc::SUMMARY, proc::PROCESSED, proc::TRANSCRIPT],
-                    queue.enqueue_recook(session, summary, cleanup, refine),
-                )
-            }
-        };
+        let (files, forget, queued): (Vec<&str>, Vec<&str>, bool) =
+            localvox_light_core::jobs::JobQueue::mutate(&self.work_dir, |queue| {
+                // A human's «Переварить» must WIN over a stalled cook — a job stuck `Running` because
+                // the daemon (or the cook) died mid-work. The enqueue methods refuse a Running job to
+                // protect a LIVE cook; so if nothing has moved for a long time, we reclaim it first.
+                // A genuinely-live cook is not stale and is still refused below — its own work
+                // finishes, and «оборвалось, нажмите Переварить» does what it promises.
+                if stale
+                    && queue.jobs().iter().any(|j| {
+                        j.session == session
+                            && matches!(j.state, localvox_light_core::jobs::JobState::Running)
+                    })
+                {
+                    queue.reclaim_session(session);
+                }
+                match scope {
+                    RecookScope::Summary => (
+                        vec!["summary.md", "summary.unverified.md"],
+                        vec![proc::SUMMARY],
+                        queue.requeue_derivatives(session, true, false, false),
+                    ),
+                    RecookScope::Text => (
+                        vec!["summary.md", readable, "summary.unverified.md", "processed.unverified.md"],
+                        vec![proc::PROCESSED, proc::SUMMARY],
+                        queue.requeue_derivatives(session, true, true, false),
+                    ),
+                    RecookScope::All => {
+                        // Full redo uses the daemon's post-processing flags, from the SHARED place —
+                        // our own reading of the same env once diverged, so «redo» erased the summary
+                        // and queued a job that never remade it.
+                        let (summary, cleanup, refine) =
+                            localvox_light_core::jobs::post_processing_from_env();
+                        (
+                            vec!["summary.md", readable, "summary.unverified.md", "processed.unverified.md"],
+                            vec![proc::SUMMARY, proc::PROCESSED, proc::TRANSCRIPT],
+                            queue.enqueue_recook(session, summary, cleanup, refine),
+                        )
+                    }
+                }
+            });
 
         if !queued {
             anyhow::bail!("сессия уже варится прямо сейчас — дождитесь окончания");
@@ -1258,8 +1263,9 @@ impl Archive {
             bail!("удаление не подтверждено: передайте имя сессии в поле confirm");
         }
 
-        let mut queue = localvox_light_core::jobs::JobQueue::load(&self.work_dir);
-        queue.forget_session(session);
+        localvox_light_core::jobs::JobQueue::mutate(&self.work_dir, |queue| {
+            queue.forget_session(session)
+        });
 
         std::fs::remove_dir_all(&dir).with_context(|| format!("не удалось удалить {session}"))?;
         tracing::info!("session deleted: {session}");
@@ -1533,8 +1539,9 @@ impl Archive {
         // in either of them, it is rendered from the source id on every read. Only the summary
         // QUOTES it, inside sentences the model composed, and only the summary is rebuilt.
         let (summary, _cleanup, refine) = localvox_light_core::jobs::post_processing_from_env();
-        let mut queue = localvox_light_core::jobs::JobQueue::load(&self.work_dir);
-        let queued = queue.requeue_for_artifacts(session, summary, false, refine);
+        let queued = localvox_light_core::jobs::JobQueue::mutate(&self.work_dir, |queue| {
+            queue.requeue_for_artifacts(session, summary, false, refine)
+        });
         if queued {
             let _ = fs::remove_file(dir.join("summary.md"));
             // No file — no record of it either, or discovery decides there is nothing to do and
@@ -1607,8 +1614,9 @@ impl Archive {
         // either: re-cooking half an hour of sound for the sake of a name is a mockery, and then
         // names simply would not be used at all.
         let (summary, _cleanup, refine) = localvox_light_core::jobs::post_processing_from_env();
-        let mut queue = localvox_light_core::jobs::JobQueue::load(&self.work_dir);
-        let queued = queue.requeue_for_artifacts(session, summary, false, refine);
+        let queued = localvox_light_core::jobs::JobQueue::mutate(&self.work_dir, |queue| {
+            queue.requeue_for_artifacts(session, summary, false, refine)
+        });
         if queued {
             let _ = fs::remove_file(dir.join("summary.md"));
             // No file — no record of it either: otherwise discovery will decide there

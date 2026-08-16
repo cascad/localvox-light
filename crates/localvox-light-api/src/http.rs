@@ -735,13 +735,19 @@ pub fn respond(
                         // Devices are PICKED, not typed. A name entered by hand is a name that can
                         // be misspelled, and the recording then silently opens a different
                         // microphone — or none. Enumerated live: devices come and go.
-                        let options = match s.key {
+                        let options: Option<Value> = match s.key {
                             "LOCALVOX_LIGHT_MIC" => {
-                                Some(localvox_light_core::audio::input_device_choices())
+                                Some(json!(localvox_light_core::audio::input_device_choices()))
                             }
                             "LOCALVOX_LIGHT_LOOPBACK_DEVICE" => {
-                                Some(localvox_light_core::audio::output_device_choices())
+                                Some(json!(localvox_light_core::audio::output_device_choices()))
                             }
+                            // The summary provider is a real choice, so a dropdown — like «Спросить».
+                            // Empty selects the default (the local model in the hint).
+                            "LOCALVOX_SUMMARY_PROVIDER" => Some(json!([
+                                {"value": "claude", "label": "Claude (подписка)"},
+                                {"value": "ollama", "label": "Локальная (Ollama)"},
+                            ])),
                             _ => None,
                         };
                         json!({

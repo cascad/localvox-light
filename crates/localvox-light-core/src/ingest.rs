@@ -41,8 +41,11 @@ pub fn from_url(work_dir: &Path, raw_url: &str) -> Result<String> {
         .map(|n| n.to_string_lossy().into_owned())
         .context("у сессии нет имени")?;
 
-    let mut queue = crate::jobs::JobQueue::load(work_dir);
-    queue.enqueue_ingest(&name, true, true, true);
+    // Under the queue lock, on fresh data: an unlocked load+save here raced the autocook thread and
+    // LOST this very job — the session was created but nothing downloaded it (see `JobQueue::mutate`).
+    crate::jobs::JobQueue::mutate(work_dir, |queue| {
+        queue.enqueue_ingest(&name, true, true, true)
+    });
     Ok(name)
 }
 

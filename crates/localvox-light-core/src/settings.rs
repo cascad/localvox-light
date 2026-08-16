@@ -227,6 +227,18 @@ pub const CATALOGUE: &[Setting] = &[
         kind: Kind::Text,
         applies: Applies::Live,
     },
+    // Only the SUMMARY may go to Claude; the line-by-line cleanup stays local (it is high-volume and
+    // would burn the subscription). Live: the cook is spawned fresh and reads this from the env on
+    // every run, so a saved value reaches the NEXT cook without a restart. Existing summaries keep
+    // their model until re-cooked («Переварить») — a switch never re-cooks the archive on its own.
+    Setting {
+        key: "LOCALVOX_SUMMARY_PROVIDER",
+        group: "LLM",
+        label: "Сводку делает",
+        hint: "локальная модель (Ollama)",
+        kind: Kind::Text,
+        applies: Applies::Live,
+    },
     // ── API ──────────────────────────────────────────────────────────────────
     Setting {
         key: "LOCALVOX_API_BIND",

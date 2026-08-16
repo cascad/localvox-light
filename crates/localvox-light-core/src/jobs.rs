@@ -12,6 +12,7 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::time::SystemTime;
 
 use serde::{Deserialize, Serialize};
@@ -149,6 +150,34 @@ impl JobQueue {
             });
         }
         Self { path, file }
+    }
+
+    /// EVERY mutation of jobs.json goes through here, and this is not a nicety — it is the fix for a
+    /// data-loss bug that lost the owner's ingest job.
+    ///
+    /// jobs.json is one file mutated by two threads: the HTTP handlers (ingest, «переварить») and the
+    /// autocook loop. Each used to do an INDEPENDENT load → modify → `save()`, and `save()` writes
+    /// the WHOLE in-memory struct — a snapshot from an earlier `load()`. The atomic tmp+rename keeps
+    /// the file from tearing, but it does NOT stop a lost update: the autocook held its snapshot
+    /// across the minutes-long download/cook of a job, and when it finished and saved, it wrote that
+    /// stale snapshot back — over the top of an ingest job the HTTP thread had added meanwhile. The
+    /// link simply vanished: no job, so nothing downloads it, and discovery ignores a session with no
+    /// transcript. Measured live: session `20260816_181835_youtube`, url `uZf2wS8U84k` — created,
+    /// zero audio, no job.
+    ///
+    /// The lock makes load→modify→save ONE critical section on FRESH data, so writers merge instead
+    /// of clobbering. Read-only `load()` for display does NOT need it — the atomic rename means a read
+    /// always sees a whole file, only perhaps a moment stale. There is a single writer PROCESS (the
+    /// daemon; the cook child never touches jobs.json), so an in-process lock is enough — a
+    /// cross-process file lock (like `.cook.lock`) would only be needed if that ever changed.
+    ///
+    /// The caller must NOT hold the queue across long work — take it, mutate, drop; reload for the
+    /// mark AFTER the cook. Holding the lock across a cook would serialize the whole daemon.
+    pub fn mutate<R>(work_dir: &Path, f: impl FnOnce(&mut JobQueue) -> R) -> R {
+        static LOCK: Mutex<()> = Mutex::new(());
+        let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut q = JobQueue::load(work_dir);
+        f(&mut q)
     }
 
     fn save(&self) {
@@ -968,6 +997,32 @@ mod tests {
 
     use super::*;
     use tempfile::tempdir;
+
+    /// The regression for the lost-update bug: many threads enqueue at once, and EVERY job must
+    /// survive. Before `mutate`, each thread did its own `load`→modify→`save`, and a whole-file
+    /// overwrite from a stale snapshot dropped the others' jobs — which is how the owner's ingest
+    /// vanished (session created, no job, nothing downloaded it). With the lock, none are lost.
+    #[test]
+    fn concurrent_mutations_do_not_lose_jobs() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().to_path_buf();
+        let handles: Vec<_> = (0..24)
+            .map(|i| {
+                let root = root.clone();
+                std::thread::spawn(move || {
+                    JobQueue::mutate(&root, |q| q.enqueue_ingest(&format!("s{i:03}"), true, true, true));
+                })
+            })
+            .collect();
+        for h in handles {
+            h.join().unwrap();
+        }
+        assert_eq!(
+            JobQueue::load(&root).jobs().len(),
+            24,
+            "every concurrent enqueue must survive — none clobbered by a stale save"
+        );
+    }
 
     #[test]
     fn enqueue_dedups_by_session() {
