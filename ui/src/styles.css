@@ -748,12 +748,23 @@ mark { background: var(--mark); color: inherit; padding: 0 .1em; border-radius: 
 
 /* ── «Спросить»: история слева + детали (async, статусы) ─────────────────── */
 .asklist { display: flex; flex-direction: column; gap: 2px; }
-.askrow { display: flex; gap: 8px; align-items: baseline; width: 100%; text-align: left;
+.askrow { position: relative; display: flex; gap: 8px; align-items: center; width: 100%; text-align: left;
   background: none; border: 0; color: var(--ink); padding: 8px 10px; border-radius: 6px; cursor: pointer; }
 .askrow:hover { background: var(--raise); }
 .askrow.on { background: var(--accent-soft); }
 .askrow.new { color: var(--accent); font-weight: 600; }
 .askrow .what { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Two-step delete on a question row — same gesture as a recording's: trash on hover, then a named
+   confirm in place of the row. Inline (not absolute) so it never sits over the status label. */
+.askrow .trash { position: static; opacity: 0; flex: none; width: 22px; height: 22px;
+  display: grid; place-items: center; border-radius: 5px; background: var(--surface);
+  border: 1px solid var(--line); color: var(--dim); font-size: 12px; }
+.askrow:hover .trash,
+.askrow .trash:focus-visible { opacity: 1; }
+.askrow .trash:hover { border-color: var(--rec); color: var(--rec); }
+.askrow.confirming { background: var(--rec-soft); cursor: default; }
+.askrow.confirming .what { color: var(--ink); }
+.askrow .confirm-actions { margin-left: auto; }
 .ask-detail .ask-src { border-bottom: 1px solid var(--line); padding-bottom: 10px; margin-bottom: 12px; }
 /* Label and the «copy source» button share a line; the source body wraps below at full width. */
 .ask-input { margin-top: 8px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }

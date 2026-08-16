@@ -194,6 +194,19 @@ pub fn update(root: &Path, ask: &Ask) -> Result<()> {
     Ok(())
 }
 
+/// Remove a request entirely — input, answer and record folder. A missing folder is NOT an error
+/// (the row may already be gone, or a double-click raced): delete is idempotent so the UI can call
+/// it without guarding. Mirrors a session's delete, but needs no confirm token: an ask is
+/// re-runnable material, not irreplaceable audio.
+pub fn delete(root: &Path, id: &str) -> Result<()> {
+    let dir = ask_dir(root, id);
+    match std::fs::remove_dir_all(&dir) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e).with_context(|| format!("removing ask dir {}", dir.display())),
+    }
+}
+
 /// Ids of requests waiting for the worker, OLDEST first (FIFO — a queue, not a stack).
 pub fn pending(root: &Path) -> Vec<String> {
     let mut ids: Vec<String> = list(root)
@@ -316,6 +329,23 @@ mod tests {
         let rows = list(root);
         assert_eq!(rows.len(), 2, "junk folder skipped");
         assert_eq!(rows[0].id, "20260725_120000", "newest first");
+    }
+
+    /// Delete removes the whole folder and drops it from the list; deleting a gone id is a no-op.
+    #[test]
+    fn delete_removes_the_folder_and_is_idempotent() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        save(root, &sample("20260725_100000", Some("a"), None), "x").unwrap();
+        save(root, &sample("20260725_120000", Some("b"), None), "y").unwrap();
+
+        delete(root, "20260725_100000").unwrap();
+        assert!(!root.join("20260725_100000").exists());
+        let rows = list(root);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].id, "20260725_120000");
+        // Deleting the same (now absent) id again must not error.
+        delete(root, "20260725_100000").unwrap();
     }
 
     #[test]

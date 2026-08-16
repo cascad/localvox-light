@@ -32,6 +32,7 @@ localvox-light-search = { path = "../localvox-light-search" }
 localvox-light-tui = { workspace = true, optional = true }
 localvox-light-voice = { path = "../localvox-light-voice" }
 anyhow.workspace = true
+chrono.workspace = true
 clap.workspace = true
 ctrlc.workspace = true
 crossbeam-channel.workspace = true

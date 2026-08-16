@@ -434,6 +434,9 @@ export const api = {
   asks: () => call<{ asks: AskSummary[] }>("/api/asks"),
   getAsk: (id: string) => call<AskRecord>(`/api/asks/${enc(id)}`),
   createAsk: (req: AskRequest) => post<AskRecord>("/api/asks", req, 300_000),
+  /** Delete one request entirely. Re-runnable material, so — unlike a session — no confirm token. */
+  deleteAsk: (id: string) =>
+    call<{ deleted: string }>(`/api/asks/${enc(id)}`, { method: "DELETE" }),
 
   note: (text: string, slot?: string) =>
     post<{ dest?: string }>("/api/notes", slot ? { text, slot } : { text }),

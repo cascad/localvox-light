@@ -135,7 +135,7 @@ fn main() -> Result<()> {
     // precaution: with `LOCALVOX_LIGHT_TUI=1` in .env, `--doctor` and `--list-devices` piped
     // anywhere died with «stdout is not a TTY» — the doctor refusing to speak because there is no
     // terminal to draw a full-screen interface it was never asked for.
-    if cli.daemon || cli.doctor || cli.list_devices {
+    if cli.daemon || cli.doctor || cli.list_devices || cli.update_yt_dlp {
         cli.tui = false;
     }
     // Portable install without LOCALVOX_LIGHT_TUI in .env: in a normal terminal we open the TUI
@@ -173,6 +173,11 @@ fn main() -> Result<()> {
     // question nobody asks.
     if cli.doctor {
         std::process::exit(run_doctor(&cli));
+    }
+
+    // One-shot maintenance, same as --doctor: does not need models, so it runs before validation.
+    if cli.update_yt_dlp {
+        std::process::exit(run_update_yt_dlp());
     }
 
     validate_vosk_model(&cli)?;
@@ -355,6 +360,7 @@ fn run_doctor(cli: &Cli) -> i32 {
     let mut findings = doctor::inspect(&layout);
     findings.push(probe_llm(&layout));
     findings.push(probe_api_port(&layout));
+    findings.push(probe_yt_dlp());
 
     println!("localvox — проверка установки\n");
     for f in &findings {
@@ -447,6 +453,79 @@ fn probe_api_port(l: &localvox_light_core::doctor::Layout) -> localvox_light_cor
             detail: format!("{} занят ({e}) — возможно, демон уже запущен", l.api_bind),
             fix: Some("остановить прежний демон или задать другой LOCALVOX_API_BIND".into()),
         },
+    }
+}
+
+/// The version yt-dlp reports (`2026.08.16` or `2026.08.16.020253`), or `None` if it is missing or
+/// did not answer. A live probe — runs the binary — so it lives here, not in the pure `doctor`.
+fn yt_dlp_version(bin: &str) -> Option<String> {
+    std::process::Command::new(bin)
+        .arg("--version")
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+/// Freshness of yt-dlp. YouTube breaks old versions every few weeks (HTTP 403 on download), so a
+/// stale binary is the quiet cause of «ingest by link stopped working». Running the binary and
+/// reading «now» is entropy — hence here, appended to the pure `inspect` like the LLM/port probes.
+fn probe_yt_dlp() -> localvox_light_core::doctor::Finding {
+    use localvox_light_core::doctor;
+    let settings = localvox_light_ingest::load_settings();
+    let yt_dlp = localvox_light_ingest::resolve_yt_dlp(&settings, None);
+    let version = yt_dlp_version(&yt_dlp);
+    let age_days = version
+        .as_deref()
+        .and_then(doctor::parse_yt_dlp_date)
+        .map(|d| (chrono::Local::now().date_naive() - d).num_days());
+    doctor::yt_dlp_finding(&yt_dlp, version.as_deref(), age_days)
+}
+
+/// `--update-yt-dlp`: update yt-dlp in place to the nightly channel and exit.
+///
+/// PROBLEM CLASS: keeping an external, frequently-breaking tool fresh. yt-dlp solves this itself —
+/// `--update-to nightly` rewrites its own binary atomically for this OS — so we do NOT hand-roll a
+/// downloader; we invoke its updater, the same way we invoke it for downloads. Nightly, not stable:
+/// YouTube fixes land there first, and stable can sit unchanged for weeks while 403s pile up.
+fn run_update_yt_dlp() -> i32 {
+    let _ = tracing_subscriber::fmt::try_init();
+    let settings = localvox_light_ingest::load_settings();
+    let yt_dlp = localvox_light_ingest::resolve_yt_dlp(&settings, None);
+    let before = yt_dlp_version(&yt_dlp);
+    println!(
+        "yt-dlp: {} — обновляю по месту до nightly ({} --update-to nightly)",
+        before.as_deref().unwrap_or("не найден"),
+        yt_dlp
+    );
+    match std::process::Command::new(&yt_dlp)
+        .args(["--update-to", "nightly"])
+        .status()
+    {
+        Ok(s) if s.success() => {
+            let after = yt_dlp_version(&yt_dlp);
+            println!(
+                "Готово: {} → {}",
+                before.as_deref().unwrap_or("?"),
+                after.as_deref().unwrap_or("?")
+            );
+            0
+        }
+        Ok(s) => {
+            // The common failure is the GitHub API rate limit (403) that yt-dlp's own updater uses
+            // for the version check — transient, and the honest fallback is a direct asset download.
+            eprintln!(
+                "yt-dlp вернул код {s}. Частая причина — лимит GitHub API (403 rate limit) в самом \
+                 апдейтере. Повторите позже или скачайте свежий бинарь вручную из \
+                 https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/latest и положите на место {yt_dlp}"
+            );
+            1
+        }
+        Err(e) => {
+            eprintln!("не удалось запустить {yt_dlp}: {e}");
+            2
+        }
     }
 }
 

@@ -16,11 +16,24 @@ pub mod templates;
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 
+/// Where a chat request is answered. `Http` — the OpenAI-compatible / Ollama-native endpoint at
+/// `base_url` (the normal path). `Claude` — the official `claude` CLI as a subprocess, drawing on a
+/// Pro/Max SUBSCRIPTION (see [`claude_cli`]); used when the cook is told to make the summary with
+/// Claude. It composes cleanly: only the transport differs, everything above `chat()` is unchanged.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Provider {
+    #[default]
+    Http,
+    Claude,
+}
+
 /// Provider profile. V1 — from flags/env; `llm.toml` with several profiles is a follow-up.
 #[derive(Clone, Debug)]
 pub struct LlmProfile {
+    /// Which transport answers `chat()`. Default [`Provider::Http`] — the endpoint below.
+    pub provider: Provider,
     /// `http://localhost:11434/v1` (Ollama) / `https://api.openai.com/v1` /
-    /// `https://openrouter.ai/api/v1`.
+    /// `https://openrouter.ai/api/v1`. Ignored when `provider` is [`Provider::Claude`].
     pub base_url: String,
     pub model: String,
     /// Key (not needed for Ollama).
@@ -83,6 +96,7 @@ fn num_ctx_for(prompt_chars: usize, max_ctx: u32) -> u32 {
 impl Default for LlmProfile {
     fn default() -> Self {
         Self {
+            provider: Provider::Http,
             base_url: "http://localhost:11434/v1".into(),
             model: "qwen3.5:9b".into(),
             api_key: None,
@@ -190,15 +204,54 @@ impl LlmClient {
 
     /// A single chat request; reasoning is stripped/disabled depending on the dialect.
     pub fn chat(&self, messages: &[ChatMessage]) -> Result<String> {
-        let raw = match detect_flavor(&self.profile.base_url) {
-            ApiFlavor::OllamaNative => self.chat_ollama_native(messages)?,
-            ApiFlavor::OpenAiCompat => self.chat_openai(messages)?,
+        let raw = match self.profile.provider {
+            Provider::Claude => self.chat_claude(messages)?,
+            Provider::Http => match detect_flavor(&self.profile.base_url) {
+                ApiFlavor::OllamaNative => self.chat_ollama_native(messages)?,
+                ApiFlavor::OpenAiCompat => self.chat_openai(messages)?,
+            },
         };
         let content = strip_think_blocks(&raw).trim().to_string();
         if content.is_empty() {
             bail!("the LLM returned an empty answer (for thinking models — raise max_tokens)");
         }
         Ok(content)
+    }
+
+    /// The Claude subscription path: the official `claude` CLI as a subprocess (see [`claude_cli`]).
+    ///
+    /// Our summary/refine prompts carry their whole instruction in the message text, and one part of
+    /// a summary can be tens of KB — past Windows' command-line limit — so the material ALWAYS rides
+    /// stdin (`content`) and the `-p` slot gets only the system text, or a short directive when there
+    /// is none. A multi-turn re-ask (user → assistant → user) is flattened into one stdin document,
+    /// because `claude -p` is single-shot; the model still sees the full confrontation as text.
+    fn chat_claude(&self, messages: &[ChatMessage]) -> Result<String> {
+        let sys: String = messages
+            .iter()
+            .filter(|m| m.role == "system")
+            .map(|m| m.content.as_str())
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        let body: String = messages
+            .iter()
+            .filter(|m| m.role != "system")
+            .map(|m| {
+                if m.role == "assistant" {
+                    format!("[Твой предыдущий ответ]\n{}", m.content)
+                } else {
+                    m.content.clone()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        let prompt = if sys.trim().is_empty() {
+            "Выполни задачу, описанную во входных данных ниже, и верни ТОЛЬКО результат — без \
+             вступлений, без пояснений, без markdown-обёртки вокруг всего ответа."
+        } else {
+            sys.as_str()
+        };
+        let cfg = claude_cli::ClaudeCliConfig::from_env();
+        Ok(claude_cli::run(&cfg, prompt, Some(&body))?.text)
     }
 
     fn chat_openai(&self, messages: &[ChatMessage]) -> Result<String> {

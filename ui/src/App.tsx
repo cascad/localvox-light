@@ -236,7 +236,7 @@ export default function App() {
           {err && <p className="err">{err}</p>}
           {view === "ask" ? (
             // In the «Спросить» section the left rail is the QUESTION history, not the sessions.
-            <AskHistory current={currentAsk} onOpen={setCurrentAsk} gen={askGen} />
+            <AskHistory current={currentAsk} onOpen={setCurrentAsk} gen={askGen} say={say} />
           ) : isLink(q) ? (
             // A link in the search box is not a search — nobody looks for a URL in their own
             // recordings. It is an intent: "take this and transcribe it".

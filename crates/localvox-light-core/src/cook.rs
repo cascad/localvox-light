@@ -261,15 +261,24 @@ pub fn cook_session_asr(session_dir: &Path, p: &CookParams) -> Result<CookOutcom
     let mut audio_sec = 0.0f64;
     let mut tracks: Vec<crate::diarize::Track> = Vec::new();
 
-    // Total chunks across both sources — the denominator of the transcribe progress bar. Counted
-    // up front so the very first heartbeat can say «0 of N» instead of an unbounded spinner.
-    let total_chunks: u32 = [0u8, 1u8]
+    // The denominator of the transcribe bar is AUDIO SECONDS, not chunk FILES. An ingested video is
+    // written as ONE chunk file (`ChunkRecorder::feed` lands a one-shot buffer whole, then rotates —
+    // it is built for the live recorder that feeds small frames over time), so a file-count bar sat
+    // at «1/1» for ten minutes while GigaAM ground through dozens of VAD windows INSIDE that file.
+    // Counted up front from the WAV headers so the first heartbeat says «0 of N» seconds.
+    let total_sec: u32 = [0u8, 1u8]
         .iter()
         .filter_map(|&s| chunk_files_for_source(session_dir, s).ok())
-        .map(|c| c.len() as u32)
-        .sum();
-    let mut done_chunks: u32 = 0;
-    crate::progress::progress(session_dir, crate::progress::Stage::Transcribe, 0, total_chunks);
+        .flatten()
+        .filter_map(|p| chunk_seconds(&p).ok())
+        .sum::<f64>()
+        .round()
+        .max(1.0) as u32;
+    let mut processed_sec: f64 = 0.0;
+    // A slice of audio between heartbeats: fed to the recognizer, then the bar moves. Small enough
+    // that even one long file advances every few seconds, large enough not to spam the journal.
+    let slice_samples: usize = 15 * SAMPLE_RATE as usize;
+    crate::progress::progress(session_dir, crate::progress::Stage::Transcribe, 0, total_sec);
 
     let mut any_chunks = false;
     for source_id in [0u8, 1u8] {
@@ -317,16 +326,19 @@ pub fn cook_session_asr(session_dir: &Path, p: &CookParams) -> Result<CookOutcom
                 let pcm: Vec<f32> = samples.iter().map(|&s| f32::from(s) / 32768.0).collect();
                 d.push(&pcm)?;
             }
-            windower.feed(&samples, &mut classify, &mut emit)?;
-            // One chunk done — a heartbeat. This is both the percentage a person watches and the
-            // liveness a stall is read from: while these keep coming the transcribe is alive.
-            done_chunks += 1;
-            crate::progress::progress(
-                session_dir,
-                crate::progress::Stage::Transcribe,
-                done_chunks,
-                total_chunks,
-            );
+            // Feed the recognizer in slices so ONE long file still moves the bar. Each slice is a
+            // heartbeat: the percentage a person watches AND the liveness a stall is read from —
+            // while these keep coming (every ~15 s of audio) the transcribe is alive, not hung.
+            for slice in samples.chunks(slice_samples) {
+                windower.feed(slice, &mut classify, &mut emit)?;
+                processed_sec += slice.len() as f64 / f64::from(SAMPLE_RATE);
+                crate::progress::progress(
+                    session_dir,
+                    crate::progress::Stage::Transcribe,
+                    processed_sec.round() as u32,
+                    total_sec,
+                );
+            }
         }
         windower.finish(&mut emit)?;
 
@@ -585,6 +597,18 @@ fn chunk_files_for_source(session_dir: &Path, source_id: u8) -> Result<Vec<PathB
 /// Samples of a chunk (16 kHz mono s16): `.wav` — hound, `.flac` — decoded through
 /// ffmpeg (the same one that compressed the chunk; the path comes from the env var
 /// `LOCALVOX_LIGHT_YT_FFMPEG`).
+/// Duration of a chunk in seconds — for the transcribe progress denominator. WAV: from the header
+/// (`duration()` reads no samples), so summing across chunks is cheap even for a long recording.
+/// FLAC: decoded length (the mic path; rarer, and a correct denominator beats a saved decode here).
+fn chunk_seconds(path: &Path) -> Result<f64> {
+    if path.extension().and_then(|x| x.to_str()) == Some("flac") {
+        return Ok(decode_flac_16k_mono(path)?.len() as f64 / f64::from(SAMPLE_RATE));
+    }
+    let reader =
+        hound::WavReader::open(path).with_context(|| format!("opening {}", path.display()))?;
+    Ok(reader.duration() as f64 / f64::from(SAMPLE_RATE))
+}
+
 fn read_chunk_samples(path: &Path) -> Result<Vec<i16>> {
     if path.extension().and_then(|x| x.to_str()) == Some("flac") {
         return decode_flac_16k_mono(path);

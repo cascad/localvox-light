@@ -40,6 +40,22 @@ export function DocumentPane({ session, tab, setTab, pos, onSeek, onChanged, say
   const doc = useRef<HTMLDivElement>(null);
   const st = stateOf(session);
 
+  // Live-refresh while the recording is being processed: re-read the open tab every few seconds so
+  // replicas / text / summary appear as each stage finishes — no clicking away and back. It runs
+  // ONLY while there is work (recording, queued or cooking), fires one final reload the moment that
+  // work ends, and — thanks to `useArtifact`'s in-place reload — never flickers to «загрузка…».
+  const live =
+    session.recording || session.job === "running" || session.job === "pending";
+  const [tick, setTick] = useState(0);
+  const wasLive = useRef(false);
+  useEffect(() => {
+    if (wasLive.current && !live) setTick((n) => n + 1); // finished → one last reload for the result
+    wasLive.current = live;
+    if (!live) return;
+    const t = setInterval(() => setTick((n) => n + 1), 3000);
+    return () => clearInterval(t);
+  }, [live]);
+
   // The document goes to the clipboard WITHOUT the system footnotes and without the
   // doubt banner: our own explanation has no business opening someone else's protocol.
   const copy = async () => {
@@ -105,13 +121,22 @@ export function DocumentPane({ session, tab, setTab, pos, onSeek, onChanged, say
 
       <div className="doc" ref={doc}>
         {tab === "transcript" && (
-          <Transcript session={session} pos={pos} onSeek={onSeek} onChanged={onChanged} say={say} />
+          <Transcript
+            session={session}
+            pos={pos}
+            onSeek={onSeek}
+            onChanged={onChanged}
+            say={say}
+            refresh={tick}
+          />
         )}
         {tab === "summary" && (
-          <Article session={session} onSeek={onSeek} onChanged={onChanged} say={say} />
+          <Article session={session} onSeek={onSeek} onChanged={onChanged} say={say} refresh={tick} />
         )}
-        {tab === "processed" && <Readable session={session} onChanged={onChanged} say={say} />}
-        {tab === "speakers" && <Speakers session={session} say={say} />}
+        {tab === "processed" && (
+          <Readable session={session} onChanged={onChanged} say={say} refresh={tick} />
+        )}
+        {tab === "speakers" && <Speakers session={session} say={say} refresh={tick} />}
         {tab === "progress" && <ProgressChain session={session} />}
       </div>
     </main>
@@ -121,24 +146,35 @@ export function DocumentPane({ session, tab, setTab, pos, onSeek, onChanged, say
 /** Loading an artifact. A stale answer must never touch the screen: clicking another
  *  session while a transcript loads used to hand the player one session's timecodes
  *  and another one's audio. */
-function useArtifact<T>(key: string, load: () => Promise<T>) {
+function useArtifact<T>(key: string, load: () => Promise<T>, refresh = 0) {
   const [data, setData] = useState<T | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const seq = useRef(0);
+  const shownKey = useRef<string | null>(null);
 
   useEffect(() => {
     const my = ++seq.current;
-    setData(null);
-    setErr(null);
+    // Blank ONLY when the identity changed (a new session/tab/version): there we must not show one
+    // recording's text over another's. A refresh tick — same `key`, new `refresh` — reloads IN
+    // PLACE, keeping the current content on screen until the fresh one arrives, so live-updating
+    // during a cook never flickers to «загрузка…».
+    if (shownKey.current !== key) {
+      setData(null);
+      setErr(null);
+      shownKey.current = key;
+    }
     load()
       .then((d) => {
-        if (my === seq.current) setData(d);
+        if (my === seq.current) {
+          setData(d);
+          setErr(null);
+        }
       })
       .catch((e: Error) => {
         if (my === seq.current) setErr(e.message);
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+  }, [key, refresh]);
 
   return { data, err };
 }
@@ -149,18 +185,28 @@ function Transcript({
   onSeek,
   onChanged,
   say,
+  refresh,
 }: {
   session: Session;
   pos: number;
   onSeek: (sec: number, until?: number) => void;
   onChanged: () => void;
   say: (m: string) => void;
+  refresh: number;
 }) {
   // The version switch lives HERE, in the tab, not in a section of its own: versions ARE the
   // transcript, and switching the working one just reloads this view. `gen` forces that reload.
   const [gen, setGen] = useState(0);
-  const { data, err } = useArtifact(`${session.name}/tr/${gen}`, () => api.transcript(session.name));
-  const vers = useArtifact(`${session.name}/vr/${gen}`, () => api.versions(session.name));
+  const { data, err } = useArtifact(
+    `${session.name}/tr/${gen}`,
+    () => api.transcript(session.name),
+    refresh,
+  );
+  const vers = useArtifact(
+    `${session.name}/vr/${gen}`,
+    () => api.versions(session.name),
+    refresh,
+  );
   const versions: Version[] = vers.data?.versions ?? [];
   const bestId = versions.find((v) => v.best)?.id;
   const [switching, setSwitching] = useState(false);
@@ -254,13 +300,19 @@ function Article({
   onSeek,
   onChanged,
   say,
+  refresh,
 }: {
   session: Session;
   onSeek: (sec: number, until?: number) => void;
   onChanged: () => void;
   say: (m: string) => void;
+  refresh: number;
 }) {
-  const { data, err } = useArtifact(`${session.name}/summary`, () => api.summary(session.name));
+  const { data, err } = useArtifact(
+    `${session.name}/summary`,
+    () => api.summary(session.name),
+    refresh,
+  );
   const kind = "summary" as const;
   const doubts = session.summary_doubts;
 
@@ -479,12 +531,18 @@ function Readable({
   session,
   onChanged,
   say,
+  refresh,
 }: {
   session: Session;
   onChanged: () => void;
   say: (m: string) => void;
+  refresh: number;
 }) {
-  const { data, err } = useArtifact(`${session.name}/readable`, () => api.readable(session.name));
+  const { data, err } = useArtifact(
+    `${session.name}/readable`,
+    () => api.readable(session.name),
+    refresh,
+  );
 
   const recook = async () => {
     try {
@@ -627,10 +685,20 @@ const AVATAR = ["#2f6ea3", "#8a6fbc", "#2c7a52", "#9d6a12", "#b0554a"];
  *
  *  The daemon now groups the lines themselves, so a phantom has nothing to be grouped from, the
  *  minutes are the minutes in the text, and every entry says WHY it is called what it is called. */
-function Speakers({ session, say }: { session: Session; say: (m: string) => void }) {
+function Speakers({
+  session,
+  say,
+  refresh,
+}: {
+  session: Session;
+  say: (m: string) => void;
+  refresh: number;
+}) {
   const [gen, setGen] = useState(0);
-  const { data, err } = useArtifact(`${session.name}/speakers/${gen}`, () =>
-    api.speakers(session.name),
+  const { data, err } = useArtifact(
+    `${session.name}/speakers/${gen}`,
+    () => api.speakers(session.name),
+    refresh,
   );
 
   /** One button, two mechanisms — genuinely different, which is why the row says which ones it

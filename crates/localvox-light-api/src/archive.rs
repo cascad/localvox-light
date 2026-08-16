@@ -623,6 +623,12 @@ impl Archive {
         localvox_light_core::asks::list(&self.asks_root())
     }
 
+    /// Delete one request entirely (input, answer, record). Returns the id so the caller can echo it.
+    pub fn delete_ask(&self, id: &str) -> Result<String> {
+        localvox_light_core::asks::delete(&self.asks_root(), id)?;
+        Ok(id.to_string())
+    }
+
     /// One request in full: the record plus the material it was made about.
     pub fn get_ask(&self, id: &str) -> Result<Value> {
         let ask = localvox_light_core::asks::load(&self.asks_root(), id)?;

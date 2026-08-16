@@ -41,10 +41,12 @@ export function AskHistory({
   current,
   onOpen,
   gen,
+  say,
 }: {
   current: string | null;
   onOpen: (id: string | null) => void;
   gen: number;
+  say: (m: string) => void;
 }) {
   const [list, setList] = useState<AskSummary[]>([]);
 
@@ -72,20 +74,98 @@ export function AskHistory({
       >
         ✎ Новый вопрос
       </button>
-      {list.map((a) => {
-        const st = STATUS[a.status];
-        return (
-          <button
-            key={a.id}
-            className={"askrow" + (current === a.id ? " on" : "")}
-            onClick={() => onOpen(a.id)}
-          >
-            <span className="what">{a.input_name || `${a.input_chars} симв.`}</span>
-            <span className={`st ${st.cls}`}>{st.label}</span>
-          </button>
-        );
-      })}
+      {list.map((a) => (
+        <AskRow
+          key={a.id}
+          a={a}
+          current={current === a.id}
+          onOpen={onOpen}
+          say={say}
+          onDeleted={(id) => {
+            if (current === id) onOpen(null); // the open one was removed → back to the new-question form
+            void load();
+          }}
+        />
+      ))}
       {!list.length && <p className="hint">Пока пусто. Задайте первый вопрос.</p>}
+    </div>
+  );
+}
+
+/** One question in the history, with a two-step delete — the same interaction a recording's row
+ *  has: the trash shows on hover; the first click does not delete, it turns the row into a named
+ *  confirm; a second, deliberate click removes it. An ask is re-runnable, so this is less grave than
+ *  deleting a recording, but the gesture is identical so the app has one way to delete, not two. */
+function AskRow({
+  a,
+  current,
+  onOpen,
+  onDeleted,
+  say,
+}: {
+  a: AskSummary;
+  current: boolean;
+  onOpen: (id: string | null) => void;
+  onDeleted: (id: string) => void;
+  say: (m: string) => void;
+}) {
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const st = STATUS[a.status];
+  const label = a.input_name || `${a.input_chars} симв.`;
+
+  const del = async () => {
+    setBusy(true);
+    try {
+      await api.deleteAsk(a.id);
+      say("Вопрос удалён");
+      onDeleted(a.id);
+    } catch (e) {
+      say((e as Error).message);
+      setBusy(false);
+      setConfirming(false);
+    }
+  };
+
+  if (confirming) {
+    return (
+      <div className="askrow confirming">
+        <span className="what">Удалить «{label}»?</span>
+        <span className="confirm-actions">
+          <button className="btn sm danger-solid" onClick={() => void del()} disabled={busy}>
+            {busy ? "удаляю…" : "Удалить"}
+          </button>
+          <button className="btn sm" onClick={() => setConfirming(false)} disabled={busy}>
+            Отмена
+          </button>
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className={"askrow" + (current ? " on" : "")}
+      role="button"
+      tabIndex={0}
+      aria-selected={current}
+      onClick={() => onOpen(a.id)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") onOpen(a.id);
+      }}
+    >
+      <span className="what">{label}</span>
+      <span className={`st ${st.cls}`}>{st.label}</span>
+      <button
+        className="trash"
+        title="Удалить вопрос"
+        onClick={(e) => {
+          e.stopPropagation(); // the trash deletes, it does not open the question
+          setConfirming(true);
+        }}
+      >
+        🗑
+      </button>
     </div>
   );
 }

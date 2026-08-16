@@ -228,6 +228,44 @@ pub fn inspect(l: &Layout) -> Vec<Finding> {
     out
 }
 
+/// yt-dlp ломается вслед за YouTube каждые несколько недель (HTTP 403 на скачивании). Бинарь старше
+/// этого — кандидат на поломку, и доктор должен предупредить ДО того, как ингест по ссылке отвалится.
+pub const YT_DLP_STALE_DAYS: i64 = 30;
+
+/// Дата сборки из строки версии yt-dlp: «2026.08.16» или «2026.08.16.020253». Чистая, тестируемая.
+pub fn parse_yt_dlp_date(version: &str) -> Option<chrono::NaiveDate> {
+    let mut it = version.trim().split('.');
+    let y = it.next()?.parse::<i32>().ok()?;
+    let m = it.next()?.parse::<u32>().ok()?;
+    let d = it.next()?.parse::<u32>().ok()?;
+    chrono::NaiveDate::from_ymd_opt(y, m, d)
+}
+
+/// Находка про yt-dlp — чистая. «Сейчас» и запуск бинаря снимаются вызывающим (см. `probe_yt_dlp`
+/// в демоне); сюда приходят уже разрешённый путь, версия (`None` — не найден/не ответил) и возраст
+/// в днях. Устаревший или отсутствующий yt-dlp — это ЖДЁТ, а не отказ: запись и варка от него не
+/// зависят, без него не работает только «запись по ссылке».
+pub fn yt_dlp_finding(resolved: &str, version: Option<&str>, age_days: Option<i64>) -> Finding {
+    match (version, age_days) {
+        (None, _) => Finding::bad(
+            "yt-dlp (запись по ссылке)",
+            State::Warn,
+            format!("{resolved}: не найден или не отвечает"),
+            "поставить yt-dlp (nightly) и указать путь в LOCALVOX_LIGHT_YT_DLP; \
+             без него запись по ссылке не работает",
+        ),
+        (Some(v), Some(age)) if age > YT_DLP_STALE_DAYS => Finding::bad(
+            "yt-dlp (запись по ссылке)",
+            State::Warn,
+            format!("{v} — {age} дн.: YouTube ломает старые версии (HTTP 403)"),
+            format!(
+                "обновить по месту: localvox-light --update-yt-dlp  (или напрямую: {resolved} --update-to nightly)"
+            ),
+        ),
+        (Some(v), _) => Finding::ok("yt-dlp (запись по ссылке)", format!("{v}  ({resolved})")),
+    }
+}
+
 /// Худшее из найденного — им и определяется код возврата.
 pub fn worst(findings: &[Finding]) -> State {
     if findings.iter().any(|f| f.state == State::Fail) {
@@ -308,6 +346,33 @@ mod tests {
         let f = find(&fs, "GigaAM");
         assert_eq!(f.state, State::Fail);
         assert!(f.detail.contains("v3_e2e_ctc_vocab.txt"), "{}", f.detail);
+    }
+
+    /// Строка версии yt-dlp разбирается в дату; лишний хвост (`.020253`) и мусор не мешают.
+    #[test]
+    fn yt_dlp_version_parses_to_a_date() {
+        use chrono::Datelike;
+        let d = parse_yt_dlp_date("2026.08.16.020253").unwrap();
+        assert_eq!((d.year(), d.month(), d.day()), (2026, 8, 16));
+        assert_eq!(parse_yt_dlp_date("2026.07.04").unwrap().day(), 4);
+        assert!(parse_yt_dlp_date("nightly").is_none());
+        assert!(parse_yt_dlp_date("").is_none());
+    }
+
+    /// Свежий — OK; старше порога — ЖДЁТ с командой обновления; отсутствующий — ЖДЁТ, но не отказ
+    /// (запись и варка от yt-dlp не зависят).
+    #[test]
+    fn yt_dlp_finding_flags_stale_and_missing_but_never_fails() {
+        let fresh = yt_dlp_finding("bin/yt-dlp.exe", Some("2026.08.16"), Some(1));
+        assert_eq!(fresh.state, State::Ok);
+
+        let stale = yt_dlp_finding("bin/yt-dlp.exe", Some("2026.07.04"), Some(43));
+        assert_eq!(stale.state, State::Warn);
+        assert!(stale.fix.as_deref().unwrap().contains("--update-yt-dlp"));
+
+        let missing = yt_dlp_finding("yt-dlp", None, None);
+        assert_eq!(missing.state, State::Warn);
+        assert_ne!(missing.state, State::Fail, "нет yt-dlp — это не отказ продукта");
     }
 
     /// Каталога архива ещё нет — это НЕ отказ: он создаётся при первой записи. А вот файл

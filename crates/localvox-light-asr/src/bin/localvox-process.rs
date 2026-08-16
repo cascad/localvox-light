@@ -98,6 +98,13 @@ struct Cli {
     #[arg(long, env = "LOCALVOX_LLM_API_KEY_ENV")]
     llm_api_key_env: Option<String>,
 
+    /// Who makes the SUMMARY: empty/`ollama` — the local LLM above; `claude` — the official Claude
+    /// CLI on the subscription (see localvox-light-llm::claude_cli). Only the summary is affected —
+    /// the line-by-line cleanup stays local (it is high-volume and would burn the subscription).
+    /// A switch applies to new cooks and to a manual «Переварить»; it does NOT re-cook the archive.
+    #[arg(long, env = "LOCALVOX_SUMMARY_PROVIDER", default_value = "")]
+    summary_provider: String,
+
     /// Directory of term glossaries (*.toml)
     #[arg(
         long,
@@ -305,6 +312,34 @@ fn main() -> Result<()> {
     } else {
         None
     };
+
+    // The SUMMARY may be made by Claude on the subscription instead of the local LLM — chosen in
+    // config (`LOCALVOX_SUMMARY_PROVIDER=claude`). Built ONCE, here at the composition root, and used
+    // only for the Summary task; cleanup/refine keep the local client (they are line-by-line and
+    // would burn the subscription). `None` — summary uses the same local client as everything else.
+    let summary_client: Option<localvox_light_llm::LlmClient> =
+        if cli.summary && cli.summary_provider.trim().eq_ignore_ascii_case("claude") {
+            let claude_model = std::env::var("LOCALVOX_CLAUDE_MODEL")
+                .ok()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty());
+            eprintln!(
+                "summary provider: claude (подписка){}",
+                claude_model.as_deref().map(|m| format!(", model {m}")).unwrap_or_default()
+            );
+            Some(localvox_light_llm::LlmClient::new(localvox_light_llm::LlmProfile {
+                provider: localvox_light_llm::Provider::Claude,
+                // Shown in the summary's provenance header; the recipe is NOT keyed on it (see the
+                // task loop), so switching provider never re-cooks the archive behind the owner.
+                model: match &claude_model {
+                    Some(m) => format!("claude:{m}"),
+                    None => "claude".into(),
+                },
+                ..localvox_light_llm::LlmProfile::default()
+            }))
+        } else {
+            None
+        };
 
     // Two different counters: a failure of the COOK (there is no data) and a failure of
     // POST-processing (LLM/export with the version already committed) — the autocook daemon must
@@ -517,7 +552,17 @@ fn main() -> Result<()> {
                 mark(session, s, StageState::Running, None);
             }
 
-            match localvox_light_llm::pipeline::process_session(session, task, client, pp) {
+            // The summary can go to Claude (subscription); everything else stays on the local
+            // client. The recipe above is keyed on the LOCAL model on purpose — a provider switch
+            // must not silently re-cook the archive (WP-C67: finished is finished).
+            let task_client = match task {
+                localvox_light_llm::pipeline::Task::Summary => {
+                    summary_client.as_ref().unwrap_or(client)
+                }
+                _ => client,
+            };
+
+            match localvox_light_llm::pipeline::process_session(session, task, task_client, pp) {
                 // A silent session is not an error: silence from an always-on recorder is
                 // normal, whereas a summary invented out of silence is a catastrophe.
                 // And this IS work COMPLETED: there is nothing to repeat (otherwise — a loop).

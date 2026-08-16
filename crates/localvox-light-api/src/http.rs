@@ -580,6 +580,12 @@ pub fn respond(
                 let id = p.strip_prefix("/api/asks/").context("не найдено")?;
                 archive.get_ask(id)
             }
+            // Delete one request entirely. Unlike a session (whose audio is irreplaceable and needs
+            // an echoed confirm), an ask is re-runnable — the two-step confirm in the UI is enough.
+            (Method::Delete, p) if p.starts_with("/api/asks/") => {
+                let id = p.strip_prefix("/api/asks/").context("не найдено")?;
+                Ok(json!({ "ok": true, "deleted": archive.delete_ask(id)? }))
+            }
             // "The model lied — re-cook it." Throws away the derived artifacts and
             // puts the session up for cooking anew. The audio is not touched:
             // everything is recreated from it, so throwing away a derivative is not a

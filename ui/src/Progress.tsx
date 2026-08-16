@@ -29,6 +29,19 @@ const dur = (sec?: number | null) => {
   return sec < 60 ? `${Math.round(sec)} с` : `${Math.round(sec / 60)} мин`;
 };
 
+/** A ticking clock «M:SS» (or «N с» under a minute), for the per-stage timer: how long a step has
+ *  been going, and how long a finished one took. */
+const hms = (sec: number) => {
+  if (!isFinite(sec) || sec < 0) return "";
+  const s = Math.floor(sec % 60);
+  const m = Math.floor(sec / 60);
+  return m > 0 ? `${m}:${String(s).padStart(2, "0")}` : `${s} с`;
+};
+
+/** Seconds between an ISO timestamp and `nowMs`. */
+const elapsed = (from: string | null | undefined, nowMs: number) =>
+  from ? (nowMs - new Date(from).getTime()) / 1000 : NaN;
+
 const CHAIN: Stage[] = ["download", "extract", "transcribe", "refine", "summary"];
 
 /** Which stages this session will ever have.
@@ -43,13 +56,6 @@ const chainFor = (fromLink: boolean, reported: Stage[]): Stage[] =>
       reported.includes(s) || (fromLink ? true : s !== "download" && s !== "extract"),
   );
 
-const since = (from?: string | null) => {
-  if (!from) return "";
-  const sec = (Date.now() - new Date(from).getTime()) / 1000;
-  if (!isFinite(sec) || sec < 0) return "";
-  return sec < 60 ? `${Math.round(sec)} с` : `${Math.round(sec / 60)} мин`;
-};
-
 /** What is happening with the session, stage by stage.
  *
  *  The queue could already say "cooking" — which answers "is anything happening at all" but
@@ -59,6 +65,16 @@ const since = (from?: string | null) => {
 export function ProgressChain({ session }: { session: Session }) {
   const [prog, setProg] = useState<Prog | null>(null);
   const seq = useRef(0);
+
+  // A once-a-second heartbeat so the running stage's timer TICKS between the 3-second data polls —
+  // a step that takes ten minutes must visibly count, or it reads as a hang. Runs only while
+  // something is actually running.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!prog?.running) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [prog?.running]);
 
   useEffect(() => {
     let alive = true;
@@ -93,11 +109,23 @@ export function ProgressChain({ session }: { session: Session }) {
       stage,
       state: (s?.state ?? "waiting") as Shown,
       started_at: s?.started_at,
+      ended_at: s?.ended_at,
       note: s?.note,
       done: s?.done,
       total: s?.total,
     };
   });
+
+  // A sequential pipeline: to be AT a later stage you already passed the earlier ones. A stage with
+  // no event THIS run, sitting before one that is already going or done, did not «not start» — it
+  // finished in an EARLIER run and this run does not re-do it (an ingested recording downloads and
+  // extracts in a run of its own, then cooks in another; a re-cook reuses the audio already on
+  // disk). «Скачали источник: не начиналось» while the transcript exists is simply false. So a
+  // waiting stage before the furthest-reached one is shown done, not waiting.
+  const lastActive = rows.reduce((acc, r, i) => (r.state !== "waiting" ? i : acc), -1);
+  for (let i = 0; i < lastActive; i++) {
+    if (rows[i].state === "waiting") rows[i].state = "done";
+  }
 
   return (
     <>
@@ -156,15 +184,19 @@ export function ProgressChain({ session }: { session: Session }) {
                   <b>{NAME[s.stage]}</b>
                   <span className={`st ${st.cls}`}>{st.label}</span>
                   {s.state === "running" && s.total ? (
-                    // A real fraction reads better than a bare clock: «12/40 · 30%» says how much
-                    // is left, not just how long it has been going.
                     <span className="hint">
-                      {s.done ?? 0}/{s.total} · {Math.round(((s.done ?? 0) / s.total) * 100)}%
+                      {Math.round(((s.done ?? 0) / Math.max(s.total, 1)) * 100)}%
                     </span>
-                  ) : (
-                    s.state === "running" &&
-                    s.started_at && <span className="hint">{since(s.started_at)}</span>
-                  )}
+                  ) : null}
+                  {/* Time is ALWAYS shown: a running stage TICKS (how long it has gone), a finished
+                      one shows how long it took — so a slow step never reads as a hang. */}
+                  {s.state === "running" && s.started_at ? (
+                    <span className="hint">⏱ {hms(elapsed(s.started_at, now))}</span>
+                  ) : s.started_at && s.ended_at ? (
+                    <span className="hint">
+                      за {hms((new Date(s.ended_at).getTime() - new Date(s.started_at).getTime()) / 1000)}
+                    </span>
+                  ) : null}
                 </span>
                 {s.note && <span className={s.state === "failed" ? "err" : "hint"}>{s.note}</span>}
               </span>
