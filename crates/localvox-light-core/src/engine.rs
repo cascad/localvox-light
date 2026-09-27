@@ -643,19 +643,73 @@ pub fn run_engine(
 
     // The pipeline first: drain pcm before all the Senders in mic/loopback are released
     // (otherwise a bounded send in the cpal callback hangs).
-    pipeline_handle.join().ok();
-    mic_handle.join().ok();
-    loopback_handle.join().ok();
-    device_watch.join().ok();
-    asr_handle.join().ok();
+    let mut join_errors = Vec::new();
+    for (name, handle) in [
+        ("pipeline", pipeline_handle),
+        ("mic-capture", mic_handle),
+        ("loopback-capture", loopback_handle),
+        ("device-watch", device_watch),
+        ("live-asr", asr_handle),
+    ] {
+        if let Err(e) = join_engine_component(name, handle, &running) {
+            running.store(false, Ordering::SeqCst);
+            join_errors.push(e.to_string());
+        }
+    }
     // detection closes an open meeting in the meta on exit — wait for it
     #[cfg(windows)]
     if let Some(h) = detect_handle {
-        h.join().ok();
+        if let Err(e) = join_engine_component("meeting-detection", h, &running) {
+            join_errors.push(e.to_string());
+        }
     }
 
+    anyhow::ensure!(join_errors.is_empty(), "{}", join_errors.join("; "));
     info!("Workspace saved: {}", work_dir.display());
     Ok(())
+}
+
+fn join_engine_component(
+    name: &str,
+    handle: thread::JoinHandle<()>,
+    running: &AtomicBool,
+) -> Result<()> {
+    let mut stopping_since = None;
+    let mut last_report = None;
+    while !handle.is_finished() {
+        if !running.load(Ordering::Relaxed) {
+            let start = *stopping_since.get_or_insert_with(Instant::now);
+            if last_report.is_none_or(|t: Instant| t.elapsed() >= Duration::from_secs(2)) {
+                tracing::info!(
+                    component = name,
+                    elapsed_sec = start.elapsed().as_secs_f64(),
+                    "engine shutdown: waiting"
+                );
+                last_report = Some(Instant::now());
+            }
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+    handle
+        .join()
+        .map_err(|_| anyhow::anyhow!("engine component {name} panicked"))
+}
+
+/// A loader can be inside a native call; its missing response must not hold shutdown.
+fn receive_while_running<T>(
+    rx: &crossbeam_channel::Receiver<T>,
+    running: &AtomicBool,
+) -> Result<Option<T>, crossbeam_channel::RecvError> {
+    while running.load(Ordering::Relaxed) {
+        match rx.recv_timeout(Duration::from_millis(100)) {
+            Ok(value) => return Ok(Some(value)),
+            Err(crossbeam_channel::RecvTimeoutError::Timeout) => {}
+            Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
+                return Err(crossbeam_channel::RecvError)
+            }
+        }
+    }
+    Ok(None)
 }
 
 /// The pool coordinator: waits for the model, opens the TranscriptWriter, starts N workers.
@@ -673,9 +727,13 @@ fn asr_worker_pool(
     transcript_hook: Option<crate::events::TranscriptHook>,
     pending: Arc<AtomicUsize>,
 ) {
-    let engine = match engine_rx.recv() {
-        Ok(Ok(e)) => e,
-        Ok(Err(e)) => {
+    let engine = match receive_while_running(&engine_rx, &running) {
+        Ok(None) => {
+            tracing::info!("live-asr: stopped waiting for Vosk model during shutdown");
+            return;
+        }
+        Ok(Some(Ok(e))) => e,
+        Ok(Some(Err(e))) => {
             tracing::error!("Vosk model failed to load: {e}");
             let msg = format!("Модель Vosk: {e}");
             if let Some(ref t) = ui_tx {
@@ -859,7 +917,9 @@ fn asr_thread_loop(
                         })
                         .is_err()
                         {
-                            tracing::warn!("TUI channel closed; the line goes only to transcript.jsonl");
+                            tracing::warn!(
+                                "TUI channel closed; the line goes only to transcript.jsonl"
+                            );
                         }
                     }
                     // the guard is released before remove_file and the hook — otherwise the whole
@@ -1140,6 +1200,27 @@ mod tests {
     use super::wav_duration_sec;
     use hound::{SampleFormat, WavSpec, WavWriter};
     use tempfile::tempdir;
+
+    #[test]
+    fn cancellation_releases_model_wait_even_when_sender_is_alive() {
+        use super::*;
+        let (_sender, receiver) = crossbeam_channel::bounded::<()>(1);
+        let running = Arc::new(AtomicBool::new(true));
+        let worker_running = running.clone();
+        let (done, result) = std::sync::mpsc::channel();
+        let handle = thread::spawn(move || {
+            done.send(receive_while_running(&receiver, &worker_running))
+                .unwrap();
+        });
+        assert!(result.recv_timeout(Duration::from_millis(30)).is_err());
+        running.store(false, Ordering::SeqCst);
+        assert!(result
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap()
+            .unwrap()
+            .is_none());
+        handle.join().unwrap();
+    }
 
     #[test]
     fn wav_duration_sec_mono_16k() {

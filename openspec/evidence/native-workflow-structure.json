@@ -1,0 +1,57 @@
+{
+  "date": "2026-09-27",
+  "markdown_files": 50,
+  "local_links_checked": 385,
+  "link_errors": [],
+  "changes": 12,
+  "draft_changes": 9,
+  "existing_changes_completed_tasks": 0,
+  "backlog_ids_preserved": 19,
+  "skills": [
+    {
+      "name": "openspec-apply-change",
+      "sha256": "233004183fd20df5526506a0162658b528d226c911069899473c128f46cea80e",
+      "user_link_matches": true
+    },
+    {
+      "name": "openspec-archive-change",
+      "sha256": "9789f1a007a9ab389b9e2be4abef0d81ceee132af977216b5a06183883b65b20",
+      "user_link_matches": true
+    },
+    {
+      "name": "openspec-continue-change",
+      "sha256": "ee7a6c3a15ed0fc3447a964ae8a002c1748f8a18ae222e65d7f2f5772b896e6e",
+      "user_link_matches": true
+    },
+    {
+      "name": "openspec-explore",
+      "sha256": "c193717b9e0cfbed076d551e3e28a287589e44e931448826c11416360f6a6970",
+      "user_link_matches": true
+    },
+    {
+      "name": "openspec-new-change",
+      "sha256": "3a7c0ad1c9db64cb8ed51e4c255ecf528840c912a0e9cda60a71e988e98d06be",
+      "user_link_matches": true
+    },
+    {
+      "name": "openspec-propose",
+      "sha256": "3443a9d952d50fbbcdc553f7fc8923b46f6dc63abdd40d39ae1d86fc90fc97e9",
+      "user_link_matches": true
+    },
+    {
+      "name": "openspec-sync-specs",
+      "sha256": "dbbb248d82a0c00756d625e83ad2216bdb231cf5bb5e4eb8f63aa4a8a37dbec9",
+      "user_link_matches": true
+    },
+    {
+      "name": "openspec-update-change",
+      "sha256": "b23bbeed820f1b8e132aa52d4050d49bbc003e79e20ce9f68465fa90bd2bf67b",
+      "user_link_matches": true
+    },
+    {
+      "name": "openspec-verify-change",
+      "sha256": "3b5894bb976f5c259444d0ae1e5f162c91f9a5bf06282baebc45741a6061e841",
+      "user_link_matches": true
+    }
+  ]
+}

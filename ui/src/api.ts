@@ -8,6 +8,7 @@ export interface Session {
   title?: string | null;
   meeting?: boolean;
   started_at?: string | null;
+  source_url?: string | null;
   duration_sec: number;
   recording: boolean;
   cooked: boolean;
@@ -294,8 +295,8 @@ export interface RecordState {
 /** The chain a session goes through. Stages nobody has said anything about are ABSENT from
  *  the list — a microphone recording has no download, and drawing it as "pending" would
  *  promise a step that will never come. */
-export type Stage = "download" | "extract" | "transcribe" | "refine" | "summary";
-export type StageState = "running" | "done" | "failed" | "skipped";
+export type Stage = "download" | "extract" | "transcribe" | "refine" | "cleanup" | "summary";
+export type StageState = "waiting" | "queued" | "blocked" | "running" | "done" | "failed" | "skipped" | "invalid";
 
 export interface StageStatus {
   stage: Stage;
@@ -308,9 +309,17 @@ export interface StageStatus {
   /** Progress within the stage, when it reports it: `done` of `total` (chunks / batches). */
   done?: number | null;
   total?: number | null;
+  files?: string[];
+  artifact?: {
+    state: "ready" | "empty" | "missing" | "failed" | "invalid";
+    source?: number | null;
+    recorded_checksums?: boolean;
+    receipt?: { outputs: { path: string; bytes: number; sha256: string; transcript: boolean }[] } | null;
+  } | null;
 }
 
 export interface Progress {
+  queue_error?: string | null;
   stages: StageStatus[];
   source?: { url: string; title?: string | null } | null;
   /** Is the run still going? NOT derivable from the stages — a stage appears only once it has
@@ -319,6 +328,15 @@ export interface Progress {
   running?: boolean;
   /** How long the whole run took, once finished (seconds). Absent while running. */
   elapsed_sec?: number | null;
+  phase?: "prepare" | "transcribe" | "text" | "summary" | null;
+  timing?: {
+    queued_at?: string | null;
+    started_at?: string | null;
+    ended_at?: string | null;
+    queue_sec?: number | null;
+    processing_sec?: number | null;
+    total_sec?: number | null;
+  };
 }
 
 const TOKEN_KEY = "lv-token";

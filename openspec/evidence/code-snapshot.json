@@ -1,0 +1,245 @@
+{
+  "date": "2026-09-27",
+  "branch": "new_course",
+  "head": "6dfde241bbeff1736829b0bf94c8d4c1f84b1517",
+  "working_tree": "dirty; includes pre-existing changes; not a deployed build",
+  "meaning": "Content identity for linked sources, not proof of full branch coverage or executed scenarios",
+  "files": [
+    {
+      "path": "Cargo.toml",
+      "sha256": "77dcf09f7fc14fa29ef3958b4867e4671678c7b460d02b2e3e278cea7a047c7f"
+    },
+    {
+      "path": "crates/localvox-light-api/src/archive.rs",
+      "sha256": "f98c9eede1c93249852ca2c10d67c8dba5955e3d4f82df9f0da1d34ac6ae3e69"
+    },
+    {
+      "path": "crates/localvox-light-api/src/chat.rs",
+      "sha256": "5c9c624eb4417e78dee0625c3f8299ae23fc98c64866e35a5e248a30969008ad"
+    },
+    {
+      "path": "crates/localvox-light-api/src/http.rs",
+      "sha256": "1aa74162698527a74f7e321a6583000fd3a81344ecda1e0ccc9dbea50485daaa"
+    },
+    {
+      "path": "crates/localvox-light-api/src/lib.rs",
+      "sha256": "3273e59af7e171c6c7600c0cb6a4057c4a198ea3f61e3edb92d51b41d4512e10"
+    },
+    {
+      "path": "crates/localvox-light-asr/src/bin/localvox-process.rs",
+      "sha256": "86cd555f586e947c499b1ae1d8a00a5b2ac85b296e4de33b724f8b65f4f93f14"
+    },
+    {
+      "path": "crates/localvox-light-asr/src/prepare.rs",
+      "sha256": "d695d42198e719c65369d46a4b9b2c6b2789e4cb189d4f2158b0558eb054908b"
+    },
+    {
+      "path": "crates/localvox-light-core/build.rs",
+      "sha256": "40320e8cbd89e6d6a76e03e82f023f97e8e9c26b67d1eafeb3f125898cfef0dd"
+    },
+    {
+      "path": "crates/localvox-light-core/src/artifacts.rs",
+      "sha256": "0b964b4334ab61b68d778db730f2ca56077f74814ffd86ef25cd1242d792f791"
+    },
+    {
+      "path": "crates/localvox-light-core/src/asks.rs",
+      "sha256": "c6a1b1f7c112a0a0b8bd9561f38d3cf43aec861206041049071960734a0a4eda"
+    },
+    {
+      "path": "crates/localvox-light-core/src/autostart.rs",
+      "sha256": "08558aaf5d8f57ce862e96b8add061caf6e494cdbe3e721847ec2c1c00d3330a"
+    },
+    {
+      "path": "crates/localvox-light-core/src/chunks.rs",
+      "sha256": "13a9644c1eec24df033bf2c39c85957e0807020c12eb0c19369b81dd4985021f"
+    },
+    {
+      "path": "crates/localvox-light-core/src/cook.rs",
+      "sha256": "38b30200173a08ec060cdc781b124af7e111a2428f8405ac055f9e7c928555de"
+    },
+    {
+      "path": "crates/localvox-light-core/src/diarize/mod.rs",
+      "sha256": "141dafcec389fa5a42e0c61ff60248beb2fe1b40a47f083038a85c76665e5875"
+    },
+    {
+      "path": "crates/localvox-light-core/src/diarize/profiles.rs",
+      "sha256": "ee7e9ec386c70d3bf398f5b5dbcc98888f76a44866c52a955f67baa57d6b1512"
+    },
+    {
+      "path": "crates/localvox-light-core/src/doctor.rs",
+      "sha256": "1f0505e9b26eb3a2f2f7988baf07a762312eae10ef046133c6b825a6535cc669"
+    },
+    {
+      "path": "crates/localvox-light-core/src/engine.rs",
+      "sha256": "9903c65b5a65765a3ea5aad74db625104b5597a70413fdc1eac0eac5fad2f9e4"
+    },
+    {
+      "path": "crates/localvox-light-core/src/env_file.rs",
+      "sha256": "68bb3f00ada9b9009f372e0b259b77d3c9ba7ffb325d8c4915832a2eaaf196d0"
+    },
+    {
+      "path": "crates/localvox-light-core/src/export.rs",
+      "sha256": "4100cca59d8b3e11661fe41cf33b44c77b09d29b0649dea50f789d2310a6a820"
+    },
+    {
+      "path": "crates/localvox-light-core/src/ingest.rs",
+      "sha256": "6530350effb338ec545f906bd302445c4def1dab90dedb8f11a823edb010afa0"
+    },
+    {
+      "path": "crates/localvox-light-core/src/jobs.rs",
+      "sha256": "5c95f9295a3fd0b3324ebb089fa3a452e4557d5b58150ecfb835f1f7cf73e944"
+    },
+    {
+      "path": "crates/localvox-light-core/src/lang.rs",
+      "sha256": "61b51276c61b865d4463a376a2b8a19d427cc0c118c339c0c312c04cd7cc93e0"
+    },
+    {
+      "path": "crates/localvox-light-core/src/pipeline.rs",
+      "sha256": "278adffcee71e36c8f22ba1ec10b8eab35cf86c36d9fac21bbf1167fb7ba7c7d"
+    },
+    {
+      "path": "crates/localvox-light-core/src/processing.rs",
+      "sha256": "6ac28a60e298114bc92fb5da39cfd0f36750b85c3c65c0e2ca5c0c23eeb0d72b"
+    },
+    {
+      "path": "crates/localvox-light-core/src/progress.rs",
+      "sha256": "518297cfea37c0ea13af75eca714af7aed0d0385bb994b8ecd1085da15ed4080"
+    },
+    {
+      "path": "crates/localvox-light-core/src/readable.rs",
+      "sha256": "a7ba976a960aa291130d7c87c035a58885b05faad1e21b75c592c71be79a1254"
+    },
+    {
+      "path": "crates/localvox-light-core/src/session.rs",
+      "sha256": "1ef5cb53094b408b19b12697d42cc9c5e346efc1e5375e2bc567eed6b53ebc19"
+    },
+    {
+      "path": "crates/localvox-light-core/src/settings.rs",
+      "sha256": "799b1f6ecac2d691ca40448e686bd5ff937fa052d0f8a39f486db003ba655772"
+    },
+    {
+      "path": "crates/localvox-light-core/src/transcript.rs",
+      "sha256": "6b24b98a0e0a49fd6c1e8d587636a05d18a2ce551d0346d0fea39b5a629f41be"
+    },
+    {
+      "path": "crates/localvox-light-core/src/versions.rs",
+      "sha256": "93130c81a09d745f84c458e4a2eee3c7d4b7556206718457e6dc0cfaecdfee39"
+    },
+    {
+      "path": "crates/localvox-light-core/src/workflow.rs",
+      "sha256": "1de1bb7ddd3ad6895576a765b0b20f42e1e57e72fabb0a3909ede49ee47a8af9"
+    },
+    {
+      "path": "crates/localvox-light-integrations/src/lib.rs",
+      "sha256": "94a16136375edca120dab3759ee271a0103e5890692da195529592f2eb7f0081"
+    },
+    {
+      "path": "crates/localvox-light-integrations/src/mcp.rs",
+      "sha256": "d9cd3fc4a73f74cee0d89d484435e9c46d13f1d9299e561946a75c858286e08e"
+    },
+    {
+      "path": "crates/localvox-light-llm/src/claude_cli.rs",
+      "sha256": "ffdc0565d1c30b491ca6b5d0fb6fcb206f396ef8ff994eb4c4e167901fadc48f"
+    },
+    {
+      "path": "crates/localvox-light-llm/src/glossary.rs",
+      "sha256": "3a107c76970064ffa378fa268adcabb9bb4bf64605102c2faa8b6d65605852d9"
+    },
+    {
+      "path": "crates/localvox-light-llm/src/grounding.rs",
+      "sha256": "4b1a9481b4c2daaafe5c3ada67e7ff6d16d3fc9238f8244153738e05064409a5"
+    },
+    {
+      "path": "crates/localvox-light-llm/src/lib.rs",
+      "sha256": "51de96e2acce16cdb8b3abadfe2376d09f94fd0e1822d8e3084cc6ef867d0020"
+    },
+    {
+      "path": "crates/localvox-light-llm/src/pipeline.rs",
+      "sha256": "8cd9e38307fb5a6c51d7af8b9ae3dd7c1d4ec22aace3a8346dddd03eabd9183c"
+    },
+    {
+      "path": "crates/localvox-light-llm/src/routing.rs",
+      "sha256": "edacfe9e3eefdae7446b9bd561c67aab32f6410b2391b92f05eee2625bed3454"
+    },
+    {
+      "path": "crates/localvox-light-llm/src/templates.rs",
+      "sha256": "6ad6b8473dd346bf4cae4c1091f24aa8d111b1997882818c2984051ff2dbbf23"
+    },
+    {
+      "path": "crates/localvox-light-process/src/lib.rs",
+      "sha256": "0164260f6e08d0feaecbcce7a20ad07e404473ec4999a50ad72da10f1969183d"
+    },
+    {
+      "path": "crates/localvox-light-process/tests/lifecycle.rs",
+      "sha256": "783fcad0d007b63390af5c2c3a37c2dcbeac5d747edf8dd1b5ce6fe9accc00c8"
+    },
+    {
+      "path": "crates/localvox-light-search/src/lib.rs",
+      "sha256": "af273419d82194a055b08187987776c9a045d316a4028fa8d58e2a48c642c0c8"
+    },
+    {
+      "path": "crates/localvox-light-search/src/semantic.rs",
+      "sha256": "6d621b8575c5018d5a0a37a2e45832112971b6c2cc56770f5823fff70d1af627"
+    },
+    {
+      "path": "crates/localvox-light-voice/src/lib.rs",
+      "sha256": "c88db1325911003f03f636ea4804a66f411ac44578e05ea8d3610bb12784fdf8"
+    },
+    {
+      "path": "crates/localvox-light-voice/src/tts.rs",
+      "sha256": "687d5fade1e7e19b564e0f9e035f6f98acdfba30bdada20a33c087c11ec31fa6"
+    },
+    {
+      "path": "crates/localvox-light/src/autocook.rs",
+      "sha256": "8dc60a541cb98186f1814c07d2152363527c20df0ff9fcb16f984cdd97f3e624"
+    },
+    {
+      "path": "crates/localvox-light/src/main.rs",
+      "sha256": "5db007d1c91df5ca05789ae7739a47692ab99ec915a5a60a97ef307ce7aa265d"
+    },
+    {
+      "path": "scripts/check-pipeline.py",
+      "sha256": "3134ccb09baee9b77ae86977e1d331ec29c4d0abf4768adccaf35a10ca499740"
+    },
+    {
+      "path": "scripts/fetch-models.ps1",
+      "sha256": "984b8071094195972193b11ea131c5f9b128131fa4459c823088445558fec6c1"
+    },
+    {
+      "path": "scripts/fetch-models.sh",
+      "sha256": "b8ab4fe8bce712fc3d392adb2681a4faf168d187796fc3c3b927b5ac08ee125b"
+    },
+    {
+      "path": "scripts/models.json",
+      "sha256": "8168b491389233e0417b2c1a4753e173065d5c3cbd27dd6e0452aed6a6773628"
+    },
+    {
+      "path": "src-tauri/src/lib.rs",
+      "sha256": "f3a51e4215a60d7c6ed7f7c9c5a77ed6c914a90ab7a1dbd5c97a076537999f7a"
+    },
+    {
+      "path": "ui/src/Ask.tsx",
+      "sha256": "9dd347e514c8375e70a0ba98a26d3457ea8b52d1fbad0f30790eec66afd46f42"
+    },
+    {
+      "path": "ui/src/Notes.tsx",
+      "sha256": "d082184a0eac6a0c5ceb695baa5870c49582d371048f0b9edbbeec8c43c2e7ba"
+    },
+    {
+      "path": "ui/src/Player.tsx",
+      "sha256": "a27672f3740ab395dd34441ecd228ebd47fb8afece4dea0d40ef194aa9386645"
+    },
+    {
+      "path": "ui/src/Progress.tsx",
+      "sha256": "87ca2e435e386e16baddd76c21bc6ebdf1c6ced1076aa7b94c43f6ab42459a26"
+    },
+    {
+      "path": "ui/src/Queue.tsx",
+      "sha256": "f7ed2822682bac07fe2a894518a584b6f6430ef201a4af53a04090354060678f"
+    },
+    {
+      "path": "ui/src/api.ts",
+      "sha256": "6419f3a91bed8eafb40f7112b3fef5393a096a4dc60f84a87733e3038daf91e2"
+    }
+  ]
+}

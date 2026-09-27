@@ -17,6 +17,8 @@ cpal.workspace = true
 hound.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha2 = "0.10"
+tempfile.workspace = true
 # Лексикон (имена, аббревиатуры, числительные) — данные в TOML, не код.
 toml.workspace = true
 tracing.workspace = true

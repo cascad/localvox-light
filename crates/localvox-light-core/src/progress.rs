@@ -31,17 +31,20 @@ pub enum Stage {
     Transcribe,
     /// LLM cleaned the transcript up into a new best version.
     Refine,
+    /// Readable wording, after recognition corrections.
+    Cleanup,
     /// LLM wrote the summary.
     Summary,
 }
 
 impl Stage {
     /// The canonical order of the chain.
-    pub const CHAIN: [Stage; 5] = [
+    pub const CHAIN: [Stage; 6] = [
         Stage::Download,
         Stage::Extract,
         Stage::Transcribe,
         Stage::Refine,
+        Stage::Cleanup,
         Stage::Summary,
     ];
 }
@@ -49,6 +52,10 @@ impl Stage {
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
 #[serde(rename_all = "lowercase")]
 pub enum StageState {
+    Waiting,
+    Queued,
+    Blocked,
+    Invalid,
     Running,
     Done,
     Failed,
@@ -176,6 +183,51 @@ pub fn step<T, E: std::fmt::Display>(
     }
 }
 
+/// Report a bounded operation while a blocking model/HTTP call is in progress.
+/// The heartbeat means the worker is alive and waiting, not that the model made progress.
+/// Joining before return ensures no late Running can overwrite the terminal event.
+pub fn activity<T>(session: &Path, stage: Stage, note: &str, work: impl FnOnce() -> T) -> T {
+    use std::sync::mpsc;
+    use std::time::{Duration, Instant};
+    struct Stop(mpsc::Sender<()>);
+    impl Drop for Stop {
+        fn drop(&mut self) {
+            let _ = self.0.send(());
+        }
+    }
+    let started = Instant::now();
+    mark(session, stage, StageState::Running, Some(note));
+    tracing::info!(?stage, operation = note, "processing operation started");
+    std::thread::scope(|scope| {
+        let (tx, rx) = mpsc::channel();
+        scope.spawn(move || {
+            while matches!(
+                rx.recv_timeout(Duration::from_secs(5)),
+                Err(mpsc::RecvTimeoutError::Timeout)
+            ) {
+                mark(
+                    session,
+                    stage,
+                    StageState::Running,
+                    Some(&format!(
+                        "{note} · ожидание/работа {} с",
+                        started.elapsed().as_secs()
+                    )),
+                );
+            }
+        });
+        let _stop = Stop(tx);
+        let result = work();
+        tracing::info!(
+            ?stage,
+            operation = note,
+            elapsed_sec = started.elapsed().as_secs_f64(),
+            "processing operation finished"
+        );
+        result
+    })
+}
+
 /// The facts of the CURRENT run, in the order they happened.
 ///
 /// Everything before the last run boundary stays in the file — the history of what happened to
@@ -229,6 +281,10 @@ pub struct StageStatus {
     pub done: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub total: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub artifact: Option<crate::processing::ArtifactStatus>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub files: Vec<String>,
 }
 
 /// The derived view: the LATEST state of every stage that has been heard from, in the order of
@@ -242,19 +298,21 @@ pub fn fold(events: &[StageEvent]) -> Vec<StageStatus> {
     for stage in Stage::CHAIN {
         let mine: Vec<&StageEvent> = events.iter().filter(|e| e.stage == stage).collect();
         let Some(last) = mine.last() else { continue };
-        // The start of the LAST run, not of the first: a re-cook is a new attempt, and it is the
-        // one a person is watching.
-        let started_at = mine
+        // A heartbeat is Running too. The attempt starts at the FIRST Running after the
+        // preceding terminal event, never at the latest heartbeat.
+        let mut start = 0;
+        for i in 1..mine.len() {
+            if mine[i].state == StageState::Running && mine[i - 1].state != StageState::Running {
+                start = i;
+            }
+        }
+        let attempt = &mine[start..];
+        let started_at = attempt
             .iter()
-            .rev()
             .find(|e| e.state == StageState::Running)
             .map(|e| e.at.clone());
-        // The freshest done/total for this stage, even if the very last event was a bare mark
-        // without them — a heartbeat carries the count, the terminal Done usually does not.
-        let progress = mine.iter().rev().find_map(|e| e.done.zip(e.total));
-        // The freshest human note, likewise: heartbeats have none, so a stage that finished with
-        // «421 строк» keeps it rather than blanking on a trailing progress event.
-        let note = mine.iter().rev().find_map(|e| e.note.clone());
+        let progress = attempt.iter().rev().find_map(|e| e.done.zip(e.total));
+        let note = attempt.iter().rev().find_map(|e| e.note.clone());
         out.push(StageStatus {
             stage,
             state: last.state,
@@ -264,6 +322,8 @@ pub fn fold(events: &[StageEvent]) -> Vec<StageStatus> {
             note,
             done: progress.map(|(d, _)| d),
             total: progress.map(|(_, t)| t),
+            artifact: None,
+            files: vec![],
         });
     }
     out
@@ -273,11 +333,48 @@ pub fn fold(events: &[StageEvent]) -> Vec<StageStatus> {
 mod tests {
     use super::*;
 
+    fn event(state: StageState, at: &str, done: Option<u32>) -> StageEvent {
+        StageEvent {
+            stage: Stage::Refine,
+            state,
+            at: at.into(),
+            note: None,
+            done,
+            total: done.map(|_| 10),
+        }
+    }
+
+    #[test]
+    fn heartbeats_preserve_start_and_retry_drops_old_progress() {
+        use StageState::*;
+        let mut events = vec![
+            event(Running, "00:00", Some(0)),
+            event(Running, "07:59", Some(10)),
+            event(Done, "08:00", None),
+        ];
+        let view = fold(&events);
+        assert_eq!(view[0].started_at.as_deref(), Some("00:00"));
+        assert_eq!(view[0].ended_at.as_deref(), Some("08:00"));
+        assert_eq!(view[0].done, Some(10));
+        events.push(event(Running, "09:00", None));
+        events.push(event(Running, "09:05", None));
+        let view = fold(&events);
+        assert_eq!(view[0].started_at.as_deref(), Some("09:00"));
+        assert_eq!(view[0].updated_at.as_deref(), Some("09:05"));
+        assert_eq!(view[0].done, None);
+        assert_eq!(view[0].ended_at, None);
+    }
+
     #[test]
     fn the_last_word_about_a_stage_wins() {
         let d = tempfile::tempdir().unwrap();
         mark(d.path(), Stage::Transcribe, StageState::Running, None);
-        mark(d.path(), Stage::Transcribe, StageState::Done, Some("412 строк"));
+        mark(
+            d.path(),
+            Stage::Transcribe,
+            StageState::Done,
+            Some("412 строк"),
+        );
 
         let view = fold(&read(d.path()));
         assert_eq!(view.len(), 1);
@@ -292,7 +389,12 @@ mod tests {
     #[test]
     fn a_second_attempt_at_a_stage_appends_and_the_view_shows_it() {
         let d = tempfile::tempdir().unwrap();
-        mark(d.path(), Stage::Summary, StageState::Failed, Some("ollama недоступна"));
+        mark(
+            d.path(),
+            Stage::Summary,
+            StageState::Failed,
+            Some("ollama недоступна"),
+        );
         mark(d.path(), Stage::Summary, StageState::Running, None);
 
         assert_eq!(read(d.path()).len(), 2, "the facts must not be overwritten");
@@ -310,7 +412,12 @@ mod tests {
     #[test]
     fn a_new_run_shows_the_work_that_is_happening_not_the_one_that_ended() {
         let d = tempfile::tempdir().unwrap();
-        mark(d.path(), Stage::Transcribe, StageState::Done, Some("217 строк"));
+        mark(
+            d.path(),
+            Stage::Transcribe,
+            StageState::Done,
+            Some("217 строк"),
+        );
         mark(d.path(), Stage::Summary, StageState::Done, None);
         assert_eq!(fold(&read(d.path())).len(), 2);
 

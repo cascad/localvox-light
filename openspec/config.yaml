@@ -1,0 +1,30 @@
+schema: spec-driven
+context: |
+  Language: Russian. Keep OpenSpec structural headings and MUST/SHALL in English.
+  Project: localvox-light, Rust daemon/workers, React UI, Tauri shell, Windows-first.
+  openspec/specs is the accepted source of truth for required behavior since 2026-09-27.
+  Owner requested completion of the code inventory into a reliable specification.
+  See baseline.md for acceptance scope and evidence/coverage.md for every requirement.
+  Accepted contract does not mean implemented, verified on hardware, or deployed.
+  Keep known implementation gaps in review.md and their native changes.
+  DEC-001..008 and no cross-session speaker recognition are accepted; do not ask again.
+  README and old docs are derivative guides, not competing behavioral contracts.
+  Fix code that violates an accepted requirement; do not rewrite the spec to bless a bug.
+  Intentional new behavior goes through proposal, delta specs, design/tasks and verification.
+  Separate static code review, linked tests, executed tests, and runtime evidence.
+  Use official skills under .agents/skills and CLI 1.13.2 with status/instructions.
+  Concrete work lives in changes/. backlog.md is a raw inbox and BL-ID index.
+  Proposal-only changes are allowed before grooming; do not fabricate missing artifacts.
+  skip_specs is only for work without product behavior changes.
+  Baseline adoption did not complete or archive known unimplemented changes.
+rules:
+  specs:
+    - Main specs define accepted required behavior. Deltas define intentional changes; implementation gaps do not waive requirements.
+    - Keep stable requirement IDs, WHEN/THEN scenarios, code links and a row in evidence/coverage.md.
+    - Preserve F/PIPE/SC/BL/RV IDs. Record implementation limitations separately from normative requirements.
+    - Do not claim quality, performance, durability or platform coverage beyond actual evidence.
+  proposal:
+    - Distinguish required behavior, observed implementation, proposed changes and open decisions.
+    - Preserve originating BL/RV IDs and concrete evidence; missing evidence is not a confirmed root cause.
+  tasks:
+    - Leave implementation and verification tasks unchecked until actually completed.

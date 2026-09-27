@@ -23,6 +23,10 @@ pub fn from_url(work_dir: &Path, raw_url: &str) -> Result<String> {
 
     let (_audio_dir, meta_path) = crate::chunks::create_session_dir(work_dir, Some(&label))
         .context("не удалось создать сессию")?;
+    persist_request(work_dir, &meta_path, url)
+}
+
+fn persist_request(work_dir: &Path, meta_path: &Path, url: String) -> Result<String> {
     let meta = crate::chunks::SessionMeta {
         started_at: crate::versions::now_rfc3339(),
         sample_rate: 16_000,
@@ -33,7 +37,8 @@ pub fn from_url(work_dir: &Path, raw_url: &str) -> Result<String> {
         }),
         ..Default::default()
     };
-    crate::chunks::save_meta_public(&meta_path, &meta);
+    crate::chunks::save_meta_checked(meta_path, &meta)
+        .context("ссылка не принята: не удалось сохранить источник в meta.json")?;
 
     let name = meta_path
         .parent()
@@ -43,9 +48,16 @@ pub fn from_url(work_dir: &Path, raw_url: &str) -> Result<String> {
 
     // Under the queue lock, on fresh data: an unlocked load+save here raced the autocook thread and
     // LOST this very job — the session was created but nothing downloaded it (see `JobQueue::mutate`).
-    crate::jobs::JobQueue::mutate(work_dir, |queue| {
-        queue.enqueue_ingest(&name, true, true, true)
-    });
+    crate::jobs::JobQueue::mutate(work_dir, |queue| -> Result<()> {
+        if let Some(error) = queue.error() {
+            anyhow::bail!("очередь недоступна: {error}");
+        }
+        anyhow::ensure!(queue.enqueue_ingest(&name, true, true, true),
+            "не удалось сохранить задание в jobs.json");
+        Ok(())
+    }).with_context(|| format!(
+        "ссылка не принята в обработку; источник сохранён в сессии {name}; повторите добавление после устранения ошибки"
+    ))?;
     Ok(name)
 }
 
@@ -65,10 +77,17 @@ mod tests {
             serde_json::from_slice(&std::fs::read(dir.join("meta.json")).unwrap()).unwrap();
         // The tracking junk is gone: two copies of one lecture must not become two sessions.
         assert_eq!(meta.source.as_ref().unwrap().url, "https://youtu.be/abc");
-        assert!(meta.chunks.is_empty(), "there is no audio yet, and that is correct");
+        assert!(
+            meta.chunks.is_empty(),
+            "there is no audio yet, and that is correct"
+        );
 
         let queue = crate::jobs::JobQueue::load(d.path());
-        let job = queue.jobs().iter().find(|j| j.session == name).expect("no job");
+        let job = queue
+            .jobs()
+            .iter()
+            .find(|j| j.session == name)
+            .expect("no job");
         assert_eq!(job.kind, crate::jobs::JobKind::Ingest);
     }
 
@@ -79,6 +98,75 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         assert!(from_url(d.path(), "что решили по бэклогу").is_err());
         assert!(from_url(d.path(), "file:///C:/Windows/win.ini").is_err());
-        assert!(!d.path().join("sessions").exists(), "a session was created for a non-link");
+        assert!(
+            !d.path().join("sessions").exists(),
+            "a session was created for a non-link"
+        );
+    }
+
+    #[test]
+    fn metadata_failure_is_not_acknowledged_or_queued() {
+        let d = tempfile::tempdir().unwrap();
+        let session = d.path().join("sessions/blocked");
+        std::fs::create_dir_all(session.join("meta.json")).unwrap();
+        let error = persist_request(
+            d.path(),
+            &session.join("meta.json"),
+            "https://example.test/video".into(),
+        )
+        .unwrap_err();
+        assert!(format!("{error:#}").contains("meta.json"));
+        assert!(!d.path().join("jobs.json").exists());
+    }
+
+    #[test]
+    fn queue_failure_preserves_source_and_retry_does_not_overwrite_it() {
+        let d = tempfile::tempdir().unwrap();
+        // A directory at the queue path gives a deterministic write/read failure on every OS.
+        std::fs::create_dir(d.path().join("jobs.json")).unwrap();
+        let error = from_url(d.path(), "https://example.test/first").unwrap_err();
+        assert!(format!("{error:#}").contains("источник сохранён"));
+        let original = std::fs::read_dir(d.path().join("sessions"))
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path()
+            .join("meta.json");
+        let bytes = std::fs::read(&original).unwrap();
+        assert!(String::from_utf8_lossy(&bytes).contains("https://example.test/first"));
+        std::fs::remove_dir(d.path().join("jobs.json")).unwrap();
+        let accepted = from_url(d.path(), "https://example.test/first").unwrap();
+        assert_eq!(std::fs::read(original).unwrap(), bytes);
+        assert_eq!(
+            crate::jobs::JobQueue::load(d.path()).jobs()[0].session,
+            accepted
+        );
+    }
+
+    #[test]
+    fn concurrent_links_get_distinct_persisted_sessions() {
+        let d = tempfile::tempdir().unwrap();
+        let names = std::thread::scope(|scope| {
+            let handles: Vec<_> = (0..8)
+                .map(|_| scope.spawn(|| from_url(d.path(), "https://example.test/video").unwrap()))
+                .collect();
+            handles
+                .into_iter()
+                .map(|h| h.join().unwrap())
+                .collect::<std::collections::HashSet<_>>()
+        });
+        assert_eq!(names.len(), 8);
+        let queue = crate::jobs::JobQueue::load(d.path());
+        assert_eq!(queue.jobs().len(), 8);
+        for name in names {
+            assert!(d
+                .path()
+                .join("sessions")
+                .join(&name)
+                .join("meta.json")
+                .is_file());
+            assert!(queue.jobs().iter().any(|job| job.session == name));
+        }
     }
 }

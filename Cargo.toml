@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/localvox-light-core",
+    "crates/localvox-light-process",
     "crates/localvox-light-tui",
     "crates/localvox-light",
     "crates/localvox-light-youtube",
@@ -40,6 +41,7 @@ hound = "3"
 indicatif = "0.17"
 libc = "0.2"
 localvox-light-core = { path = "crates/localvox-light-core" }
+localvox-light-process = { path = "crates/localvox-light-process" }
 localvox-light-ingest = { path = "crates/localvox-light-ingest" }
 localvox-light-llm = { path = "crates/localvox-light-llm" }
 localvox-light-tui = { path = "crates/localvox-light-tui" }

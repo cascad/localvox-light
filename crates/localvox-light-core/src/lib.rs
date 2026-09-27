@@ -5,6 +5,7 @@
 //!
 //! The TUI lives in the `localvox-light-tui` crate.
 
+pub mod artifacts;
 pub mod asks;
 pub mod asr;
 pub mod audio;
@@ -47,6 +48,7 @@ pub mod settings;
 pub mod transcript;
 pub mod versions;
 pub mod voice_note;
+pub mod workflow;
 
 pub use cli::{
     init_tracing, join_engine_thread, merge_env_bools, normalized_model_path, print_devices,

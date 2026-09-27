@@ -129,6 +129,7 @@ pub struct SessionInfo {
     /// Recording boundaries (RFC3339) and its duration — INCLUDING pauses and
     /// silence: a person needs "July 13, 00:34–00:52", not a directory name.
     pub started_at: Option<String>,
+    pub source_url: Option<String>,
     pub stopped_at: Option<String>,
     pub duration_sec: f64,
     /// The session was cut off by a person (the "Завершить"/Finish button), not by a
@@ -528,7 +529,10 @@ impl Archive {
         // blowing past the CLI's stdin limit (~10 MB). Well past a long PDF's text.
         const MAX_INPUT_CHARS: usize = 400_000;
         let input = req.text;
-        anyhow::ensure!(!input.trim().is_empty(), "нечего отправлять: пустой материал");
+        anyhow::ensure!(
+            !input.trim().is_empty(),
+            "нечего отправлять: пустой материал"
+        );
         anyhow::ensure!(
             input.chars().count() <= MAX_INPUT_CHARS,
             "материал слишком большой (> {MAX_INPUT_CHARS} символов) — сократите или разбейте"
@@ -610,7 +614,9 @@ impl Archive {
 
     /// The oldest request still waiting — the worker's next unit of work. `None` — the queue is dry.
     pub fn next_pending_ask(&self) -> Option<String> {
-        localvox_light_core::asks::pending(&self.asks_root()).into_iter().next()
+        localvox_light_core::asks::pending(&self.asks_root())
+            .into_iter()
+            .next()
     }
 
     /// At startup, put any request left `Running` (the daemon died mid-call) back into the queue.
@@ -839,6 +845,10 @@ impl Archive {
                     .unwrap_or(0);
                 SessionInfo {
                     started_at: meta.as_ref().map(|m| m.started_at.clone()),
+                    source_url: meta
+                        .as_ref()
+                        .and_then(|m| m.source.as_ref())
+                        .map(|s| s.url.clone()),
                     stopped_at: meta.as_ref().and_then(|m| m.stopped_at.clone()),
                     stopped_reason: meta.as_ref().and_then(|m| m.stopped_reason.clone()),
                     duration_sec,
@@ -862,7 +872,10 @@ impl Archive {
                     // freshness" but whether the engine is alive: an empty newborn
                     // session is a recording, not a corpse.
                     recording: live.as_deref() == Some(name.as_str()) && engine,
-                    cooked: store.as_ref().map(|s| !s.load().versions.is_empty()).unwrap_or(false),
+                    cooked: store
+                        .as_ref()
+                        .map(|s| !s.load().versions.is_empty())
+                        .unwrap_or(false),
                     job: job_of.get(&name).cloned(),
                     summary_doubts: localvox_light_core::processing::doubts(
                         &dir,
@@ -921,7 +934,11 @@ impl Archive {
         // put one text's cleaning under another text's line numbers.
         if let Ok(r) = localvox_light_core::readable::load(&dir) {
             if let Ok(lines) = localvox_light_core::readable::lines(&dir) {
-                let v = store.load().versions.into_iter().find(|v| v.id == r.version_id);
+                let v = store
+                    .load()
+                    .versions
+                    .into_iter()
+                    .find(|v| v.id == r.version_id);
                 return Ok(TranscriptDoc {
                     session: session.to_string(),
                     label: v.as_ref().map(|v| v.label.clone()).unwrap_or_default(),
@@ -1010,7 +1027,9 @@ impl Archive {
                     .lines
                     .iter()
                     .filter_map(|&i| lines.get(i).map(|l| (i, l)))
-                    .map(|(i, l)| json!({"line": i, "start_sec": l.start_sec, "end_sec": l.end_sec}))
+                    .map(
+                        |(i, l)| json!({"line": i, "start_sec": l.start_sec, "end_sec": l.end_sec}),
+                    )
                     .collect();
                 json!({"kind": b.kind, "text": b.text, "sources": sources})
             })
@@ -1112,9 +1131,12 @@ impl Archive {
     /// few seconds, so a long silence means a dead process. Shared by the progress view (to show
     /// «оборвалось») and by recook (to let a human override a stalled job).
     fn progress_stale(&self, dir: &Path) -> bool {
-        let stages =
-            localvox_light_core::progress::fold(&localvox_light_core::progress::read(dir));
-        let ts = |s: &str| chrono::DateTime::parse_from_rfc3339(s).ok().map(|t| t.timestamp());
+        let stages = localvox_light_core::progress::fold(&localvox_light_core::progress::read(dir));
+        let ts = |s: &str| {
+            chrono::DateTime::parse_from_rfc3339(s)
+                .ok()
+                .map(|t| t.timestamp())
+        };
         let now = chrono::Local::now().timestamp();
         stages
             .iter()
@@ -1125,10 +1147,17 @@ impl Archive {
     }
 
     pub fn recook(&self, session: &str, scope: RecookScope) -> Result<String> {
+        let dir = self.session_dir(session)?;
+        let _lease = self.mutation_lease(session, &dir)?;
+        self.recook_owned(session, scope)
+    }
+
+    /// The caller owns the session lease through queue commit and invalidation.
+    fn recook_owned(&self, session: &str, scope: RecookScope) -> Result<String> {
         use localvox_light_core::processing as proc;
         let dir = self.session_dir(session)?;
         // Preconditions first, destruction after.
-        self.ensure_recookable(session, &dir)?;
+        self.ensure_not_recording(session)?;
 
         let readable = localvox_light_core::readable::FILE;
         // Stale is a filesystem read on `&self` — do it BEFORE the lock so the critical section stays
@@ -1144,8 +1173,10 @@ impl Archive {
         //
         // We queue the work FIRST and destroy afterwards: a queue refusal («already cooking») must
         // not leave the session stripped of its derivatives with no job to bring them back.
-        let (files, forget, queued): (Vec<&str>, Vec<&str>, bool) =
-            localvox_light_core::jobs::JobQueue::mutate(&self.work_dir, |queue| {
+        let dropped = localvox_light_core::jobs::JobQueue::mutate(
+            &self.work_dir,
+            |queue| -> Result<Vec<&str>> {
+                self.ensure_recookable(session, &dir, scope)?;
                 // A human's «Переварить» must WIN over a stalled cook — a job stuck `Running` because
                 // the daemon (or the cook) died mid-work. The enqueue methods refuse a Running job to
                 // protect a LIVE cook; so if nothing has moved for a long time, we reclaim it first.
@@ -1159,14 +1190,19 @@ impl Archive {
                 {
                     queue.reclaim_session(session);
                 }
-                match scope {
+                let (files, forget, queued): (Vec<&str>, Vec<&str>, bool) = match scope {
                     RecookScope::Summary => (
                         vec!["summary.md", "summary.unverified.md"],
                         vec![proc::SUMMARY],
                         queue.requeue_derivatives(session, true, false, false),
                     ),
                     RecookScope::Text => (
-                        vec!["summary.md", readable, "summary.unverified.md", "processed.unverified.md"],
+                        vec![
+                            "summary.md",
+                            readable,
+                            "summary.unverified.md",
+                            "processed.unverified.md",
+                        ],
                         vec![proc::PROCESSED, proc::SUMMARY],
                         queue.requeue_derivatives(session, true, true, false),
                     ),
@@ -1177,31 +1213,38 @@ impl Archive {
                         let (summary, cleanup, refine) =
                             localvox_light_core::jobs::post_processing_from_env();
                         (
-                            vec!["summary.md", readable, "summary.unverified.md", "processed.unverified.md"],
+                            vec![
+                                "summary.md",
+                                readable,
+                                "summary.unverified.md",
+                                "processed.unverified.md",
+                            ],
                             vec![proc::SUMMARY, proc::PROCESSED, proc::TRANSCRIPT],
                             queue.enqueue_recook(session, summary, cleanup, refine),
                         )
                     }
+                };
+                if !queued {
+                    anyhow::bail!("сессия уже обрабатывается или очередь не удалось сохранить");
                 }
-            });
+                // Keep the queue lock through invalidation: workers must not reuse the old files
+                // between seeing the new Pending job and this request removing its derivatives.
+                localvox_light_core::progress::new_run(&dir);
+                let mut dropped = Vec::new();
+                for f in files {
+                    if fs::remove_file(dir.join(f)).is_ok() {
+                        dropped.push(f);
+                    }
+                }
+                proc::forget(&dir, &forget);
+                Ok(dropped)
+            },
+        )?;
 
-        if !queued {
-            anyhow::bail!("сессия уже варится прямо сейчас — дождитесь окончания");
-        }
-
-        // A NEW RUN STARTS HERE, at the press — not when the daemon gets round to it. Until then the
-        // chain would show the PREVIOUS run: all green, all finished, while the work has not started.
-        localvox_light_core::progress::new_run(&dir);
-
-        let mut dropped = Vec::new();
-        for f in files {
-            if fs::remove_file(dir.join(f)).is_ok() {
-                dropped.push(f);
-            }
-        }
-        proc::forget(&dir, &forget);
-
-        tracing::info!("re-cook on demand: {session} ({}, dropped: {dropped:?})", scope.label());
+        tracing::info!(
+            "re-cook on demand: {session} ({}, dropped: {dropped:?})",
+            scope.label()
+        );
         Ok(format!(
             "поставлено на переварку ({}); выброшено производных файлов: {}",
             scope.label(),
@@ -1213,7 +1256,7 @@ impl Archive {
     /// including before a language change: changing the language and then failing to
     /// re-cook means leaving the person with a summary in the language they have just
     /// rejected.
-    fn ensure_recookable(&self, session: &str, dir: &Path) -> Result<()> {
+    fn ensure_not_recording(&self, session: &str) -> Result<()> {
         // A live session MUST NOT be re-cooked: the cook would commit a PARTIAL
         // transcript with the current recipe, and discovery would consider it cooked
         // forever — the rest of the recording would never be transcribed. We check
@@ -1223,13 +1266,30 @@ impl Archive {
         {
             bail!("сессия записывается прямо сейчас — остановите запись, потом переваривайте");
         }
-        // No audio — there is nothing to re-cook from, and all the more reason not to
-        // erase the derivatives: they are the last thing left of the session.
-        let has_audio = std::fs::read_dir(dir.join("audio"))
-            .map(|rd| rd.flatten().any(|e| e.path().is_file()))
-            .unwrap_or(false);
-        if !has_audio {
-            bail!("в сессии нет аудио (удалено по retention?) — переваривать нечего");
+        Ok(())
+    }
+
+    fn mutation_lease(&self, session: &str, dir: &Path) -> Result<fs::File> {
+        self.ensure_not_recording(session)?;
+        localvox_light_core::jobs::try_execution_lock(dir)?
+            .context("сессия занята: обработка ещё выполняется; изменения не применены")
+    }
+
+    fn ensure_recookable(&self, session: &str, dir: &Path, scope: RecookScope) -> Result<()> {
+        self.ensure_not_recording(session)?;
+        match scope {
+            RecookScope::All => {
+                let files = localvox_light_core::artifacts::audio(dir)
+                    .context("нет полного пригодного аудио для повторного распознавания")?;
+                anyhow::ensure!(
+                    !files.is_empty(),
+                    "в сессии нет аудио для повторного распознавания"
+                );
+            }
+            RecookScope::Text | RecookScope::Summary => {
+                localvox_light_core::artifacts::source_transcript(dir)
+                    .context("нет пригодной исходной расшифровки для повторной обработки текста")?;
+            }
         }
         Ok(())
     }
@@ -1254,7 +1314,8 @@ impl Archive {
         if !dir.exists() {
             bail!("сессия не найдена — возможно, уже удалена");
         }
-        if localvox_light_core::jobs::recording_session(&self.work_dir).as_deref() == Some(session) {
+        if localvox_light_core::jobs::recording_session(&self.work_dir).as_deref() == Some(session)
+        {
             bail!("сессия записывается прямо сейчас — сначала остановите запись");
         }
         if confirm != session {
@@ -1262,6 +1323,8 @@ impl Archive {
             // script calls the API by hand, and then it must say exactly what it wants.
             bail!("удаление не подтверждено: передайте имя сессии в поле confirm");
         }
+
+        let _lease = self.mutation_lease(session, &dir)?;
 
         localvox_light_core::jobs::JobQueue::mutate(&self.work_dir, |queue| {
             queue.forget_session(session)
@@ -1281,7 +1344,8 @@ impl Archive {
     /// summary in a language they rejected.
     pub fn set_lang(&self, session: &str, lang: Option<&str>) -> Result<String> {
         let dir = self.session_dir(session)?;
-        self.ensure_recookable(session, &dir)?;
+        let _lease = self.mutation_lease(session, &dir)?;
+        self.ensure_recookable(session, &dir, RecookScope::All)?;
 
         // The model for the language MUST exist BEFORE we destroy anything. Otherwise
         // one click in the UI looked like this: the language is written down, the
@@ -1299,12 +1363,25 @@ impl Archive {
             }
         }
 
+        let previous_meta = fs::read(dir.join("meta.json"))?;
         if !localvox_light_core::lang::set(&dir, lang)? {
             return Ok("язык не изменился".into());
         }
         // A language change invalidates EVERYTHING (the transcript picks the model by language), so
         // it is always a full redo.
-        let msg = self.recook(session, RecookScope::All)?;
+        let msg = match self.recook_owned(session, RecookScope::All) {
+            Ok(msg) => msg,
+            Err(e) => {
+                localvox_light_core::artifacts::atomic_write(
+                    &dir.join("meta.json"),
+                    &previous_meta,
+                )
+                .with_context(|| {
+                    format!("повтор не поставлен ({e:#}); не удалось восстановить прежний язык")
+                })?;
+                return Err(e);
+            }
+        };
         Ok(match lang {
             Some(code) => format!("язык: {code}; {msg}"),
             None => format!("язык: авто; {msg}"),
@@ -1491,7 +1568,11 @@ impl Archive {
             serde_json::from_slice(&fs::read(dir.join("meta.json")).context("нет meta.json")?)?;
         // Only the sources this recording actually HAS: a session that arrived by link has no
         // second track, and offering to rename one would invent a participant.
-        let ids: Vec<u8> = if meta.source.is_some() { vec![0] } else { vec![0, 1] };
+        let ids: Vec<u8> = if meta.source.is_some() {
+            vec![0]
+        } else {
+            vec![0, 1]
+        };
         Ok(ids
             .into_iter()
             .map(|id| {
@@ -1521,6 +1602,7 @@ impl Archive {
     /// minutes of LLM time to arrive at exactly the file that is already on disk.
     pub fn name_source(&self, session: &str, source_id: u8, name: &str) -> Result<String> {
         let dir = self.session_dir(session)?;
+        let _lease = self.mutation_lease(session, &dir)?;
         let meta_path = dir.join("meta.json");
         let mut meta: localvox_light_core::chunks::SessionMeta =
             serde_json::from_slice(&fs::read(&meta_path).context("нет meta.json")?)?;
@@ -1532,31 +1614,19 @@ impl Archive {
             meta.source_names
                 .insert(source_id.to_string(), name.to_string());
         }
-        localvox_light_core::chunks::save_meta_public(&meta_path, &meta);
+        localvox_light_core::chunks::save_meta_checked(&meta_path, &meta)?;
         let now = localvox_light_core::chunks::source_label(&meta, source_id);
 
         // Neither the transcript lines nor the readable text are touched: the label is not stored
         // in either of them, it is rendered from the source id on every read. Only the summary
         // QUOTES it, inside sentences the model composed, and only the summary is rebuilt.
-        let (summary, _cleanup, refine) = localvox_light_core::jobs::post_processing_from_env();
-        let queued = localvox_light_core::jobs::JobQueue::mutate(&self.work_dir, |queue| {
-            queue.requeue_for_artifacts(session, summary, false, refine)
-        });
-        if queued {
-            let _ = fs::remove_file(dir.join("summary.md"));
-            // No file — no record of it either, or discovery decides there is nothing to do and
-            // the artifact never comes back.
-            localvox_light_core::processing::forget(
-                &dir,
-                &[localvox_light_core::processing::SUMMARY],
-            );
-        }
+        let queued = self.requeue_named_summary(session, &dir)?;
         Ok(format!(
             "теперь «{now}» — текст и реплики переподписаны сразу{}",
             if queued {
                 ", сводка пересобирается"
             } else {
-                "; сессия уже в работе — сводка пересоберётся там"
+                "; сводка ожидает расшифровки"
             }
         ))
     }
@@ -1565,8 +1635,7 @@ impl Archive {
     ///
     /// Does three things, and all three are mandatory:
     ///
-    /// 1. **remembers the voice under the name** — in later sessions it will be
-    ///    recognized by itself;
+    /// 1. **remembers the manual name in this recording's roster**;
     /// 2. **re-labels the lines** in every version of the transcript — WITHOUT
     ///    re-recognition: the audio has not changed, only one caption has to change;
     /// 3. **throws away the summary** and queues it for a rebuild — it says «Участник 2»
@@ -1574,70 +1643,81 @@ impl Archive {
     ///    was taken into account. The readable text needs nothing: it stores no name, and
     ///    step 2 is already the only place the caption lives.
     ///
-    /// A person's voice is biometrics. A profile appears only when it has been named
-    /// HERE, by hand: we MUST NOT silently accumulate prints of everyone who got into
-    /// the microphone.
+    /// Naming never enrolls or consults a shared voice profile.
     pub fn name_speaker(&self, session: &str, label: &str, name: &str) -> Result<String> {
         let name = name.trim();
         anyhow::ensure!(!name.is_empty(), "имя не может быть пустым");
         let dir = self.session_dir(session)?;
+        let _lease = self.mutation_lease(session, &dir)?;
 
         let mut roster = localvox_light_core::diarize::roster::load(&dir);
         let member = roster
             .by_label(label)
             .cloned()
             .with_context(|| format!("в этой записи нет говорящего «{label}»"))?;
-        if member.label == name {
+        if member.label == name && member.manually_named {
             return Ok(format!("«{name}» — и так его имя"));
         }
 
-        // We remember the voice FIRST: if there was not enough speech for a profile,
-        // we have not managed to destroy anything. The order "preconditions first,
-        // destruction after" is the same as for the language change, and for the same
-        // reason.
-        localvox_light_core::diarize::profiles::enroll(
-            &self.work_dir,
-            name,
-            &member.embedding,
-            member.speech_sec,
-        )?;
+        anyhow::ensure!(
+            !roster
+                .members
+                .iter()
+                .any(|m| m.id != member.id && m.label == name),
+            "в этой записи уже есть участник с именем «{name}»"
+        );
 
         roster.rename(label, name);
-        localvox_light_core::diarize::roster::save(&dir, &roster)?;
 
         let store = VersionStore::open(&dir)?;
         let lines = store.relabel_speaker(label, name)?;
+        localvox_light_core::diarize::roster::save(&dir, &roster)?;
 
         // Only the SUMMARY is written about «Участник 2» — it is prose, and the name is inside
         // its sentences. The readable text quotes nothing: it renders the caption from the very
         // lines just relabelled, so it already says the new name. The audio is not touched
         // either: re-cooking half an hour of sound for the sake of a name is a mockery, and then
         // names simply would not be used at all.
-        let (summary, _cleanup, refine) = localvox_light_core::jobs::post_processing_from_env();
-        let queued = localvox_light_core::jobs::JobQueue::mutate(&self.work_dir, |queue| {
-            queue.requeue_for_artifacts(session, summary, false, refine)
-        });
-        if queued {
-            let _ = fs::remove_file(dir.join("summary.md"));
-            // No file — no record of it either: otherwise discovery will decide there
-            // is nothing to do, and the artifact will not come back.
-            localvox_light_core::processing::forget(
-                &dir,
-                &[localvox_light_core::processing::SUMMARY],
-            );
-        }
+        let queued = self.requeue_named_summary(session, &dir)?;
 
         Ok(format!(
             "«{label}» → «{name}»: переподписано строк: {lines}{}",
             if queued {
                 "; сводка пересобирается"
             } else {
-                "; сессия уже в работе — сводка пересоберётся там"
+                "; сводка ожидает расшифровки"
             }
         ))
     }
 
-    /// The voices we know by name (shared across the whole archive).
+    /// Called while owning the session. A rename invalidates only prose containing names.
+    fn requeue_named_summary(&self, session: &str, dir: &Path) -> Result<bool> {
+        for file in ["summary.md", "summary.unverified.md"] {
+            match fs::remove_file(dir.join(file)) {
+                Ok(()) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => {
+                    return Err(e).context("имя сохранено, но устаревшую сводку не удалось удалить")
+                }
+            }
+        }
+        localvox_light_core::processing::forget(dir, &[localvox_light_core::processing::SUMMARY]);
+        if VersionStore::open(dir)?.best().is_none() {
+            return Ok(false);
+        }
+        localvox_light_core::artifacts::source_transcript(dir)
+            .context("имя сохранено, но исходная расшифровка не прошла проверку")?;
+        let queued = localvox_light_core::jobs::JobQueue::mutate(&self.work_dir, |queue| {
+            queue.requeue_derivatives(session, true, false, false)
+        });
+        anyhow::ensure!(
+            queued,
+            "имя сохранено; повтор сводки не поставлен: задание занято или очередь недоступна"
+        );
+        Ok(true)
+    }
+
+    /// Legacy profiles remain readable/deletable; they no longer identify voices.
     pub fn known_speakers(&self) -> Vec<SpeakerOut> {
         localvox_light_core::diarize::profiles::list(&self.work_dir)
             .into_iter()
@@ -1707,7 +1787,11 @@ impl Archive {
     ///
     /// `range` is `(start, end_inclusive)` from the `Range: bytes=` header; `None` — the whole
     /// file (which is still served slice-by-slice, never built entire).
-    pub fn audio_wav(&self, session: &str, range: Option<(u64, Option<u64>)>) -> Result<AudioSlice> {
+    pub fn audio_wav(
+        &self,
+        session: &str,
+        range: Option<(u64, Option<u64>)>,
+    ) -> Result<AudioSlice> {
         let dir = self.session_dir(session)?;
         let meta: localvox_light_core::chunks::SessionMeta =
             serde_json::from_slice(&fs::read(dir.join("meta.json")).context("нет meta.json")?)
@@ -1758,7 +1842,12 @@ impl Archive {
             }
         }
 
-        Ok(AudioSlice { total: file_len, start, end, bytes })
+        Ok(AudioSlice {
+            total: file_len,
+            start,
+            end,
+            bytes,
+        })
     }
 
     /// The shape of the recording: peak loudness per bucket, for the waveform in the player.
@@ -1806,14 +1895,8 @@ impl Archive {
             for source_id in 0..2u8 {
                 // A chunk that cannot be read must not cost us the whole wave: the player is more
                 // useful with a gap in the picture than absent because of one broken file.
-                let pcm = source_pcm(
-                    &dir,
-                    &meta,
-                    source_id,
-                    (from * SR) as u64,
-                    (to * SR) as u64,
-                )
-                .unwrap_or_default();
+                let pcm = source_pcm(&dir, &meta, source_id, (from * SR) as u64, (to * SR) as u64)
+                    .unwrap_or_default();
                 for (i, s) in pcm.chunks_exact(2).enumerate() {
                     let v = f32::from(i16::from_le_bytes([s[0], s[1]]).saturating_abs());
                     let at = from + i as f64 / SR;
@@ -1878,62 +1961,30 @@ impl Archive {
 
     pub fn progress(&self, name: &str) -> Result<Value> {
         let dir = self.session_dir(name)?;
-        let stages = localvox_light_core::progress::fold(&localvox_light_core::progress::read(&dir));
-        let source: Option<localvox_light_core::chunks::Source> =
-            std::fs::read(dir.join("meta.json"))
-                .ok()
-                .and_then(|b| serde_json::from_slice::<localvox_light_core::chunks::SessionMeta>(&b).ok())
-                .and_then(|m| m.source);
-        // WHETHER THE RUN IS STILL GOING cannot be read off the stages, and this is why the chain
-        // used to read "finished" mid-cook. A stage only appears once it has spoken, so in the gap
-        // between one stage ending and the next starting — 42 seconds while the model loads, in the
-        // logs — every stage present says "done" and the picture says the work is over.
-        //
-        // The stages cannot answer it even in principle: the last one to speak has no idea whether
-        // anyone comes after it. The queue knows — it holds the job — so the answer comes from
-        // there, and the chain stops guessing.
-        let live = localvox_light_core::jobs::JobQueue::load(&self.work_dir)
-            .jobs()
-            .iter()
-            .any(|j| {
-                j.session == name
-                    && matches!(
-                        j.state,
-                        localvox_light_core::jobs::JobState::Running
-                            | localvox_light_core::jobs::JobState::Pending
-                    )
-            });
-
-        // Seconds since a timestamp string, or None if it will not parse. Whole seconds across
-        // offsets — the log is RFC3339 with a zone, so instants compare correctly.
-        let ts = |s: &str| chrono::DateTime::parse_from_rfc3339(s).ok().map(|t| t.timestamp());
-
-        // How long the WHOLE run took, once it is done — the same time we show live, kept for the
-        // finished session: earliest a stage started to latest one ended.
-        let first = stages
-            .iter()
-            .filter_map(|s| s.started_at.as_deref())
-            .filter_map(ts)
-            .min();
-        let last = stages
-            .iter()
-            .filter_map(|s| s.ended_at.as_deref())
-            .filter_map(ts)
-            .max();
-        let elapsed_sec = match (first, last) {
-            (Some(a), Some(b)) if !live && b >= a => Some(b - a),
-            _ => None,
+        let source: Option<localvox_light_core::chunks::Source> = fs::read(dir.join("meta.json"))
+            .ok()
+            .and_then(|b| {
+                serde_json::from_slice::<localvox_light_core::chunks::SessionMeta>(&b).ok()
+            })
+            .and_then(|m| m.source);
+        let queue = localvox_light_core::jobs::JobQueue::load(&self.work_dir);
+        let job = queue.jobs().iter().find(|j| j.session == name);
+        let view = localvox_light_core::workflow::view(
+            &dir,
+            job,
+            source.is_some(),
+            &localvox_light_core::versions::now_rfc3339(),
+        );
+        let mut value = serde_json::to_value(&view)?;
+        value["source"] = serde_json::to_value(source)?;
+        value["queue_error"] = json!(queue.error());
+        // Backwards-compatible field; the UI now names queue, processing and total separately.
+        value["elapsed_sec"] = if view.running {
+            Value::Null
+        } else {
+            json!(view.timing.processing_sec)
         };
-
-        // No «stalled»: a live job is «в работе»/«в очереди», period. Abandoned work is re-queued at
-        // startup and re-cooked automatically — there is no hung state to wave a person at. (recook
-        // still uses `progress_stale` so a human CAN force a redo of a genuinely wedged cook.)
-        Ok(json!({
-            "stages": stages,
-            "source": source,
-            "running": live,
-            "elapsed_sec": elapsed_sec,
-        }))
+        Ok(value)
     }
 
     /// Stop recording: the engine closes the session, and the cook picks it up. The reason
@@ -2050,6 +2101,7 @@ impl Archive {
     /// computed from it.
     pub fn set_best(&self, session: &str, id: u32) -> Result<()> {
         let dir = self.session_dir(session)?;
+        let _lease = self.mutation_lease(session, &dir)?;
         let store = VersionStore::open(&dir)?;
         store
             .set_best(id)
@@ -2084,7 +2136,10 @@ impl Archive {
                 let title = meta
                     .as_ref()
                     .and_then(|m| m.title.clone())
-                    .or_else(|| meta.as_ref().and_then(|m| m.source.as_ref().map(|s| s.url.clone())))
+                    .or_else(|| {
+                        meta.as_ref()
+                            .and_then(|m| m.source.as_ref().map(|s| s.url.clone()))
+                    })
                     .unwrap_or_else(|| j.session.clone());
                 let position = if j.state == S::Pending {
                     place += 1;
@@ -2194,6 +2249,404 @@ impl Archive {
 mod tests {
     use super::*;
 
+    fn retained_transcript(work: &Path) -> PathBuf {
+        let session = work.join("sessions/retained");
+        let store = VersionStore::open(&session).unwrap();
+        let (id, path) = store.next_version("raw").unwrap();
+        fs::write(
+            &path,
+            "{\"source_id\":0,\"start_sec\":0,\"end_sec\":5,\"text\":\"original speech\"}\n",
+        )
+        .unwrap();
+        store
+            .commit(localvox_light_core::versions::VersionEntry {
+                id,
+                label: "raw".into(),
+                file: path.file_name().unwrap().to_str().unwrap().into(),
+                model: "fixture".into(),
+                params: json!({}),
+                created_at: "t".into(),
+                parents: vec![],
+            })
+            .unwrap();
+        fs::write(session.join("summary.md"), "previous summary").unwrap();
+        path
+    }
+
+    #[test]
+    fn verified_transcript_remains_readable_when_summary_fails() {
+        use localvox_light_core::{jobs::JobQueue, processing as proc, progress};
+        let work = tempfile::tempdir().unwrap();
+        retained_transcript(work.path());
+        let session = work.path().join("sessions/retained");
+        fs::remove_file(session.join("summary.md")).unwrap();
+        proc::record(
+            &session,
+            proc::TRANSCRIPT,
+            "fixture",
+            proc::Outcome::Ok,
+            None,
+            Some(1),
+        )
+        .unwrap();
+        JobQueue::mutate(work.path(), |queue| {
+            assert!(queue.requeue_derivatives("retained", true, false, false));
+            let job = queue.claim_next().unwrap();
+            queue.mark_failed(job.id, "summary service unavailable", 1);
+        });
+        progress::mark(
+            &session,
+            progress::Stage::Summary,
+            progress::StageState::Failed,
+            Some("summary service unavailable"),
+        );
+        let archive = Archive::new(work.path().to_path_buf());
+        assert_eq!(
+            archive.transcript("retained").unwrap().lines[0].text,
+            "original speech"
+        );
+        let view = archive.progress("retained").unwrap();
+        let rows = view["stages"].as_array().unwrap();
+        assert_eq!(
+            rows.iter().find(|s| s["stage"] == "transcribe").unwrap()["state"],
+            "done"
+        );
+        assert_eq!(
+            rows.iter().find(|s| s["stage"] == "summary").unwrap()["state"],
+            "failed"
+        );
+    }
+
+    #[test]
+    fn text_and_summary_recook_without_audio_start_at_the_requested_phase() {
+        use localvox_light_core::jobs::{JobPhase, JobQueue};
+        use localvox_light_core::processing as proc;
+        for (scope, phase) in [
+            (RecookScope::Text, JobPhase::Text),
+            (RecookScope::Summary, JobPhase::Summary),
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let source = retained_transcript(dir.path());
+            let before = fs::read(&source).unwrap();
+            // Also cover an imported video's old queue entry, which still has kind=ingest.
+            JobQueue::mutate(dir.path(), |q| {
+                q.enqueue_ingest("retained", true, true, true);
+            });
+            let archive = Archive::new(dir.path().to_path_buf());
+            archive.recook("retained", scope).unwrap();
+            let queue = JobQueue::load(dir.path());
+            let job = &queue.jobs()[0];
+            assert_eq!(job.phase, phase);
+            assert!(!job.force);
+            assert_eq!(fs::read(&source).unwrap(), before);
+            let session = source.parent().unwrap().parent().unwrap();
+            assert!(!session.join("audio").exists());
+            // Simulate persisted post-processing outputs; acceptance must not demand lost audio
+            // or a historical receipt that this legacy transcript never had.
+            fs::write(session.join("summary.md"), "new summary").unwrap();
+            proc::record(
+                session,
+                proc::SUMMARY,
+                "fixture",
+                proc::Outcome::Ok,
+                None,
+                Some(1),
+            )
+            .unwrap();
+            if phase == JobPhase::Text {
+                localvox_light_core::readable::save(
+                    session,
+                    &localvox_light_core::readable::Readable {
+                        version_id: 1,
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+                proc::record(
+                    session,
+                    proc::PROCESSED,
+                    "fixture",
+                    proc::Outcome::Ok,
+                    None,
+                    Some(1),
+                )
+                .unwrap();
+            }
+            localvox_light_core::jobs::verify_phase(session, job).unwrap();
+        }
+    }
+
+    #[test]
+    fn full_recook_without_audio_preserves_the_last_results() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = retained_transcript(dir.path());
+        let before = fs::read(&source).unwrap();
+        let archive = Archive::new(dir.path().to_path_buf());
+        assert!(archive.recook("retained", RecookScope::All).is_err());
+        assert_eq!(fs::read(source).unwrap(), before);
+        assert_eq!(
+            fs::read_to_string(dir.path().join("sessions/retained/summary.md")).unwrap(),
+            "previous summary"
+        );
+        assert!(!dir.path().join("jobs.json").exists());
+    }
+
+    #[test]
+    fn naming_a_short_voice_is_local_and_does_not_enroll_a_shared_profile() {
+        use localvox_light_core::diarize::{profiles, roster};
+        let dir = tempfile::tempdir().unwrap();
+        retained_transcript(dir.path());
+        let session = dir.path().join("sessions/retained");
+        profiles::enroll(dir.path(), "Historical profile", &[1.0, 0.0], 30.0).unwrap();
+        let old_profiles = fs::read(dir.path().join("speakers.json")).unwrap();
+        roster::save(
+            &session,
+            &roster::Roster {
+                members: vec![roster::Member {
+                    id: 0,
+                    label: "Speaker 1".into(),
+                    embedding: vec![1.0, 0.0],
+                    speech_sec: 1.0,
+                    owner: false,
+                    manually_named: false,
+                }],
+            },
+        )
+        .unwrap();
+        let archive = Archive::new(dir.path().to_path_buf());
+        archive
+            .name_speaker("retained", "Speaker 1", "Local name")
+            .unwrap();
+        let named = roster::load(&session);
+        assert_eq!(named.members[0].label, "Local name");
+        assert!(named.members[0].manually_named);
+        assert_eq!(
+            fs::read(dir.path().join("speakers.json")).unwrap(),
+            old_profiles
+        );
+        let queue = localvox_light_core::jobs::JobQueue::load(dir.path());
+        assert_eq!(
+            queue.jobs()[0].phase,
+            localvox_light_core::jobs::JobPhase::Summary
+        );
+        assert!(!queue.jobs()[0].refine);
+        assert!(!session.join("summary.md").exists());
+    }
+
+    /// Opt-in local evidence: never mutate the source archive or call a model/network.
+    #[test]
+    #[ignore = "requires LOCALVOX_REVIEW_SESSION pointing at a historical session; operates on a temporary copy"]
+    fn historical_speaker_correction_on_temporary_copy_preserves_speech() {
+        let source = PathBuf::from(std::env::var("LOCALVOX_REVIEW_SESSION").unwrap());
+        let work = tempfile::tempdir().unwrap();
+        let session = work.path().join("sessions/copied");
+        fs::create_dir_all(session.join("transcripts")).unwrap();
+        let mut snapshots = Vec::new();
+        for relative in [Path::new(""), Path::new("transcripts")] {
+            for entry in fs::read_dir(source.join(relative)).unwrap().flatten() {
+                if !entry.file_type().unwrap().is_file() {
+                    continue;
+                }
+                let path = entry.path();
+                if !matches!(
+                    path.extension().and_then(|s| s.to_str()),
+                    Some("json" | "jsonl" | "md")
+                ) {
+                    continue;
+                }
+                let bytes = fs::read(&path).unwrap();
+                fs::write(session.join(relative).join(entry.file_name()), &bytes).unwrap();
+                snapshots.push((path, bytes));
+            }
+        }
+        let versions = VersionStore::open(&session).unwrap().load().versions;
+        let content = |path: &Path| -> Vec<serde_json::Value> {
+            fs::read_to_string(path)
+                .unwrap()
+                .lines()
+                .filter(|s| !s.trim().is_empty())
+                .map(|s| {
+                    let mut line: serde_json::Value = serde_json::from_str(s).unwrap();
+                    line.as_object_mut().unwrap().remove("speaker");
+                    line
+                })
+                .collect()
+        };
+        let before: Vec<_> = versions
+            .iter()
+            .map(|v| content(&session.join("transcripts").join(&v.file)))
+            .collect();
+        let archive = Archive::new(work.path().to_path_buf());
+        archive
+            .name_speaker("copied", "Арсен Маркарян", "Участник 1")
+            .unwrap();
+        for (v, expected) in versions.iter().zip(before) {
+            let path = session.join("transcripts").join(&v.file);
+            assert_eq!(
+                content(&path),
+                expected,
+                "speech/timing changed in {}",
+                v.file
+            );
+            assert!(!fs::read_to_string(path).unwrap().contains("Арсен Маркарян"));
+        }
+        assert!(localvox_light_core::diarize::roster::load(&session)
+            .members
+            .iter()
+            .any(|m| m.label == "Участник 1" && m.manually_named));
+        for (path, bytes) in snapshots {
+            assert_eq!(fs::read(path).unwrap(), bytes);
+        }
+        assert!(!session.join("summary.md").exists());
+        assert_eq!(
+            localvox_light_core::jobs::JobQueue::load(work.path()).jobs()[0].phase,
+            localvox_light_core::jobs::JobPhase::Summary
+        );
+    }
+
+    #[test]
+    fn postprocess_rejects_missing_malformed_and_unconfirmed_empty_transcripts() {
+        for damage in [None, Some("broken json"), Some("")] {
+            let dir = tempfile::tempdir().unwrap();
+            let source = retained_transcript(dir.path());
+            if let Some(bytes) = damage {
+                fs::write(&source, bytes).unwrap();
+            } else {
+                fs::remove_file(&source).unwrap();
+            }
+            let archive = Archive::new(dir.path().to_path_buf());
+            assert!(archive.recook("retained", RecookScope::Summary).is_err());
+            assert_eq!(
+                fs::read_to_string(dir.path().join("sessions/retained/summary.md")).unwrap(),
+                "previous summary"
+            );
+            assert!(!dir.path().join("jobs.json").exists());
+        }
+    }
+
+    #[test]
+    fn naming_reports_queue_failure_after_local_save_without_claiming_a_rebuild() {
+        use localvox_light_core::diarize::roster;
+        let work = tempfile::tempdir().unwrap();
+        let source = retained_transcript(work.path());
+        let speech = fs::read(&source).unwrap();
+        let session = work.path().join("sessions/retained");
+        roster::save(
+            &session,
+            &roster::Roster {
+                members: vec![roster::Member {
+                    id: 0,
+                    label: "Old".into(),
+                    embedding: vec![1.0, 0.0],
+                    speech_sec: 1.0,
+                    owner: false,
+                    manually_named: false,
+                }],
+            },
+        )
+        .unwrap();
+        fs::create_dir(work.path().join("jobs.json")).unwrap();
+        let error = Archive::new(work.path().to_path_buf())
+            .name_speaker("retained", "Old", "New")
+            .unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("имя сохранено; повтор сводки не поставлен"));
+        assert_eq!(roster::load(&session).members[0].label, "New");
+        assert_eq!(fs::read(source).unwrap(), speech);
+        assert!(!session.join("summary.md").exists());
+    }
+
+    #[test]
+    fn recook_does_not_invalidate_artifacts_owned_by_a_live_worker() {
+        let dir = tempfile::tempdir().unwrap();
+        let session = dir.path().join("sessions/owned");
+        fs::create_dir_all(session.join("audio")).unwrap();
+        fs::write(session.join("audio/src0_chunk0001.wav"), b"fixture").unwrap();
+        fs::write(session.join("summary.md"), b"keep this result").unwrap();
+        let archive = Archive::new(dir.path().to_path_buf());
+        let lease = localvox_light_core::jobs::try_execution_lock(&session)
+            .unwrap()
+            .unwrap();
+        let error = archive.recook("owned", RecookScope::Summary).unwrap_err();
+        assert!(
+            error.to_string().contains("обработка ещё выполняется"),
+            "{error:#}"
+        );
+        assert_eq!(
+            fs::read(session.join("summary.md")).unwrap(),
+            b"keep this result"
+        );
+        assert!(!dir.path().join("jobs.json").exists());
+        drop(lease);
+        assert!(localvox_light_core::jobs::try_execution_lock(&session)
+            .unwrap()
+            .is_some());
+    }
+
+    #[test]
+    fn every_session_mutation_refuses_a_live_owner_before_changing_artifacts() {
+        let dir = tempfile::tempdir().unwrap();
+        let transcript = retained_transcript(dir.path());
+        let session = dir.path().join("sessions/retained");
+        fs::write(session.join("meta.json"), br#"{"lang":"ru"}"#).unwrap();
+        let watched = [
+            transcript,
+            session.join("meta.json"),
+            session.join("versions.json"),
+            session.join("summary.md"),
+        ];
+        let before: Vec<_> = watched.iter().map(|p| fs::read(p).unwrap()).collect();
+        let _lease = localvox_light_core::jobs::try_execution_lock(&session)
+            .unwrap()
+            .unwrap();
+        let archive = Archive::new(dir.path().to_path_buf());
+        for result in [
+            archive.name_speaker("retained", "Speaker 1", "Changed"),
+            archive.name_source("retained", 0, "Changed"),
+            archive.set_lang("retained", Some("en")),
+            archive.set_best("retained", 1).map(|_| String::new()),
+            archive.delete_session("retained", "retained"),
+        ] {
+            assert!(result.unwrap_err().to_string().contains("сессия занята"));
+            for (path, expected) in watched.iter().zip(&before) {
+                assert_eq!(&fs::read(path).unwrap(), expected);
+            }
+        }
+        assert!(!dir.path().join("jobs.json").exists());
+    }
+
+    #[test]
+    fn language_is_restored_when_recook_cannot_be_queued() {
+        let work = tempfile::tempdir().unwrap();
+        let transcript = retained_transcript(work.path());
+        let session = work.path().join("sessions/retained");
+        fs::create_dir(session.join("audio")).unwrap();
+        let meta = br#"{"started_at":"t","sample_rate":16000,"lang":"en","lang_detected":"en","chunks":[{"file":"src0_chunk0001","source_id":0,"start_offset_sec":0,"duration_sec":0.001}]}"#;
+        fs::write(session.join("meta.json"), meta).unwrap();
+        fs::write(
+            session.join("audio/src0_chunk0001.wav"),
+            wav_16k_mono(&[0; 32]),
+        )
+        .unwrap();
+        localvox_light_core::artifacts::audio(&session).unwrap();
+        fs::create_dir(work.path().join("jobs.json")).unwrap();
+        let speech = fs::read(&transcript).unwrap();
+        let error = Archive::new(work.path().to_path_buf())
+            .set_lang("retained", None)
+            .unwrap_err();
+        assert!(
+            error.to_string().contains("очередь не удалось сохранить"),
+            "{error:#}"
+        );
+        assert_eq!(fs::read(session.join("meta.json")).unwrap(), meta);
+        assert_eq!(fs::read(transcript).unwrap(), speech);
+        assert_eq!(
+            fs::read_to_string(session.join("summary.md")).unwrap(),
+            "previous summary"
+        );
+    }
+
     fn pcm(samples: &[i16]) -> Vec<u8> {
         samples.iter().flat_map(|s| s.to_le_bytes()).collect()
     }
@@ -2210,7 +2663,11 @@ mod tests {
             .chunks_exact(2)
             .map(|c| i16::from_le_bytes([c[0], c[1]]))
             .collect();
-        assert_eq!(out, vec![i16::MAX, i16::MIN, 100], "the mix wrapped: {out:?}");
+        assert_eq!(
+            out,
+            vec![i16::MAX, i16::MIN, 100],
+            "the mix wrapped: {out:?}"
+        );
     }
 
     /// A monologue into the microphone is a recording without a second track. It must
@@ -2238,6 +2695,25 @@ mod tests {
         std::fs::create_dir_all(&sdir).unwrap();
         let a = Archive::new(dir.path().to_path_buf());
 
+        let store = VersionStore::open(&sdir).unwrap();
+        let (id, path) = store.next_version("raw").unwrap();
+        fs::write(
+            &path,
+            r#"{"source_id":0,"start_sec":0,"end_sec":5,"text":"hello"}"#,
+        )
+        .unwrap();
+        store
+            .commit(localvox_light_core::versions::VersionEntry {
+                id,
+                label: "raw".into(),
+                file: path.file_name().unwrap().to_str().unwrap().into(),
+                model: "fixture".into(),
+                params: json!({}),
+                created_at: "t".into(),
+                parents: vec![],
+            })
+            .unwrap();
+        fs::write(sdir.join("summary.md"), "A real summary").unwrap();
         // The check flagged the summary — exactly as it did on the live recording where «Сергей»
         // and «муж» were called inventions although both were said out loud.
         processing::record(
@@ -2246,8 +2722,9 @@ mod tests {
             "summary/ru/qwen3.5:9b/p2",
             Outcome::Unverified,
             Some("имена/названия: сергей".into()),
-            None,
-        );
+            Some(id),
+        )
+        .unwrap();
         assert!(
             processing::doubts(&sdir, processing::SUMMARY).is_some(),
             "the doubt was not recorded — the test proves nothing"
@@ -2288,7 +2765,12 @@ mod tests {
         // The exact shape of the gap: the run is open, transcribe and refine are done, and summary
         // has not started yet — the model is loading.
         progress::new_run(&sdir);
-        progress::mark(&sdir, Stage::Transcribe, StageState::Done, Some("149 строк"));
+        progress::mark(
+            &sdir,
+            Stage::Transcribe,
+            StageState::Done,
+            Some("149 строк"),
+        );
         progress::mark(&sdir, Stage::Refine, StageState::Done, None);
 
         let mut q = JobQueue::load(dir.path());
@@ -2297,11 +2779,10 @@ mod tests {
         q.start(id).expect("the job did not start");
 
         let p = a.progress("20260716_g").unwrap();
-        // Every stage present says done — which is exactly why the chain used to lie.
-        assert!(
-            p["stages"].as_array().unwrap().iter().all(|s| s["state"] == "done"),
-            "the gap was not reproduced, so this test proves nothing: {p}"
-        );
+        // Events without output files cannot prove completion; future stages stay blocked.
+        assert_eq!(p["stages"][0]["state"], "invalid");
+        assert_eq!(p["stages"][1]["state"], "invalid");
+        assert_eq!(p["stages"][2]["state"], "blocked");
         assert_eq!(
             p["running"], true,
             "the chain says the cook is over while the job is still running — the owner's bug"
@@ -2328,7 +2809,10 @@ mod tests {
         assert!(sdir.exists(), "a wrong confirm still deleted the session");
 
         // The name echoed back: gone, and gone for good.
-        assert_eq!(a.delete_session("20260715_x", "20260715_x").unwrap(), "20260715_x");
+        assert_eq!(
+            a.delete_session("20260715_x", "20260715_x").unwrap(),
+            "20260715_x"
+        );
         assert!(!sdir.exists());
         // Deleting again is an honest error, not a panic.
         assert!(a.delete_session("20260715_x", "20260715_x").is_err());
@@ -2411,7 +2895,8 @@ mod tests {
         let a = Archive::new(dir.path().to_path_buf());
         assert_eq!(readable::lines(&sess).unwrap()[0].who, "Я");
 
-        a.name_source("20260718_rename", 0, "Арсен Маркарян").unwrap();
+        a.name_source("20260718_rename", 0, "Арсен Маркарян")
+            .unwrap();
 
         assert!(
             readable::exists(&sess),
@@ -2456,13 +2941,14 @@ mod tests {
         )
         .unwrap();
 
-        let line = |start: f64, speaker: Option<&str>| localvox_light_core::versions::TranscriptLine {
-            source_id: 0,
-            start_sec: start,
-            end_sec: start + 10.0,
-            text: "речь".into(),
-            speaker: speaker.map(str::to_owned),
-        };
+        let line =
+            |start: f64, speaker: Option<&str>| localvox_light_core::versions::TranscriptLine {
+                source_id: 0,
+                start_sec: start,
+                end_sec: start + 10.0,
+                text: "речь".into(),
+                speaker: speaker.map(str::to_owned),
+            };
         let store = VersionStore::open(&sess).unwrap();
         let (id, path) = store.next_version("test").unwrap();
         let lines = [
@@ -2475,8 +2961,11 @@ mod tests {
             &path,
             lines
                 .iter()
-                .map(|l| serde_json::to_string(l).unwrap() + "
-")
+                .map(|l| {
+                    serde_json::to_string(l).unwrap()
+                        + "
+"
+                })
                 .collect::<String>(),
         )
         .unwrap();
@@ -2494,13 +2983,16 @@ mod tests {
 
         // The register claims a voice the text never shows.
         let mut roster = localvox_light_core::diarize::roster::Roster::default();
-        roster.members.push(localvox_light_core::diarize::roster::Member {
-            id: 1,
-            label: "Участник 1".into(),
-            speech_sec: 84.0,
-            owner: false,
-            embedding: vec![],
-        });
+        roster
+            .members
+            .push(localvox_light_core::diarize::roster::Member {
+                id: 1,
+                label: "Участник 1".into(),
+                speech_sec: 84.0,
+                owner: false,
+                embedding: vec![],
+                manually_named: false,
+            });
         localvox_light_core::diarize::roster::save(&sess, &roster).unwrap();
 
         let people = Archive::new(dir.path().to_path_buf())
@@ -2515,7 +3007,10 @@ mod tests {
         );
         let p = &people[0];
         assert_eq!(p.name, "Арсен Маркарян");
-        assert_eq!(p.lines, 3, "the source-attributed line was dropped from the count");
+        assert_eq!(
+            p.lines, 3,
+            "the source-attributed line was dropped from the count"
+        );
         // Both keys are kept, or a rename would fix two lines and leave the third behind.
         assert_eq!(p.voices, vec!["Арсен Маркарян".to_string()]);
         assert_eq!(p.sources, vec![0]);
@@ -2570,7 +3065,10 @@ mod tests {
             .audio_clip("20260712_gap", Some(0), 0.5, 1.0)
             .unwrap_err()
             .to_string();
-        assert!(err.contains("недоступен"), "an honest error was expected: {err}");
+        assert!(
+            err.contains("недоступен"),
+            "an honest error was expected: {err}"
+        );
     }
 }
 

@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use clap::Parser;
@@ -12,26 +12,54 @@ use tracing_subscriber::EnvFilter;
 
 use crate::audio;
 
-/// Waits for the engine thread no longer than `max_wait`. If it does not make it —
-/// `process::exit(0)`: unprocessed WAVs in the workspace with no line in `transcript.jsonl`
-/// are picked up by `recover` on the next run.
-pub fn join_engine_thread(handle: thread::JoinHandle<()>, max_wait: Duration) {
-    let (done_tx, done_rx) = mpsc::sync_channel(0);
+/// A bounded join that preserves panic/timeout as errors. The caller must still attempt
+/// to stop its other components before returning an error.
+pub fn join_component_thread(
+    handle: thread::JoinHandle<()>,
+    max_wait: Duration,
+    component: &str,
+) -> Result<()> {
+    let start = Instant::now();
+    let (done_tx, done_rx) = mpsc::sync_channel(1);
     thread::spawn(move || {
-        let _ = handle.join();
-        let _ = done_tx.send(());
+        let _ = done_tx.send(handle.join().map_err(|_| "thread panicked"));
     });
-    match done_rx.recv_timeout(max_wait) {
-        Ok(()) => {}
-        Err(mpsc::RecvTimeoutError::Timeout) => {
-            eprintln!(
-                "localvox-light: the engine did not finish within {} s — exiting. WAVs with no line in the transcript will be processed on the next run.",
-                max_wait.as_secs()
-            );
-            std::process::exit(0);
+    tracing::info!(
+        component,
+        limit_sec = max_wait.as_secs_f64(),
+        "shutdown: waiting"
+    );
+    loop {
+        let remaining = max_wait.saturating_sub(start.elapsed());
+        match done_rx.recv_timeout(remaining.min(Duration::from_secs(2))) {
+            Ok(Ok(())) => {
+                tracing::info!(
+                    component,
+                    elapsed_sec = start.elapsed().as_secs_f64(),
+                    "shutdown: finished"
+                );
+                return Ok(());
+            }
+            Ok(Err(e)) => anyhow::bail!("shutdown {component}: {e}"),
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                anyhow::bail!("shutdown {component}: join channel closed")
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) if start.elapsed() >= max_wait => {
+                anyhow::bail!("shutdown {component}: did not finish within {:.1} s (elapsed {:.1} s); unfinished work must recover on restart", max_wait.as_secs_f64(), start.elapsed().as_secs_f64());
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                tracing::info!(
+                    component,
+                    elapsed_sec = start.elapsed().as_secs_f64(),
+                    "shutdown: still waiting"
+                );
+            }
         }
-        Err(mpsc::RecvTimeoutError::Disconnected) => {}
     }
+}
+
+pub fn join_engine_thread(handle: thread::JoinHandle<()>, max_wait: Duration) -> Result<()> {
+    join_component_thread(handle, max_wait, "engine")
 }
 
 #[derive(Parser, Clone)]
@@ -145,12 +173,8 @@ pub struct Cli {
     #[arg(long, default_value = "300", env = "LOCALVOX_LIGHT_CHUNK_SEC")]
     pub chunk_sec: f64,
 
-    /// Audio chunk retention, days; 0 — keep forever
-    #[arg(
-        long,
-        default_value = "14",
-        env = "LOCALVOX_LIGHT_RETENTION_AUDIO_DAYS"
-    )]
+    /// Opt-in audio retention after verified transcription, days; 0 — keep forever (default)
+    #[arg(long, default_value = "0", env = "LOCALVOX_LIGHT_RETENTION_AUDIO_DAYS")]
     pub retention_audio_days: u32,
 
     /// Recompress closed chunks WAV → FLAC (needs ffmpeg in PATH or LOCALVOX_LIGHT_YT_FFMPEG)
@@ -410,7 +434,10 @@ mod log_tests {
     #[test]
     fn a_plain_rust_log_does_not_bring_back_the_noise_of_other_libraries() {
         assert_eq!(quiet_directives("info"), ["ort=warn"]);
-        assert_eq!(quiet_directives("debug,localvox_light_core=debug"), ["ort=warn"]);
+        assert_eq!(
+            quiet_directives("debug,localvox_light_core=debug"),
+            ["ort=warn"]
+        );
     }
 
     /// But if the human ASKED for third-party debug output — they get it. Silence must not
@@ -524,6 +551,45 @@ mod cli_helpers_tests {
     use clap::Parser;
     use std::fs;
     use tempfile::tempdir;
+
+    #[test]
+    fn retention_defaults_to_manual_deletion_and_accepts_opt_in_age() {
+        // Inspect clap defaults without changing process-global environment in parallel tests.
+        use clap::CommandFactory;
+        let command = Cli::command();
+        let argument = command
+            .get_arguments()
+            .find(|a| a.get_id() == "retention_audio_days")
+            .unwrap();
+        assert_eq!(
+            argument.get_default_values(),
+            &[std::ffi::OsString::from("0")]
+        );
+        let cli = Cli::try_parse_from(["localvox-light", "--retention-audio-days", "14"]).unwrap();
+        assert_eq!(cli.retention_audio_days, 14);
+    }
+
+    #[test]
+    fn component_join_reports_panic_and_timeout_without_exiting() {
+        join_component_thread(thread::spawn(|| {}), Duration::from_secs(1), "finished").unwrap();
+        let panic = join_component_thread(
+            thread::spawn(|| panic!("test panic")),
+            Duration::from_secs(1),
+            "panicking",
+        )
+        .unwrap_err();
+        assert!(panic.to_string().contains("panicking: thread panicked"));
+        let (release, held) = mpsc::channel();
+        let blocked = thread::spawn(move || {
+            let _ = held.recv();
+        });
+        let timeout = join_component_thread(blocked, Duration::from_millis(20), "blocked-capture")
+            .unwrap_err();
+        assert!(timeout
+            .to_string()
+            .contains("blocked-capture: did not finish"));
+        release.send(()).unwrap();
+    }
 
     fn default_cli() -> Cli {
         Cli::try_parse_from(["localvox-light"]).expect("cli")

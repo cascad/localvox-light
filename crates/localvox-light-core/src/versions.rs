@@ -288,9 +288,8 @@ impl VersionStore {
 
     fn save(&self, manifest: &VersionsManifest) -> std::io::Result<()> {
         let path = self.manifest_path();
-        let tmp = path.with_extension("json.tmp");
-        fs::write(&tmp, serde_json::to_vec_pretty(manifest)?)?;
-        fs::rename(&tmp, &path)
+        crate::artifacts::atomic_write(&path, &serde_json::to_vec_pretty(manifest)?)
+            .map_err(std::io::Error::other)
     }
 
     /// Re-label a speaker in ALL versions: «Участник 2» → «Иван».
@@ -307,28 +306,42 @@ impl VersionStore {
     /// Returns how many lines were re-labelled.
     pub fn relabel_speaker(&self, from: &str, to: &str) -> std::io::Result<usize> {
         let mut total = 0;
-        for v in self.load().versions {
+        // Validate every version before rewriting any: a lenient reader here silently
+        // dropped malformed lines from the original STT when changing a caption.
+        let mut versions = Vec::new();
+        for v in self.load_strict()?.versions {
+            if !std::path::Path::new(&v.file)
+                .components()
+                .all(|c| matches!(c, std::path::Component::Normal(_)))
+            {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "invalid transcript path",
+                ));
+            }
             let path = self.session_dir.join(TRANSCRIPTS_DIR).join(&v.file);
-            let Ok(lines) = read_transcript_lines(&path) else {
-                continue;
-            };
+            let lines = crate::artifacts::transcript(&fs::read(&path)?)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
+            versions.push((path, lines));
+        }
+        for (path, lines) in versions {
             if !lines.iter().any(|l| l.speaker.as_deref() == Some(from)) {
                 continue;
             }
-            let tmp = path.with_extension("jsonl.tmp");
+            let mut bytes = Vec::new();
             {
-                let mut w = std::io::BufWriter::new(fs::File::create(&tmp)?);
+                let w = &mut bytes;
                 for mut l in lines {
                     if l.speaker.as_deref() == Some(from) {
                         l.speaker = Some(to.to_string());
                         total += 1;
                     }
-                    serde_json::to_writer(&mut w, &l)?;
-                    std::io::Write::write_all(&mut w, b"\n")?;
+                    serde_json::to_writer(&mut *w, &l)?;
+                    std::io::Write::write_all(w, b"\n")?;
                 }
-                std::io::Write::flush(&mut w)?;
             }
-            fs::rename(&tmp, &path)?;
+            crate::artifacts::atomic_write(&path, &bytes)
+                .map_err(|e| std::io::Error::other(e.to_string()))?;
         }
         Ok(total)
     }
@@ -382,6 +395,24 @@ mod tests {
         );
         store.commit(e.clone()).unwrap();
         e
+    }
+
+    #[test]
+    fn renaming_refuses_a_corrupt_version_before_rewriting_any_original() {
+        let dir = tempdir().unwrap();
+        let store = VersionStore::open(dir.path()).unwrap();
+        let good = write_version(&store, "raw");
+        let bad = write_version(&store, "refined");
+        let good_path = store.resolve(good.id).unwrap();
+        let bad_path = store.resolve(bad.id).unwrap();
+        let original =
+            br#"{"source_id":0,"start_sec":0,"end_sec":1,"text":"keep every word","speaker":"Old"}
+"#;
+        fs::write(&good_path, original).unwrap();
+        fs::write(&bad_path, b"broken line\n").unwrap();
+        assert!(store.relabel_speaker("Old", "New").is_err());
+        assert_eq!(fs::read(good_path).unwrap(), original);
+        assert_eq!(fs::read(bad_path).unwrap(), b"broken line\n");
     }
 
     /// A person's name changes in ALL versions at once. Otherwise he would stay «Иван» in

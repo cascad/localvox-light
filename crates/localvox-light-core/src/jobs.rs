@@ -53,6 +53,59 @@ pub enum JobKind {
     Ingest,
 }
 
+/// One session is owned by one phase at a time. Old queues start at Prepare.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum JobPhase {
+    #[default]
+    Prepare,
+    Transcribe,
+    Text,
+    Summary,
+}
+
+/// Increment when the daemon/worker phase contract becomes incompatible.
+pub const WORKER_PROTOCOL: &str = "localvox-worker/1";
+
+/// OS-backed ownership, held from claim through artifact acceptance. A missing heartbeat is not
+/// evidence that a worker died. API repairs use the same lock before invalidating its outputs.
+pub fn try_execution_lock(session: &Path) -> std::io::Result<Option<fs::File>> {
+    let file = fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(false)
+        .open(session.join(".worker.lock"))?;
+    match file.try_lock() {
+        Ok(()) => Ok(Some(file)),
+        Err(std::fs::TryLockError::WouldBlock) => Ok(None),
+        Err(std::fs::TryLockError::Error(e)) => Err(e),
+    }
+}
+
+impl JobPhase {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Prepare => "prepare",
+            Self::Transcribe => "transcribe",
+            Self::Text => "text",
+            Self::Summary => "summary",
+        }
+    }
+}
+
+impl std::str::FromStr for JobPhase {
+    type Err = String;
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "prepare" => Ok(Self::Prepare),
+            "transcribe" => Ok(Self::Transcribe),
+            "text" => Ok(Self::Text),
+            "summary" => Ok(Self::Summary),
+            _ => Err(format!("unknown worker phase: {value}")),
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Job {
     pub id: u64,
@@ -61,6 +114,8 @@ pub struct Job {
     /// `default` — old queues on disk have no such field, and they are all cooks.
     #[serde(default)]
     pub kind: JobKind,
+    #[serde(default)]
+    pub phase: JobPhase,
     pub summary: bool,
     pub cleanup: bool,
     /// Clean the transcript up with an LLM as a new best version (`--refine`).
@@ -69,6 +124,12 @@ pub struct Job {
     pub state: JobState,
     pub attempts: u32,
     pub created_at: String,
+    #[serde(default)]
+    pub enqueued_at: Option<String>,
+    #[serde(default)]
+    pub started_at: Option<String>,
+    #[serde(default)]
+    pub finished_at: Option<String>,
     #[serde(default)]
     pub last_error: Option<String>,
     /// The moment of the transition to `Failed` (unix seconds) — for reviving with
@@ -97,6 +158,67 @@ pub struct Job {
     pub force: bool,
 }
 
+/// The same prerequisite checks are used for reuse and for accepting a child result.
+/// No recipe comparison: a model update cannot silently invalidate completed work.
+pub fn verify_phase(session: &Path, job: &Job) -> anyhow::Result<()> {
+    use crate::processing::{self, ArtifactState};
+    if job.phase == JobPhase::Prepare {
+        if job.kind == JobKind::Cook
+            && processing::inspect(session, processing::TRANSCRIPT).complete()
+        {
+            return Ok(()); // retained transcript, audio may already have expired
+        }
+        crate::artifacts::audio(session)?;
+        return Ok(());
+    }
+    let empty = if matches!(job.phase, JobPhase::Text | JobPhase::Summary) {
+        let transcription = processing::inspect(session, processing::TRANSCRIPT);
+        if transcription.state == ArtifactState::Empty && transcription.source.is_none() {
+            true
+        } else {
+            let (_, lines) = crate::artifacts::source_transcript(session)?;
+            lines.iter().all(|line| line.text.trim().is_empty())
+        }
+    } else {
+        let transcription = processing::inspect(session, processing::TRANSCRIPT);
+        anyhow::ensure!(
+            transcription.complete(),
+            "transcript: {}",
+            transcription
+                .reason
+                .as_deref()
+                .unwrap_or("результат не подтверждён")
+        );
+        transcription.state == ArtifactState::Empty
+    };
+    let mut required = vec![];
+    match job.phase {
+        JobPhase::Transcribe => required.push(processing::TRANSCRIPT),
+        JobPhase::Text if !empty => {
+            if job.refine {
+                required.push(processing::REFINED);
+            }
+            if job.cleanup {
+                required.push(processing::PROCESSED);
+            }
+        }
+        JobPhase::Summary if !empty => required.push(processing::SUMMARY),
+        _ => {}
+    }
+    for artifact in required {
+        let result = processing::inspect(session, artifact);
+        anyhow::ensure!(
+            result.complete(),
+            "{artifact}: {}",
+            result
+                .reason
+                .as_deref()
+                .unwrap_or("результат не подтверждён")
+        );
+    }
+    Ok(())
+}
+
 #[derive(Serialize, Deserialize, Default)]
 struct QueueFile {
     next_id: u64,
@@ -106,6 +228,7 @@ struct QueueFile {
 pub struct JobQueue {
     path: PathBuf,
     file: QueueFile,
+    load_error: Option<String>,
 }
 
 impl JobQueue {
@@ -126,10 +249,18 @@ impl JobQueue {
     /// at startup, where that evidence exists.
     pub fn load(work_dir: &Path) -> Self {
         let path = work_dir.join("jobs.json");
-        let mut file: QueueFile = fs::read_to_string(&path)
-            .ok()
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default();
+        let loaded = match fs::read(&path) {
+            Ok(bytes) => serde_json::from_slice(&bytes).map_err(|e| e.to_string()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(QueueFile::default()),
+            Err(e) => Err(e.to_string()),
+        };
+        let (mut file, load_error) = match loaded {
+            Ok(file) => (file, None),
+            Err(e) => {
+                tracing::error!("jobs.json is unreadable; queue writes disabled: {e}");
+                (QueueFile::default(), Some(e))
+            }
+        };
         // Trimming the history: we cut only the SUCCESSFUL ones (Done). Pending are
         // active; Failed within a run is a tombstone for the attempt cap (do not lose it).
         const KEEP_DONE: usize = 500;
@@ -149,7 +280,11 @@ impl JobQueue {
                 }
             });
         }
-        Self { path, file }
+        Self {
+            path,
+            file,
+            load_error,
+        }
     }
 
     /// EVERY mutation of jobs.json goes through here, and this is not a nicety — it is the fix for a
@@ -180,20 +315,26 @@ impl JobQueue {
         f(&mut q)
     }
 
-    fn save(&self) {
-        let tmp = self.path.with_extension("json.tmp");
-        let write = fs::write(
-            &tmp,
-            serde_json::to_vec_pretty(&self.file).unwrap_or_default(),
-        )
-        .and_then(|()| fs::rename(&tmp, &self.path));
-        if let Err(e) = write {
-            tracing::warn!("jobs.json was not written: {e}");
+    fn save(&self) -> bool {
+        if self.load_error.is_some() {
+            return false;
         }
+        let result = serde_json::to_vec_pretty(&self.file)
+            .map_err(anyhow::Error::from)
+            .and_then(|bytes| crate::artifacts::atomic_write(&self.path, &bytes));
+        if let Err(e) = result {
+            tracing::error!("jobs.json: состояние не сохранено: {e:#}");
+            return false;
+        }
+        true
     }
 
     pub fn jobs(&self) -> &[Job] {
         &self.file.jobs
+    }
+
+    pub fn error(&self) -> Option<&str> {
+        self.load_error.as_deref()
     }
 
     /// The session was cooked by a stale recipe — put it back into the queue, even if
@@ -214,6 +355,10 @@ impl JobQueue {
         if !matches!(job.state, JobState::Done) {
             return false;
         }
+        job.phase = JobPhase::Prepare;
+        job.enqueued_at = Some(now_rfc3339());
+        job.started_at = None;
+        job.finished_at = None;
         job.state = JobState::Pending;
         job.attempts = 0;
         job.last_error = None;
@@ -221,8 +366,7 @@ impl JobQueue {
         job.summary = summary;
         job.cleanup = cleanup;
         job.refine = refine;
-        self.save();
-        true
+        self.save()
     }
 
     /// Force ONE session's stuck-`Running` job back to `Pending`. Used when a human re-cooks a cook
@@ -256,12 +400,22 @@ impl JobQueue {
         cleanup: bool,
         refine: bool,
     ) -> bool {
+        let phase = if cleanup || refine {
+            JobPhase::Text
+        } else {
+            JobPhase::Summary
+        };
         let Some(job) = self.file.jobs.iter_mut().find(|j| j.session == session) else {
-            return self.enqueue_cook(session, summary, cleanup, refine);
+            return self.enqueue_new(session, JobKind::Cook, phase, summary, cleanup, refine);
         };
         if matches!(job.state, JobState::Running) {
             return false;
         }
+        let previous = job.clone();
+        job.phase = phase;
+        job.enqueued_at = Some(now_rfc3339());
+        job.started_at = None;
+        job.finished_at = None;
         job.state = JobState::Pending;
         job.attempts = 0;
         job.last_error = None;
@@ -270,8 +424,18 @@ impl JobQueue {
         job.cleanup = cleanup;
         job.refine = refine;
         job.force = false;
-        self.save();
-        true
+        job.revivals = 0;
+        if self.save() {
+            true
+        } else {
+            *self
+                .file
+                .jobs
+                .iter_mut()
+                .find(|j| j.session == session)
+                .unwrap() = previous;
+            false
+        }
     }
 
     /// «This is bad — re-cook it». A human rejected the result: we throw the derived
@@ -292,6 +456,10 @@ impl JobQueue {
             if matches!(job.state, JobState::Running) {
                 return false;
             }
+            job.phase = JobPhase::Prepare;
+            job.enqueued_at = Some(now_rfc3339());
+            job.started_at = None;
+            job.finished_at = None;
             job.state = JobState::Pending;
             job.attempts = 0;
             job.last_error = None;
@@ -304,15 +472,14 @@ impl JobQueue {
             job.cleanup = cleanup;
             job.refine = refine;
             job.force = true;
-            self.save();
-            return true;
+            return self.save();
         }
         let queued = self.enqueue_cook(session, summary, cleanup, refine);
         if queued {
             if let Some(job) = self.file.jobs.last_mut() {
                 job.force = true;
             }
-            self.save();
+            return self.save();
         }
         queued
     }
@@ -336,6 +503,10 @@ impl JobQueue {
         if !matches!(job.state, JobState::Done) {
             return false; // already in flight — it will finish on its own
         }
+        job.phase = JobPhase::Prepare;
+        job.enqueued_at = Some(now_rfc3339());
+        job.started_at = None;
+        job.finished_at = None;
         job.state = JobState::Pending;
         job.attempts = 0;
         job.last_error = None;
@@ -343,8 +514,7 @@ impl JobQueue {
         job.summary = summary;
         job.cleanup = cleanup;
         job.refine = refine;
-        self.save();
-        true
+        self.save()
     }
 
     /// Queue a session for cooking. Dedup by session name: if a job for it already
@@ -357,6 +527,25 @@ impl JobQueue {
         cleanup: bool,
         refine: bool,
     ) -> bool {
+        self.enqueue_new(
+            session,
+            JobKind::Cook,
+            JobPhase::Prepare,
+            summary,
+            cleanup,
+            refine,
+        )
+    }
+
+    fn enqueue_new(
+        &mut self,
+        session: &str,
+        kind: JobKind,
+        phase: JobPhase,
+        summary: bool,
+        cleanup: bool,
+        refine: bool,
+    ) -> bool {
         if self.file.jobs.iter().any(|j| j.session == session) {
             return false;
         }
@@ -365,20 +554,29 @@ impl JobQueue {
         self.file.jobs.push(Job {
             id,
             session: session.to_string(),
-            kind: JobKind::Cook,
+            kind,
+            phase,
             summary,
             cleanup,
             refine,
             state: JobState::Pending,
             attempts: 0,
             created_at: now_rfc3339(),
+            enqueued_at: None,
+            started_at: None,
+            finished_at: None,
             last_error: None,
             failed_at: None,
             revivals: 0,
             force: false,
         });
-        self.save();
-        true
+        if self.save() {
+            true
+        } else {
+            self.file.jobs.pop();
+            self.file.next_id = id;
+            false
+        }
     }
 
     /// A link was given: the session exists but is EMPTY — the audio has yet to be fetched.
@@ -393,28 +591,14 @@ impl JobQueue {
         cleanup: bool,
         refine: bool,
     ) -> bool {
-        if self.file.jobs.iter().any(|j| j.session == session) {
-            return false;
-        }
-        let id = self.file.next_id;
-        self.file.next_id += 1;
-        self.file.jobs.push(Job {
-            id,
-            session: session.to_string(),
-            kind: JobKind::Ingest,
+        self.enqueue_new(
+            session,
+            JobKind::Ingest,
+            JobPhase::Prepare,
             summary,
             cleanup,
             refine,
-            state: JobState::Pending,
-            attempts: 0,
-            created_at: now_rfc3339(),
-            last_error: None,
-            failed_at: None,
-            revivals: 0,
-            force: false,
-        });
-        self.save();
-        true
+        )
     }
 
     /// Ids of all pending jobs (a snapshot taken at the start of the scheduler cycle):
@@ -446,13 +630,11 @@ impl JobQueue {
                 j.state = JobState::Pending;
                 j.force = false;
                 taken += 1;
-                // Reset the visible chain too, so it does not keep showing the corpse's «transcribe
-                // running» forever. We START A NEW RUN rather than marking «прервано»: the work is
-                // simply back in the queue and will be re-cooked — that is «в очереди», not a failure
-                // to wave a person at. No «оборвалось», no manual button — the daemon just redoes it.
+                // Keep completed events; close the interrupted attempt before resuming it.
                 let dir = work_dir.join("sessions").join(&j.session);
-                if crate::progress::interrupted_stage(&dir).is_some() {
-                    crate::progress::new_run(&dir);
+                if let Some(stage) = crate::progress::interrupted_stage(&dir) {
+                    crate::progress::mark(&dir, stage, crate::progress::StageState::Failed,
+                        Some("Процесс прерван; сохранённые результаты будут проверены перед продолжением"));
                 }
             }
         }
@@ -479,9 +661,14 @@ impl JobQueue {
             return None;
         }
         job.state = JobState::Running;
+        if job.started_at.is_none() {
+            job.started_at = Some(now_rfc3339());
+        }
         job.attempts += 1;
         let claimed = job.clone();
-        self.save();
+        if !self.save() {
+            return None;
+        }
         Some(claimed)
     }
 
@@ -496,9 +683,91 @@ impl JobQueue {
         self.start(id)
     }
 
+    /// A worker takes only phases assigned to its resource lane.
+    pub fn pending_for(&self, phases: &[JobPhase]) -> Vec<u64> {
+        self.file
+            .jobs
+            .iter()
+            .filter(|j| j.state == JobState::Pending && phases.contains(&j.phase))
+            .map(|j| j.id)
+            .collect()
+    }
+
+    pub fn start_phase(&mut self, id: u64, phases: &[JobPhase]) -> Option<Job> {
+        if !self
+            .file
+            .jobs
+            .iter()
+            .any(|j| j.id == id && phases.contains(&j.phase))
+        {
+            return None;
+        }
+        self.start(id)
+    }
+
+    /// Commit one completed phase. A retry never repeats earlier successful phases.
+    pub fn finish_phase(&mut self, id: u64, phase: JobPhase) -> anyhow::Result<()> {
+        let job = self
+            .file
+            .jobs
+            .iter()
+            .find(|j| j.id == id)
+            .ok_or_else(|| anyhow::anyhow!("задание не найдено"))?;
+        anyhow::ensure!(
+            job.state == JobState::Running && job.phase == phase,
+            "фаза задания уже изменилась"
+        );
+        let session = self
+            .path
+            .parent()
+            .unwrap_or(Path::new("."))
+            .join("sessions")
+            .join(&job.session);
+        verify_phase(&session, job)?;
+        let previous = job.clone();
+        self.advance_phase(id, phase);
+        if !self.save() {
+            if let Some(job) = self.file.jobs.iter_mut().find(|j| j.id == id) {
+                *job = previous;
+            }
+            anyhow::bail!("не удалось сохранить подтверждение фазы в jobs.json");
+        }
+        Ok(())
+    }
+
+    fn advance_phase(&mut self, id: u64, phase: JobPhase) {
+        let Some(j) = self.file.jobs.iter_mut().find(|j| j.id == id) else {
+            return;
+        };
+        if j.state != JobState::Running || j.phase != phase {
+            return;
+        }
+        let next = match phase {
+            JobPhase::Prepare => Some(JobPhase::Transcribe),
+            JobPhase::Transcribe if j.refine || j.cleanup => Some(JobPhase::Text),
+            JobPhase::Transcribe | JobPhase::Text if j.summary => Some(JobPhase::Summary),
+            _ => None,
+        };
+        if phase == JobPhase::Transcribe {
+            j.force = false;
+        }
+        j.last_error = None;
+        j.failed_at = None;
+        if let Some(next) = next {
+            j.phase = next;
+            j.state = JobState::Pending;
+            j.attempts = 0;
+        } else {
+            j.state = JobState::Done;
+            j.finished_at = Some(now_rfc3339());
+            j.force = false;
+        }
+    }
+
     pub fn mark_done(&mut self, id: u64) {
         if let Some(j) = self.file.jobs.iter_mut().find(|j| j.id == id) {
             j.state = JobState::Done;
+            j.finished_at = Some(now_rfc3339());
             j.last_error = None;
             // The re-cook has done its work — we drop force. Otherwise the flag would
             // stay forever and any subsequent revival of the job would cook the session
@@ -557,7 +826,11 @@ impl JobQueue {
             alive
         });
         if self.file.jobs.len() != before {
-            tracing::info!("queue: dropped {} job(s) — session gone: {}", gone.len(), gone.join(", "));
+            tracing::info!(
+                "queue: dropped {} job(s) — session gone: {}",
+                gone.len(),
+                gone.join(", ")
+            );
             self.save();
         }
         before - self.file.jobs.len()
@@ -570,6 +843,7 @@ impl JobQueue {
             j.last_error = Some(err.to_string());
             j.state = if j.attempts >= max_attempts {
                 j.failed_at = Some(unix_now());
+                j.finished_at = Some(now_rfc3339());
                 JobState::Failed
             } else {
                 JobState::Pending
@@ -607,6 +881,7 @@ impl JobQueue {
             j.state = JobState::Pending;
             j.attempts = 0;
             j.failed_at = None;
+            j.finished_at = None;
             j.revivals += 1;
             revived += 1;
         }
@@ -914,7 +1189,19 @@ fn needs_cook(session_dir: &Path, quiescent_secs: u64) -> bool {
         .ok()
         .and_then(|s| s.best())
         .is_some();
-    !cooked
+    if !cooked {
+        return true;
+    }
+    let log = crate::processing::load(session_dir);
+    if log.artifacts.contains_key(crate::processing::TRANSCRIPT) {
+        return !crate::processing::is_done(session_dir, crate::processing::TRANSCRIPT);
+    }
+    // Legacy archive: a registered, parseable version is reusable, regardless of model settings.
+    !VersionStore::open(session_dir)
+        .ok()
+        .and_then(|s| s.best().and_then(|v| s.resolve(v.id)))
+        .and_then(|p| fs::read(p).ok())
+        .is_some_and(|b| crate::artifacts::transcript(&b).is_ok())
 }
 
 /// The recipe this session MUST be cooked by: the default parameters plus its language.
@@ -960,12 +1247,174 @@ fn newest_wav_mtime(audio_dir: &Path) -> Option<SystemTime> {
 #[cfg(test)]
 mod tests {
 
+    #[test]
+    fn failed_new_enqueue_rolls_back_memory_and_does_not_consume_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut queue = JobQueue::load(dir.path());
+        assert!(queue.error().is_none());
+        // The queue loaded successfully; publication fails afterwards.
+        std::fs::create_dir(dir.path().join("jobs.json")).unwrap();
+        assert!(!queue.enqueue_ingest("source", true, true, true));
+        assert!(queue.jobs().is_empty());
+        std::fs::remove_dir(dir.path().join("jobs.json")).unwrap();
+        assert!(queue.enqueue_ingest("source", true, true, true));
+        let reloaded = JobQueue::load(dir.path());
+        assert_eq!(reloaded.jobs().len(), 1);
+        assert_eq!(reloaded.jobs()[0].id, 0);
+    }
+
+    #[test]
+    fn process_exit_cannot_finish_a_phase_without_verified_artifacts() {
+        use crate::processing::{self, Outcome};
+        let dir = tempfile::tempdir().unwrap();
+        let session = dir.path().join("sessions/a");
+        fs::create_dir_all(&session).unwrap();
+        let mut q = JobQueue::load(dir.path());
+        q.enqueue_cook("a", false, false, false);
+        q.start(0).unwrap();
+        assert!(q.finish_phase(0, JobPhase::Prepare).is_err());
+        assert_eq!(q.jobs()[0].phase, JobPhase::Prepare);
+        let output = crate::artifacts::tests::fixture(&session);
+        processing::record(
+            &session,
+            processing::TRANSCRIPT,
+            "fixture",
+            Outcome::Ok,
+            None,
+            Some(1),
+        )
+        .unwrap();
+        q.finish_phase(0, JobPhase::Prepare).unwrap();
+        q.start_phase(0, &[JobPhase::Transcribe]).unwrap();
+        fs::remove_file(output).unwrap();
+        assert!(q.finish_phase(0, JobPhase::Transcribe).is_err());
+        let loaded = JobQueue::load(dir.path());
+        assert_eq!(loaded.jobs()[0].phase, JobPhase::Transcribe);
+        assert_eq!(loaded.jobs()[0].state, JobState::Running);
+    }
+
+    #[test]
+    fn corrupted_queue_cannot_be_overwritten_or_claimed() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("jobs.json"), "{broken").unwrap();
+        let mut q = JobQueue::load(dir.path());
+        assert!(!q.enqueue_cook("a", false, false, false));
+        assert!(q.start(0).is_none());
+        assert_eq!(
+            fs::read_to_string(dir.path().join("jobs.json")).unwrap(),
+            "{broken"
+        );
+    }
+
+    #[test]
+    fn failed_queue_commit_keeps_the_current_phase() {
+        let dir = tempfile::tempdir().unwrap();
+        let session = dir.path().join("sessions/a");
+        crate::artifacts::tests::fixture(&session);
+        crate::processing::record(
+            &session,
+            crate::processing::TRANSCRIPT,
+            "fixture",
+            crate::processing::Outcome::Ok,
+            None,
+            Some(1),
+        )
+        .unwrap();
+        let mut q = JobQueue::load(dir.path());
+        q.enqueue_cook("a", true, true, false);
+        q.start(0).unwrap();
+        fs::remove_file(dir.path().join("jobs.json")).unwrap();
+        fs::create_dir(dir.path().join("jobs.json")).unwrap(); // deterministic publication failure
+        assert!(q.finish_phase(0, JobPhase::Prepare).is_err());
+        assert_eq!(q.jobs()[0].phase, JobPhase::Prepare);
+        assert_eq!(q.jobs()[0].state, JobState::Running);
+    }
+
+    #[test]
+    fn pipeline_overlaps_sessions_but_never_claims_one_twice() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut q = JobQueue::load(dir.path());
+        q.enqueue_cook("a", true, true, true);
+        q.enqueue_cook("b", true, true, true);
+        let a = q.start_phase(0, &[JobPhase::Prepare]).unwrap();
+        assert!(q.start_phase(a.id, &[JobPhase::Prepare]).is_none());
+        q.advance_phase(a.id, JobPhase::Prepare);
+        let b = q.start_phase(1, &[JobPhase::Prepare]).unwrap();
+        assert!(q.start_phase(a.id, &[JobPhase::Summary]).is_none());
+        q.start_phase(a.id, &[JobPhase::Transcribe]).unwrap();
+        q.advance_phase(a.id, JobPhase::Transcribe);
+        q.advance_phase(b.id, JobPhase::Prepare);
+        q.start_phase(a.id, &[JobPhase::Text]).unwrap();
+        q.start_phase(b.id, &[JobPhase::Transcribe]).unwrap();
+        assert_eq!(
+            q.jobs()
+                .iter()
+                .filter(|j| j.state == JobState::Running)
+                .count(),
+            2
+        );
+        q.mark_failed(a.id, "temporary", 3);
+        let mut q = JobQueue::load(dir.path());
+        assert_eq!(q.start_phase(a.id, &[JobPhase::Text]).unwrap().attempts, 2);
+        q.advance_phase(a.id, JobPhase::Text);
+        q.start_phase(a.id, &[JobPhase::Summary]).unwrap();
+        q.advance_phase(a.id, JobPhase::Summary);
+        assert_eq!(q.jobs()[0].state, JobState::Done);
+    }
+
+    #[test]
+    fn summary_recovery_preserves_phase_and_rejects_stale_completion() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("sessions/a")).unwrap();
+        let mut q = JobQueue::load(dir.path());
+        q.enqueue_recook("a", true, false, false);
+        q.start(0).unwrap();
+        q.advance_phase(0, JobPhase::Prepare);
+        q.start(0).unwrap();
+        q.advance_phase(0, JobPhase::Transcribe);
+        assert!(!q.jobs()[0].force);
+        q.start_phase(0, &[JobPhase::Summary]).unwrap();
+        q.advance_phase(0, JobPhase::Text); // stale/wrong phase cannot complete this job
+        assert_eq!(q.jobs()[0].state, JobState::Running);
+        let mut q = JobQueue::load(dir.path());
+        q.reclaim_abandoned(dir.path());
+        assert_eq!(q.jobs()[0].phase, JobPhase::Summary);
+        assert!(q.pending_for(&[JobPhase::Transcribe]).is_empty());
+        q.start_phase(0, &[JobPhase::Summary]).unwrap();
+        q.advance_phase(0, JobPhase::Summary);
+        assert_eq!(q.jobs()[0].state, JobState::Done);
+    }
+
+    #[test]
+    fn old_queues_start_at_prepare_and_recook_resets_the_phase() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut q = JobQueue::load(dir.path());
+        q.enqueue_cook("a", false, false, false);
+        let mut old = serde_json::to_value(&q.jobs()[0]).unwrap();
+        old.as_object_mut().unwrap().remove("phase");
+        assert_eq!(
+            serde_json::from_value::<Job>(old).unwrap().phase,
+            JobPhase::Prepare
+        );
+        q.start(0).unwrap();
+        q.advance_phase(0, JobPhase::Prepare);
+        q.start(0).unwrap();
+        q.advance_phase(0, JobPhase::Transcribe);
+        assert_eq!(q.jobs()[0].state, JobState::Done);
+        q.enqueue_recook("a", true, true, true);
+        assert_eq!(q.jobs()[0].phase, JobPhase::Prepare);
+        assert!(q.jobs()[0].force);
+    }
+
     /// The request is taken EXACTLY ONCE — otherwise the engine would restart the recording
     /// on every frame for as long as the file lies there.
     #[test]
     fn a_start_request_is_taken_exactly_once() {
         let d = tempfile::tempdir().unwrap();
-        assert!(take_record_start(d.path()).is_none(), "there was no request");
+        assert!(
+            take_record_start(d.path()).is_none(),
+            "there was no request"
+        );
 
         request_record_start(d.path(), "  Планёрка  ").unwrap();
         assert_eq!(take_record_start(d.path()).as_deref(), Some("Планёрка"));
@@ -992,7 +1441,10 @@ mod tests {
         assert!(take_record_stop(d.path()).is_none());
         request_record_stop(d.path(), "тишина 15 мин").unwrap();
         assert_eq!(take_record_stop(d.path()).as_deref(), Some("тишина 15 мин"));
-        assert!(take_record_stop(d.path()).is_none(), "the request fired twice");
+        assert!(
+            take_record_stop(d.path()).is_none(),
+            "the request fired twice"
+        );
     }
 
     use super::*;
@@ -1010,7 +1462,9 @@ mod tests {
             .map(|i| {
                 let root = root.clone();
                 std::thread::spawn(move || {
-                    JobQueue::mutate(&root, |q| q.enqueue_ingest(&format!("s{i:03}"), true, true, true));
+                    JobQueue::mutate(&root, |q| {
+                        q.enqueue_ingest(&format!("s{i:03}"), true, true, true)
+                    });
                 })
             })
             .collect();
@@ -1128,7 +1582,11 @@ mod tests {
         // The revival must not bring back what is gone — there is nothing left for it to find.
         q.revive_failed(std::time::Duration::from_secs(0));
         let after: Vec<&str> = q.jobs().iter().map(|j| j.session.as_str()).collect();
-        assert_eq!(after, vec!["alive"], "a deleted session came back through revive_failed");
+        assert_eq!(
+            after,
+            vec!["alive"],
+            "a deleted session came back through revive_failed"
+        );
     }
 
     /// A session that IS there keeps its work — the sweep must not become a queue-emptier.
@@ -1169,7 +1627,10 @@ mod tests {
         }
         // And it is not handed out for work.
         let mut q = JobQueue::load(dir.path());
-        assert!(q.claim_next().is_none(), "a failed job was handed out again");
+        assert!(
+            q.claim_next().is_none(),
+            "a failed job was handed out again"
+        );
     }
 
     /// A process that crashes mid-cook IS replayed — that is the at-least-once guarantee, and it
@@ -1186,7 +1647,11 @@ mod tests {
         }
         let mut q = JobQueue::load(dir.path());
         assert_eq!(q.reclaim_abandoned(dir.path()), 1);
-        assert_eq!(q.jobs()[0].state, JobState::Pending, "the crashed cook was lost");
+        assert_eq!(
+            q.jobs()[0].state,
+            JobState::Pending,
+            "the crashed cook was lost"
+        );
         assert!(q.claim_next().is_some());
     }
 
@@ -1200,11 +1665,14 @@ mod tests {
         q.enqueue_cook("s1", true, true, true);
         q.enqueue_cook("s2", true, true, true);
         q.claim_next().unwrap(); // s1 → Running (the "stuck" one)
-        // enqueue_recook refuses it while Running…
+                                 // enqueue_recook refuses it while Running…
         assert!(!q.enqueue_recook("s1", true, true, true));
         // …reclaim frees exactly s1…
         assert!(q.reclaim_session("s1"));
-        assert!(!q.reclaim_session("s2"), "s2 is Pending, not Running — untouched");
+        assert!(
+            !q.reclaim_session("s2"),
+            "s2 is Pending, not Running — untouched"
+        );
         // …and now the re-cook goes through, forced.
         assert!(q.enqueue_recook("s1", true, true, true));
         assert!(q.jobs().iter().find(|j| j.session == "s1").unwrap().force);
@@ -1222,9 +1690,15 @@ mod tests {
         assert!(q.requeue_derivatives("s1", true, false, false));
         assert_eq!(q.jobs()[0].state, JobState::Pending);
         // Second scoped re-cook while still Pending: must succeed and update the flags, not bail.
-        assert!(q.requeue_derivatives("s1", true, true, false), "a pending job blocked the re-cook");
+        assert!(
+            q.requeue_derivatives("s1", true, true, false),
+            "a pending job blocked the re-cook"
+        );
         assert!(q.jobs()[0].cleanup, "the new flags did not take");
-        assert!(!q.jobs()[0].force, "a scoped re-cook must not force a re-transcribe");
+        assert!(
+            !q.jobs()[0].force,
+            "a scoped re-cook must not force a re-transcribe"
+        );
         // But a job cooking RIGHT NOW is left alone.
         q.claim_next().unwrap(); // → Running
         assert!(!q.requeue_derivatives("s1", true, true, false));
@@ -1290,7 +1764,11 @@ mod tests {
         let mut q = JobQueue::load(dir.path());
         q.mark_done(claimed.id);
         assert_eq!(q.jobs()[0].state, JobState::Done);
-        assert_eq!(q.jobs()[0].attempts, 1, "the job was started more than once");
+        assert_eq!(
+            q.jobs()[0].attempts,
+            1,
+            "the job was started more than once"
+        );
     }
 
     /// «ПЕРЕВАРИТЬ» — ОДНО СЛОВО, ОДНА ПЕРЕВАРКА.
@@ -1311,7 +1789,10 @@ mod tests {
         // The human rejects the result.
         assert!(q.enqueue_recook("s1", true, true, true));
         let job = q.claim_next().unwrap();
-        assert!(job.force, "the recook did not force — the test proves nothing");
+        assert!(
+            job.force,
+            "the recook did not force — the test proves nothing"
+        );
 
         // The daemon is killed mid-cook: the job stays Running, exactly as the shutdown path
         // leaves it.
@@ -1350,10 +1831,16 @@ mod tests {
                 break; // the budget is spent: it settled
             }
             rounds += 1;
-            assert!(rounds <= MAX_REVIVALS + 1, "the queue is a perpetual motion machine");
+            assert!(
+                rounds <= MAX_REVIVALS + 1,
+                "the queue is a perpetual motion machine"
+            );
         }
 
-        assert_eq!(rounds, MAX_REVIVALS, "the revival budget is not what it claims");
+        assert_eq!(
+            rounds, MAX_REVIVALS,
+            "the revival budget is not what it claims"
+        );
         assert_eq!(q.jobs()[0].state, JobState::Failed);
         assert_eq!(q.jobs()[0].revivals, MAX_REVIVALS);
         // From here on, nothing revives it — not a reload, not another hour, not ever.
@@ -1404,11 +1891,22 @@ mod tests {
             q.revive_failed(std::time::Duration::ZERO);
         }
         assert_eq!(q.jobs()[0].state, JobState::Failed);
-        assert_eq!(q.revive_failed(std::time::Duration::ZERO), 0, "budget must be spent");
+        assert_eq!(
+            q.revive_failed(std::time::Duration::ZERO),
+            0,
+            "budget must be spent"
+        );
 
-        assert!(q.enqueue_recook("s1", true, true, true), "the human's re-cook was refused");
+        assert!(
+            q.enqueue_recook("s1", true, true, true),
+            "the human's re-cook was refused"
+        );
         assert_eq!(q.jobs()[0].state, JobState::Pending);
-        assert_eq!(q.jobs()[0].revivals, 0, "the button did not buy a fresh budget");
+        assert_eq!(
+            q.jobs()[0].revivals,
+            0,
+            "the button did not buy a fresh budget"
+        );
         assert!(q.claim_next().is_some(), "the re-cook was not handed out");
     }
 
@@ -1455,7 +1953,11 @@ mod tests {
         let cook = |session: &std::path::Path, recipe: String| {
             let store = VersionStore::open(session).unwrap();
             let (id, path) = store.next_version("gigaam-int8").unwrap();
-            fs::write(&path, b"{}\n").unwrap();
+            fs::write(
+                &path,
+                b"{\"source_id\":0,\"start_sec\":0,\"end_sec\":1,\"text\":\"hello\"}\n",
+            )
+            .unwrap();
             store
                 .commit(VersionEntry {
                     id,
@@ -1470,14 +1972,21 @@ mod tests {
         };
 
         // Cooked by an ancient recipe (180/150 s windows, no diarization).
-        cook(&mk("stale"), cook_recipe("gigaam-int8", 180.0, 150.0, 500, false));
+        cook(
+            &mk("stale"),
+            cook_recipe("gigaam-int8", 180.0, 150.0, 500, false),
+        );
         // Cooked by today's recipe.
         cook(&mk("fresh"), default_cook_recipe());
         // Cooked before recipes existed at all — no recipe field.
         let old = mk("no-recipe");
         let store = VersionStore::open(&old).unwrap();
         let (id, path) = store.next_version("gigaam-int8").unwrap();
-        fs::write(&path, b"{}\n").unwrap();
+        fs::write(
+            &path,
+            b"{\"source_id\":0,\"start_sec\":0,\"end_sec\":1,\"text\":\"hello\"}\n",
+        )
+        .unwrap();
         store
             .commit(VersionEntry {
                 id,
@@ -1506,17 +2015,25 @@ mod tests {
     fn an_uncooked_session_is_still_work_and_a_human_recook_still_forces() {
         let dir = tempdir().unwrap();
         let mut q = JobQueue::load(dir.path());
-        assert!(q.enqueue_cook("s1", true, true, true), "new work was not queued");
+        assert!(
+            q.enqueue_cook("s1", true, true, true),
+            "new work was not queued"
+        );
         let j = q.claim_next().unwrap();
         q.mark_done(j.id);
         // Automatic discovery never touches it again…
-        assert!(!q.enqueue_cook("s1", true, true, true), "a done session was queued again");
+        assert!(
+            !q.enqueue_cook("s1", true, true, true),
+            "a done session was queued again"
+        );
         // …but the human's button does, and it forces.
         assert!(q.enqueue_recook("s1", true, true, true));
         assert_eq!(q.jobs()[0].state, JobState::Pending);
-        assert!(q.jobs()[0].force, "the re-cook must force past the «already cooked» skip");
+        assert!(
+            q.jobs()[0].force,
+            "the re-cook must force past the «already cooked» skip"
+        );
     }
-
 
     /// «This is bad — re-cook it»: a human rejected the result. The job goes back into
     /// the queue with `force`, so that the cook does not skip the session by recipe.
@@ -1617,9 +2134,10 @@ mod tests {
             processing::SUMMARY,
             &processing::llm_recipe(processing::SUMMARY, "ru", "qwen3.5:9b"),
             Outcome::Nothing,
-            None,
-            None,
-        );
+            Some("no meaningful speech".into()),
+            Some(id),
+        )
+        .unwrap();
         assert!(
             sessions_needing_artifacts(dir.path(), &want).is_empty(),
             "an endless loop: we demand a summary from a session there is nothing to make it from"
@@ -1700,6 +2218,15 @@ mod tests {
             "discovery does not even see this session — the test would prove nothing"
         );
 
+        fs::write(session.join("summary.md"), "A real summary").unwrap();
+        crate::readable::save(
+            &session,
+            &crate::readable::Readable {
+                version_id: id,
+                ..Default::default()
+            },
+        )
+        .unwrap();
         // Both documents made, by the current recipes. One of them carries a doubt mark — an
         // `Unverified` artifact is FINISHED work too, and it must not drag the session back into
         // the queue for ever.
@@ -1709,16 +2236,18 @@ mod tests {
             &processing::llm_recipe(processing::SUMMARY, "ru", "qwen3.5:9b"),
             Outcome::Unverified,
             Some("имена/названия: сергей".into()),
-            None,
-        );
+            Some(id),
+        )
+        .unwrap();
         processing::record(
             &session,
             processing::PROCESSED,
             &processing::llm_recipe(processing::PROCESSED, "ru", "qwen3.5:9b"),
             Outcome::Ok,
             None,
-            None,
-        );
+            Some(id),
+        )
+        .unwrap();
 
         // Fifty launches. Nothing is cooked, nothing is queued, nothing is handed out.
         for run in 1..=50 {
@@ -1824,6 +2353,7 @@ mod tests {
             .unwrap();
 
         let want = Wanted::new(true, false, None, "qwen3.5:9b");
+        fs::write(session.join("summary.md"), "A real summary").unwrap();
         // we made a summary in the default language
         processing::record(
             &session,
@@ -1831,8 +2361,9 @@ mod tests {
             &processing::llm_recipe(processing::SUMMARY, crate::lang::DEFAULT, "qwen3.5:9b"),
             Outcome::Ok,
             None,
-            None,
-        );
+            Some(id),
+        )
+        .unwrap();
         assert!(sessions_needing_artifacts(dir.path(), &want).is_empty());
 
         // The human says: the recording is not in that language. The LEDGER still says the summary
@@ -1936,6 +2467,9 @@ mod tests {
             JobState::Failed,
             "a reload resurrected the failure — this is the churn the owner lived with"
         );
-        assert!(q.claim_next().is_none(), "a failed job was handed out by a mere reload");
+        assert!(
+            q.claim_next().is_none(),
+            "a failed job was handed out by a mere reload"
+        );
     }
 }

@@ -10,13 +10,10 @@
 //! Here the fact is stored EXPLICITLY: «we did X with recipe Y, the result was Z, at such
 //! and such a time». Hence:
 //!
-//! * **no record** → it has to be done;
-//! * **a record with a DIFFERENT recipe** (the model changed, the template, the prompt
-//!   version, the cook parameters) → it has to be redone;
-//! * **a record with the same recipe**, whatever it ended with (done / nothing to do /
-//!   unverified) → do not touch it. An endless loop is impossible by construction, not by
-//!   vigilance.
-//! * **`failed`** → retry, but at the pace of the queue (backoff), not head-on.
+//! * No record, a missing/changed output or failed validation means unfinished work.
+//! * A valid result (including an explicit empty result) is reused across restarts.
+//! * Recipe/model changes are provenance, not permission to rebuild the archive.
+//! * Failed work retries on the queue's bounded budget; it never becomes done by exit code.
 //!
 //! Why a file in the session directory and not a shared DB: everything about a session
 //! lives in its directory — it can be copied to another machine and it is self-contained
@@ -28,6 +25,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
 const FILE: &str = "processing.json";
@@ -91,6 +89,8 @@ pub struct Record {
     /// punishing a human for our own mistake in the check.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub receipt: Option<crate::artifacts::Receipt>,
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -174,8 +174,20 @@ pub fn record(
     outcome: Outcome,
     detail: Option<String>,
     source: Option<u32>,
-) {
-    let mut log = load(session_dir);
+) -> Result<()> {
+    let _lock = lock(session_dir)?;
+    let receipt = if outcome == Outcome::Failed {
+        None
+    } else {
+        Some(crate::artifacts::capture(
+            session_dir,
+            artifact,
+            outcome,
+            source,
+            detail.as_deref(),
+        )?)
+    };
+    let mut log = load_strict(session_dir)?;
     log.artifacts.insert(
         artifact.to_string(),
         Record {
@@ -184,16 +196,111 @@ pub fn record(
             at: crate::versions::now_rfc3339(),
             detail,
             source,
+            receipt,
         },
     );
-    let p = path(session_dir);
-    let tmp = p.with_extension("json.tmp");
-    let write = serde_json::to_vec_pretty(&log)
-        .map_err(std::io::Error::other)
-        .and_then(|b| fs::write(&tmp, b))
-        .and_then(|()| fs::rename(&tmp, &p));
-    if let Err(e) = write {
-        tracing::warn!("processing.json was not written: {e}");
+    write_log_checked(session_dir, &log)
+}
+
+fn lock(session_dir: &Path) -> Result<fs::File> {
+    let lock = fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(false)
+        .open(session_dir.join(".processing.lock"))?;
+    lock.lock().context("блокировка журнала обработки")?;
+    Ok(lock)
+}
+
+pub(crate) fn load_strict(session_dir: &Path) -> Result<ProcessingLog> {
+    match fs::read(path(session_dir)) {
+        Ok(bytes) => Ok(serde_json::from_slice(&bytes)
+            .context("повреждён processing.json; журнал не перезаписан")?),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(ProcessingLog::default()),
+        Err(e) => Err(e.into()),
+    }
+}
+
+fn write_log_checked(session_dir: &Path, log: &ProcessingLog) -> Result<()> {
+    crate::artifacts::atomic_write(&path(session_dir), &serde_json::to_vec_pretty(log)?)
+}
+
+#[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ArtifactState {
+    Ready,
+    Empty,
+    Missing,
+    Failed,
+    Invalid,
+}
+
+#[derive(Serialize, Clone, Debug)]
+pub struct ArtifactStatus {
+    pub state: ArtifactState,
+    pub reason: Option<String>,
+    pub receipt: Option<crate::artifacts::Receipt>,
+    pub at: Option<String>,
+    pub source: Option<u32>,
+    /// Legacy records have no saved hashes: only their current structure can be checked.
+    pub recorded_checksums: bool,
+}
+
+impl ArtifactStatus {
+    pub fn complete(&self) -> bool {
+        matches!(self.state, ArtifactState::Ready | ArtifactState::Empty)
+    }
+}
+
+/// One read model for the worker and the UI. Legacy receipts are accepted only after
+/// validating their actual files and source version; no recipe drift triggers a rebuild.
+pub fn inspect(session_dir: &Path, artifact: &str) -> ArtifactStatus {
+    let invalid = |reason| ArtifactStatus {
+        state: ArtifactState::Invalid,
+        reason: Some(reason),
+        receipt: None,
+        at: None,
+        source: None,
+        recorded_checksums: false,
+    };
+    let log = match load_strict(session_dir) {
+        Ok(l) => l,
+        Err(e) => return invalid(format!("{e:#}")),
+    };
+    let Some(record) = log.artifacts.get(artifact) else {
+        return ArtifactStatus {
+            state: ArtifactState::Missing,
+            reason: Some("нет подтверждения результата".into()),
+            receipt: None,
+            at: None,
+            source: None,
+            recorded_checksums: false,
+        };
+    };
+    if record.outcome == Outcome::Failed {
+        return ArtifactStatus {
+            state: ArtifactState::Failed,
+            reason: record.detail.clone(),
+            receipt: None,
+            at: Some(record.at.clone()),
+            source: record.source,
+            recorded_checksums: false,
+        };
+    }
+    match crate::artifacts::verify(session_dir, artifact, record) {
+        Ok(receipt) => ArtifactStatus {
+            state: if record.outcome == Outcome::Nothing {
+                ArtifactState::Empty
+            } else {
+                ArtifactState::Ready
+            },
+            reason: record.detail.clone(),
+            receipt: Some(receipt),
+            at: Some(record.at.clone()),
+            source: record.source,
+            recorded_checksums: record.receipt.is_some(),
+        },
+        Err(e) => invalid(format!("{e:#}")),
     }
 }
 
@@ -204,22 +311,20 @@ pub fn record(
 /// leaving «made with this recipe» in the log means lying to discovery: it will see the
 /// record, decide the work is finished, and the summary will never come back.
 pub fn forget(session_dir: &Path, artifacts: &[&str]) {
-    let mut log = load(session_dir);
-    let mut changed = false;
-    for a in artifacts {
-        changed |= log.artifacts.remove(*a).is_some();
-    }
-    if !changed {
-        return;
-    }
-    let p = path(session_dir);
-    let tmp = p.with_extension("json.tmp");
-    let write = serde_json::to_vec_pretty(&log)
-        .map_err(std::io::Error::other)
-        .and_then(|b| fs::write(&tmp, b))
-        .and_then(|()| fs::rename(&tmp, &p));
-    if let Err(e) = write {
-        tracing::warn!("processing.json was not written: {e}");
+    let result = (|| -> Result<()> {
+        let _lock = lock(session_dir)?;
+        let mut log = load_strict(session_dir)?;
+        let mut changed = false;
+        for a in artifacts {
+            changed |= log.artifacts.remove(*a).is_some();
+        }
+        if changed {
+            write_log_checked(session_dir, &log)?;
+        }
+        Ok(())
+    })();
+    if let Err(e) = result {
+        tracing::error!("processing.json: {e:#}");
     }
 }
 
@@ -236,7 +341,9 @@ pub fn forget(session_dir: &Path, artifacts: &[&str]) {
 /// real one goes unnoticed too.
 pub fn doubts(session_dir: &Path, artifact: &str) -> Option<String> {
     let r = load(session_dir).artifacts.get(artifact).cloned()?;
-    (r.outcome == Outcome::Unverified).then_some(r.detail).flatten()
+    (r.outcome == Outcome::Unverified)
+        .then_some(r.detail)
+        .flatten()
 }
 
 /// «It is fine» — the antonym of «re-cook».
@@ -247,37 +354,34 @@ pub fn doubts(session_dir: &Path, artifact: &str) -> Option<String> {
 /// loud). The person has read the document and can listen to the recording — the machine
 /// cannot. His verdict outweighs and is REMEMBERED.
 pub fn confirm(session_dir: &Path, artifact: &str) -> bool {
-    let mut log = load(session_dir);
-    let Some(r) = log.artifacts.get_mut(artifact) else {
-        return false;
-    };
-    if r.outcome != Outcome::Unverified {
-        return false; // there was nothing to confirm
-    }
-    r.outcome = Outcome::Confirmed;
-    r.detail = Some("confirmed by the human".into());
-    r.at = crate::versions::now_rfc3339();
-    write_log(session_dir, &log);
-    true
-}
-
-/// Atomic write of the ledger (tmp + rename).
-fn write_log(session_dir: &Path, log: &ProcessingLog) {
-    let p = path(session_dir);
-    let tmp = p.with_extension("json.tmp");
-    let write = serde_json::to_vec_pretty(log)
-        .map_err(std::io::Error::other)
-        .and_then(|b| fs::write(&tmp, b))
-        .and_then(|()| fs::rename(&tmp, &p));
-    if let Err(e) = write {
-        tracing::warn!("processing.json was not written: {e}");
+    let result = (|| -> Result<bool> {
+        let _lock = lock(session_dir)?;
+        let mut log = load_strict(session_dir)?;
+        let Some(r) = log.artifacts.get_mut(artifact) else {
+            return Ok(false);
+        };
+        if r.outcome != Outcome::Unverified {
+            return Ok(false);
+        }
+        crate::artifacts::verify(session_dir, artifact, r)?;
+        r.outcome = Outcome::Confirmed;
+        r.detail = Some("confirmed by the human".into());
+        write_log_checked(session_dir, &log)?;
+        Ok(true)
+    })();
+    match result {
+        Ok(ok) => ok,
+        Err(e) => {
+            tracing::error!("processing.json: {e:#}");
+            false
+        }
     }
 }
 
 /// IS THIS DOCUMENT MADE? The whole question, and nothing else.
 ///
 /// The ledger is the materialisation of a finished job, and it is the only thing that answers
-/// this. Not the recipe it was made by, not the files on disk, not a timestamp — the record.
+/// this together with validated files and their source version. Events alone prove nothing.
 ///
 /// Any outcome except `Failed` is finished work:
 ///   * `Ok` — made;
@@ -293,17 +397,14 @@ fn write_log(session_dir: &Path, log: &ProcessingLog) {
 /// two-day-old sessions re-process themselves on every launch. A better recipe reaches the old
 /// archive by a human pressing «переварить заново», not behind his back.
 pub fn is_done(session_dir: &Path, artifact: &str) -> bool {
-    load(session_dir)
-        .artifacts
-        .get(artifact)
-        .is_some_and(|r| r.outcome != Outcome::Failed)
+    inspect(session_dir, artifact).complete()
 }
 
 pub fn is_current(session_dir: &Path, artifact: &str, recipe: &str) -> bool {
     load(session_dir)
         .artifacts
         .get(artifact)
-        .map(|r| r.recipe == recipe && r.outcome != Outcome::Failed)
+        .map(|r| r.recipe == recipe && inspect(session_dir, artifact).complete())
         .unwrap_or(false)
 }
 
@@ -333,6 +434,7 @@ mod tests {
     #[test]
     fn nothing_to_do_is_done_and_never_loops() {
         let dir = tempdir().unwrap();
+        crate::artifacts::tests::fixture(dir.path());
         let r = llm_recipe(SUMMARY, "ru", "qwen3.5:9b");
 
         assert!(
@@ -349,7 +451,8 @@ mod tests {
             Outcome::Nothing,
             Some("no speech recognized".into()),
             Some(1),
-        );
+        )
+        .unwrap();
         assert!(
             is_current(dir.path(), SUMMARY, &r),
             "«nothing to do» is FINISHED work; a repeat = an endless loop"
@@ -359,6 +462,7 @@ mod tests {
     #[test]
     fn a_new_recipe_means_redo() {
         let dir = tempdir().unwrap();
+        crate::artifacts::tests::fixture(dir.path());
         record(
             dir.path(),
             SUMMARY,
@@ -366,7 +470,8 @@ mod tests {
             Outcome::Ok,
             None,
             Some(1),
-        );
+        )
+        .unwrap();
         // the model changed — the previous result is out of date
         assert!(!is_current(
             dir.path(),
@@ -378,6 +483,7 @@ mod tests {
     #[test]
     fn a_failure_is_retried() {
         let dir = tempdir().unwrap();
+        crate::artifacts::tests::fixture(dir.path());
         let r = llm_recipe(PROCESSED, "ru", "qwen3.5:9b");
         record(
             dir.path(),
@@ -386,7 +492,8 @@ mod tests {
             Outcome::Failed,
             Some("ollama is down".into()),
             None,
-        );
+        )
+        .unwrap();
         assert!(
             !is_current(dir.path(), PROCESSED, &r),
             "it fell through — we retry"
@@ -396,8 +503,9 @@ mod tests {
     #[test]
     fn unverified_is_a_finished_job_too() {
         let dir = tempdir().unwrap();
+        crate::artifacts::tests::fixture(dir.path());
         let r = llm_recipe(SUMMARY, "ru", "qwen3.5:9b");
-        record(dir.path(), SUMMARY, &r, Outcome::Unverified, None, Some(1));
+        record(dir.path(), SUMMARY, &r, Outcome::Unverified, None, Some(1)).unwrap();
         assert!(
             is_current(dir.path(), SUMMARY, &r),
             "a draft is a result too: there is nothing to redo"
@@ -417,6 +525,7 @@ mod tests {
     #[test]
     fn a_broken_log_does_not_wedge_processing() {
         let dir = tempdir().unwrap();
+        crate::artifacts::tests::fixture(dir.path());
         fs::write(dir.path().join(FILE), "{ not json").unwrap();
         assert!(!is_current(dir.path(), SUMMARY, "any"));
     }

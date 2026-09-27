@@ -14,6 +14,7 @@ export function sessionTitle(s: Session): string {
   if (!started || isNaN(started.getTime())) return named + s.name;
   const hhmm = (d: Date) =>
     `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  if (s.source_url) return `${named}добавлено ${hhmm(started)}`;
   const end = s.duration_sec > 0 ? new Date(started.getTime() + s.duration_sec * 1000) : null;
   const span = end ? `${hhmm(started)}–${hhmm(end)}` : hhmm(started);
   return `${named}${span}`;

@@ -340,6 +340,14 @@ impl LlmClient {
         #[derive(Deserialize)]
         struct NativeResponse {
             message: NativeMessage,
+            #[serde(default)]
+            load_duration: u64,
+            #[serde(default)]
+            prompt_eval_duration: u64,
+            #[serde(default)]
+            eval_duration: u64,
+            #[serde(default)]
+            eval_count: u64,
         }
         #[derive(Deserialize)]
         struct NativeMessage {
@@ -347,6 +355,11 @@ impl LlmClient {
             content: String,
         }
         let parsed: NativeResponse = resp.into_json().context("parsing the Ollama answer")?;
+        tracing::info!(model = %self.profile.model,
+            load_sec = parsed.load_duration as f64 / 1e9,
+            prompt_sec = parsed.prompt_eval_duration as f64 / 1e9,
+            generation_sec = parsed.eval_duration as f64 / 1e9,
+            output_tokens = parsed.eval_count, "Ollama request completed");
         Ok(parsed.message.content)
     }
 }

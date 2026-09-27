@@ -12,6 +12,8 @@ path = "src/main.rs"
 localvox-light-core = { workspace = true, features = ["onnx"] }
 localvox-light-ingest.workspace = true
 localvox-light-llm.workspace = true
+localvox-light-process.workspace = true
+localvox-light-search = { path = "../localvox-light-search" }
 anyhow.workspace = true
 clap.workspace = true
 dotenvy.workspace = true
@@ -21,3 +23,5 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 url.workspace = true
 indicatif.workspace = true
+
+serde_json.workspace = true

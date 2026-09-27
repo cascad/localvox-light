@@ -6,6 +6,7 @@ const NAME: Record<Stage, string> = {
   extract: "Извлекли дорожку",
   transcribe: "Расшифровали",
   refine: "Причесали текст",
+  cleanup: "Подготовили читаемый текст",
   summary: "Собрали сводку",
 };
 
@@ -21,12 +22,9 @@ const STATE: Record<Shown, { cls: string; label: string }> = {
   // "still coming", and a person waits for something that will never happen.
   skipped: { cls: "mute", label: "пропущено" },
   waiting: { cls: "mute", label: "не начиналось" },
-};
-
-/** A duration in whole minutes/seconds, for «обработано за N». */
-const dur = (sec?: number | null) => {
-  if (sec == null || !isFinite(sec) || sec < 0) return "";
-  return sec < 60 ? `${Math.round(sec)} с` : `${Math.round(sec / 60)} мин`;
+  queued: { cls: "mute", label: "в очереди" },
+  blocked: { cls: "mute", label: "ждёт предыдущий этап" },
+  invalid: { cls: "err", label: "результат не подтверждён" },
 };
 
 /** A ticking clock «M:SS» (or «N с» under a minute), for the per-stage timer: how long a step has
@@ -42,7 +40,7 @@ const hms = (sec: number) => {
 const elapsed = (from: string | null | undefined, nowMs: number) =>
   from ? (nowMs - new Date(from).getTime()) / 1000 : NaN;
 
-const CHAIN: Stage[] = ["download", "extract", "transcribe", "refine", "summary"];
+const CHAIN: Stage[] = ["download", "extract", "transcribe", "refine", "cleanup", "summary"];
 
 /** Which stages this session will ever have.
  *
@@ -64,6 +62,7 @@ const chainFor = (fromLink: boolean, reported: Stage[]): Stage[] =>
  *  indistinguishable from a hang. */
 export function ProgressChain({ session }: { session: Session }) {
   const [prog, setProg] = useState<Prog | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const seq = useRef(0);
 
   // A once-a-second heartbeat so the running stage's timer TICKS between the 3-second data polls —
@@ -78,13 +77,15 @@ export function ProgressChain({ session }: { session: Session }) {
 
   useEffect(() => {
     let alive = true;
+    setProg(null);
+    setError(null);
     const my = ++seq.current;
     const load = async () => {
       try {
         const p = await api.progress(session.name);
-        if (alive && my === seq.current) setProg(p);
-      } catch {
-        /* the chain is a story about the work, not the work: its absence breaks nothing */
+        if (alive && my === seq.current) { setProg(p); setNow(Date.now()); setError(null); }
+      } catch (e) {
+        if (alive && my === seq.current) setError((e as Error).message);
       }
     };
     void load();
@@ -96,7 +97,7 @@ export function ProgressChain({ session }: { session: Session }) {
     };
   }, [session.name]);
 
-  if (!prog) return <p className="hint">загрузка…</p>;
+  if (!prog) return <p className={error ? "err" : "hint"}>{error ? `Статус недоступен: ${error}` : "загрузка…"}</p>;
 
   const stages = prog.stages ?? [];
   const heard = new Map(stages.map((s) => [s.stage, s]));
@@ -110,25 +111,19 @@ export function ProgressChain({ session }: { session: Session }) {
       state: (s?.state ?? "waiting") as Shown,
       started_at: s?.started_at,
       ended_at: s?.ended_at,
+      updated_at: s?.updated_at,
       note: s?.note,
       done: s?.done,
       total: s?.total,
+      files: s?.files,
+      artifact: s?.artifact,
     };
   });
 
-  // A sequential pipeline: to be AT a later stage you already passed the earlier ones. A stage with
-  // no event THIS run, sitting before one that is already going or done, did not «not start» — it
-  // finished in an EARLIER run and this run does not re-do it (an ingested recording downloads and
-  // extracts in a run of its own, then cooks in another; a re-cook reuses the audio already on
-  // disk). «Скачали источник: не начиналось» while the transcript exists is simply false. So a
-  // waiting stage before the furthest-reached one is shown done, not waiting.
-  const lastActive = rows.reduce((acc, r, i) => (r.state !== "waiting" ? i : acc), -1);
-  for (let i = 0; i < lastActive; i++) {
-    if (rows[i].state === "waiting") rows[i].state = "done";
-  }
-
   return (
     <>
+      {error && <p className="err">Статус не обновляется: {error}. Ниже — последние полученные данные.</p>}
+      {prog.queue_error && <p className="err">Очередь недоступна, обработка не запустится: {prog.queue_error}</p>}
       {prog.source && (
         <p className="note" data-nocopy>
           <span className="i" aria-hidden="true">
@@ -145,31 +140,15 @@ export function ProgressChain({ session }: { session: Session }) {
         </p>
       )}
 
-      {/* Where the whole run stands. The chain below shows the stages; this says whether anything
-          is coming for the grey ones at all — a grey stage with nobody working on it is waiting
-          for a person, not for the machine. */}
-      {prog.running ? (
-        <p className="hint">
-          {session.job === "pending" ? (
-            <>
-              <b>В очереди.</b> Демон возьмётся за неё, как только освободится.
-            </>
-          ) : (
-            <>
-              <b>В работе.</b> Серые этапы ещё впереди. Между этапами бывает тихо — обычно так
-              выглядит загрузка модели.
-            </>
-          )}
-        </p>
-      ) : stages.length === 0 ? (
-        <p className="hint">Обработка этой записи не начиналась.</p>
-      ) : (
-        prog.elapsed_sec != null && (
-          <p className="hint">
-            Обработано за <b>{dur(prog.elapsed_sec)}</b>.
-          </p>
-        )
-      )}
+      <p className="hint">
+        {prog.running ? <b>Обработка продолжается.</b> : <b>Текущее состояние результатов.</b>}
+        {" "}«Готово» означает, что файл результата проверен. Время ролика не входит в расчёт.
+      </p>
+      {prog.timing && <p className="hint">
+        Ожидание старта: <b>{prog.timing.queue_sec == null ? "—" : hms(prog.timing.queue_sec)}</b>
+        {" · "}После старта: <b>{prog.timing.processing_sec == null ? "—" : hms(prog.timing.processing_sec)}</b>
+        {" · "}Всего: <b>{prog.timing.total_sec == null ? "—" : hms(prog.timing.total_sec)}</b>
+      </p>}
 
       <div className="chain">
         {rows.map((s) => {
@@ -198,7 +177,18 @@ export function ProgressChain({ session }: { session: Session }) {
                     </span>
                   ) : null}
                 </span>
-                {s.note && <span className={s.state === "failed" ? "err" : "hint"}>{s.note}</span>}
+                {s.state === "running" && s.updated_at && <span className="hint">
+                  Последний сигнал: {hms(Math.max(0, elapsed(s.updated_at, now)))} назад
+                </span>}
+                {s.note && <span className={s.state === "failed" || s.state === "invalid" ? "err" : "hint"}>{s.note}</span>}
+                {!!s.files?.length && <details className="hint">
+                  <summary>Результат: {s.files.join(", ")}</summary>
+                  {s.artifact?.source != null && <div>Версия текста: v{s.artifact.source}</div>}
+                  {s.artifact && !s.artifact.recorded_checksums && <div>Старая запись: проверены файл и версия; историческая контрольная сумма не сохранялась.</div>}
+                  {s.artifact?.receipt?.outputs.map(f => <div key={f.path}>
+                    <code>{f.path}</code> · {f.bytes} байт · {f.transcript ? "SHA-256 текста и таймкодов" : "SHA-256"}: <code>{f.sha256.slice(0, 16)}…</code>
+                  </div>)}
+                </details>}
               </span>
             </div>
           );

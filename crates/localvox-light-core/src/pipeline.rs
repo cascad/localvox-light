@@ -492,7 +492,9 @@ impl ChunkLane {
         if self.current.is_some() || !self.armed {
             return;
         }
-        let Some(s) = self.settings.clone() else { return };
+        let Some(s) = self.settings.clone() else {
+            return;
+        };
         let title = self.title.clone().unwrap_or_default();
         let label = (!title.is_empty()).then_some(title.as_str());
 
@@ -618,9 +620,15 @@ impl ChunkLane {
         let Some(s) = &self.settings else { return };
         let work_dir = s.work_dir.clone();
         if let Some(title) = crate::jobs::take_record_start(&work_dir) {
+            tracing::info!(command = "start", "recording: received control command");
             self.start(title);
         }
         if let Some(reason) = crate::jobs::take_record_stop(&work_dir) {
+            tracing::info!(
+                command = "stop",
+                reason,
+                "recording: received control command"
+            );
             self.stop(&reason);
         }
     }
@@ -1129,7 +1137,6 @@ mod integrity_tests {
     }
 }
 
-
 /// The PCM queue depth watchdog.
 ///
 /// We no longer drop audio — the channel is unbounded. But a growing queue is still trouble:
@@ -1205,8 +1212,13 @@ pub fn run(
 
     let timeout = std::time::Duration::from_millis(200);
     let mut prev_recording = true;
+    let mut last_command_poll = Instant::now() - timeout;
 
     while running.load(Ordering::Relaxed) {
+        if last_command_poll.elapsed() >= timeout {
+            chunk_lane.poll_commands();
+            last_command_poll = Instant::now();
+        }
         // Detection signals (a call started / ended) — they mark a RUNNING recording and start
         // nothing on their own. While paused we DO NOT drain them: let them pile up in the
         // channel and be applied in order on resume, otherwise CallStarted/Ended get lost and
@@ -1344,6 +1356,55 @@ pub fn run(
 mod tests {
     use super::*;
 
+    #[test]
+    fn control_commands_are_serviced_without_new_pcm_and_stop_finalizes_audio() {
+        let dir = tempfile::tempdir().unwrap();
+        let c = sess_cfg(dir.path(), 0.0, 0.0);
+        let (pcm_tx, pcm_rx) = crossbeam_channel::unbounded();
+        let (seg_tx, _seg_rx) = crossbeam_channel::unbounded();
+        let running = Arc::new(AtomicBool::new(true));
+        let worker_running = running.clone();
+        let handle = std::thread::spawn(move || {
+            run(
+                c,
+                None,
+                pcm_rx,
+                seg_tx,
+                Arc::new(AtomicUsize::new(0)),
+                worker_running,
+                Arc::new(AtomicBool::new(true)),
+                None,
+            )
+        });
+        let wait_until = |condition: &dyn Fn() -> bool| {
+            let deadline = Instant::now() + std::time::Duration::from_secs(3);
+            while !condition() && Instant::now() < deadline {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            condition()
+        };
+        crate::jobs::request_record_start(dir.path(), "idle input").unwrap();
+        let started = wait_until(&|| crate::jobs::recording_session(dir.path()).is_some());
+        // Exactly one PCM chunk: insufficient for the old frame-based command poll.
+        pcm_tx
+            .send(PcmChunk {
+                source_id: 0,
+                samples: vec![5000; FRAME_SAMPLES],
+            })
+            .unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(250));
+        crate::jobs::request_record_stop(dir.path(), "test stop").unwrap();
+        let stopped = wait_until(&|| crate::jobs::recording_session(dir.path()).is_none());
+        running.store(false, Ordering::SeqCst);
+        handle.join().unwrap();
+        assert!(started, "start was not serviced with an idle PCM sender");
+        assert!(stopped, "stop was not serviced with an idle PCM sender");
+        let meta = only_meta(dir.path());
+        assert_eq!(meta.stopped_reason.as_deref(), Some("test stop"));
+        assert!(recorded_sec(&meta, 0) > 0.0);
+        assert!(meta.chunks.iter().all(|c| !c.file.ends_with(".part")));
+    }
+
     fn cfg(dir: &Path, to_disk: bool) -> PipelineConfig {
         PipelineConfig {
             max_chunk_sec: 0.1, // 100 ms — the segments close quickly
@@ -1438,7 +1499,10 @@ mod tests {
 
         // The other side is audible at first — as it was for the first two minutes.
         h.on_chunk(&loud(), t0);
-        assert!(h.check(t0, true).is_none(), "a live call must not be reported");
+        assert!(
+            h.check(t0, true).is_none(),
+            "a live call must not be reported"
+        );
 
         // Then it dies: live packets keep coming, but there is no sound in them.
         for m in 1..=2 {
@@ -1449,9 +1513,9 @@ mod tests {
             );
         }
 
-        let warn = h
-            .check(t0 + Duration::from_secs(200), true)
-            .expect("the system track has been dead for over three minutes DURING A CALL — silence");
+        let warn = h.check(t0 + Duration::from_secs(200), true).expect(
+            "the system track has been dead for over three minutes DURING A CALL — silence",
+        );
         assert!(warn.contains("звонок"), "{warn}");
         assert!(warn.contains("системный звук молчит"), "{warn}");
         // Said once, not on every frame: a warning that repeats stops being read.
@@ -1593,7 +1657,10 @@ mod tests {
 
         let dirs = session_dirs(dir.path());
         assert_eq!(dirs.len(), 1, "{dirs:?}");
-        assert!(dirs[0].contains("planerka"), "the title is not in the name: {dirs:?}");
+        assert!(
+            dirs[0].contains("planerka"),
+            "the title is not in the name: {dirs:?}"
+        );
         let meta = read_meta(&dir.path().join("sessions").join(&dirs[0]));
         // pre-roll (1 s) + live (0.5 s) ≈ 1.5 s
         let src0 = recorded_sec(&meta, 0);
@@ -1654,7 +1721,10 @@ mod tests {
         let meta = only_meta(dir.path());
         assert!(meta.stopped_at.is_some());
         assert!(
-            meta.stopped_reason.as_deref().unwrap_or("").contains("тишина"),
+            meta.stopped_reason
+                .as_deref()
+                .unwrap_or("")
+                .contains("тишина"),
             "the reason for the stop is not in the meta: {:?}",
             meta.stopped_reason
         );
@@ -1662,7 +1732,11 @@ mod tests {
         let before = recorded_sec(&meta, 0);
         lane.feed(0, &vec![5000i16; 16_000]);
         lane.finalize_all();
-        assert_eq!(session_dirs(dir.path()).len(), 1, "a new session opened by itself");
+        assert_eq!(
+            session_dirs(dir.path()).len(),
+            1,
+            "a new session opened by itself"
+        );
         assert!((recorded_sec(&only_meta(dir.path()), 0) - before).abs() < 1e-6);
     }
 
@@ -1679,7 +1753,10 @@ mod tests {
         });
         lane.feed(0, &vec![5000i16; 16_000]);
         lane.finalize_all();
-        assert!(session_dirs(dir.path()).is_empty(), "detection started a recording");
+        assert!(
+            session_dirs(dir.path()).is_empty(),
+            "detection started a recording"
+        );
     }
 
     #[test]
@@ -1699,7 +1776,10 @@ mod tests {
         let meta = only_meta(dir.path());
         assert_eq!(meta.meetings.len(), 1);
         assert_eq!(meta.meetings[0].apps, vec!["teams.exe"]);
-        assert!(meta.meetings[0].ended_at.is_some(), "the call was not closed");
+        assert!(
+            meta.meetings[0].ended_at.is_some(),
+            "the call was not closed"
+        );
         // one recording, not two: the call did not rotate the session
         assert_eq!(session_dirs(dir.path()).len(), 1);
     }
@@ -1714,7 +1794,10 @@ mod tests {
         std::fs::write(&blocker, b"x").unwrap();
         lane.settings.as_mut().unwrap().work_dir = blocker.clone();
         lane.start(String::new());
-        assert!(lane.current.is_none(), "the session must not have been created");
+        assert!(
+            lane.current.is_none(),
+            "the session must not have been created"
+        );
 
         lane.feed(0, &vec![7i16; 1600]);
         assert_eq!(lane.orphan[0].len(), 1600, "the samples were not buffered");

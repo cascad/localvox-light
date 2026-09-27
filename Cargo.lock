@@ -1727,12 +1727,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "futures"
+version = "0.3.32"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8b147ee9d1f6d097cef9ce628cd2ee62288d963e16fb287bd9286455b241382d"
+dependencies = [
+ "futures-channel",
+ "futures-core",
+ "futures-executor",
+ "futures-io",
+ "futures-sink",
+ "futures-task",
+ "futures-util",
+]
+
+[[package]]
 name = "futures-channel"
 version = "0.3.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "07bbe89c50d7a535e539b8c17bc0b49bdb77747034daa8087407d655f3f7cc1d"
 dependencies = [
  "futures-core",
+ "futures-sink",
 ]
 
 [[package]]
@@ -1800,6 +1816,7 @@ version = "0.3.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "389ca41296e6190b48053de0321d02a77f32f8a5d2461dd38762c0593805c6d6"
 dependencies = [
+ "futures-channel",
  "futures-core",
  "futures-io",
  "futures-macro",
@@ -2831,11 +2848,10 @@ dependencies = [
  "crossbeam-channel",
  "ctrlc",
  "dotenvy",
- "libc",
  "localvox-light-api",
  "localvox-light-core",
  "localvox-light-ingest",
- "localvox-light-search",
+ "localvox-light-process",
  "localvox-light-tui",
  "localvox-light-voice",
  "serde_json",
@@ -2878,6 +2894,9 @@ dependencies = [
  "localvox-light-core",
  "localvox-light-ingest",
  "localvox-light-llm",
+ "localvox-light-process",
+ "localvox-light-search",
+ "serde_json",
  "tracing",
  "tracing-subscriber",
  "url",
@@ -2919,6 +2938,7 @@ dependencies = [
  "rubato",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "tempfile",
  "tokenizers",
  "toml 0.8.2",
@@ -2965,6 +2985,7 @@ dependencies = [
  "anyhow",
  "deunicode",
  "localvox-light-core",
+ "localvox-light-process",
  "rust-stemmers",
  "serde",
  "serde_json",
@@ -2973,6 +2994,18 @@ dependencies = [
  "toml 0.8.2",
  "tracing",
  "ureq 2.12.1",
+]
+
+[[package]]
+name = "localvox-light-process"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "libc",
+ "process-wrap",
+ "tempfile",
+ "tokio",
+ "windows 0.62.2",
 ]
 
 [[package]]
@@ -4217,6 +4250,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "process-wrap"
+version = "10.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1f21b97672d2dc848e7b25701ab4535618b92f4861c13cc3f7f7bed52ad3c8da"
+dependencies = [
+ "futures",
+ "indexmap 2.13.0",
+ "nix",
+ "tokio",
+ "windows 0.62.2",
+]
+
+[[package]]
 name = "pxfm"
 version = "0.1.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5252,6 +5298,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "syn"
+version = "3.0.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8593e8e72159ed2257d083c7a454a85cbf854f37a0966d8d483aff8c8a3ebcee"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "unicode-ident",
+]
+
+[[package]]
 name = "sync_wrapper"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5911,8 +5968,21 @@ dependencies = [
  "libc",
  "mio",
  "pin-project-lite",
+ "signal-hook-registry",
  "socket2",
+ "tokio-macros",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "tokio-macros"
+version = "2.7.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "78773a2a397f451582ce068015985c33193cf6dea8b74d2a639fe457b2f07b0e"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.6",
 ]
 
 [[package]]

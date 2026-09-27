@@ -27,11 +27,9 @@
 //! owner configures one `LOCALVOX_*` variable (single-`.env` policy); it is mapped to the standard
 //! env vars here, at the edge.
 
-use std::io::Write;
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
-use std::sync::mpsc;
-use std::time::{Duration, Instant};
+use std::process::Command;
+use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
 use serde::Deserialize;
@@ -63,6 +61,7 @@ pub struct ClaudeCliConfig {
     pub timeout: Duration,
     /// The NEUTRAL directory the child runs in (see the module docs). Created if missing.
     pub workdir: PathBuf,
+    pub process_scope: localvox_light_process::Scope,
 }
 
 impl ClaudeCliConfig {
@@ -74,6 +73,11 @@ impl ClaudeCliConfig {
     pub fn from_env() -> Self {
         let get = |k: &str| std::env::var(k).ok().filter(|v| !v.trim().is_empty());
         ClaudeCliConfig {
+            process_scope: if get(localvox_light_process::CONTAINED_ENV).as_deref() == Some("1") {
+                localvox_light_process::Scope::Inherit
+            } else {
+                localvox_light_process::Scope::Tree
+            },
             binary: get("LOCALVOX_CLAUDE_BIN").unwrap_or_else(|| "claude".into()),
             model: get("LOCALVOX_CLAUDE_MODEL"),
             proxy: get("LOCALVOX_CLAUDE_PROXY"),
@@ -217,94 +221,49 @@ fn first_line(s: &str) -> String {
 /// (a file's text, a fetched page, pasted text) and is piped to stdin — the docs' own pattern
 /// (`cat file | claude -p '…'`). `content` up to ~10 MB; larger callers should summarise first.
 ///
-/// Spawns the child, feeds stdin, and waits with a hard timeout WITHOUT leaking: stdout/stderr are
-/// drained by their own threads (so a full pipe cannot deadlock the wait), and on timeout the child
-/// is killed rather than left running. Same shape as the autocook child in the daemon.
+/// The shared supervisor bounds the call and owns its descendants. File-backed stdio allows a
+/// large input and response without pipe deadlocks or detached drain threads.
 pub fn run(cfg: &ClaudeCliConfig, prompt: &str, content: Option<&str>) -> Result<Answer> {
+    use localvox_light_process::{Limits, Termination};
     let spec = build_spec(cfg, prompt);
     std::fs::create_dir_all(&spec.cwd)
         .with_context(|| format!("creating the claude work dir {}", spec.cwd.display()))?;
-
     let mut cmd = Command::new(&spec.program);
-    cmd.args(&spec.args)
-        .current_dir(&spec.cwd)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    for (k, v) in &spec.envs {
-        cmd.env(k, v);
+    cmd.args(&spec.args).current_dir(&spec.cwd).envs(spec.envs);
+    for key in &spec.env_remove {
+        cmd.env_remove(key);
     }
-    for k in &spec.env_remove {
-        cmd.env_remove(k);
-    }
-
-    let mut child = cmd.spawn().with_context(|| {
-        format!(
-            "launching `{}` — is Claude Code installed and on PATH? (set LOCALVOX_CLAUDE_BIN)",
-            spec.program
-        )
-    })?;
-
-    // Feed the material and close stdin so the CLI knows the input is complete.
-    if let Some(stdin) = child.stdin.take() {
-        let mut stdin = stdin;
-        if let Some(c) = content {
-            stdin
-                .write_all(c.as_bytes())
-                .context("writing content to claude stdin")?;
+    let mut limits = Limits::new(cfg.timeout);
+    limits.scope = cfg.process_scope;
+    let output = localvox_light_process::run(
+        cmd,
+        content.map(str::as_bytes),
+        limits,
+        || false,
+        |pid, elapsed| {
+            tracing::info!(
+                pid,
+                elapsed_sec = elapsed.as_secs(),
+                "claude: waiting for response"
+            )
+        },
+    )
+    .with_context(|| format!("launching `{}` (LOCALVOX_CLAUDE_BIN)", spec.program))?;
+    match output.termination {
+        Termination::Exited(status) if status.success() => {
+            parse_answer(&String::from_utf8_lossy(&output.stdout))
         }
-        // dropping `stdin` here closes the pipe
+        Termination::Exited(status) => bail!(
+            "claude exited with {status}: {}",
+            first_line(&String::from_utf8_lossy(&output.stderr))
+        ),
+        Termination::TimedOut => bail!("claude did not answer within {}s", cfg.timeout.as_secs()),
+        Termination::OutputLimit => bail!(
+            "claude exceeded the {} byte output limit",
+            limits.output_bytes
+        ),
+        Termination::Cancelled => bail!("claude cancelled"),
     }
-
-    let out = drain(child.stdout.take());
-    let err = drain(child.stderr.take());
-
-    let deadline = Instant::now() + cfg.timeout;
-    let status = loop {
-        match child.try_wait().context("waiting for claude")? {
-            Some(s) => break s,
-            None => {
-                if Instant::now() >= deadline {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    bail!(
-                        "claude did not answer within {}s (proxy unreachable? not logged in?)",
-                        cfg.timeout.as_secs()
-                    );
-                }
-                std::thread::sleep(Duration::from_millis(50));
-            }
-        }
-    };
-
-    let stdout = out.recv().unwrap_or_default();
-    let stderr = err.recv().unwrap_or_default();
-
-    if !status.success() {
-        bail!(
-            "claude exited with {}: {}",
-            status,
-            first_line(&stderr)
-        );
-    }
-    parse_answer(&stdout)
-}
-
-/// Read a child pipe to a String on its own thread; the receiver gets the whole thing once the pipe
-/// closes. A separate thread per stream is what keeps a large answer from filling the OS buffer and
-/// deadlocking against our `try_wait` loop.
-fn drain<R: std::io::Read + Send + 'static>(pipe: Option<R>) -> mpsc::Receiver<String> {
-    let (tx, rx) = mpsc::channel();
-    if let Some(mut pipe) = pipe {
-        std::thread::spawn(move || {
-            let mut buf = String::new();
-            let _ = pipe.read_to_string(&mut buf);
-            let _ = tx.send(buf);
-        });
-    } else {
-        let _ = tx.send(String::new());
-    }
-    rx
 }
 
 #[cfg(test)]
@@ -321,6 +280,7 @@ mod tests {
             oauth_token: None,
             timeout: Duration::from_secs(300),
             workdir: PathBuf::from("/tmp/x"),
+            process_scope: localvox_light_process::Scope::Tree,
         }
     }
 

@@ -1,0 +1,88 @@
+{
+  "date": "2026-09-27",
+  "source_backlog_sha256": "4b942b304a05d3c014435fcc9a35248ae433cadb30ca4f4a43b891dede220663",
+  "source_hash_basis": "UTF-8 text with normalized LF",
+  "changes": [
+    {
+      "id": "BL-001",
+      "change": "fix-ingest-ack",
+      "planning": "existing-artifacts",
+      "skip_specs": false
+    },
+    {
+      "id": "BL-002",
+      "change": "serialize-session-mutations",
+      "planning": "existing-artifacts",
+      "skip_specs": false
+    },
+    {
+      "id": "BL-003",
+      "change": "benchmark-processing-batch",
+      "planning": "proposal-only",
+      "skip_specs": true
+    },
+    {
+      "id": "BL-004",
+      "change": "recover-corrupt-processing-artifacts",
+      "planning": "proposal-only",
+      "skip_specs": false
+    },
+    {
+      "id": "BL-005",
+      "change": "verify-background-indexing",
+      "planning": "proposal-only",
+      "skip_specs": true
+    },
+    {
+      "id": "BL-006",
+      "change": "unify-manual-and-queued-import",
+      "planning": "proposal-only",
+      "skip_specs": false
+    },
+    {
+      "id": "BL-007",
+      "change": "allow-postprocess-without-audio",
+      "planning": "existing-artifacts",
+      "skip_specs": false
+    },
+    {
+      "id": "BL-008",
+      "change": "explore-stt-worker-lifecycle",
+      "planning": "proposal-only",
+      "skip_specs": true
+    },
+    {
+      "id": "BL-009",
+      "change": "review-code-inventory",
+      "planning": "proposal-only",
+      "skip_specs": true
+    },
+    {
+      "id": "BL-010",
+      "change": "automate-spec-evidence-checks",
+      "planning": "proposal-only",
+      "skip_specs": true
+    },
+    {
+      "id": "BL-018",
+      "change": "fix-unresponsive-shutdown",
+      "planning": "proposal-only",
+      "skip_specs": false
+    },
+    {
+      "id": "BL-019",
+      "change": "disable-cross-session-speaker-recognition",
+      "planning": "proposal-only",
+      "skip_specs": false
+    }
+  ],
+  "idea_ids_retained": [
+    "BL-011",
+    "BL-012",
+    "BL-013",
+    "BL-014",
+    "BL-015",
+    "BL-016",
+    "BL-017"
+  ]
+}

@@ -572,6 +572,66 @@ pub trait Entities: Send + Sync {
     }
 }
 
+/// Per-document, bounded cache of the expensive source pass. Answers still use
+/// their stricter threshold; a different source replaces the one cached entry.
+pub struct SourceEntities<'a> {
+    inner: &'a dyn Entities,
+    source: std::sync::Mutex<Option<(String, Vec<String>)>>,
+}
+
+impl<'a> SourceEntities<'a> {
+    pub fn new(inner: &'a dyn Entities) -> Self {
+        Self {
+            inner,
+            source: std::sync::Mutex::new(None),
+        }
+    }
+}
+
+impl Entities for SourceEntities<'_> {
+    fn people(&self, text: &str) -> Vec<String> {
+        self.inner.people(text)
+    }
+    fn people_in_source(&self, text: &str) -> Vec<String> {
+        let mut cached = self.source.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((source, people)) = &*cached {
+            if source == text {
+                return people.clone();
+            }
+        }
+        let people = self.inner.people_in_source(text);
+        *cached = Some((text.to_string(), people.clone()));
+        people
+    }
+}
+
+#[cfg(test)]
+mod source_cache_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    #[test]
+    fn source_is_reused_only_for_identical_input_and_answers_remain_strict() {
+        struct Counter(AtomicUsize);
+        impl Entities for Counter {
+            fn people(&self, _: &str) -> Vec<String> {
+                vec!["answer".into()]
+            }
+            fn people_in_source(&self, text: &str) -> Vec<String> {
+                self.0.fetch_add(1, Ordering::Relaxed);
+                vec![text.into()]
+            }
+        }
+        let inner = Counter(AtomicUsize::new(0));
+        let cache = SourceEntities::new(&inner);
+        assert_eq!(cache.people_in_source("first"), vec!["first"]);
+        assert_eq!(cache.people_in_source("first"), vec!["first"]);
+        assert_eq!(inner.0.load(Ordering::Relaxed), 1);
+        assert_eq!(cache.people("first"), vec!["answer"]);
+        assert_eq!(cache.people_in_source("second"), vec!["second"]);
+        assert_eq!(inner.0.load(Ordering::Relaxed), 2);
+    }
+}
+
 /// A check with NER: names, organizations, dates and amounts are taken from the tagging
 /// model, not from a dictionary.
 pub fn check_with_entities(

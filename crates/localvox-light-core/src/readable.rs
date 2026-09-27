@@ -90,7 +90,7 @@ pub fn exists(session_dir: &Path) -> bool {
 pub fn save(session_dir: &Path, r: &Readable) -> Result<PathBuf> {
     let p = path(session_dir);
     let body = serde_json::to_vec_pretty(r)?;
-    std::fs::write(&p, body).with_context(|| format!("writing {}", p.display()))?;
+    crate::artifacts::atomic_write(&p, &body)?;
     Ok(p)
 }
 

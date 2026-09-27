@@ -2,6 +2,7 @@
 //! `processed.md` / `summary.md` next to the source (P2: the sources are not mutated).
 //! Self-contained (P5): the input is only the session's files.
 
+use localvox_light_core::progress::{activity, progress, Stage};
 use std::fs;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
@@ -130,34 +131,50 @@ fn chat_grounded(
     speech: &str,
     template: &str,
     ner: Option<&dyn grounding::Entities>,
+    session_dir: &Path,
+    operation: &str,
 ) -> Result<(String, usize, grounding::Ungrounded)> {
     let check = |a: &str| {
-        // THE CITATION MARKERS COME OUT FIRST. They are OUR numbers — line indices we asked for —
-        // and numbers in an answer are grounded only by the speech, so `[[3,4,5]]` reads to the
-        // check as three invented figures. Measured the first time this ran: a clean summary came
-        // back marked «стоит перепроверить: числа: 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13» — every
-        // one of them a reference we ourselves had requested, and the re-ask it triggered cost a
-        // second call to say the same thing again.
-        let a: String = localvox_light_core::citations::parse(a)
-            .into_iter()
-            .map(|b| b.text)
-            .collect::<Vec<_>>()
-            .join("
-");
-        let a = a.as_str();
-        // Words may be grounded by the template (we gave them to the model), NUMBERS only
-        // by the speech: the «1–3 предложения» from our own prompt used to ground the
-        // invented «3 задачи» in the answer.
-        let lex = localvox_light_core::lexicon::active();
-        match ner {
-            Some(n) => grounding::check_with_entities(lex, source, speech, a, n),
-            None => grounding::check_parts(lex, source, speech, a),
-        }
+        activity(
+            session_dir,
+            Stage::Summary,
+            &format!("{operation}: проверка имён и чисел"),
+            || {
+                // THE CITATION MARKERS COME OUT FIRST. They are OUR numbers — line indices we asked for —
+                // and numbers in an answer are grounded only by the speech, so `[[3,4,5]]` reads to the
+                // check as three invented figures. Measured the first time this ran: a clean summary came
+                // back marked «стоит перепроверить: числа: 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13» — every
+                // one of them a reference we ourselves had requested, and the re-ask it triggered cost a
+                // second call to say the same thing again.
+                let a: String = localvox_light_core::citations::parse(a)
+                    .into_iter()
+                    .map(|b| b.text)
+                    .collect::<Vec<_>>()
+                    .join(
+                        "
+",
+                    );
+                let a = a.as_str();
+                // Words may be grounded by the template (we gave them to the model), NUMBERS only
+                // by the speech: the «1–3 предложения» from our own prompt used to ground the
+                // invented «3 задачи» in the answer.
+                let lex = localvox_light_core::lexicon::active();
+                match ner {
+                    Some(n) => grounding::check_with_entities(lex, source, speech, a, n),
+                    None => grounding::check_parts(lex, source, speech, a),
+                }
+            },
+        )
     };
     // Every answer is shape-checked AS IT ARRIVES, not only at the end. A part of a map-reduce
     // that looped would otherwise be joined into the reduce prompt, and we would pay for its
     // 30 KB twice — once to receive it, once to send it back.
-    let answer = degeneration_checked(client.chat(&[user(prompt.to_string())])?);
+    let answer = degeneration_checked(activity(
+        session_dir,
+        Stage::Summary,
+        &format!("{operation}: ожидание ответа {}", client.model()),
+        || client.chat(&[user(prompt.to_string())]),
+    )?);
     let bad = check(&answer);
     if bad.is_empty() {
         return Ok((answer, 1, bad));
@@ -188,11 +205,21 @@ fn chat_grounded(
                ответа — начни с чистого листа. Ни одного имени, числа, срока или \
                названия, которого нет в записи."
         .to_string();
-    let retry = degeneration_checked(client.chat(&[
-        user(prompt.to_string()),
-        crate::assistant(answer.clone()),
-        user(fix),
-    ])?);
+    let retry = degeneration_checked(activity(
+        session_dir,
+        Stage::Summary,
+        &format!(
+            "{operation}: повторный запрос после проверки ({})",
+            client.model()
+        ),
+        || {
+            client.chat(&[
+                user(prompt.to_string()),
+                crate::assistant(answer.clone()),
+                user(fix),
+            ])
+        },
+    )?);
     // AN ANSWER THAT SAYS NOTHING ABOUT THE RECORDING NEVER WINS — no matter how clean it looks.
     //
     // This is the trap the whole thing kept falling into: emptiness passes the check perfectly,
@@ -386,7 +413,10 @@ fn cut_repetition(text: &str) -> (String, usize) {
             continue;
         }
         if !seen.insert(key) {
-            return (paras[..i].join("\n\n").trim_end().to_string(), paras.len() - i);
+            return (
+                paras[..i].join("\n\n").trim_end().to_string(),
+                paras.len() - i,
+            );
         }
     }
     (text.to_string(), 0)
@@ -505,7 +535,8 @@ pub fn process_session(
     // The entity tagger — if there is one. Names, organizations, dates and amounts are
     // checked by IT (by context, without a single list of names); it does not touch the
     // numbers — they are deterministic and do not depend on the model.
-    let ner: Option<&dyn grounding::Entities> = p.entities.as_deref();
+    let cached_ner = p.entities.as_deref().map(grounding::SourceEntities::new);
+    let ner = cached_ner.as_ref().map(|n| n as &dyn grounding::Entities);
 
     let transcript = render_transcript(session_dir)?;
     let words = speech_words(&transcript);
@@ -603,21 +634,34 @@ pub fn process_session(
 
     let speech = speech_only(&transcript);
     let base = format!("{template}\n{glossary_block}\n{speech}");
+    let parts = split_for_map_reduce(&transcript, p.map_reduce_chars);
+    // Final checking is work too: do not claim 100% while the NER pass is still running.
+    let summary_total = parts.len() as u32 + u32::from(parts.len() > 1) + 1;
     let (result, llm_calls) = match task {
         // Handled above — it is not a document the model wrote.
         Task::Cleanup => unreachable!("the readable text is written as data, above"),
         // The summary is free-form: it is the model's document, and the map-reduce over parts
         // with a final reduce is the right shape for it. Nothing to key it by — it has no records.
         Task::Summary => {
-            let parts = split_for_map_reduce(&transcript, p.map_reduce_chars);
             let mut calls_total = 0usize;
             let mut outputs: Vec<String> = Vec::with_capacity(parts.len());
-            for part in &parts {
+            let total = summary_total;
+            progress(session_dir, Stage::Summary, 0, total);
+            for (i, part) in parts.iter().enumerate() {
                 let prompt = templates::render(&template, part, &glossary_block);
-                let (answer, calls, _) =
-                    chat_grounded(client, &prompt, &base, &speech, &template, ner)?;
+                let (answer, calls, _) = chat_grounded(
+                    client,
+                    &prompt,
+                    &base,
+                    &speech,
+                    &template,
+                    ner,
+                    session_dir,
+                    &format!("Часть {}/{}", i + 1, parts.len()),
+                )?;
                 calls_total += calls;
                 outputs.push(answer);
+                progress(session_dir, Stage::Summary, (i + 1) as u32, total);
             }
             let joined = if outputs.len() == 1 {
                 outputs.pop().unwrap()
@@ -630,8 +674,14 @@ pub fn process_session(
                      слова «части» и «протокол частей» в тексте не упоминай.\n\n{joined}"
                 );
                 calls_total += 1;
-                client.chat(&[user(prompt)])?
+                activity(
+                    session_dir,
+                    Stage::Summary,
+                    "Сборка общей сводки из частей",
+                    || client.chat(&[user(prompt)]),
+                )?
             };
+            progress(session_dir, Stage::Summary, total - 1, total);
             (joined, calls_total)
         }
     };
@@ -731,26 +781,35 @@ pub fn process_session(
     // перепроверить: кадыйлят» because the NER tagged it as a name in one document and not the
     // other. A doubt on a word the reader can see in the very same text is worse than no doubt: it
     // teaches them to stop reading the marks that do matter.
-    let ungrounded = if matches!(task, Task::Summary) {
-        let lex = localvox_light_core::lexicon::active();
-        // Without the citation markers, for the same reason as inside `chat_grounded`: they are
-        // OUR line numbers, and a number in the answer is grounded only by the speech. The first
-        // fix only covered the in-flight check, so the FINAL one still wrote the references into
-        // the doubt mark — «числа: 3, 4, 5, 6, 7…» — and the header of a clean summary told the
-        // reader to double-check eleven numbers we had asked for ourselves.
-        let plain: String = localvox_light_core::citations::parse(&result)
-            .into_iter()
-            .map(|b| b.text)
-            .collect::<Vec<_>>()
-            .join("
-");
-        match ner {
-            Some(n) => grounding::check_with_entities(lex, &base, &speech, &plain, n),
-            None => grounding::check_parts(lex, &base, &speech, &plain),
-        }
-    } else {
-        grounding::Ungrounded::default()
-    };
+    let ungrounded = activity(
+        session_dir,
+        Stage::Summary,
+        "Итоговая проверка сводки: имена и числа",
+        || {
+            if matches!(task, Task::Summary) {
+                let lex = localvox_light_core::lexicon::active();
+                // Without the citation markers, for the same reason as inside `chat_grounded`: they are
+                // OUR line numbers, and a number in the answer is grounded only by the speech. The first
+                // fix only covered the in-flight check, so the FINAL one still wrote the references into
+                // the doubt mark — «числа: 3, 4, 5, 6, 7…» — and the header of a clean summary told the
+                // reader to double-check eleven numbers we had asked for ourselves.
+                let plain: String = localvox_light_core::citations::parse(&result)
+                    .into_iter()
+                    .map(|b| b.text)
+                    .collect::<Vec<_>>()
+                    .join(
+                        "
+",
+                    );
+                match ner {
+                    Some(n) => grounding::check_with_entities(lex, &base, &speech, &plain, n),
+                    None => grounding::check_parts(lex, &base, &speech, &plain),
+                }
+            } else {
+                grounding::Ungrounded::default()
+            }
+        },
+    );
 
     let out_path = place_result(session_dir, task);
     // The doubts live in the header COMMENT: the app needs them (it shows the mark and the
@@ -765,8 +824,8 @@ pub fn process_session(
         &localvox_light_core::versions::now_rfc3339(),
         doubts.as_deref(),
     );
-    fs::write(&out_path, header + &result)
-        .with_context(|| format!("writing {}", out_path.display()))?;
+    localvox_light_core::artifacts::atomic_write(&out_path, (header + &result).as_bytes())?;
+    progress(session_dir, Stage::Summary, summary_total, summary_total);
 
     Ok(ProcessOutcome {
         out_path,
@@ -812,13 +871,33 @@ pub fn refine_session(
 ) -> Result<RefineOutcome> {
     let t0 = std::time::Instant::now();
     let store = VersionStore::open(session_dir)?;
-    let best = store
+    let mut best = store
         .best()
         .context("no transcript versions — cook it first (localvox-process)")?;
+    let ledger = localvox_light_core::processing::load(session_dir);
+    let recorded = ledger
+        .artifacts
+        .get(localvox_light_core::processing::REFINED);
+    let damaged = recorded.is_some_and(|r| {
+        r.receipt.is_some()
+            && localvox_light_core::artifacts::verify(
+                session_dir,
+                localvox_light_core::processing::REFINED,
+                r,
+            )
+            .is_err()
+    });
+    if damaged && best.label == "refined" {
+        best = best
+            .parents
+            .first()
+            .and_then(|id| store.load().versions.into_iter().find(|v| v.id == *id))
+            .context("исправленная версия повреждена, исходная версия не найдена")?;
+    }
     // Idempotency (without --force): we do not run the LLM again if the result already
     // exists. best is already cleaned up — reuse it; best was switched back to the raw one
     // (--set-best) but it has a cleaned-up descendant — just make that one best.
-    if !force {
+    if !force && !damaged {
         let reuse_id = if best.label == "refined" {
             Some(best.id)
         } else {
@@ -829,7 +908,12 @@ pub fn refine_session(
                 .find(|v| v.label == "refined" && v.parents == [best.id])
                 .map(|v| v.id)
         };
-        if let Some(id) = reuse_id {
+        if let Some(id) = reuse_id.filter(|id| {
+            store
+                .resolve(*id)
+                .and_then(|path| fs::read(path).ok())
+                .is_some_and(|bytes| localvox_light_core::artifacts::transcript(&bytes).is_ok())
+        }) {
             if id != best.id {
                 store.set_best(id)?;
             }
@@ -849,7 +933,7 @@ pub fn refine_session(
     let src_path = store
         .resolve(best.id)
         .context("the file of the best version was not found")?;
-    let orig = read_transcript_lines(&src_path)?;
+    let orig = localvox_light_core::artifacts::transcript(&fs::read(&src_path)?)?;
     // An EMPTY transcript is a SILENT recording — "nothing to clean up", not a failure.
     //
     // This was the re-cook loop the owner kept hitting: a silent session has no transcript, refine
@@ -916,7 +1000,18 @@ pub fn refine_session(
         // of [81..]) must not overwrite the corrections of another batch — we take only
         // those sent in THIS batch; the remaining lines will stay as the original.
         let sent: std::collections::HashSet<usize> = batch.iter().map(|(n, _)| *n).collect();
-        let answer = client.chat(&[user(prompt)])?;
+        let answer = activity(
+            session_dir,
+            Stage::Refine,
+            &format!(
+                "Исправление строк {}–{} из {}: ожидание ответа {}",
+                batch.first().unwrap().0,
+                batch.last().unwrap().0,
+                lines.len(),
+                client.model()
+            ),
+            || client.chat(&[user(prompt)]),
+        )?;
         *llm_calls += 1;
         for (n, text) in parse_numbered(&answer) {
             if sent.contains(&n) && !text.trim().is_empty() {
@@ -927,6 +1022,7 @@ pub fn refine_session(
         Ok(())
     };
     let total = lines.len() as u32;
+    progress(session_dir, Stage::Refine, 0, total);
     for (i, l) in lines.iter().enumerate() {
         let n = i + 1;
         if !batch.is_empty() && batch_chars + l.text.len() > p.map_reduce_chars {
@@ -1030,6 +1126,8 @@ pub fn refine_session(
         for l in &refined {
             writeln!(w, "{}", serde_json::to_string(l)?)?;
         }
+        w.flush()?;
+        w.get_ref().sync_all()?;
     }
     store.commit(VersionEntry {
         id,
@@ -1148,7 +1246,7 @@ pub fn render_transcript(session_dir: &Path) -> Result<String> {
     let path = store
         .resolve(best.id)
         .context("the file of the best version was not found")?;
-    let lines = read_transcript_lines(&path)?;
+    let lines = localvox_light_core::artifacts::transcript(&fs::read(&path)?)?;
 
     // WHO said it. Diarization's answer if it separated the voices; otherwise the label of the
     // audio SOURCE — and that label is not «Я» by default any more. For a downloaded video source
@@ -1279,7 +1377,7 @@ fn cleanup_by_lines(
     let src = store
         .resolve(best.id)
         .context("the file of the best version was not found")?;
-    let lines = read_transcript_lines(&src)?;
+    let lines = localvox_light_core::artifacts::transcript(&fs::read(&src)?)?;
 
     // The deterministic pass first: the glossary's canonical spelling is ours, not the model's.
     let texts: Vec<String> = lines.iter().map(|l| glossary.apply(&l.text).0).collect();
@@ -1289,6 +1387,7 @@ fn cleanup_by_lines(
     let mut cleaned: std::collections::HashMap<usize, String> = std::collections::HashMap::new();
     let mut llm_calls = 0usize;
 
+    progress(session_dir, Stage::Cleanup, 0, batches as u32);
     for (bi, range) in ranges.into_iter().enumerate() {
         let first = range.start;
         let chunk = &texts[range];
@@ -1304,7 +1403,19 @@ fn cleanup_by_lines(
         // Only the numbers of THIS batch. A model that renumbers its answer [1..] instead of
         // [81..] must not overwrite another batch's lines.
         let sent: std::collections::HashSet<usize> = (first + 1..=first + chunk.len()).collect();
-        let answer = client.chat(&[user(prompt)])?;
+        let answer = activity(
+            session_dir,
+            Stage::Cleanup,
+            &format!(
+                "Читаемый текст: пакет {}/{} ({} строк), ожидание ответа {}",
+                bi + 1,
+                batches,
+                chunk.len(),
+                client.model()
+            ),
+            || client.chat(&[user(prompt)]),
+        )?;
+        progress(session_dir, Stage::Cleanup, (bi + 1) as u32, batches as u32);
         llm_calls += 1;
         let mut got = 0usize;
         for (n, text) in parse_numbered(&answer) {
@@ -1530,8 +1641,10 @@ mod tests {
             .into_iter()
             .map(|b| b.text)
             .collect::<Vec<_>>()
-            .join("
-");
+            .join(
+                "
+",
+            );
         assert_eq!(stripped, "Собрали лишь пятьсот евро.");
         for n in ["3", "4", "5"] {
             assert!(!stripped.contains(n), "a reference «{n}» reached the check");
@@ -1566,11 +1679,23 @@ mod tests {
         ];
         let mut blocks = vec![
             // Real and on topic.
-            Block { kind: Kind::Bullet, text: "Собрали лишь пятьсот евро из семнадцати тысяч.".into(), lines: vec![0] },
+            Block {
+                kind: Kind::Bullet,
+                text: "Собрали лишь пятьсот евро из семнадцати тысяч.".into(),
+                lines: vec![0],
+            },
             // Points past the end of the transcript.
-            Block { kind: Kind::Bullet, text: "Что-то ещё про продажи.".into(), lines: vec![99] },
+            Block {
+                kind: Kind::Bullet,
+                text: "Что-то ещё про продажи.".into(),
+                lines: vec![99],
+            },
             // Exists, but about something else entirely.
-            Block { kind: Kind::Bullet, text: "Обсудили миграцию базы данных.".into(), lines: vec![1] },
+            Block {
+                kind: Kind::Bullet,
+                text: "Обсудили миграцию базы данных.".into(),
+                lines: vec![1],
+            },
         ];
         let (kept, dropped) = verify_citations(&mut blocks, &lines);
 

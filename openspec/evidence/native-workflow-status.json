@@ -1,0 +1,338 @@
+[
+  {
+    "name": "allow-postprocess-without-audio",
+    "planningComplete": true,
+    "artifacts": [
+      {
+        "id": "proposal",
+        "status": "done"
+      },
+      {
+        "id": "specs",
+        "status": "done"
+      },
+      {
+        "id": "design",
+        "status": "done"
+      },
+      {
+        "id": "tasks",
+        "status": "done"
+      }
+    ],
+    "applyState": "ready",
+    "progress": {
+      "total": 4,
+      "complete": 0,
+      "remaining": 4
+    }
+  },
+  {
+    "name": "fix-ingest-ack",
+    "planningComplete": true,
+    "artifacts": [
+      {
+        "id": "proposal",
+        "status": "done"
+      },
+      {
+        "id": "specs",
+        "status": "done"
+      },
+      {
+        "id": "design",
+        "status": "done"
+      },
+      {
+        "id": "tasks",
+        "status": "done"
+      }
+    ],
+    "applyState": "ready",
+    "progress": {
+      "total": 4,
+      "complete": 0,
+      "remaining": 4
+    }
+  },
+  {
+    "name": "serialize-session-mutations",
+    "planningComplete": true,
+    "artifacts": [
+      {
+        "id": "proposal",
+        "status": "done"
+      },
+      {
+        "id": "specs",
+        "status": "done"
+      },
+      {
+        "id": "design",
+        "status": "done"
+      },
+      {
+        "id": "tasks",
+        "status": "done"
+      }
+    ],
+    "applyState": "ready",
+    "progress": {
+      "total": 4,
+      "complete": 0,
+      "remaining": 4
+    }
+  },
+  {
+    "name": "disable-cross-session-speaker-recognition",
+    "planningComplete": false,
+    "artifacts": [
+      {
+        "id": "proposal",
+        "status": "done"
+      },
+      {
+        "id": "specs",
+        "status": "ready"
+      },
+      {
+        "id": "design",
+        "status": "ready"
+      },
+      {
+        "id": "tasks",
+        "status": "blocked"
+      }
+    ],
+    "applyState": "blocked",
+    "progress": {
+      "total": 0,
+      "complete": 0,
+      "remaining": 0
+    }
+  },
+  {
+    "name": "fix-unresponsive-shutdown",
+    "planningComplete": false,
+    "artifacts": [
+      {
+        "id": "proposal",
+        "status": "done"
+      },
+      {
+        "id": "specs",
+        "status": "ready"
+      },
+      {
+        "id": "design",
+        "status": "ready"
+      },
+      {
+        "id": "tasks",
+        "status": "blocked"
+      }
+    ],
+    "applyState": "blocked",
+    "progress": {
+      "total": 0,
+      "complete": 0,
+      "remaining": 0
+    }
+  },
+  {
+    "name": "automate-spec-evidence-checks",
+    "planningComplete": false,
+    "artifacts": [
+      {
+        "id": "proposal",
+        "status": "done"
+      },
+      {
+        "id": "specs",
+        "status": "skipped"
+      },
+      {
+        "id": "design",
+        "status": "ready"
+      },
+      {
+        "id": "tasks",
+        "status": "blocked"
+      }
+    ],
+    "applyState": "blocked",
+    "progress": {
+      "total": 0,
+      "complete": 0,
+      "remaining": 0
+    }
+  },
+  {
+    "name": "review-code-inventory",
+    "planningComplete": false,
+    "artifacts": [
+      {
+        "id": "proposal",
+        "status": "done"
+      },
+      {
+        "id": "specs",
+        "status": "skipped"
+      },
+      {
+        "id": "design",
+        "status": "ready"
+      },
+      {
+        "id": "tasks",
+        "status": "blocked"
+      }
+    ],
+    "applyState": "blocked",
+    "progress": {
+      "total": 0,
+      "complete": 0,
+      "remaining": 0
+    }
+  },
+  {
+    "name": "explore-stt-worker-lifecycle",
+    "planningComplete": false,
+    "artifacts": [
+      {
+        "id": "proposal",
+        "status": "done"
+      },
+      {
+        "id": "specs",
+        "status": "skipped"
+      },
+      {
+        "id": "design",
+        "status": "ready"
+      },
+      {
+        "id": "tasks",
+        "status": "blocked"
+      }
+    ],
+    "applyState": "blocked",
+    "progress": {
+      "total": 0,
+      "complete": 0,
+      "remaining": 0
+    }
+  },
+  {
+    "name": "unify-manual-and-queued-import",
+    "planningComplete": false,
+    "artifacts": [
+      {
+        "id": "proposal",
+        "status": "done"
+      },
+      {
+        "id": "specs",
+        "status": "ready"
+      },
+      {
+        "id": "design",
+        "status": "ready"
+      },
+      {
+        "id": "tasks",
+        "status": "blocked"
+      }
+    ],
+    "applyState": "blocked",
+    "progress": {
+      "total": 0,
+      "complete": 0,
+      "remaining": 0
+    }
+  },
+  {
+    "name": "verify-background-indexing",
+    "planningComplete": false,
+    "artifacts": [
+      {
+        "id": "proposal",
+        "status": "done"
+      },
+      {
+        "id": "specs",
+        "status": "skipped"
+      },
+      {
+        "id": "design",
+        "status": "ready"
+      },
+      {
+        "id": "tasks",
+        "status": "blocked"
+      }
+    ],
+    "applyState": "blocked",
+    "progress": {
+      "total": 0,
+      "complete": 0,
+      "remaining": 0
+    }
+  },
+  {
+    "name": "recover-corrupt-processing-artifacts",
+    "planningComplete": false,
+    "artifacts": [
+      {
+        "id": "proposal",
+        "status": "done"
+      },
+      {
+        "id": "specs",
+        "status": "ready"
+      },
+      {
+        "id": "design",
+        "status": "ready"
+      },
+      {
+        "id": "tasks",
+        "status": "blocked"
+      }
+    ],
+    "applyState": "blocked",
+    "progress": {
+      "total": 0,
+      "complete": 0,
+      "remaining": 0
+    }
+  },
+  {
+    "name": "benchmark-processing-batch",
+    "planningComplete": false,
+    "artifacts": [
+      {
+        "id": "proposal",
+        "status": "done"
+      },
+      {
+        "id": "specs",
+        "status": "skipped"
+      },
+      {
+        "id": "design",
+        "status": "ready"
+      },
+      {
+        "id": "tasks",
+        "status": "blocked"
+      }
+    ],
+    "applyState": "blocked",
+    "progress": {
+      "total": 0,
+      "complete": 0,
+      "remaining": 0
+    }
+  }
+]

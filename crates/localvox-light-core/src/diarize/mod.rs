@@ -68,7 +68,10 @@ pub fn enabled() -> bool {
         return false;
     }
     if std::env::var("LOCALVOX_DIARIZE").is_ok_and(|v| {
-        matches!(v.trim().to_ascii_lowercase().as_str(), "off" | "0" | "false")
+        matches!(
+            v.trim().to_ascii_lowercase().as_str(),
+            "off" | "0" | "false"
+        )
     }) {
         return false;
     }
@@ -230,7 +233,8 @@ pub struct Runner<'a> {
 
 impl<'a> Runner<'a> {
     pub fn new(seg: &'a dyn Segmentation, emb: &'a dyn Embedder, opts: Options) -> Self {
-        let step = ((opts.step_sec * SAMPLE_RATE as f64) as usize).clamp(FRAME_SHIFT, WINDOW_SAMPLES);
+        let step =
+            ((opts.step_sec * SAMPLE_RATE as f64) as usize).clamp(FRAME_SHIFT, WINDOW_SAMPLES);
         Self {
             seg,
             emb,
@@ -323,11 +327,8 @@ impl<'a> Runner<'a> {
         if self.embeddings.is_empty() {
             return Ok(Diarization::default());
         }
-        let clusters = cluster::agglomerative(
-            &self.embeddings,
-            self.opts.distance,
-            self.opts.max_speakers,
-        );
+        let clusters =
+            cluster::agglomerative(&self.embeddings, self.opts.distance, self.opts.max_speakers);
 
         let mut labels: Vec<Option<usize>> = vec![None; self.segments.len()];
         for (v, &seg) in self.of_segment.iter().enumerate() {
@@ -424,44 +425,22 @@ pub struct Merged {
 
 /// How to name the participants in the transcript.
 ///
-/// The order of preference is always the same: **the name the person gave** (the voice
-/// profile) → **«Я»** for the owner → a faceless number. We never invent a name:
-/// «Участник 2» is an honest «we do not know who this is», and it is better than a
-/// plausible invention. The numbers run consecutively in order of appearance, with no
-/// gaps: a participant who became «Иван» does not take up a number.
+/// Default labels use «Я» for the recording owner's microphone and numbers for
+/// other voices. Imported audio has no owner. Manual names are restored separately
+/// from this recording's roster; shared profiles never identify participants.
 ///
 /// `lang` is the language of the RECORDING: in an English transcript «Участник 2» looks
 /// absurd, and the summary over it is written in the language of the recording.
-pub fn names(participants: &[Participant], known: &profiles::Profiles, lang: &str) -> Vec<String> {
+pub fn names(participants: &[Participant], lang: &str) -> Vec<String> {
     let (me, nth) = match lang {
         "ru" => ("Я", "Участник"),
         _ => ("Me", "Speaker"),
     };
 
-    // One name — ONE participant of the recording. Several voices may turn out to be
-    // similar to a profile (the recognition threshold is not identity), and then there
-    // would be two «Ивановых» in the minutes: a person who does not exist, split in two.
-    // The name goes to the most similar one; the rest honestly get a number.
-    let mut best: std::collections::HashMap<&str, (usize, f32)> = Default::default();
-    for (i, p) in participants.iter().enumerate() {
-        if let Some((name, score)) = known.recognise(&p.embedding) {
-            let e = best.entry(name).or_insert((i, score));
-            if score > e.1 {
-                *e = (i, score);
-            }
-        }
-    }
-    let named: std::collections::HashMap<usize, &str> =
-        best.iter().map(|(name, (i, _))| (*i, *name)).collect();
-
     let mut n = 0;
     participants
         .iter()
-        .enumerate()
-        .map(|(i, p)| {
-            if let Some(name) = named.get(&i) {
-                return (*name).to_string();
-            }
+        .map(|p| {
             if p.owner {
                 return me.to_string();
             }
@@ -599,7 +578,11 @@ pub fn merge(tracks: Vec<Track>, opts: Options) -> Merged {
             secs[i],
             from_mic[i],
             from_speakers[i],
-            if echo[i] { " [comes out of the speakers]" } else { "" },
+            if echo[i] {
+                " [comes out of the speakers]"
+            } else {
+                ""
+            },
             if owner == Some(i) { " ← owner" } else { "" }
         );
     }
@@ -714,10 +697,19 @@ mod tests {
         let samples = conversation(32);
         let d = diarize(&samples, &Loudness, &Sign, Options::default()).unwrap();
 
-        assert_eq!(d.speakers.len(), 2, "the two voices did not come apart: {:?}", d.turns);
+        assert_eq!(
+            d.speakers.len(),
+            2,
+            "the two voices did not come apart: {:?}",
+            d.turns
+        );
         let first = timeline::who_said(2.0, 6.0, &d.turns);
         let second = timeline::who_said(10.0, 14.0, &d.turns);
-        assert!(first.is_some() && second.is_some(), "the timeline is empty: {:?}", d.turns);
+        assert!(
+            first.is_some() && second.is_some(),
+            "the timeline is empty: {:?}",
+            d.turns
+        );
         assert_ne!(first, second, "the second voice got the first one's number");
         // The same voice came back 16 seconds later — and must get back ITS OWN number.
         assert_eq!(
@@ -815,17 +807,19 @@ mod tests {
         assert_eq!(owner.len(), 1, "there must be exactly one owner");
         // The owner is the one whose voice came FROM THE MICROPHONE and who is not on the
         // speakers.
-        assert!(owner[0].embedding[0] < 0.0, "an interlocutor was appointed «me»");
+        assert!(
+            owner[0].embedding[0] < 0.0,
+            "an interlocutor was appointed «me»"
+        );
     }
 
     /// We never invent a name: first the one the person gave, then «Я», and only then a
     /// faceless number. The numbers run consecutively — a participant who became «Иван»
     /// does not take up a number.
     #[test]
-    fn a_named_voice_keeps_its_name_and_the_rest_get_honest_numbers() {
+    fn shared_profiles_do_not_name_participants_of_another_recording() {
         let d = tempfile::tempdir().unwrap();
         profiles::enroll(d.path(), "Иван", &[0.0, 1.0], 60.0).unwrap();
-        let known = profiles::load(d.path());
 
         let p = |id: usize, embedding: Vec<f32>, owner: bool| Participant {
             id,
@@ -842,10 +836,10 @@ mod tests {
             p(3, vec![-1.0, 0.2], false),
         ];
         assert_eq!(
-            names(&all, &known, "ru"),
-            ["Я", "Иван", "Участник 1", "Участник 2"]
+            names(&all, "ru"),
+            ["Я", "Участник 1", "Участник 2", "Участник 3"]
         );
-        assert_eq!(names(&all, &known, "en")[0], "Me");
+        assert_eq!(names(&all, "en")[0], "Me");
     }
 
     /// **A voice that is heard from the speakers can never be the owner.** Caught on a real
@@ -944,8 +938,16 @@ mod tests {
                 source_id: 0,
                 diarization: Diarization {
                     turns: vec![
-                        Turn { start_sec: 0.0, end_sec: 120.0, speaker: 0 },
-                        Turn { start_sec: 130.0, end_sec: 133.0, speaker: 1 },
+                        Turn {
+                            start_sec: 0.0,
+                            end_sec: 120.0,
+                            speaker: 0,
+                        },
+                        Turn {
+                            start_sec: 130.0,
+                            end_sec: 133.0,
+                            speaker: 1,
+                        },
                     ],
                     speakers: vec![
                         s(0, vec![1.0, 0.0], 120.0), // the owner spoke for two minutes
@@ -984,8 +986,16 @@ mod tests {
                         },
                     ],
                     turns: vec![
-                        Turn { start_sec: 0.0, end_sec: 90.0, speaker: 0 },
-                        Turn { start_sec: 95.0, end_sec: 96.1, speaker: 1 },
+                        Turn {
+                            start_sec: 0.0,
+                            end_sec: 90.0,
+                            speaker: 0,
+                        },
+                        Turn {
+                            start_sec: 95.0,
+                            end_sec: 96.1,
+                            speaker: 1,
+                        },
                     ],
                 },
             }],
@@ -993,8 +1003,12 @@ mod tests {
         );
         assert_eq!(m.participants.len(), 1, "the scrap became a participant");
         assert!(
-            timeline::who_said(95.0, 96.0, &m.turns.iter().map(|(_, t)| t.clone()).collect::<Vec<_>>())
-                .is_none(),
+            timeline::who_said(
+                95.0,
+                96.0,
+                &m.turns.iter().map(|(_, t)| t.clone()).collect::<Vec<_>>()
+            )
+            .is_none(),
             "the scrap's line got attributed"
         );
     }
@@ -1002,8 +1016,13 @@ mod tests {
     /// Silence is not a participant.
     #[test]
     fn silence_is_not_a_speaker() {
-        let d = diarize(&vec![0.0; 30 * SAMPLE_RATE as usize], &Loudness, &Sign, Options::default())
-            .unwrap();
+        let d = diarize(
+            &vec![0.0; 30 * SAMPLE_RATE as usize],
+            &Loudness,
+            &Sign,
+            Options::default(),
+        )
+        .unwrap();
         assert!(d.speakers.is_empty(), "silence became a participant");
     }
 }

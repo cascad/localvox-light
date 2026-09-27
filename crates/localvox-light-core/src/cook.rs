@@ -144,6 +144,7 @@ pub fn cook_session_asr(session_dir: &Path, p: &CookParams) -> Result<CookOutcom
     let recipe = p.recipe(&lang);
     if !p.force {
         let manifest = store.load();
+        let ledger = crate::processing::load(session_dir);
         if let Some(v) = manifest
             .versions
             .iter()
@@ -153,6 +154,27 @@ pub fn cook_session_asr(session_dir: &Path, p: &CookParams) -> Result<CookOutcom
             // version and moved it back onto v001. A deliberate re-cook was silently undone, and
             // the readable text was rebuilt from the older transcript.
             .filter(|v| v.params.get("recipe").and_then(|r| r.as_str()) == Some(recipe.as_str()))
+            .filter(|v| {
+                store
+                    .resolve(v.id)
+                    .and_then(|path| std::fs::read(path).ok())
+                    .is_some_and(|bytes| crate::artifacts::transcript(&bytes).is_ok())
+            })
+            .filter(|v| {
+                ledger
+                    .artifacts
+                    .get(crate::processing::TRANSCRIPT)
+                    .is_none_or(|r| {
+                        r.source != Some(v.id)
+                            || r.receipt.is_none()
+                            || crate::artifacts::verify(
+                                session_dir,
+                                crate::processing::TRANSCRIPT,
+                                r,
+                            )
+                            .is_ok()
+                    })
+            })
             .max_by_key(|v| v.id)
         {
             // Cooked by this recipe — but does `best` POINT at it?
@@ -182,6 +204,20 @@ pub fn cook_session_asr(session_dir: &Path, p: &CookParams) -> Result<CookOutcom
                 );
                 store.set_best(v.id)?;
             }
+            let path = store.resolve(v.id).context("committed transcript path")?;
+            let lines = crate::artifacts::transcript(&std::fs::read(path)?)?;
+            crate::processing::record(
+                session_dir,
+                crate::processing::TRANSCRIPT,
+                &recipe,
+                if lines.is_empty() {
+                    crate::processing::Outcome::Nothing
+                } else {
+                    crate::processing::Outcome::Ok
+                },
+                Some(format!("{} lines", lines.len())),
+                Some(v.id),
+            )?;
             return Ok(CookOutcome::Skipped {
                 existing_version: v.id,
             });
@@ -278,7 +314,12 @@ pub fn cook_session_asr(session_dir: &Path, p: &CookParams) -> Result<CookOutcom
     // A slice of audio between heartbeats: fed to the recognizer, then the bar moves. Small enough
     // that even one long file advances every few seconds, large enough not to spam the journal.
     let slice_samples: usize = 15 * SAMPLE_RATE as usize;
-    crate::progress::progress(session_dir, crate::progress::Stage::Transcribe, 0, total_sec);
+    crate::progress::progress(
+        session_dir,
+        crate::progress::Stage::Transcribe,
+        0,
+        total_sec,
+    );
 
     let mut any_chunks = false;
     for source_id in [0u8, 1u8] {
@@ -315,9 +356,9 @@ pub fn cook_session_asr(session_dir: &Path, p: &CookParams) -> Result<CookOutcom
         // no point in reading it a second time for the speakers. ASR cuts the stream
         // into windows by silence, while diarization slides its own window; all they
         // have in common is the source of samples.
-        let mut diar = speakers
-            .as_ref()
-            .map(|m| crate::diarize::Runner::new(&m.seg, &m.emb, crate::diarize::Options::default()));
+        let mut diar = speakers.as_ref().map(|m| {
+            crate::diarize::Runner::new(&m.seg, &m.emb, crate::diarize::Options::default())
+        });
 
         for path in &chunks {
             let samples = read_chunk_samples(path)?;
@@ -384,6 +425,7 @@ pub fn cook_session_asr(session_dir: &Path, p: &CookParams) -> Result<CookOutcom
             w.write_all(b"\n")?;
         }
         w.flush()?;
+        w.get_ref().sync_all()?;
     }
     store.commit(VersionEntry {
         id,
@@ -448,7 +490,7 @@ pub fn cook_session_asr(session_dir: &Path, p: &CookParams) -> Result<CookOutcom
         },
         Some(format!("{} lines", lines.len())),
         Some(id),
-    );
+    )?;
 
     Ok(CookOutcome::Done {
         version_id: id,
@@ -472,7 +514,7 @@ fn speakers_for_lines(
     lines: &[(u8, f64, f64, String)],
     lang: &str,
 ) -> Vec<Option<String>> {
-    use crate::diarize::{merge, names, profiles, roster, timeline, Options};
+    use crate::diarize::{merge, roster, timeline, Options};
 
     if tracks.is_empty() {
         return vec![None; lines.len()];
@@ -482,35 +524,24 @@ fn speakers_for_lines(
         return vec![None; lines.len()];
     }
 
-    // The voices a human once named himself are shared across the whole archive. This
-    // works in one direction only: recognizing an acquaintance is allowed, inventing a
-    // name for a stranger is not.
-    let work_dir = session_dir
-        .parent()
-        .and_then(Path::parent)
-        .unwrap_or(session_dir);
-    let known = profiles::load(work_dir);
-    let labels = names(&merged.participants, &known, lang);
-
-    // The roster of the recording — so that «"Участник 2" is Иван» can be said LATER,
-    // without running both models over the audio again.
-    let members = merged
-        .participants
-        .iter()
-        .zip(&labels)
-        .map(|(p, label)| roster::Member {
-            id: p.id,
-            label: label.clone(),
-            embedding: p.embedding.clone(),
-            speech_sec: p.speech_sec,
-            owner: p.owner,
-        })
-        .collect();
-    if let Err(e) = roster::save(session_dir, &roster::Roster { members }) {
+    let imported = std::fs::read(session_dir.join("meta.json"))
+        .ok()
+        .and_then(|b| serde_json::from_slice::<crate::chunks::SessionMeta>(&b).ok())
+        .is_some_and(|m| m.source.is_some());
+    let current = roster::for_participants(
+        &merged.participants,
+        &roster::load(session_dir),
+        lang,
+        imported,
+    );
+    let labels: Vec<_> = current.members.iter().map(|m| m.label.clone()).collect();
+    if let Err(e) = roster::save(session_dir, &current) {
         // The roster was not saved — the labels in the transcript stay, but afterwards
         // there will be nothing left to name a person with. We must not stay silent
         // about that.
-        tracing::error!("the participant roster was not saved ({e:#}) — renaming a voice will not work");
+        tracing::error!(
+            "the participant roster was not saved ({e:#}) — renaming a voice will not work"
+        );
     }
     tracing::info!(
         "diarization: {} participants ({})",

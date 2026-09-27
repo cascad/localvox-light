@@ -204,13 +204,14 @@ pub fn save_meta_public(meta_path: &Path, meta: &SessionMeta) {
 }
 
 fn save_meta(meta_path: &Path, meta: &SessionMeta) {
-    let mut value = match serde_json::to_value(meta) {
-        Ok(v) => v,
-        Err(e) => {
-            tracing::warn!("meta.json was not serialized: {e}");
-            return;
-        }
-    };
+    if let Err(e) = save_meta_checked(meta_path, meta) {
+        tracing::warn!("meta.json was not written: {e:#}");
+    }
+}
+
+/// Use when acknowledging a user command: a failed write must reach the caller.
+pub fn save_meta_checked(meta_path: &Path, meta: &SessionMeta) -> anyhow::Result<()> {
+    let mut value = serde_json::to_value(meta)?;
     // The language may have been set FROM OUTSIDE (the web UI, `--lang`) while the session is
     // being written — and we hold a copy of meta in memory where it is absent, and we write the
     // file in full. Without this the human's choice vanished silently on the next chunk
@@ -232,12 +233,7 @@ fn save_meta(meta_path: &Path, meta: &SessionMeta) {
         }
     }
 
-    let tmp = meta_path.with_extension("json.tmp");
-    let write = fs::write(&tmp, serde_json::to_vec_pretty(&value).unwrap_or_default())
-        .and_then(|()| fs::rename(&tmp, meta_path));
-    if let Err(e) = write {
-        tracing::warn!("meta.json was not written: {e}");
-    }
+    crate::artifacts::atomic_write(meta_path, &serde_json::to_vec_pretty(&value)?)
 }
 
 // ─────────────────────── streaming WAV writer ───────────────────────
@@ -515,13 +511,21 @@ pub fn create_session_dir(
     // (WP-C6) create sessions faster than the one-second tick of the name — without a
     // suffix the second one would overwrite the first.
     let sessions = work_dir.join("sessions");
-    let mut name = base.clone();
-    let mut n = 2;
-    while sessions.join(&name).exists() {
-        name = format!("{base}-{n}");
-        n += 1;
-    }
-    let session = sessions.join(name);
+    fs::create_dir_all(&sessions)?;
+    let mut n = 1;
+    let session = loop {
+        let name = if n == 1 {
+            base.clone()
+        } else {
+            format!("{base}-{n}")
+        };
+        let session = sessions.join(name);
+        match fs::create_dir(&session) {
+            Ok(()) => break session,
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => n += 1,
+            Err(e) => return Err(e),
+        }
+    };
     let audio = session.join("audio");
     fs::create_dir_all(&audio)?;
     let meta_path = session.join("meta.json");
@@ -538,7 +542,7 @@ pub fn create_session_dir(
         lang: crate::lang::global(),
         ..Default::default()
     };
-    save_meta(&meta_path, &meta);
+    save_meta_checked(&meta_path, &meta).map_err(std::io::Error::other)?;
     Ok((audio, meta_path))
 }
 
@@ -584,11 +588,39 @@ fn slug(label: &str) -> String {
 
 fn translit(c: char) -> String {
     const RU: [(char, &str); 33] = [
-        ('а', "a"), ('б', "b"), ('в', "v"), ('г', "g"), ('д', "d"), ('е', "e"), ('ё', "e"),
-        ('ж', "zh"), ('з', "z"), ('и', "i"), ('й', "y"), ('к', "k"), ('л', "l"), ('м', "m"),
-        ('н', "n"), ('о', "o"), ('п', "p"), ('р', "r"), ('с', "s"), ('т', "t"), ('у', "u"),
-        ('ф', "f"), ('х', "h"), ('ц', "c"), ('ч', "ch"), ('ш', "sh"), ('щ', "sch"), ('ъ', ""),
-        ('ы', "y"), ('ь', ""), ('э', "e"), ('ю', "yu"), ('я', "ya"),
+        ('а', "a"),
+        ('б', "b"),
+        ('в', "v"),
+        ('г', "g"),
+        ('д', "d"),
+        ('е', "e"),
+        ('ё', "e"),
+        ('ж', "zh"),
+        ('з', "z"),
+        ('и', "i"),
+        ('й', "y"),
+        ('к', "k"),
+        ('л', "l"),
+        ('м', "m"),
+        ('н', "n"),
+        ('о', "o"),
+        ('п', "p"),
+        ('р', "r"),
+        ('с', "s"),
+        ('т', "t"),
+        ('у', "u"),
+        ('ф', "f"),
+        ('х', "h"),
+        ('ц', "c"),
+        ('ч', "ch"),
+        ('ш', "sh"),
+        ('щ', "sch"),
+        ('ъ', ""),
+        ('ы', "y"),
+        ('ь', ""),
+        ('э', "e"),
+        ('ю', "yu"),
+        ('я', "ya"),
     ];
     RU.iter()
         .find(|(ru, _)| *ru == c)
@@ -750,22 +782,76 @@ pub fn sweep_audio_retention(work_dir: &Path, days: u32) -> usize {
         return 0;
     }
     let cutoff = std::time::SystemTime::now() - Duration::from_secs(u64::from(days) * 24 * 3600);
-    let sessions = work_dir.join("sessions");
+    let Ok(sessions) = fs::read_dir(work_dir.join("sessions")) else {
+        return 0;
+    };
     let mut removed = 0usize;
-    for ext in ["wav", "flac"] {
-        for f in find_files(&sessions, ext) {
-            // only inside audio/ directories
-            if f.parent().and_then(|p| p.file_name()) != Some(std::ffi::OsStr::new("audio")) {
-                continue;
-            }
-            let old = fs::metadata(&f)
-                .and_then(|m| m.modified())
-                .map(|t| t < cutoff)
-                .unwrap_or(false);
-            if old && fs::remove_file(&f).is_ok() {
-                removed += 1;
-            }
+    for entry in sessions.flatten() {
+        if !entry
+            .file_type()
+            .is_ok_and(|kind| kind.is_dir() && !kind.is_symlink())
+        {
+            continue;
         }
+        let session = entry.path();
+        let name = entry.file_name().to_string_lossy().into_owned();
+        // Same lock order as the coordinator. A concurrent recook cannot start between
+        // checking its prerequisites and removing its input.
+        removed += crate::jobs::JobQueue::mutate(work_dir, |queue| {
+            if queue.error().is_some()
+                || queue.jobs().iter().any(|job| {
+                    job.session == name
+                        && matches!(
+                            job.state,
+                            crate::jobs::JobState::Pending | crate::jobs::JobState::Running
+                        )
+                })
+                || crate::jobs::recording_session(work_dir).as_deref() == Some(name.as_str())
+            {
+                return 0;
+            }
+            let Ok(Some(_lease)) = crate::jobs::try_execution_lock(&session) else {
+                return 0;
+            };
+            let Ok(entries) = fs::read_dir(session.join("audio")) else {
+                return 0;
+            };
+            let files: Vec<_> = entries.filter_map(Result::ok).map(|e| e.path()).collect();
+            if files
+                .iter()
+                .any(|p| p.extension().and_then(|x| x.to_str()) == Some("part"))
+                || !crate::processing::inspect(&session, crate::processing::TRANSCRIPT).complete()
+            {
+                return 0;
+            }
+            let mut count = 0;
+            for file in files {
+                if !matches!(
+                    file.extension().and_then(|x| x.to_str()),
+                    Some("wav" | "flac")
+                ) {
+                    continue;
+                }
+                let old = fs::symlink_metadata(&file)
+                    .and_then(|m| {
+                        if m.is_file() && !m.file_type().is_symlink() {
+                            m.modified()
+                        } else {
+                            Err(std::io::Error::other("not a regular audio file"))
+                        }
+                    })
+                    .is_ok_and(|t| t < cutoff);
+                if old {
+                    match fs::remove_file(&file) {
+                        Ok(()) => count += 1,
+                        Err(e) => {
+                            tracing::warn!(path = %file.display(), "retention: kept audio: {e}")
+                        }
+                    }
+                }
+            }
+            count
+        });
     }
     if removed > 0 {
         tracing::info!("retention: removed {removed} audio chunks older than {days} d.");
@@ -828,7 +914,9 @@ mod tests {
         // A title made of punctuation alone — nothing to transliterate, and that is not an
         // error: the session simply stays with its date.
         assert_eq!(slug("!!!"), "");
-        assert!(slug("оченьдлинноеназваниевстречикотороеточнонепоместитсявсорокзнаков").len() <= 40);
+        assert!(
+            slug("оченьдлинноеназваниевстречикотороеточнонепоместитсявсорокзнаков").len() <= 40
+        );
     }
 
     use super::*;
@@ -1052,7 +1140,11 @@ mod tests {
         assert_eq!(recover_orphan_chunks(dir.path()), 1);
         let text = fs::read_to_string(session.join("meta.json")).unwrap();
         let m: SessionMeta = serde_json::from_str(&text).unwrap();
-        assert_eq!(m.chunks.len(), 2, "the recovered chunk was not appended to the meta");
+        assert_eq!(
+            m.chunks.len(),
+            2,
+            "the recovered chunk was not appended to the meta"
+        );
         let rec = m
             .chunks
             .iter()
@@ -1138,6 +1230,109 @@ mod tests {
         fs::write(audio.join("src0_chunk0001.wav"), b"x").unwrap();
         assert_eq!(sweep_audio_retention(dir.path(), 0), 0);
         assert!(audio.join("src0_chunk0001.wav").exists());
+    }
+
+    #[test]
+    fn retention_requires_verified_transcription_and_keeps_other_artifacts() {
+        let work = tempdir().unwrap();
+        let session = work.path().join("sessions/old");
+        fs::create_dir_all(session.join("audio")).unwrap();
+        let audio = session.join("audio/old.wav");
+        fs::write(&audio, b"original audio").unwrap();
+        File::options()
+            .write(true)
+            .open(&audio)
+            .unwrap()
+            .set_modified(std::time::SystemTime::now() - Duration::from_secs(3 * 86400))
+            .unwrap();
+        assert_eq!(sweep_audio_retention(work.path(), 1), 0);
+        crate::artifacts::tests::fixture(&session);
+        // A transcript file alone is not acknowledgement that the full STT succeeded.
+        assert_eq!(sweep_audio_retention(work.path(), 1), 0);
+        crate::processing::record(
+            &session,
+            crate::processing::TRANSCRIPT,
+            "fixture",
+            crate::processing::Outcome::Ok,
+            None,
+            Some(1),
+        )
+        .unwrap();
+        fs::write(session.join("meta.json"), b"preserve metadata").unwrap();
+        let source = fs::read(session.join("transcripts/v001-raw.jsonl")).unwrap();
+        assert_eq!(sweep_audio_retention(work.path(), 0), 0);
+        assert_eq!(sweep_audio_retention(work.path(), 1), 1);
+        assert!(!audio.exists());
+        assert_eq!(
+            fs::read(session.join("transcripts/v001-raw.jsonl")).unwrap(),
+            source
+        );
+        assert_eq!(
+            fs::read(session.join("meta.json")).unwrap(),
+            b"preserve metadata"
+        );
+        assert!(session.join("summary.md").is_file());
+    }
+
+    #[test]
+    fn retention_preserves_audio_when_state_is_busy_or_untrustworthy() {
+        for condition in [
+            "missing",
+            "corrupt",
+            "pending",
+            "lock",
+            "recording",
+            "part",
+            "queue",
+        ] {
+            let work = tempdir().unwrap();
+            let session = work.path().join("sessions/old");
+            fs::create_dir_all(session.join("audio")).unwrap();
+            let audio = session.join("audio/old.flac");
+            fs::write(&audio, b"original audio").unwrap();
+            File::options()
+                .write(true)
+                .open(&audio)
+                .unwrap()
+                .set_modified(std::time::SystemTime::now() - Duration::from_secs(3 * 86400))
+                .unwrap();
+            let source = crate::artifacts::tests::fixture(&session);
+            crate::processing::record(
+                &session,
+                crate::processing::TRANSCRIPT,
+                "fixture",
+                crate::processing::Outcome::Ok,
+                None,
+                Some(1),
+            )
+            .unwrap();
+            let mut lease = None;
+            match condition {
+                "missing" => fs::remove_file(&source).unwrap(),
+                "corrupt" => fs::write(&source, "broken").unwrap(),
+                "pending" => {
+                    crate::jobs::JobQueue::mutate(work.path(), |q| {
+                        q.enqueue_cook("old", true, true, false)
+                    });
+                }
+                "lock" => {
+                    lease = crate::jobs::try_execution_lock(&session).unwrap();
+                }
+                "recording" => {
+                    fs::write(work.path().join(crate::jobs::RECORDING_MARKER), "old").unwrap();
+                }
+                "part" => {
+                    fs::write(session.join("audio/active.part"), "pcm").unwrap();
+                }
+                "queue" => {
+                    fs::write(work.path().join("jobs.json"), "corrupt queue").unwrap();
+                }
+                _ => unreachable!(),
+            }
+            assert_eq!(sweep_audio_retention(work.path(), 1), 0, "{condition}");
+            assert!(audio.is_file(), "{condition}");
+            drop(lease);
+        }
     }
 
     #[test]

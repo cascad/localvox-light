@@ -22,6 +22,18 @@ use localvox_light_ingest::{
     about = "Cooking sessions: chunks → a transcript version (GigaAM, windows cut on VAD silence)"
 )]
 struct Cli {
+    /// Print the daemon/worker protocol version without loading models.
+    #[arg(long, hide = true)]
+    worker_protocol: bool,
+
+    /// Execute exactly one phase of a queued session (internal daemon contract).
+    #[arg(long, hide = true)]
+    worker_phase: Option<localvox_light_core::jobs::JobPhase>,
+
+    /// Rebuild derived search indexes during an idle period (internal daemon contract).
+    #[arg(long, hide = true, conflicts_with = "worker_phase")]
+    worker_index: bool,
+
     /// Directory of one specific session (…/sessions/<date>); without it — every session in work-dir
     session: Option<PathBuf>,
 
@@ -48,6 +60,10 @@ struct Cli {
     /// Cook again even if the session has already been cooked with this very recipe
     #[arg(long)]
     force: bool,
+
+    /// Process an existing transcript without invoking or resetting the ASR stage.
+    #[arg(long)]
+    post_only: bool,
 
     /// Hard ceiling of the inference window, sec (GigaAM's limit is ~200; windows longer than
     /// 120 s mash conversational speech into porridge — WER 93 %, see docs/asr-bench.md)
@@ -77,6 +93,10 @@ struct Cli {
     /// Show the session's transcript versions and exit (needs a session path)
     #[arg(long)]
     list_versions: bool,
+
+    /// Read-only JSON status: verified artifacts, phase and elapsed times; no model is loaded.
+    #[arg(long)]
+    status: bool,
 
     /// Make the version with this id the working one (best) and exit (needs a session path)
     #[arg(long, value_name = "ID")]
@@ -145,6 +165,47 @@ struct Cli {
     export: Vec<String>,
 }
 
+/// A terminal event is emitted only after the artifact and its receipt are durable.
+fn commit_processing(
+    session: &Path,
+    artifact: &str,
+    recipe: &str,
+    outcome: localvox_light_core::processing::Outcome,
+    detail: Option<String>,
+    source: Option<u32>,
+) -> Result<()> {
+    use localvox_light_core::{
+        processing::{self, Outcome},
+        progress::{mark, Stage, StageState},
+    };
+    let stage = match artifact {
+        processing::REFINED => Stage::Refine,
+        processing::PROCESSED => Stage::Cleanup,
+        _ => Stage::Summary,
+    };
+    if let Err(e) = processing::record(session, artifact, recipe, outcome, detail.clone(), source) {
+        mark(
+            session,
+            stage,
+            StageState::Failed,
+            Some(&format!("Результат не подтверждён: {e:#}")),
+        );
+        return Err(e);
+    }
+    let state = match outcome {
+        Outcome::Nothing => StageState::Skipped,
+        Outcome::Failed => StageState::Failed,
+        _ => StageState::Done,
+    };
+    mark(
+        session,
+        stage,
+        state,
+        Some(detail.as_deref().unwrap_or("Артефакт сохранён и проверен")),
+    );
+    Ok(())
+}
+
 /// `--list-versions` / `--set-best`: managing the versions of one session without cooking.
 fn manage_versions(session: &Path, list: bool, set_best: Option<u32>) -> Result<()> {
     use localvox_light_core::versions::VersionStore;
@@ -187,13 +248,72 @@ fn manage_versions(session: &Path, list: bool, set_best: Option<u32>) -> Result<
 
 fn main() -> Result<()> {
     // A broken line in .env makes it abandon reading the file — everything below is silently lost.
-    if let Err(e) = dotenvy::dotenv() {
-        if !matches!(e, dotenvy::Error::Io(_)) {
-            eprintln!("ERROR in .env: {e}");
-            eprintln!("  → variables AFTER the broken line were NOT read (format: KEY=value or # comment)");
+    // Supervised workers receive the coordinator's startup environment snapshot.
+    // Loading a newly edited .env here would silently change settings between phases.
+    if std::env::var(localvox_light_process::CONTAINED_ENV).as_deref() != Ok("1") {
+        if let Err(e) = dotenvy::dotenv() {
+            if !matches!(e, dotenvy::Error::Io(_)) {
+                eprintln!("ERROR in .env: {e}");
+                eprintln!("  → variables AFTER the broken line were NOT read (format: KEY=value or # comment)");
+            }
         }
     }
-    let cli = Cli::parse();
+    let mut cli = Cli::parse();
+    if cli.worker_protocol {
+        println!("{}", localvox_light_core::jobs::WORKER_PROTOCOL);
+        return Ok(());
+    }
+    if cli.worker_index {
+        localvox_light_core::cli::init_tracing_tool("info");
+        localvox_light_search::SearchIndex::open_or_build(&cli.work_dir, false)?;
+        localvox_light_search::semantic::SemanticIndex::open_or_update(&cli.work_dir)?;
+        println!("search indexes updated");
+        return Ok(());
+    }
+    if let Some(phase) = cli.worker_phase {
+        use localvox_light_core::jobs::JobPhase;
+        let session = cli
+            .session
+            .as_ref()
+            .context("--worker-phase requires a session path")?;
+        anyhow::ensure!(
+            cli.ingest.is_empty()
+                && !cli.status
+                && !cli.list_versions
+                && cli.set_best.is_none()
+                && cli.lang.is_none()
+                && cli.export.is_empty(),
+            "worker phases cannot be combined with archive management commands"
+        );
+        match phase {
+            JobPhase::Prepare => {
+                localvox_light_core::cli::init_tracing_tool("info");
+                if localvox_light_core::artifacts::audio(session).is_err() {
+                    localvox_light_asr::prepare::ingest_into_session(session)?;
+                }
+                localvox_light_core::artifacts::audio(session)?;
+                return Ok(());
+            }
+            JobPhase::Transcribe => {
+                cli.post_only = false;
+                cli.refine = false;
+                cli.cleanup = false;
+                cli.summary = false;
+            }
+            JobPhase::Text => {
+                cli.post_only = true;
+                cli.force = false;
+                cli.summary = false;
+            }
+            JobPhase::Summary => {
+                cli.post_only = true;
+                cli.force = false;
+                cli.refine = false;
+                cli.cleanup = false;
+                cli.summary = true;
+            }
+        }
+    }
 
     // SEPARATION OF STREAMS (the daemon expects it, and the cleanliness of its log rests on it):
     //   stdout — the RESULT: what was cooked, where it went, how many lines. Business events.
@@ -213,6 +333,29 @@ fn main() -> Result<()> {
     // and deciding this separately in each binary means one day flooding its log with someone
     // else's debug output.
     localvox_light_core::cli::init_tracing_tool("info");
+
+    if cli.status {
+        let session = cli
+            .session
+            .as_ref()
+            .context("--status requires a session path")?;
+        let work = session
+            .parent()
+            .and_then(Path::parent)
+            .unwrap_or(&cli.work_dir);
+        let queue = localvox_light_core::jobs::JobQueue::load(work);
+        let name = session.file_name().and_then(|s| s.to_str()).unwrap_or("");
+        let job = queue.jobs().iter().find(|j| j.session == name);
+        let meta: SessionMeta = serde_json::from_slice(&std::fs::read(session.join("meta.json"))?)?;
+        let view = localvox_light_core::workflow::view(
+            session,
+            job,
+            meta.source.is_some(),
+            &localvox_light_core::versions::now_rfc3339(),
+        );
+        println!("{}", serde_json::to_string_pretty(&view)?);
+        return Ok(());
+    }
 
     // Version management — fast operations on one session, without cooking.
     if cli.list_versions || cli.set_best.is_some() {
@@ -286,7 +429,7 @@ fn main() -> Result<()> {
         ..CookParams::default()
     };
 
-    let llm = if cli.summary || cli.cleanup || cli.refine {
+    let mut llm = if cli.summary || cli.cleanup || cli.refine {
         let api_key = cli
             .llm_api_key_env
             .as_deref()
@@ -302,10 +445,9 @@ fn main() -> Result<()> {
                 glossary_dir: cli.glossary_dir.clone(),
                 templates_dir: cli.templates_dir.clone(),
                 summary_template: cli.summary_template.clone(),
-                // The entity tagger: if the model is there, names and dates are checked BY
-                // CONTEXT and without a single list; if it is not, they are not checked — and
-                // that is said out loud.
-                entities: build_entities(&cli.model_dir),
+                // Load NER only in the summary phase, with a visible operation. ASR and
+                // line-by-line text cleanup do not need this additional CPU model.
+                entities: None,
                 ..localvox_light_llm::pipeline::ProcessParams::default()
             },
         ))
@@ -325,18 +467,22 @@ fn main() -> Result<()> {
                 .filter(|s| !s.is_empty());
             eprintln!(
                 "summary provider: claude (подписка){}",
-                claude_model.as_deref().map(|m| format!(", model {m}")).unwrap_or_default()
+                claude_model
+                    .as_deref()
+                    .map(|m| format!(", model {m}"))
+                    .unwrap_or_default()
             );
-            Some(localvox_light_llm::LlmClient::new(localvox_light_llm::LlmProfile {
-                provider: localvox_light_llm::Provider::Claude,
-                // Shown in the summary's provenance header; the recipe is NOT keyed on it (see the
-                // task loop), so switching provider never re-cooks the archive behind the owner.
-                model: match &claude_model {
-                    Some(m) => format!("claude:{m}"),
-                    None => "claude".into(),
+            Some(localvox_light_llm::LlmClient::new(
+                localvox_light_llm::LlmProfile {
+                    provider: localvox_light_llm::Provider::Claude,
+                    // Recorded in provenance and receipts. Recipe changes do not trigger discovery.
+                    model: match &claude_model {
+                        Some(m) => format!("claude:{m}"),
+                        None => "claude".into(),
+                    },
+                    ..localvox_light_llm::LlmProfile::default()
                 },
-                ..localvox_light_llm::LlmProfile::default()
-            }))
+            ))
         } else {
             None
         };
@@ -347,6 +493,15 @@ fn main() -> Result<()> {
     let mut failed_cook = 0usize;
     let mut failed_post = 0usize;
     for session in &sessions {
+        // Supervised phases are owned by the coordinator; manual CLI runs acquire the same lease.
+        let _execution_lock = if cli.worker_phase.is_none() {
+            Some(
+                localvox_light_core::jobs::try_execution_lock(session)?
+                    .context("session is being processed by another worker")?,
+            )
+        } else {
+            None
+        };
         println!("→ {}", session.display());
 
         // We wrote the language into the session — and that is all. There is no need to reset the
@@ -384,65 +539,85 @@ fn main() -> Result<()> {
         // actually is. From outside, all of this is a single "⚙ cooking" — and when it breaks,
         // the reason lives in a daemon log nobody opens.
         use localvox_light_core::progress::{mark, Stage, StageState};
-        mark(session, Stage::Transcribe, StageState::Running, None);
-        let cooked = match cook_session_asr(session, &params) {
-            Ok(CookOutcome::Done {
-                version_id,
-                file,
-                lines,
-                audio_sec,
-                wall_sec,
-            }) => {
-                let rtf = if audio_sec > 0.0 {
-                    wall_sec / audio_sec
-                } else {
-                    0.0
-                };
-                println!(
+        let cooked = if cli.post_only {
+            localvox_light_core::artifacts::source_transcript(session)?;
+            true
+        } else {
+            mark(session, Stage::Transcribe, StageState::Running, None);
+            let cooked = match localvox_light_core::progress::activity(
+                session,
+                Stage::Transcribe,
+                "Распознавание и разметка говорящих",
+                || cook_session_asr(session, &params),
+            ) {
+                Ok(CookOutcome::Done {
+                    version_id,
+                    file,
+                    lines,
+                    audio_sec,
+                    wall_sec,
+                }) => {
+                    let rtf = if audio_sec > 0.0 {
+                        wall_sec / audio_sec
+                    } else {
+                        0.0
+                    };
+                    println!(
                     "  cook: v{version_id:03} ({lines} lines, {audio_sec:.0} s audio in {wall_sec:.1} s, RTF {rtf:.3})"
                 );
-                println!("  {}", file.display());
-                mark(
-                    session,
-                    Stage::Transcribe,
-                    StageState::Done,
-                    Some(&format!("{lines} строк")),
-                );
-                lines > 0
-            }
-            Ok(CookOutcome::Skipped { existing_version }) => {
-                println!("  cook: v{existing_version:03} already exists (--force to re-cook)");
-                mark(
-                    session,
-                    Stage::Transcribe,
-                    StageState::Done,
-                    Some(&format!("уже сварено, v{existing_version:03}")),
-                );
-                true
-            }
-            Ok(CookOutcome::Empty) => {
-                println!("  cook: no audio");
-                // Not a failure: there is simply nothing to recognize. A person must see the
-                // difference between "it broke" and "there was nothing here".
-                mark(
-                    session,
-                    Stage::Transcribe,
-                    StageState::Skipped,
-                    Some("в записи нет звука"),
-                );
-                false
-            }
-            Err(e) => {
-                failed_cook += 1;
-                eprintln!("  cook error: {e:#}");
-                mark(
-                    session,
-                    Stage::Transcribe,
-                    StageState::Failed,
-                    Some(&format!("{e:#}")),
-                );
-                false
-            }
+                    println!("  {}", file.display());
+                    mark(
+                        session,
+                        Stage::Transcribe,
+                        StageState::Done,
+                        Some(&format!("{lines} строк")),
+                    );
+                    lines > 0
+                }
+                Ok(CookOutcome::Skipped { existing_version }) => {
+                    println!("  cook: v{existing_version:03} already exists (--force to re-cook)");
+                    mark(
+                        session,
+                        Stage::Transcribe,
+                        StageState::Done,
+                        Some(&format!("уже сварено, v{existing_version:03}")),
+                    );
+                    true
+                }
+                Ok(CookOutcome::Empty) => {
+                    println!("  cook: no audio");
+                    localvox_light_core::processing::record(
+                        session,
+                        localvox_light_core::processing::TRANSCRIPT,
+                        "no-audio",
+                        localvox_light_core::processing::Outcome::Nothing,
+                        Some("в записи нет звука".into()),
+                        None,
+                    )?;
+                    // Not a failure: there is simply nothing to recognize. A person must see the
+                    // difference between "it broke" and "there was nothing here".
+                    mark(
+                        session,
+                        Stage::Transcribe,
+                        StageState::Skipped,
+                        Some("в записи нет звука"),
+                    );
+                    false
+                }
+                Err(e) => {
+                    failed_cook += 1;
+                    eprintln!("  cook error: {e:#}");
+                    mark(
+                        session,
+                        Stage::Transcribe,
+                        StageState::Failed,
+                        Some(&format!("{e:#}")),
+                    );
+                    continue;
+                }
+            };
+
+            cooked
         };
 
         // Nothing to COOK does not mean nothing to PROCESS. The LLM needs the transcript, not the
@@ -468,7 +643,9 @@ fn main() -> Result<()> {
             }
         }
 
-        let Some((client, pp)) = &llm else { continue };
+        let Some((client, pp)) = &mut llm else {
+            continue;
+        };
 
         // --refine: clean up the transcript as a new version (before summary/cleanup, so that
         // those are built from the already cleaned-up best).
@@ -476,7 +653,13 @@ fn main() -> Result<()> {
         // Every outcome is RECORDED — done, nothing-to-do, or a genuine failure — so refine takes
         // part in the same idempotency as summary/cleanup: a settled session is a fact in the log,
         // not a silence that makes the step run again and, on any hiccup, loop.
-        if cli.refine {
+        if cli.refine
+            && (cli.force
+                || !localvox_light_core::processing::is_done(
+                    session,
+                    localvox_light_core::processing::REFINED,
+                ))
+        {
             use localvox_light_core::processing::{self, Outcome};
             let recipe = processing::refine_recipe(&cli.llm_model);
             mark(session, Stage::Refine, StageState::Running, None);
@@ -486,33 +669,65 @@ fn main() -> Result<()> {
                 // every restart) was the re-cook loop.
                 Ok(o) if o.nothing => {
                     println!("  refine: nothing to clean up (no speech)");
-                    mark(session, Stage::Refine, StageState::Skipped, Some("речи нет"));
-                    processing::record(session, processing::REFINED, &recipe, Outcome::Nothing,
-                        Some("no speech".into()), Some(o.version_id));
+
+                    commit_processing(
+                        session,
+                        processing::REFINED,
+                        &recipe,
+                        Outcome::Nothing,
+                        Some("no speech".into()),
+                        Some(o.version_id),
+                    )?;
                 }
                 Ok(o) if o.skipped => {
-                    println!("  refine: already cleaned up v{:03} (--force to repeat)", o.version_id);
-                    mark(session, Stage::Refine, StageState::Done, Some("уже причёсано"));
-                    processing::record(session, processing::REFINED, &recipe, Outcome::Ok,
-                        None, Some(o.version_id));
+                    println!(
+                        "  refine: already cleaned up v{:03} (--force to repeat)",
+                        o.version_id
+                    );
+
+                    commit_processing(
+                        session,
+                        processing::REFINED,
+                        &recipe,
+                        Outcome::Ok,
+                        None,
+                        Some(o.version_id),
+                    )?;
                 }
                 Ok(o) => {
                     println!(
                         "  refine: v{:03} best ({}/{} lines fixed, {} with no LLM answer, {} calls, {:.1} s)",
                         o.version_id, o.changed, o.lines, o.omitted, o.llm_calls, o.wall_sec
                     );
-                    mark(session, Stage::Refine, StageState::Done,
-                        Some(&format!("исправлено {}/{} строк", o.changed, o.lines)));
-                    processing::record(session, processing::REFINED, &recipe, Outcome::Ok,
-                        None, Some(o.version_id));
+
+                    commit_processing(
+                        session,
+                        processing::REFINED,
+                        &recipe,
+                        Outcome::Ok,
+                        None,
+                        Some(o.version_id),
+                    )?;
                 }
                 // A genuine transient failure (the LLM is down): worth a retry, so it counts.
                 Err(e) => {
                     failed_post += 1;
                     eprintln!("  refine error: {e:#}");
-                    mark(session, Stage::Refine, StageState::Failed, Some(&format!("{e:#}")));
-                    processing::record(session, processing::REFINED, &recipe, Outcome::Failed,
-                        Some(format!("{e:#}")), None);
+                    mark(
+                        session,
+                        Stage::Refine,
+                        StageState::Failed,
+                        Some(&format!("{e:#}")),
+                    );
+                    commit_processing(
+                        session,
+                        processing::REFINED,
+                        &recipe,
+                        Outcome::Failed,
+                        Some(format!("{e:#}")),
+                        None,
+                    )?;
+                    continue;
                 }
             }
         }
@@ -539,28 +754,38 @@ fn main() -> Result<()> {
                     processing::llm_style(cli.summary_template.as_deref(), &lang),
                 ),
             };
-            // The artifact's recipe: kind of work + style (template or language) + model +
-            // prompt revision. If anything changed — we redo it; if nothing did — we do not
-            // touch it.
-            let recipe = processing::llm_recipe(artifact, &style, &cli.llm_model);
-
-            // The summary is a stage a person watches for; the cleanup rides along with it and
-            // has no separate step in the chain.
-            let stage = matches!(task, localvox_light_llm::pipeline::Task::Summary)
-                .then_some(Stage::Summary);
+            if !cli.force && localvox_light_core::processing::is_done(session, artifact) {
+                println!(
+                    "  {artifact}: сохранённый результат проверен, повторная генерация не нужна"
+                );
+                continue;
+            }
+            let stage = Some(match task {
+                localvox_light_llm::pipeline::Task::Summary => Stage::Summary,
+                localvox_light_llm::pipeline::Task::Cleanup => Stage::Cleanup,
+            });
             if let Some(s) = stage {
                 mark(session, s, StageState::Running, None);
             }
 
-            // The summary can go to Claude (subscription); everything else stays on the local
-            // client. The recipe above is keyed on the LOCAL model on purpose — a provider switch
-            // must not silently re-cook the archive (WP-C67: finished is finished).
             let task_client = match task {
                 localvox_light_llm::pipeline::Task::Summary => {
                     summary_client.as_ref().unwrap_or(client)
                 }
                 _ => client,
             };
+
+            let recipe = processing::llm_recipe(artifact, &style, task_client.model());
+
+            if matches!(task, localvox_light_llm::pipeline::Task::Summary) && pp.entities.is_none()
+            {
+                pp.entities = localvox_light_core::progress::activity(
+                    session,
+                    Stage::Summary,
+                    "Загрузка модели проверки имён",
+                    || build_entities(&cli.model_dir),
+                );
+            }
 
             match localvox_light_llm::pipeline::process_session(session, task, task_client, pp) {
                 // A silent session is not an error: silence from an always-on recorder is
@@ -569,17 +794,14 @@ fn main() -> Result<()> {
                 Ok(o) if o.skipped.is_some() => {
                     let why = o.skipped.unwrap_or_default();
                     println!("  llm: skipped — {why}");
-                    if let Some(s) = stage {
-                        mark(session, s, StageState::Skipped, Some(&why));
-                    }
-                    processing::record(
+                    commit_processing(
                         session,
                         artifact,
                         &recipe,
                         Outcome::Nothing,
                         Some(why),
                         o.source,
-                    );
+                    )?;
                 }
                 Ok(o) => {
                     println!(
@@ -591,14 +813,6 @@ fn main() -> Result<()> {
                     );
                     // The doubt mark travels into the chain too: "done, but worth a look" is not
                     // the same fact as "done", and the person deserves to see which one it was.
-                    if let Some(s) = stage {
-                        mark(
-                            session,
-                            s,
-                            StageState::Done,
-                            o.unverified.as_deref().map(|_| "стоит перепроверить"),
-                        );
-                    }
                     // Not an error and not a loss: the document IS written. This is a MARK —
                     // «worth double-checking, may be a lie or an imprecision» — not a verdict.
                     // The check compares literally and will always have false positives
@@ -608,7 +822,7 @@ fn main() -> Result<()> {
                     if let Some(what) = &o.unverified {
                         eprintln!("  ⚠ worth double-checking: {what}");
                     }
-                    processing::record(
+                    commit_processing(
                         session,
                         artifact,
                         &recipe,
@@ -619,7 +833,7 @@ fn main() -> Result<()> {
                         },
                         o.unverified,
                         o.source,
-                    );
+                    )?;
                 }
                 Err(e) => {
                     failed_post += 1;
@@ -627,14 +841,15 @@ fn main() -> Result<()> {
                     if let Some(s) = stage {
                         mark(session, s, StageState::Failed, Some(&format!("{e:#}")));
                     }
-                    processing::record(
+                    commit_processing(
                         session,
                         artifact,
                         &recipe,
                         Outcome::Failed,
                         Some(format!("{e:#}")),
                         None,
-                    );
+                    )?;
+                    break;
                 }
             }
         }

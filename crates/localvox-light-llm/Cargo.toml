@@ -6,6 +6,7 @@ description = "LLM processing of transcripts (F1): OpenAI-compatible client (Oll
 
 [dependencies]
 localvox-light-core.workspace = true
+localvox-light-process.workspace = true
 anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true
