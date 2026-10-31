@@ -19,6 +19,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::versions::{now_rfc3339, VersionStore};
 
+pub mod discovery;
+
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum JobState {
     Pending,
@@ -106,7 +108,7 @@ impl std::str::FromStr for JobPhase {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct Job {
     pub id: u64,
     /// The session directory name (relative to `<work_dir>/sessions`) — portable.
@@ -696,8 +698,9 @@ impl JobQueue {
     /// Mark a specific job as `Running` (+an attempt). Returns a copy if it really was
     /// `Pending` (otherwise None — already claimed/finished).
     pub fn start(&mut self, id: u64) -> Option<Job> {
+        let active = self.path.parent().and_then(recording_session);
         let job = self.file.jobs.iter_mut().find(|j| j.id == id)?;
-        if job.state != JobState::Pending {
+        if job.state != JobState::Pending || active.as_deref() == Some(job.session.as_str()) {
             return None;
         }
         job.state = JobState::Running;
@@ -1236,10 +1239,10 @@ pub fn sessions_needing_artifacts(work_dir: &Path, want: &Wanted) -> Vec<String>
         }
         // A session without a single line of speech does not deserve artifacts: the cook
         // has already found that out and written it into the log (Outcome::Nothing).
-        let has_speech = VersionStore::open(&dir)
-            .ok()
-            .and_then(|s| s.best().map(|v| (s, v)))
-            .and_then(|(s, v)| s.resolve(v.id))
+        let store = VersionStore::for_read(&dir);
+        let has_speech = store
+            .best()
+            .and_then(|v| store.resolve(v.id))
             .and_then(|p| crate::versions::read_transcript_lines(&p).ok())
             .map(|l| !l.is_empty())
             .unwrap_or(false);
@@ -1317,10 +1320,8 @@ fn needs_cook(session_dir: &Path, quiescent_secs: u64) -> bool {
     // If the ledger says this session has a transcript, it has one. Nothing is redone behind the
     // human's back — a better cook reaches the archive when HE presses «переварить заново», and
     // that button already exists and already forces.
-    let cooked = VersionStore::open(session_dir)
-        .ok()
-        .and_then(|s| s.best())
-        .is_some();
+    let store = VersionStore::for_read(session_dir);
+    let cooked = store.best().is_some();
     if !cooked {
         return true;
     }
@@ -1329,9 +1330,9 @@ fn needs_cook(session_dir: &Path, quiescent_secs: u64) -> bool {
         return !crate::processing::is_done(session_dir, crate::processing::TRANSCRIPT);
     }
     // Legacy archive: a registered, parseable version is reusable, regardless of model settings.
-    !VersionStore::open(session_dir)
-        .ok()
-        .and_then(|s| s.best().and_then(|v| s.resolve(v.id)))
+    !store
+        .best()
+        .and_then(|v| store.resolve(v.id))
         .and_then(|p| fs::read(p).ok())
         .is_some_and(|b| crate::artifacts::transcript(&b).is_ok())
 }

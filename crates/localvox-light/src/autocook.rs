@@ -279,29 +279,24 @@ fn coordinate(cfg: &Config, running: &AtomicBool) {
         while running.load(Ordering::Relaxed) {
             jobs::report_coordinator("ready", "Координатор работает");
             JobQueue::mutate(wd, |q| {
-                let (summary, cleanup, refine) = jobs::post_processing_from_env();
-                let wanted = jobs::Wanted::new(
-                    summary,
-                    cleanup,
-                    cfg.summary_template.clone(),
-                    &cfg.llm_model,
-                );
                 q.drop_orphans(wd);
                 let revived = q.revive_failed(Duration::from_secs(3600));
                 if revived > 0 {
                     tracing::info!(revived, "autocook: retrying after backoff");
                 }
-                for name in jobs::sessions_needing_cook(wd, cfg.quiescent_sec) {
-                    if q.enqueue_cook(&name, summary, cleanup, refine) {
-                        tracing::info!(session = name, "autocook: enqueued");
-                    }
-                }
-                for name in jobs::sessions_needing_artifacts(wd, &wanted) {
-                    if q.requeue_for_artifacts(&name, summary, cleanup, refine) {
-                        tracing::info!(session = name, "autocook: queued missing artifacts");
-                    }
-                }
             });
+            let (summary, cleanup, _) = jobs::post_processing_from_env();
+            let wanted = jobs::Wanted::new(
+                summary,
+                cleanup,
+                cfg.summary_template.clone(),
+                &cfg.llm_model,
+            );
+            discover_with(
+                wd,
+                || jobs::discovery::scan(wd, cfg.quiescent_sec, &wanted),
+                jobs::post_processing_from_env,
+            );
             let queue = JobQueue::load(wd);
             if let Some(error) = queue.error() {
                 tracing::error!("autocook queue unavailable: {error}");
@@ -340,6 +335,22 @@ fn pause(running: &AtomicBool, duration: Duration) {
         std::thread::sleep(Duration::from_millis(100));
     }
 }
+
+fn discover_with(
+    work_dir: &Path,
+    scan: impl FnOnce() -> Vec<jobs::discovery::Candidate>,
+    policy: impl Fn() -> (bool, bool, bool),
+) -> usize {
+    let candidates = scan();
+    candidates.into_iter().filter(|candidate| {
+        let queued = JobQueue::mutate(work_dir, |queue| candidate.publish(queue, policy()));
+        if queued { tracing::info!(session = candidate.session(), kind = ?candidate.kind(), "autocook: discovered work queued"); }
+        queued
+    }).count()
+}
+
+#[cfg(test)]
+mod discovery_tests;
 
 fn run_phase(cfg: &Config, running: &AtomicBool, job: &Job) -> bool {
     run_step(cfg, running, job, true, cfg.timeout(job.phase));

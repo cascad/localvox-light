@@ -168,6 +168,13 @@ pub struct VersionStore {
 }
 
 impl VersionStore {
+    /// Inspect without initializing storage: discovery may race with deletion.
+    pub(crate) fn for_read(session_dir: impl Into<PathBuf>) -> Self {
+        Self {
+            session_dir: session_dir.into(),
+        }
+    }
+
     /// Opens the session's store, creating `transcripts/` if necessary.
     pub fn open(session_dir: impl Into<PathBuf>) -> std::io::Result<Self> {
         let session_dir = session_dir.into();
@@ -555,5 +562,20 @@ mod tests {
         let store = VersionStore::open(dir.path()).unwrap();
         fs::write(store.manifest_path(), b"{ not json").unwrap();
         assert!(store.load().versions.is_empty());
+    }
+
+    #[test]
+    fn inspection_does_not_recreate_missing_or_removed_storage() {
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join("empty");
+        let view = VersionStore::for_read(&dir);
+        assert!(view.best().is_none());
+        assert!(!dir.exists());
+        fs::create_dir(&dir).unwrap();
+        assert!(view.best().is_none());
+        assert!(!dir.join("transcripts").exists());
+        fs::remove_dir(&dir).unwrap();
+        assert!(view.best().is_none());
+        assert!(!dir.exists());
     }
 }

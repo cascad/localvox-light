@@ -1,0 +1,35 @@
+{
+  "measurements": [
+    {
+      "claim_ms": {
+        "max": 3.2461,
+        "median": 2.9267,
+        "min": 2.601
+      },
+      "scan_ms": {
+        "max": 204.525,
+        "median": 202.92350000000002,
+        "min": 201.9245
+      },
+      "sessions": 4,
+      "transcript_seconds_per_session": 7200
+    },
+    {
+      "claim_ms": {
+        "max": 3.913,
+        "median": 3.2285,
+        "min": 3.0695
+      },
+      "scan_ms": {
+        "max": 837.6323,
+        "median": 834.5486,
+        "min": 810.3746
+      },
+      "sessions": 16,
+      "transcript_seconds_per_session": 7200
+    }
+  ],
+  "profile": "dev",
+  "samples": 3,
+  "warmup": 1
+}

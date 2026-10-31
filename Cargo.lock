@@ -2901,6 +2901,7 @@ dependencies = [
  "ctrlc",
  "dotenvy",
  "localvox-light-api",
+ "localvox-light-client",
  "localvox-light-core",
  "localvox-light-ingest",
  "localvox-light-process",
