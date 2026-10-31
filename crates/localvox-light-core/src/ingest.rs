@@ -52,7 +52,8 @@ fn persist_request(work_dir: &Path, meta_path: &Path, url: String) -> Result<Str
         if let Some(error) = queue.error() {
             anyhow::bail!("очередь недоступна: {error}");
         }
-        anyhow::ensure!(queue.enqueue_ingest(&name, true, true, true),
+        let (summary, cleanup, refine) = crate::jobs::post_processing_from_env();
+        anyhow::ensure!(queue.enqueue_ingest(&name, summary, cleanup, refine),
             "не удалось сохранить задание в jobs.json");
         Ok(())
     }).with_context(|| format!(
@@ -89,6 +90,11 @@ mod tests {
             .find(|j| j.session == name)
             .expect("no job");
         assert_eq!(job.kind, crate::jobs::JobKind::Ingest);
+        assert!(job.follow_settings);
+        assert_eq!(
+            (job.summary, job.cleanup, job.refine),
+            crate::jobs::post_processing_from_env()
+        );
     }
 
     /// Not everything is a link. A phrase from the clipboard, a path, a `file://` — a refusal, not

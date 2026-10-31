@@ -208,9 +208,15 @@ cargo build --release --workspace
 ```powershell
 .\scripts\run.ps1                 # демон, API и трей
 .\scripts\run.ps1 -Desktop        # собрать также нативное окно и запустить его
+.\scripts\run.ps1 -Tui            # новый терминальный клиент одного HTTP-демона
 .\scripts\run.ps1 -Profile dev    # debug: демон и обработчик из одного профиля
 .\scripts\run.ps1 -BuildOnly      # только собрать оба бинарника, без запуска
 ```
+
+Новый TUI: [запуск, клавиши, mpv и проверки](docs/terminal-workspace.md).
+`localvox-light --tui` и интерактивный запуск открывают соседний `localvox-tui`;
+закрытие клиента оставляет демон работать. Старому демону требуется обновление
+и штатный перезапуск для нового health/journal API; установленные процессы сами не заменяются.
 
 Скрипт работает из корня репозитория, даже если вызван из другой папки. Зависимости,
 модели и `ui/dist` должны быть подготовлены заранее, как описано выше.
@@ -293,7 +299,8 @@ crates/localvox-light-asr    localvox-process: расшифровка + LLM-об
 crates/localvox-light-llm    LLM-клиент, проверка обоснованности, шаблоны
 crates/localvox-light-api    HTTP API + встроенный фронт (rust-embed)
 crates/localvox-light-voice  голосовые команды (запись, заметки, «возьми ссылку»)
-crates/localvox-light-tui    старый терминальный интерфейс
+crates/localvox-light-client HTTP-клиент без capture и моделей
+crates/localvox-light-terminal новый терминальный журнал/архив, localvox-tui
 src-tauri                    оболочка рабочего стола (окно — вид на демон)
 ui                           фронт (Vite + React + TS), собирается в ui/dist
 models/  vosk-lib/           модели и нативная библиотека (в .gitignore, ставятся скриптами)

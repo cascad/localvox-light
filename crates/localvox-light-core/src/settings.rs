@@ -11,11 +11,15 @@
 //! a number. `hint` is documentation (what the code does when the key is absent), shown as
 //! placeholder text — never as a value.
 //!
-//! The catalogue is a CURATED set, not all 89 keys. Everything else is reachable through the raw
-//! key/value area: since every setting is just a `.env` key, that covers the rest without a
-//! hand-written field for each.
+//! Only classified values may be returned by the API. Unknown keys expose their
+//! name and presence, never their contents, because they may contain credentials.
 
 use serde::Serialize;
+
+pub const RETIRED_AUTOCLEAN_KEYS: [&str; 2] = [
+    "LOCALVOX_LIGHT_AUTOCOOK_REFINE",
+    "LOCALVOX_LIGHT_AUTOCOOK_CLEANUP",
+];
 
 /// How the screen should render the field. The kind is presentation, not validation: the value
 /// always ends up as a string in `.env`.
@@ -38,8 +42,7 @@ pub enum Kind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Applies {
-    /// Read at the moment it is used, so saving is enough. The autocook flags are consulted on
-    /// every cycle, the tool paths on every ingest, the LLM address on every job.
+    /// Read before the next automatic phase. Running keeps its phase snapshot.
     Live,
     /// Held by the capture threads. Saving updates them and re-opens the streams — no restart,
     /// but there IS a visible seam: the microphone closes and opens again.
@@ -81,20 +84,16 @@ pub fn applies(key: &str) -> Applies {
 
 /// Put saved values into the RUNNING process, and report what is actually in force now.
 ///
-/// Everything in this system that reads a setting reads it from the environment — the tool
-/// resolvers on every ingest, `post_processing_from_env` on every autocook cycle, the LLM client
-/// on every job. So updating the environment IS the hot reload for them: no watcher, no reload
-/// signal, no second source of truth to drift from `.env`.
-///
-/// It is deliberately NOT a promise about everything. A value the engine read once, into a ring
-/// buffer or a bound socket, does not change because the variable did — those are `Restart`, and
-/// the return value says which ones the person still has to restart for.
+/// Updating the environment does not update an existing Config/child_env
+/// snapshot. Restart is required whenever at least one consumer retains it,
+/// even if another API operation can read the new value immediately.
 ///
 /// Windows only, in practice: `SetEnvironmentVariable` is safe to call while other threads read.
 /// On glibc the same call races `getenv` — if this daemon is ever ported, the environment stops
 /// being an acceptable channel and this becomes an in-process overlay that readers consult.
-pub fn apply_live(changes: &[(String, Option<String>)]) -> Vec<&'static str> {
-    let mut need_restart: Vec<&'static str> = Vec::new();
+pub fn apply_live(changes: &[(String, Option<String>)]) -> Vec<String> {
+    let _policy_guard = crate::jobs::post_processing_guard();
+    let mut need_restart = Vec::new();
     let mut touched_capture = false;
     for (key, value) in changes {
         match applies(key) {
@@ -113,10 +112,14 @@ pub fn apply_live(changes: &[(String, Option<String>)]) -> Vec<&'static str> {
                     Some(v) => std::env::set_var(key, v),
                     None => std::env::remove_var(key),
                 }
-                if let Some(s) = CATALOGUE.iter().find(|s| s.key == key) {
-                    if !need_restart.contains(&s.label) {
-                        need_restart.push(s.label);
-                    }
+                let label = CATALOGUE
+                    .iter()
+                    .find(|s| s.key == key)
+                    .map(|s| s.label)
+                    .unwrap_or(key)
+                    .to_owned();
+                if !need_restart.contains(&label) {
+                    need_restart.push(label);
                 }
             }
         }
@@ -126,8 +129,10 @@ pub fn apply_live(changes: &[(String, Option<String>)]) -> Vec<&'static str> {
     // person is told the truth instead: these need a restart after all.
     if touched_capture && !crate::audio::reload_capture_from_env() {
         for s in CATALOGUE.iter().filter(|s| s.applies == Applies::Capture) {
-            if changes.iter().any(|(k, _)| k == s.key) && !need_restart.contains(&s.label) {
-                need_restart.push(s.label);
+            if changes.iter().any(|(k, _)| k == s.key)
+                && !need_restart.iter().any(|label| label == s.label)
+            {
+                need_restart.push(s.label.to_owned());
             }
         }
     }
@@ -145,7 +150,7 @@ pub const CATALOGUE: &[Setting] = &[
         label: "yt-dlp",
         hint: "не задано — ищем рядом с exe, затем в PATH",
         kind: Kind::Path,
-        applies: Applies::Live,
+        applies: Applies::Restart,
     },
     Setting {
         key: "LOCALVOX_LIGHT_YT_FFMPEG",
@@ -153,7 +158,7 @@ pub const CATALOGUE: &[Setting] = &[
         label: "ffmpeg",
         hint: "не задано — ищем рядом с exe, затем в PATH",
         kind: Kind::Path,
-        applies: Applies::Live,
+        applies: Applies::Restart,
     },
     Setting {
         key: "LOCALVOX_LIGHT_YT_JS_RUNTIME_PATH",
@@ -161,7 +166,7 @@ pub const CATALOGUE: &[Setting] = &[
         label: "node (для YouTube)",
         hint: "нужен не всегда: YouTube иногда требует JS для расшифровки ссылки",
         kind: Kind::Path,
-        applies: Applies::Live,
+        applies: Applies::Restart,
     },
     // ── Устройства ───────────────────────────────────────────────────────────
     Setting {
@@ -217,7 +222,7 @@ pub const CATALOGUE: &[Setting] = &[
         label: "Адрес сервера",
         hint: "http://localhost:11434/v1 — локальная Ollama",
         kind: Kind::Text,
-        applies: Applies::Live,
+        applies: Applies::Restart,
     },
     Setting {
         key: "LOCALVOX_LLM_MODEL",
@@ -225,19 +230,17 @@ pub const CATALOGUE: &[Setting] = &[
         label: "Модель",
         hint: "модель для причёсывания и сводки",
         kind: Kind::Text,
-        applies: Applies::Live,
+        applies: Applies::Restart,
     },
-    // Only the SUMMARY may go to Claude; the line-by-line cleanup stays local (it is high-volume and
-    // would burn the subscription). Live: the cook is spawned fresh and reads this from the env on
-    // every run, so a saved value reaches the NEXT cook without a restart. Existing summaries keep
-    // their model until re-cooked («Переварить») — a switch never re-cooks the archive on its own.
+    // Only SUMMARY may use Claude. The coordinator's child_env is a startup
+    // snapshot; spawning another cook does not make a saved provider live.
     Setting {
         key: "LOCALVOX_SUMMARY_PROVIDER",
         group: "LLM",
         label: "Сводку делает",
         hint: "локальная модель (Ollama)",
         kind: Kind::Text,
-        applies: Applies::Live,
+        applies: Applies::Restart,
     },
     // ── API ──────────────────────────────────────────────────────────────────
     Setting {
@@ -263,7 +266,7 @@ pub const CATALOGUE: &[Setting] = &[
         label: "Доваривать записи сама",
         hint: "включена",
         kind: Kind::Bool,
-        applies: Applies::Live,
+        applies: Applies::Restart,
     },
     Setting {
         key: "LOCALVOX_LIGHT_AUTOCOOK_INTERVAL_SEC",
@@ -271,7 +274,7 @@ pub const CATALOGUE: &[Setting] = &[
         label: "Как часто искать недоваренное, сек",
         hint: "300",
         kind: Kind::Number,
-        applies: Applies::Live,
+        applies: Applies::Restart,
     },
     Setting {
         key: "LOCALVOX_LIGHT_AUTOCOOK_QUIESCENT_SEC",
@@ -279,28 +282,12 @@ pub const CATALOGUE: &[Setting] = &[
         label: "Сессия «тихая» столько секунд → варим",
         hint: "60",
         kind: Kind::Number,
-        applies: Applies::Live,
+        applies: Applies::Restart,
     },
     Setting {
         key: "LOCALVOX_LIGHT_AUTOCOOK_SUMMARY",
-        group: "Автоварка",
-        label: "Делать сводку",
-        hint: "включено",
-        kind: Kind::Bool,
-        applies: Applies::Live,
-    },
-    Setting {
-        key: "LOCALVOX_LIGHT_AUTOCOOK_CLEANUP",
-        group: "Автоварка",
-        label: "Делать «Текст»",
-        hint: "включено",
-        kind: Kind::Bool,
-        applies: Applies::Live,
-    },
-    Setting {
-        key: "LOCALVOX_LIGHT_AUTOCOOK_REFINE",
-        group: "Автоварка",
-        label: "Причёсывать реплики",
+        group: "После распознавания",
+        label: "Сводка · summary",
         hint: "включено",
         kind: Kind::Bool,
         applies: Applies::Live,
@@ -312,7 +299,7 @@ pub const CATALOGUE: &[Setting] = &[
         label: "Язык записи",
         hint: "auto — язык текста определяем по самой расшифровке",
         kind: Kind::Text,
-        applies: Applies::Live,
+        applies: Applies::Restart,
     },
 ];
 
@@ -347,7 +334,10 @@ mod tests {
         assert!(writable("LOCALVOX_LIGHT_YT_DLP"));
         assert!(writable("RUST_LOG"));
 
-        assert!(!writable("PATH"), "PATH would redirect every child process we spawn");
+        assert!(
+            !writable("PATH"),
+            "PATH would redirect every child process we spawn"
+        );
         assert!(!writable("OPENAI_API_KEY"));
         assert!(!writable(""));
         // No lowercase, spaces or separators — a key like this could smuggle a second assignment.
@@ -360,10 +350,41 @@ mod tests {
     /// The catalogue is served to the screen; a duplicate key would render two fields writing to
     /// one place, and the loser would silently win on save.
     #[test]
+    fn startup_snapshot_consumers_are_not_advertised_as_live() {
+        for key in [
+            "LOCALVOX_LLM_MODEL",
+            "LOCALVOX_LLM_BASE_URL",
+            "LOCALVOX_SUMMARY_PROVIDER",
+            "LOCALVOX_LIGHT_YT_DLP",
+            "LOCALVOX_LIGHT_YT_FFMPEG",
+            "LOCALVOX_LIGHT_YT_JS_RUNTIME_PATH",
+            "LOCALVOX_LIGHT_AUTOCOOK",
+            "LOCALVOX_LIGHT_AUTOCOOK_INTERVAL_SEC",
+            "LOCALVOX_LIGHT_AUTOCOOK_QUIESCENT_SEC",
+            "LOCALVOX_LANG",
+        ] {
+            assert_eq!(
+                applies(key),
+                Applies::Restart,
+                "{key} reaches a startup Config/child_env snapshot"
+            );
+        }
+        assert_eq!(applies("LOCALVOX_FUTURE_CREDENTIAL"), Applies::Restart);
+        assert_eq!(applies("LOCALVOX_LIGHT_MIC"), Applies::Capture);
+        assert_eq!(applies("LOCALVOX_LIGHT_AUTOCOOK_SUMMARY"), Applies::Live);
+        assert!(RETIRED_AUTOCLEAN_KEYS
+            .iter()
+            .all(|key| !CATALOGUE.iter().any(|s| s.key == *key)));
+    }
+    #[test]
     fn the_catalogue_has_no_duplicate_keys() {
         let mut seen = std::collections::BTreeSet::new();
         for s in CATALOGUE {
-            assert!(seen.insert(s.key), "duplicate key in the catalogue: {}", s.key);
+            assert!(
+                seen.insert(s.key),
+                "duplicate key in the catalogue: {}",
+                s.key
+            );
         }
     }
 

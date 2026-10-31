@@ -212,7 +212,14 @@ pub fn save(changes: &[(String, Option<String>)]) -> Result<PathBuf> {
 }
 
 pub fn save_to(path: &Path, changes: &[(String, Option<String>)]) -> Result<()> {
-    let current = std::fs::read_to_string(path).unwrap_or_default();
+    let current = match std::fs::read_to_string(path) {
+        Ok(content) => content,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("reading {} before saving settings", path.display()))
+        }
+    };
     let next = apply(&current, changes);
     if let Some(dir) = path.parent() {
         if !dir.as_os_str().is_empty() {
@@ -226,6 +233,27 @@ pub fn save_to(path: &Path, changes: &[(String, Option<String>)]) -> Result<()> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn unreadable_but_writable_config_is_never_replaced_with_only_the_new_keys() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join(".env");
+        let original = "# preserve every unrelated line\nLOCALVOX_OLD=before\n";
+        std::fs::write(&path, original).unwrap();
+        // Deny new readers, but permit writers. The former unwrap_or_default
+        // would turn a read failure into an empty file and truncate the config.
+        let held = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0x2)
+            .open(&path)
+            .unwrap();
+        assert!(std::fs::OpenOptions::new().write(true).open(&path).is_ok());
+        assert!(save_to(&path, &[("LOCALVOX_NEW".into(), Some("after".into()))]).is_err());
+        drop(held);
+        assert_eq!(std::fs::read_to_string(path).unwrap(), original);
+    }
 
     fn ch(k: &str, v: Option<&str>) -> (String, Option<String>) {
         (k.to_string(), v.map(str::to_string))
@@ -243,7 +271,10 @@ LOCALVOX_LLM_MODEL=qwen3.5:9b
 # Рабочий каталог
 LOCALVOX_LIGHT_AUDIO_DIR=localvox-audio
 ";
-        let out = apply(&src.to_string(), &[ch("LOCALVOX_LLM_MODEL", Some("granite4.1:8b"))]);
+        let out = apply(
+            &src.to_string(),
+            &[ch("LOCALVOX_LLM_MODEL", Some("granite4.1:8b"))],
+        );
         assert_eq!(
             out,
             "\
@@ -269,7 +300,10 @@ LOCALVOX_LIGHT_AUDIO_DIR=localvox-audio
 # ── Детект звонков ──
 LOCALVOX_LIGHT_CALL_DETECT=off
 ";
-        let out = apply(&src.to_string(), &[ch("LOCALVOX_LIGHT_AUTOSTOP_SEC", Some("600"))]);
+        let out = apply(
+            &src.to_string(),
+            &[ch("LOCALVOX_LIGHT_AUTOSTOP_SEC", Some("600"))],
+        );
         assert_eq!(
             out,
             "\
@@ -310,7 +344,10 @@ LOCALVOX_LIGHT_CALL_DETECT=off
     /// escape — quoting a path is the bug, not the safety measure.
     #[test]
     fn a_windows_path_is_written_without_quotes() {
-        let out = apply("", &[ch("LOCALVOX_LIGHT_YT_DLP", Some(r"F:\vosk\bin\yt-dlp.exe"))]);
+        let out = apply(
+            "",
+            &[ch("LOCALVOX_LIGHT_YT_DLP", Some(r"F:\vosk\bin\yt-dlp.exe"))],
+        );
         assert_eq!(out, "LOCALVOX_LIGHT_YT_DLP=F:\\vosk\\bin\\yt-dlp.exe\n");
         // And it survives a round-trip through the same reader the daemon uses.
         assert!(out.contains(r"F:\vosk\bin\yt-dlp.exe"));
@@ -340,7 +377,10 @@ LOCALVOX_LIGHT_CALL_DETECT=off
     /// The `export KEY=` form is an assignment too.
     #[test]
     fn the_export_form_is_recognised() {
-        let out = apply("export LOCALVOX_LANG=auto\n", &[ch("LOCALVOX_LANG", Some("ru"))]);
+        let out = apply(
+            "export LOCALVOX_LANG=auto\n",
+            &[ch("LOCALVOX_LANG", Some("ru"))],
+        );
         assert_eq!(out, "LOCALVOX_LANG=ru\n");
     }
 

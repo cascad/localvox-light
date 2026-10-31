@@ -672,7 +672,7 @@ pub(crate) mod tests {
             processing::record(dir.path(), SUMMARY, "test", Outcome::Ok, None, Some(1)).is_err()
         );
         processing::forget(dir.path(), &[SUMMARY]);
-        assert!(!processing::confirm(dir.path(), SUMMARY));
+        assert!(processing::confirm(dir.path(), SUMMARY).is_err());
         assert_eq!(
             fs::read_to_string(dir.path().join("processing.json")).unwrap(),
             "{corrupt"

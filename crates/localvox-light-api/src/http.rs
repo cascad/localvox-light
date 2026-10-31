@@ -155,7 +155,7 @@ const WEBAPP_MANIFEST: &str = r##"{
 /// outward. `style-src` keeps 'unsafe-inline' because React writes style attributes;
 /// scripts have no such loophole.
 const APP_CSP: &str = "default-src 'none'; script-src 'self'; \
-style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; \
+style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self'; img-src 'self' data:; \
 media-src 'self' blob:; manifest-src 'self'; base-uri 'none'; form-action 'none'; \
 frame-ancestors 'none'";
 
@@ -175,6 +175,7 @@ fn content_type(path: &str) -> &'static str {
         Some("svg") => "image/svg+xml",
         Some("png") => "image/png",
         Some("woff2") => "font/woff2",
+        Some("woff") => "font/woff",
         Some("json") => "application/json; charset=utf-8",
         _ => "application/octet-stream",
     }
@@ -210,7 +211,11 @@ fn parse_range(request: &tiny_http::Request) -> Option<(u64, Option<u64>)> {
     let (a, b) = spec.split_once('-')?;
     let start: u64 = a.trim().parse().ok()?;
     let end = b.trim();
-    let end = if end.is_empty() { None } else { Some(end.parse().ok()?) };
+    let end = if end.is_empty() {
+        None
+    } else {
+        Some(end.parse().ok()?)
+    };
     Some((start, end))
 }
 
@@ -221,7 +226,9 @@ fn serve_audio_wav(archive: &Archive, request: tiny_http::Request, name: &str) {
     match archive.audio_wav(name, range) {
         Ok(slice) => {
             let status = if partial { 206 } else { 200 };
-            let mut response = Response::from_data(slice.bytes)
+            let (start, end, total, length) =
+                (slice.start, slice.end, slice.total, slice.len() as usize);
+            let mut response = Response::new(status.into(), Vec::new(), slice, Some(length), None)
                 .with_status_code(status)
                 .with_header(header("Content-Type", "audio/wav"))
                 // Without this the browser will not even try to seek by range — it re-downloads
@@ -230,7 +237,7 @@ fn serve_audio_wav(archive: &Archive, request: tiny_http::Request, name: &str) {
             if partial {
                 response = response.with_header(header(
                     "Content-Range",
-                    &format!("bytes {}-{}/{}", slice.start, slice.end.saturating_sub(1), slice.total),
+                    &format!("bytes {}-{}/{}", start, end.saturating_sub(1), total),
                 ));
             }
             let _ = request.respond(response);
@@ -282,7 +289,11 @@ fn handle_request(archive: &Archive, cfg: &HttpConfig, mut request: tiny_http::R
                     .with_header(header("X-Content-Type-Options", "nosniff"))
                     .with_header(header(
                         "Cache-Control",
-                        if immutable { "public, max-age=31536000, immutable" } else { "no-cache" },
+                        if immutable {
+                            "public, max-age=31536000, immutable"
+                        } else {
+                            "no-cache"
+                        },
                     ));
                 let _ = request.respond(response);
                 return;
@@ -323,8 +334,10 @@ fn handle_request(archive: &Archive, cfg: &HttpConfig, mut request: tiny_http::R
             if let Some((name, "audio.wav")) = rest.split_once('/') {
                 let q_token = query_param(query, "token");
                 let ok = match &cfg.token {
-                    Some(t) => q_token.as_deref() == Some(t.as_str())
-                        || auth_header.as_deref() == Some(&format!("Bearer {t}")),
+                    Some(t) => {
+                        q_token.as_deref() == Some(t.as_str())
+                            || auth_header.as_deref() == Some(&format!("Bearer {t}"))
+                    }
                     None => is_local,
                 };
                 if !ok {
@@ -490,9 +503,11 @@ pub fn respond(
 
     let result: Result<Value> = (|| {
         match (method, path) {
-            (Method::Get, "/api/health") => {
-                Ok(json!({"ok": true, "version": env!("CARGO_PKG_VERSION")}))
-            }
+            (Method::Get, "/api/health") => Ok(json!({
+                "ok": true, "service": "localvox-light",
+                "version": env!("CARGO_PKG_VERSION"), "api_protocol": 1,
+                "capabilities": ["technical-journal-v1", "terminal-workspace-v1"]
+            })),
             // Visibility of the autopilot: what is cooking / how many are queued (WP-C13)
             (Method::Get, "/api/jobs") => Ok(serde_json::to_value(archive.jobs_status())?),
             // The queue itself: what is cooking now and what comes after it, in order. Counts
@@ -667,6 +682,22 @@ pub fn respond(
                     .context("не найдено")?;
                 archive.progress(name)
             }
+            (Method::Get, p) if p.starts_with("/api/sessions/") && p.ends_with("/journal") => {
+                let name = p
+                    .strip_prefix("/api/sessions/")
+                    .and_then(|r| r.strip_suffix("/journal"))
+                    .context("не найдено")?;
+                archive.journal(
+                    name,
+                    &localvox_light_core::journal::Query {
+                        after: query_param(query, "after"),
+                        before: query_param(query, "before"),
+                        limit: query_param(query, "limit")
+                            .and_then(|v| v.parse().ok())
+                            .unwrap_or(100),
+                    },
+                )
+            }
             // Transcript versions: what it was cooked with, when, which is the working
             // one right now.
             (Method::Get, p) if p.ends_with("/versions") => {
@@ -773,11 +804,14 @@ pub fn respond(
                 // far more than the catalogue, and a screen that hid it would be lying about what
                 // is in effect.
                 let known: std::collections::BTreeSet<&str> =
-                    localvox_light_core::settings::CATALOGUE.iter().map(|s| s.key).collect();
+                    localvox_light_core::settings::CATALOGUE
+                        .iter()
+                        .map(|s| s.key)
+                        .collect();
                 let extra: Vec<Value> = in_file
                     .iter()
-                    .filter(|(k, _)| !known.contains(k.as_str()))
-                    .map(|(k, v)| json!({ "key": k, "value": v }))
+                    .filter(|(k, _)| !known.contains(k.as_str()) && !localvox_light_core::settings::RETIRED_AUTOCLEAN_KEYS.contains(&k.as_str()))
+                    .map(|(k, _)| json!({ "key": k, "set": true }))
                     .collect();
                 Ok(json!({
                     "path": path.to_string_lossy(),
@@ -874,9 +908,7 @@ pub fn respond(
             // The languages we can REALLY recognize (the model is on disk).
             (Method::Get, "/api/langs") => Ok(json!({"langs": archive.langs()})),
             // The voices we know by name. Shared across the whole archive.
-            (Method::Get, "/api/speakers") => {
-                Ok(json!({"speakers": archive.known_speakers()}))
-            }
+            (Method::Get, "/api/speakers") => Ok(json!({"speakers": archive.known_speakers()})),
             // Forget a voice: a person MUST be able to erase biometrics.
             (Method::Post, "/api/speakers/forget") => {
                 let parsed: Value = serde_json::from_str(body).context("тело — JSON")?;
@@ -960,24 +992,13 @@ pub fn respond(
                     // want a document (export, the clipboard, a script).
                     "processed" => {
                         let dir = archive.session_dir(name)?;
-                        // Missing artifact — through the archive, so the answer is the one that
-                        // names the command that creates it («… localvox-process <сессия>
-                        // --cleanup») instead of a bare «file not found».
-                        if !localvox_light_core::readable::exists(&dir) {
-                            archive.artifact(name, localvox_light_core::readable::FILE)?;
-                        }
-                        let lines = localvox_light_core::readable::lines(&dir)?;
+                        let doc = localvox_light_core::readable::document(&dir)?;
                         if query_param(query, "format").as_deref() == Some("md") {
-                            Ok(json!({"markdown": localvox_light_core::readable::render_markdown(&lines)}))
+                            Ok(
+                                json!({"markdown": localvox_light_core::readable::render_markdown(&doc.lines)}),
+                            )
                         } else {
-                            let r = localvox_light_core::readable::load(&dir)?;
-                            Ok(json!({
-                                "lines": lines,
-                                "version_id": r.version_id,
-                                "provenance": r.provenance,
-                                "omitted": r.omitted,
-                                "rejected": r.rejected,
-                            }))
+                            Ok(serde_json::to_value(doc)?)
                         }
                     }
                     "processed-unverified" => {
@@ -1083,9 +1104,13 @@ fn percent_decode(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(windows)]
+    mod cross_clients;
+    mod settings;
     use super::*;
     use std::fs;
     use std::path::Path;
+    mod workspace;
 
     fn archive(dir: &Path) -> Archive {
         let session = dir.join("sessions/20260711_http");
@@ -1219,8 +1244,14 @@ mod tests {
     /// an empty page with no error to be found.
     #[test]
     fn assets_get_their_content_type() {
-        assert_eq!(content_type("assets/index-a1b2.js"), "text/javascript; charset=utf-8");
-        assert_eq!(content_type("assets/index-a1b2.css"), "text/css; charset=utf-8");
+        assert_eq!(
+            content_type("assets/index-a1b2.js"),
+            "text/javascript; charset=utf-8"
+        );
+        assert_eq!(
+            content_type("assets/index-a1b2.css"),
+            "text/css; charset=utf-8"
+        );
         assert_eq!(content_type("index.html"), "text/html; charset=utf-8");
     }
 
@@ -1339,5 +1370,250 @@ mod tests {
             percent_decode("%D0%B8%D0%B4%D0%B5%D0%B8+%D1%82%D0%B5%D1%81%D1%82"),
             "идеи тест"
         );
+    }
+
+    struct JournalHttpFixture {
+        address: String,
+        stop: Arc<std::sync::atomic::AtomicBool>,
+        thread: Option<std::thread::JoinHandle<()>>,
+    }
+    impl Drop for JournalHttpFixture {
+        fn drop(&mut self) {
+            self.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+            if let Some(thread) = self.thread.take() {
+                let _ = thread.join();
+            }
+        }
+    }
+    fn journal_http_fixture(root: &Path, token: Option<&str>) -> JournalHttpFixture {
+        let server = Server::http("127.0.0.1:0").unwrap();
+        let address = format!("http://{}", server.server_addr());
+        let archive = Arc::new(Archive::new(root.into()));
+        let config = Arc::new(cfg(token));
+        let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let stopping = stop.clone();
+        let thread = std::thread::spawn(move || {
+            let mut requests = Vec::new();
+            while !stopping.load(std::sync::atomic::Ordering::Relaxed) {
+                if let Some(request) = server
+                    .recv_timeout(std::time::Duration::from_millis(100))
+                    .unwrap()
+                {
+                    let archive = archive.clone();
+                    let config = config.clone();
+                    requests.push(std::thread::spawn(move || {
+                        handle_request(&archive, &config, request)
+                    }));
+                    let mut index = 0;
+                    while index < requests.len() {
+                        if requests[index].is_finished() {
+                            requests.swap_remove(index).join().unwrap();
+                        } else {
+                            index += 1;
+                        }
+                    }
+                }
+            }
+            for request in requests {
+                request.join().unwrap();
+            }
+        });
+        JournalHttpFixture {
+            address,
+            stop,
+            thread: Some(thread),
+        }
+    }
+    #[test]
+    #[ignore = "requires the real mpv backend; synthetic temp archive, null audio"]
+    fn media_http_range_plays_a_real_temporary_archive() {
+        use localvox_light_terminal::player::Mpv;
+        use std::io::{Read, Write};
+        use std::time::{Duration, Instant};
+        let executable = std::env::var_os("LOCALVOX_MPV")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| {
+                Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/tools/mpv/mpv.exe")
+            });
+        assert!(executable.is_file(), "install the real media backend");
+        let directory = tempfile::tempdir().unwrap();
+        let session = directory.path().join("sessions/hour");
+        fs::create_dir_all(session.join("audio")).unwrap();
+        fs::write(session.join("meta.json"), json!({"started_at":"2026-10-31T07:00:00Z","sample_rate":16000,"chunks":[{"file":"hour","source_id":0,"start_offset_sec":0,"duration_sec":3600}]}).to_string()).unwrap();
+        let mut header = [0; 44];
+        Archive::new(directory.path().into())
+            .audio_wav("hour", Some((0, Some(43))))
+            .unwrap()
+            .read_exact(&mut header)
+            .unwrap();
+        let mut audio = fs::File::create(session.join("audio/hour.wav")).unwrap();
+        audio.write_all(&header).unwrap();
+        audio.set_len(115_200_044).unwrap();
+        drop(audio);
+        let server = journal_http_fixture(directory.path(), Some("synthetic-media-token"));
+        let client =
+            localvox_light_client::Client::new(&server.address, "synthetic-media-token".into())
+                .unwrap();
+        let media = client.media("hour");
+        let response = ureq::get(&media.url)
+            .set("Authorization", "Bearer synthetic-media-token")
+            .set("Range", "bytes=57600044-57600143")
+            .call()
+            .unwrap();
+        assert_eq!(response.status(), 206);
+        assert_eq!(
+            response.header("Content-Range"),
+            Some("bytes 57600044-57600143/115200044")
+        );
+        let mut bytes = Vec::new();
+        response.into_reader().read_to_end(&mut bytes).unwrap();
+        assert_eq!(bytes, vec![0; 100]);
+        assert!(ureq::get(&media.url)
+            .set("Range", "bytes=0-43")
+            .call()
+            .is_err());
+        let mut player = Mpv::start(&executable, true).unwrap();
+        player
+            .load(&media.url, &media.headers, 1800.0, Some(1800.7))
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let state = player.state().unwrap();
+            if !state.idle && state.position >= 1800.0 {
+                assert!(state.duration.unwrap() > 3599.0);
+                break;
+            }
+            assert!(Instant::now() < deadline, "{state:?}");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        loop {
+            let state = player.state().unwrap();
+            if state.idle {
+                assert!(state.error.is_none());
+                break;
+            }
+            assert!(Instant::now() < deadline, "fragment did not end");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        drop(player);
+        assert_eq!(client.peaks("hour", 320).unwrap().duration_sec, 3600.0);
+    }
+    #[test]
+    fn journal_http_preserves_cursors_limits_partial_reset_and_auth() {
+        use localvox_light_core::journal::{self, Entry};
+        use std::io::Write;
+        let directory = tempfile::tempdir().unwrap();
+        let session = directory.path().join("sessions/demo");
+        fs::create_dir_all(&session).unwrap();
+        for i in 0..3 {
+            journal::append(
+                &session,
+                Entry {
+                    kind: "log".into(),
+                    label: i.to_string(),
+                    at: "2026-10-31T07:00:00Z".into(),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        }
+        let server = journal_http_fixture(directory.path(), Some("synthetic-token"));
+        let client =
+            localvox_light_client::Client::new(&server.address, "synthetic-token".into()).unwrap();
+        let page: journal::Page = client
+            .request(
+                "GET",
+                &["api", "sessions", "demo", "journal"],
+                &[("limit", "2")],
+                None,
+                std::time::Duration::from_secs(3),
+            )
+            .unwrap();
+        assert_eq!(page.events.len(), 2);
+        assert_eq!(page.events[0].label, "1");
+        assert!(page.truncated);
+        let previous = client
+            .journal("demo", None, Some(&page.previous_cursor))
+            .unwrap();
+        assert_eq!(previous.events.len(), 1);
+        assert_eq!(previous.events[0].label, "0");
+        let cursor = page.next_cursor;
+        let mut file = fs::OpenOptions::new()
+            .append(true)
+            .open(session.join("progress.jsonl"))
+            .unwrap();
+        file.write_all(b"{\"journal\":1,\"label\":\"partial\",\"at\":\"2026-10-31T07:00:00Z\"}")
+            .unwrap();
+        let pending = client.journal("demo", Some(&cursor), None).unwrap();
+        assert!(pending.events.is_empty());
+        assert_eq!(pending.next_cursor, cursor);
+        file.write_all(b"\n").unwrap();
+        drop(file);
+        let completed = client.journal("demo", Some(&cursor), None).unwrap();
+        let replay = client.journal("demo", Some(&cursor), None).unwrap();
+        assert_eq!(completed.events[0].id, replay.events[0].id);
+        assert_eq!(completed.events[0].label, "partial");
+        fs::write(
+            session.join("progress.jsonl"),
+            b"{\"stage\":\"summary\",\"state\":\"failed\",\"at\":\"t\"}\n",
+        )
+        .unwrap();
+        let reset = client
+            .journal("demo", Some(&completed.next_cursor), None)
+            .unwrap();
+        assert!(reset.reset);
+        assert_eq!(reset.events[0].status.as_deref(), Some("failed"));
+        assert!(client.progress("demo").is_ok());
+        let mut file = fs::OpenOptions::new()
+            .append(true)
+            .open(session.join("progress.jsonl"))
+            .unwrap();
+        file.write_all(&vec![b'x'; journal::MAX_SCAN as usize * 2 + 100])
+            .unwrap();
+        file.write_all(b"\nnot-json\n{\"journal\":1,\"label\":\"after giant\"}\n")
+            .unwrap();
+        drop(file);
+        let mut cursor = reset.next_cursor;
+        let mut found = false;
+        for _ in 0..5 {
+            let page = client.journal("demo", Some(&cursor), None).unwrap();
+            assert!(page.read_bytes <= journal::MAX_SCAN + 33);
+            assert!(serde_json::to_vec(&page).unwrap().len() <= journal::MAX_PAGE_BYTES);
+            found |= page.events.iter().any(|e| e.label == "after giant");
+            cursor = page.next_cursor;
+            if found {
+                break;
+            }
+            assert!(page.has_more);
+        }
+        assert!(found);
+        assert!(
+            localvox_light_client::Client::new(&server.address, String::new())
+                .unwrap()
+                .journal("demo", None, None)
+                .unwrap_err()
+                .to_string()
+                .contains("401")
+        );
+        assert!(client.journal("demo", Some("bad-cursor"), None).is_err());
+        assert!(client
+            .journal("demo", Some(&cursor), Some(&cursor))
+            .is_err());
+    }
+    #[test]
+    fn journal_http_rejects_untrusted_host_and_origin_without_a_token() {
+        let directory = tempfile::tempdir().unwrap();
+        fs::create_dir_all(directory.path().join("sessions/demo")).unwrap();
+        let server = journal_http_fixture(directory.path(), None);
+        let url = format!("{}/api/sessions/demo/journal", server.address);
+        for (header, value) in [("Host", "evil.example"), ("Origin", "https://evil.example")] {
+            let response = ureq::get(&url).set(header, value).call();
+            assert!(matches!(response, Err(ureq::Error::Status(403, _))));
+        }
+        let page = localvox_light_client::Client::new(&server.address, String::new())
+            .unwrap()
+            .journal("demo", None, None)
+            .unwrap();
+        assert!(page.events.is_empty());
     }
 }

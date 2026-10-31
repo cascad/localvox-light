@@ -73,6 +73,89 @@ pub struct ReadableLine {
     pub original: Option<String>,
 }
 
+/// A read-only projection; absence of cleanup must not cause another model pass.
+#[derive(Debug, Serialize)]
+pub struct Document {
+    pub version_id: u32,
+    pub lines: Vec<ReadableLine>,
+    pub provenance: Option<Provenance>,
+    pub omitted: usize,
+    pub rejected: usize,
+    pub from_transcript: bool,
+}
+
+pub fn document(session_dir: &Path) -> Result<Document> {
+    match std::fs::metadata(path(session_dir)) {
+        Ok(_) => {
+            let saved = load(session_dir)?;
+            Ok(Document {
+                version_id: saved.version_id,
+                lines: lines(session_dir)?,
+                provenance: Some(saved.provenance),
+                omitted: saved.omitted,
+                rejected: saved.rejected,
+                from_transcript: false,
+            })
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            let (version_id, lines) = transcript_lines(session_dir)?;
+            Ok(Document {
+                version_id,
+                lines,
+                provenance: None,
+                omitted: 0,
+                rejected: 0,
+                from_transcript: true,
+            })
+        }
+        Err(e) => Err(e).context("чтение очищенного текста"),
+    }
+}
+
+/// Shared by the two text views: latest primary version, otherwise the saved
+/// working transcript of a legacy archive. No artifact is created while reading.
+pub fn transcript_lines(session_dir: &Path) -> Result<(u32, Vec<ReadableLine>)> {
+    let store = VersionStore::open(session_dir)?;
+    let manifest: crate::versions::VersionsManifest = serde_json::from_slice(
+        &std::fs::read(store.manifest_path())
+            .context("нет расшифровки: сначала выполните транскрибацию")?,
+    )?;
+    let version = manifest
+        .versions
+        .iter()
+        .filter(|v| v.parents.is_empty())
+        .max_by_key(|v| v.id)
+        .or_else(|| {
+            manifest
+                .best
+                .and_then(|id| manifest.versions.iter().find(|v| v.id == id))
+        })
+        .or_else(|| manifest.versions.iter().max_by_key(|v| v.id))
+        .context("нет расшифровки: сначала выполните транскрибацию")?;
+    let source = store.resolve(version.id).context("файл версии не найден")?;
+    let transcript = crate::artifacts::transcript(&std::fs::read(source)?)?;
+    let meta: SessionMeta = std::fs::read(session_dir.join("meta.json"))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default();
+    Ok((
+        version.id,
+        transcript
+            .into_iter()
+            .map(|line| ReadableLine {
+                who: line
+                    .speaker
+                    .unwrap_or_else(|| source_label(&meta, line.source_id)),
+                source_id: line.source_id,
+                start_sec: line.start_sec,
+                end_sec: line.end_sec,
+                text: line.text,
+                original: None,
+            })
+            .collect(),
+    ))
+}
+
 impl ReadableLine {
     pub fn edited(&self) -> bool {
         self.original.is_some()
@@ -165,6 +248,69 @@ mod tests {
     use super::*;
     use crate::versions::{now_rfc3339, TranscriptLine, VersionEntry, VersionStore};
 
+    #[test]
+    fn text_without_cleanup_reuses_primary_words_times_and_speakers_without_writes() {
+        let root = tempfile::tempdir().unwrap();
+        let raw = vec![TranscriptLine {
+            source_id: 1,
+            start_sec: 3.5,
+            end_sec: 9.0,
+            text: "Те же слова без обработки".into(),
+            speaker: Some("Анна".into()),
+        }];
+        let id = version(root.path(), &raw);
+        let store = VersionStore::open(root.path()).unwrap();
+        let file = store.resolve(id).unwrap();
+        let before = std::fs::read(file.clone()).unwrap();
+        let doc = document(root.path()).unwrap();
+        assert!(doc.from_transcript && doc.provenance.is_none());
+        assert_eq!(doc.version_id, id);
+        assert_eq!(doc.lines[0].text, raw[0].text);
+        assert_eq!((doc.lines[0].start_sec, doc.lines[0].end_sec), (3.5, 9.0));
+        assert_eq!(doc.lines[0].who, "Анна");
+        assert!(doc.lines[0].original.is_none());
+        assert_eq!(std::fs::read(file).unwrap(), before);
+        assert!(!path(root.path()).exists());
+        assert!(!root.path().join("processing.json").exists());
+    }
+
+    #[test]
+    fn saved_cleanup_is_preserved_and_corruption_is_never_hidden_by_raw_text() {
+        let root = tempfile::tempdir().unwrap();
+        let id = version(
+            root.path(),
+            &[TranscriptLine {
+                source_id: 0,
+                start_sec: 0.0,
+                end_sec: 2.0,
+                text: "исходный текст".into(),
+                speaker: None,
+            }],
+        );
+        save(
+            root.path(),
+            &Readable {
+                version_id: id,
+                edits: [(0, "Ручная очистка".into())].into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let doc = document(root.path()).unwrap();
+        assert!(!doc.from_transcript);
+        assert_eq!(doc.lines[0].text, "Ручная очистка");
+        assert_eq!(doc.lines[0].original.as_deref(), Some("исходный текст"));
+        std::fs::write(path(root.path()), "{broken").unwrap();
+        assert!(document(root.path()).is_err());
+        std::fs::remove_file(path(root.path())).unwrap();
+        let file = VersionStore::open(root.path())
+            .unwrap()
+            .resolve(id)
+            .unwrap();
+        std::fs::write(file, "{broken").unwrap();
+        assert!(document(root.path()).is_err());
+    }
+
     /// Writes a transcript version and returns its id.
     fn version(dir: &Path, lines: &[TranscriptLine]) -> u32 {
         let store = VersionStore::open(dir).unwrap();
@@ -249,7 +395,8 @@ mod tests {
         let before = std::fs::read(path(dir.path())).unwrap();
 
         let mut meta = SessionMeta::default();
-        meta.source_names.insert("0".into(), "Арсен Маркарян".into());
+        meta.source_names
+            .insert("0".into(), "Арсен Маркарян".into());
         std::fs::write(
             dir.path().join("meta.json"),
             serde_json::to_vec(&meta).unwrap(),
@@ -306,7 +453,10 @@ mod tests {
         )
         .unwrap();
         let err = lines(dir.path()).unwrap_err().to_string();
-        assert!(err.contains("42"), "the error does not name the version: {err}");
+        assert!(
+            err.contains("42"),
+            "the error does not name the version: {err}"
+        );
     }
 
     #[test]
@@ -316,6 +466,9 @@ mod tests {
         edits.insert(0, "Я говорю, что надо.".to_string());
         fixture(dir.path(), edits);
         let md = render_markdown(&lines(dir.path()).unwrap());
-        assert_eq!(md, "[Я] (00:00) Я говорю, что надо.\n[Собеседники] (00:03) согласен\n");
+        assert_eq!(
+            md,
+            "[Я] (00:00) Я говорю, что надо.\n[Собеседники] (00:03) согласен\n"
+        );
     }
 }

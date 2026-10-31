@@ -12,7 +12,7 @@
 //! shown in the app is DERIVED (see [`fold`]) and therefore disposable: it is recomputed from
 //! the facts, never stored.
 
-use std::fs::OpenOptions;
+#[cfg(test)]
 use std::io::Write;
 use std::path::Path;
 
@@ -105,15 +105,12 @@ pub fn new_run(session_dir: &Path) {
     let mark = RunMark {
         run: crate::versions::now_rfc3339(),
     };
+    crate::journal::begin_run(session_dir, &mark.run);
     let Ok(mut line) = serde_json::to_string(&mark) else {
         return;
     };
     line.push('\n');
-    let _ = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(session_dir.join(FILE))
-        .and_then(|mut f| f.write_all(line.as_bytes()));
+    let _ = crate::journal::append_line(session_dir, line.as_bytes());
 }
 
 /// Append a fact. Failing to write progress must NEVER break the work itself: the log is a
@@ -154,11 +151,7 @@ fn append(session_dir: &Path, event: StageEvent) {
         return;
     };
     line.push('\n');
-    let written = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(session_dir.join(FILE))
-        .and_then(|mut f| f.write_all(line.as_bytes()));
+    let written = crate::journal::append_line(session_dir, line.as_bytes());
     if let Err(e) = written {
         tracing::debug!("progress {}: {e}", session_dir.display());
     }
@@ -187,6 +180,8 @@ pub fn step<T, E: std::fmt::Display>(
 /// The heartbeat means the worker is alive and waiting, not that the model made progress.
 /// Joining before return ensures no late Running can overwrite the terminal event.
 pub fn activity<T>(session: &Path, stage: Stage, note: &str, work: impl FnOnce() -> T) -> T {
+    let _operation =
+        crate::journal::Operation::start(session, &format!("{stage:?}").to_lowercase(), note, None);
     use std::sync::mpsc;
     use std::time::{Duration, Instant};
     struct Stop(mpsc::Sender<()>);
@@ -380,7 +375,10 @@ mod tests {
         assert_eq!(view.len(), 1);
         assert_eq!(view[0].state, StageState::Done);
         assert_eq!(view[0].note.as_deref(), Some("412 строк"));
-        assert!(view[0].started_at.is_some(), "the start of the stage is lost");
+        assert!(
+            view[0].started_at.is_some(),
+            "the start of the stage is lost"
+        );
         assert!(view[0].ended_at.is_some());
     }
 
@@ -459,7 +457,10 @@ mod tests {
         mark(d.path(), Stage::Transcribe, StageState::Done, None);
 
         let stages: Vec<Stage> = fold(&read(d.path())).iter().map(|s| s.stage).collect();
-        assert_eq!(stages, vec![Stage::Download, Stage::Transcribe, Stage::Summary]);
+        assert_eq!(
+            stages,
+            vec![Stage::Download, Stage::Transcribe, Stage::Summary]
+        );
     }
 
     /// A failure without a reason sends a person digging through the daemon's log. The reason is

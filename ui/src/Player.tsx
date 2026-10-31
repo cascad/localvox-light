@@ -169,7 +169,7 @@ export function Player({ session, seek, onPos }: Props) {
         {playing ? "❚❚" : "▶"}
       </button>
 
-      <Wave peaks={peaks} total={total} pos={pos} seg={seg} note={note} onSeek={scrub} />
+      <Wave peaks={peaks} total={total} pos={pos} seg={seg} note={note} onSeek={scrub} onKeySeek={(sec) => goTo(sec, playing)} />
 
       <span className="ptime">
         {mmss(pos)} <span className="mut">/ {mmss(total)}</span>
@@ -195,6 +195,7 @@ function Wave({
   seg,
   note,
   onSeek,
+  onKeySeek,
 }: {
   peaks: number[] | null;
   total: number;
@@ -205,6 +206,7 @@ function Wave({
    *  horizontal space and the wave "breathed" — shrank while it showed, sprang back after. */
   note: string;
   onSeek: (e: React.MouseEvent<HTMLDivElement>) => void;
+  onKeySeek: (sec: number) => void;
 }) {
   // Where the click would land. A seek bar that shows nothing until you have already clicked makes
   // you aim by guesswork and then undo — an hour of recording means a pixel is seconds.
@@ -226,6 +228,11 @@ function Wave({
       onMouseMove={track}
       onMouseLeave={() => setAim(null)}
       role="slider"
+      tabIndex={0}
+      onKeyDown={(event) => {
+        const next = event.key === "ArrowLeft" ? pos - 5 : event.key === "ArrowRight" ? pos + 5 : event.key === "Home" ? 0 : event.key === "End" ? total : null;
+        if (next != null) { event.preventDefault(); onKeySeek(next); }
+      }}
       aria-label="Перемотка"
       aria-valuemin={0}
       aria-valuemax={Math.round(total)}

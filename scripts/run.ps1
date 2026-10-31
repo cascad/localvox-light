@@ -4,10 +4,12 @@ param(
     [ValidateSet('release', 'dev')]
     [string]$Profile = 'release',
     [switch]$Desktop,
+    [switch]$Tui,
     [switch]$BuildOnly
 )
 
 $ErrorActionPreference = 'Stop'
+if ($Desktop -and $Tui) { throw 'Choose either -Desktop or -Tui.' }
 $repoDir = Split-Path -Parent $PSScriptRoot
 
 Push-Location -LiteralPath $repoDir
@@ -22,6 +24,10 @@ try {
     if ($Desktop) {
         $buildArgs += @('-p', 'localvox-desktop', '--bin', 'localvox-desktop')
         $required += 'localvox-desktop'
+    }
+    if ($Tui) {
+        $buildArgs += @('-p', 'localvox-light-terminal', '--bin', 'localvox-tui')
+        $required += 'localvox-tui'
     }
 
     # Cargo reports the actual paths, including custom target directories/targets.
@@ -53,6 +59,8 @@ try {
 
     if ($Desktop) {
         & $built['localvox-desktop']
+    } elseif ($Tui) {
+        & $built['localvox-tui']
     } else {
         & $built['localvox-light'] --daemon
     }

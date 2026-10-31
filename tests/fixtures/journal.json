@@ -1,0 +1,384 @@
+{
+    "events":  [
+                   {
+                       "id":  "start",
+                       "run":  "r1",
+                       "operation":  "op1",
+                       "stage":  "summary",
+                       "kind":  "operation_start",
+                       "at":  "2026-10-31T07:00:10Z",
+                       "label":  "localvox-process",
+                       "command":  {
+                                       "program":  "localvox-process",
+                                       "args":  [
+                                                    {
+                                                        "name":  "--worker-phase",
+                                                        "value":  "summary"
+                                                    },
+                                                    {
+                                                        "name":  "--llm-model",
+                                                        "value":  "test-model"
+                                                    }
+                                                ]
+                                   }
+                   },
+                   {
+                       "id":  "line-0",
+                       "run":  "r1",
+                       "operation":  "op1",
+                       "stage":  "summary",
+                       "kind":  "log",
+                       "at":  "2026-10-31T07:00:20Z",
+                       "label":  "summary",
+                       "text":  "Диагностическая строка 1"
+                   },
+                   {
+                       "id":  "line-1",
+                       "run":  "r1",
+                       "operation":  "op1",
+                       "stage":  "summary",
+                       "kind":  "log",
+                       "at":  "2026-10-31T07:00:20Z",
+                       "label":  "summary",
+                       "text":  "Диагностическая строка 2"
+                   },
+                   {
+                       "id":  "line-2",
+                       "run":  "r1",
+                       "operation":  "op1",
+                       "stage":  "summary",
+                       "kind":  "log",
+                       "at":  "2026-10-31T07:00:20Z",
+                       "label":  "summary",
+                       "text":  "Диагностическая строка 3"
+                   },
+                   {
+                       "id":  "line-3",
+                       "run":  "r1",
+                       "operation":  "op1",
+                       "stage":  "summary",
+                       "kind":  "log",
+                       "at":  "2026-10-31T07:00:20Z",
+                       "label":  "summary",
+                       "text":  "Диагностическая строка 4"
+                   },
+                   {
+                       "id":  "line-4",
+                       "run":  "r1",
+                       "operation":  "op1",
+                       "stage":  "summary",
+                       "kind":  "log",
+                       "at":  "2026-10-31T07:00:20Z",
+                       "label":  "summary",
+                       "text":  "Диагностическая строка 5"
+                   },
+                   {
+                       "id":  "line-5",
+                       "run":  "r1",
+                       "operation":  "op1",
+                       "stage":  "summary",
+                       "kind":  "log",
+                       "at":  "2026-10-31T07:00:20Z",
+                       "label":  "summary",
+                       "text":  "Диагностическая строка 6"
+                   },
+                   {
+                       "id":  "line-6",
+                       "run":  "r1",
+                       "operation":  "op1",
+                       "stage":  "summary",
+                       "kind":  "log",
+                       "at":  "2026-10-31T07:00:20Z",
+                       "label":  "summary",
+                       "text":  "Диагностическая строка 7"
+                   },
+                   {
+                       "id":  "line-7",
+                       "run":  "r1",
+                       "operation":  "op1",
+                       "stage":  "summary",
+                       "kind":  "log",
+                       "at":  "2026-10-31T07:00:20Z",
+                       "label":  "summary",
+                       "text":  "Диагностическая строка 8"
+                   },
+                   {
+                       "id":  "line-8",
+                       "run":  "r1",
+                       "operation":  "op1",
+                       "stage":  "summary",
+                       "kind":  "log",
+                       "at":  "2026-10-31T07:00:20Z",
+                       "label":  "summary",
+                       "text":  "Диагностическая строка 9"
+                   },
+                   {
+                       "id":  "line-9",
+                       "run":  "r1",
+                       "operation":  "op1",
+                       "stage":  "summary",
+                       "kind":  "log",
+                       "at":  "2026-10-31T07:00:20Z",
+                       "label":  "summary",
+                       "text":  "Диагностическая строка 10"
+                   },
+                   {
+                       "id":  "line-10",
+                       "run":  "r1",
+                       "operation":  "op1",
+                       "stage":  "summary",
+                       "kind":  "log",
+                       "at":  "2026-10-31T07:00:20Z",
+                       "label":  "summary",
+                       "text":  "Диагностическая строка 11"
+                   },
+                   {
+                       "id":  "line-11",
+                       "run":  "r1",
+                       "operation":  "op1",
+                       "stage":  "summary",
+                       "kind":  "log",
+                       "at":  "2026-10-31T07:00:20Z",
+                       "label":  "summary",
+                       "text":  "Диагностическая строка 12"
+                   },
+                   {
+                       "id":  "line-12",
+                       "run":  "r1",
+                       "operation":  "op1",
+                       "stage":  "summary",
+                       "kind":  "log",
+                       "at":  "2026-10-31T07:00:20Z",
+                       "label":  "summary",
+                       "text":  "Диагностическая строка 13"
+                   },
+                   {
+                       "id":  "line-13",
+                       "run":  "r1",
+                       "operation":  "op1",
+                       "stage":  "summary",
+                       "kind":  "log",
+                       "at":  "2026-10-31T07:00:20Z",
+                       "label":  "summary",
+                       "text":  "Диагностическая строка 14"
+                   },
+                   {
+                       "id":  "line-14",
+                       "run":  "r1",
+                       "operation":  "op1",
+                       "stage":  "summary",
+                       "kind":  "log",
+                       "at":  "2026-10-31T07:00:20Z",
+                       "label":  "summary",
+                       "text":  "Диагностическая строка 15"
+                   },
+                   {
+                       "id":  "line-15",
+                       "run":  "r1",
+                       "operation":  "op1",
+                       "stage":  "summary",
+                       "kind":  "log",
+                       "at":  "2026-10-31T07:00:20Z",
+                       "label":  "summary",
+                       "text":  "Диагностическая строка 16"
+                   },
+                   {
+                       "id":  "line-16",
+                       "run":  "r1",
+                       "operation":  "op1",
+                       "stage":  "summary",
+                       "kind":  "log",
+                       "at":  "2026-10-31T07:00:20Z",
+                       "label":  "summary",
+                       "text":  "Диагностическая строка 17"
+                   },
+                   {
+                       "id":  "line-17",
+                       "run":  "r1",
+                       "operation":  "op1",
+                       "stage":  "summary",
+                       "kind":  "log",
+                       "at":  "2026-10-31T07:00:20Z",
+                       "label":  "summary",
+                       "text":  "Диагностическая строка 18"
+                   },
+                   {
+                       "id":  "line-18",
+                       "run":  "r1",
+                       "operation":  "op1",
+                       "stage":  "summary",
+                       "kind":  "log",
+                       "at":  "2026-10-31T07:00:20Z",
+                       "label":  "summary",
+                       "text":  "Диагностическая строка 19"
+                   },
+                   {
+                       "id":  "line-19",
+                       "run":  "r1",
+                       "operation":  "op1",
+                       "stage":  "summary",
+                       "kind":  "log",
+                       "at":  "2026-10-31T07:00:20Z",
+                       "label":  "summary",
+                       "text":  "Диагностическая строка 20"
+                   },
+                   {
+                       "id":  "line-20",
+                       "run":  "r1",
+                       "operation":  "op1",
+                       "stage":  "summary",
+                       "kind":  "log",
+                       "at":  "2026-10-31T07:00:20Z",
+                       "label":  "summary",
+                       "text":  "Диагностическая строка 21"
+                   },
+                   {
+                       "id":  "line-21",
+                       "run":  "r1",
+                       "operation":  "op1",
+                       "stage":  "summary",
+                       "kind":  "log",
+                       "at":  "2026-10-31T07:00:20Z",
+                       "label":  "summary",
+                       "text":  "Диагностическая строка 22"
+                   },
+                   {
+                       "id":  "line-22",
+                       "run":  "r1",
+                       "operation":  "op1",
+                       "stage":  "summary",
+                       "kind":  "log",
+                       "at":  "2026-10-31T07:00:20Z",
+                       "label":  "summary",
+                       "text":  "Диагностическая строка 23"
+                   },
+                   {
+                       "id":  "line-23",
+                       "run":  "r1",
+                       "operation":  "op1",
+                       "stage":  "summary",
+                       "kind":  "log",
+                       "at":  "2026-10-31T07:00:20Z",
+                       "label":  "summary",
+                       "text":  "Диагностическая строка 24"
+                   },
+                   {
+                       "id":  "line-24",
+                       "run":  "r1",
+                       "operation":  "op1",
+                       "stage":  "summary",
+                       "kind":  "log",
+                       "at":  "2026-10-31T07:00:20Z",
+                       "label":  "summary",
+                       "text":  "Диагностическая строка 25"
+                   },
+                   {
+                       "id":  "line-25",
+                       "run":  "r1",
+                       "operation":  "op1",
+                       "stage":  "summary",
+                       "kind":  "log",
+                       "at":  "2026-10-31T07:00:20Z",
+                       "label":  "summary",
+                       "text":  "Диагностическая строка 26"
+                   },
+                   {
+                       "id":  "line-26",
+                       "run":  "r1",
+                       "operation":  "op1",
+                       "stage":  "summary",
+                       "kind":  "log",
+                       "at":  "2026-10-31T07:00:20Z",
+                       "label":  "summary",
+                       "text":  "Диагностическая строка 27"
+                   },
+                   {
+                       "id":  "line-27",
+                       "run":  "r1",
+                       "operation":  "op1",
+                       "stage":  "summary",
+                       "kind":  "log",
+                       "at":  "2026-10-31T07:00:20Z",
+                       "label":  "summary",
+                       "text":  "Диагностическая строка 28"
+                   },
+                   {
+                       "id":  "line-28",
+                       "run":  "r1",
+                       "operation":  "op1",
+                       "stage":  "summary",
+                       "kind":  "log",
+                       "at":  "2026-10-31T07:00:20Z",
+                       "label":  "summary",
+                       "text":  "Диагностическая строка 29"
+                   },
+                   {
+                       "id":  "line-29",
+                       "run":  "r1",
+                       "operation":  "op1",
+                       "stage":  "summary",
+                       "kind":  "log",
+                       "at":  "2026-10-31T07:00:20Z",
+                       "label":  "summary",
+                       "text":  "Диагностическая строка 30"
+                   },
+                   {
+                       "id":  "line-30",
+                       "run":  "r1",
+                       "operation":  "op1",
+                       "stage":  "summary",
+                       "kind":  "log",
+                       "at":  "2026-10-31T07:00:20Z",
+                       "label":  "summary",
+                       "text":  "Диагностическая строка 31"
+                   },
+                   {
+                       "id":  "line-31",
+                       "run":  "r1",
+                       "operation":  "op1",
+                       "stage":  "summary",
+                       "kind":  "log",
+                       "at":  "2026-10-31T07:00:20Z",
+                       "label":  "summary",
+                       "text":  "Диагностическая строка 32"
+                   },
+                   {
+                       "id":  "line-32",
+                       "run":  "r1",
+                       "operation":  "op1",
+                       "stage":  "summary",
+                       "kind":  "log",
+                       "at":  "2026-10-31T07:00:20Z",
+                       "label":  "summary",
+                       "text":  "Диагностическая строка 33"
+                   },
+                   {
+                       "id":  "line-33",
+                       "run":  "r1",
+                       "operation":  "op1",
+                       "stage":  "summary",
+                       "kind":  "log",
+                       "at":  "2026-10-31T07:00:20Z",
+                       "label":  "summary",
+                       "text":  "Диагностическая строка 34"
+                   },
+                   {
+                       "id":  "line-34",
+                       "run":  "r1",
+                       "operation":  "op1",
+                       "stage":  "summary",
+                       "kind":  "log",
+                       "at":  "2026-10-31T07:00:20Z",
+                       "label":  "summary",
+                       "text":  "Диагностическая строка 35"
+                   }
+               ],
+    "next_cursor":  "demo:100:0",
+    "previous_cursor":  "demo:0:0",
+    "has_more":  false,
+    "reset":  false,
+    "truncated":  false,
+    "discarded":  0,
+    "dropped_verbose":  0,
+    "read_bytes":  100
+}

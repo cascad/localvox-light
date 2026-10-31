@@ -8,20 +8,11 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 
 #[cfg(feature = "tui")]
-use std::thread;
-#[cfg(feature = "tui")]
-use std::time::Duration;
-
+use anyhow::Context;
 use anyhow::Result;
 use clap::Parser;
-#[cfg(feature = "tui")]
-use tracing::info;
 
 use localvox_light_core::events::UiMsg;
-#[cfg(feature = "tui")]
-use localvox_light_core::join_engine_thread;
-#[cfg(feature = "tui")]
-use localvox_light_core::light_config;
 use localvox_light_core::{
     init_tracing, merge_env_bools, print_devices, resolve_audio_from_cli_and_file, run_engine,
     validate_vosk_model, Cli,
@@ -127,30 +118,11 @@ fn main() -> Result<()> {
     portable_env_bootstrap();
     let mut cli = Cli::parse();
     merge_env_bools(&mut cli);
-    if cli.no_tui {
-        cli.tui = false;
-    }
-    // Background mode: the interface lives at the HTTP address, not in the terminal. Autostart
-    // (HKCU\Run, launchd) has no console at all — a TUI enabled in .env must not kill the daemon.
-    //
-    // The one-shot commands are in the same list, and that is a defect being fixed, not a
-    // precaution: with `LOCALVOX_LIGHT_TUI=1` in .env, `--doctor` and `--list-devices` piped
-    // anywhere died with «stdout is not a TTY» — the doctor refusing to speak because there is no
-    // terminal to draw a full-screen interface it was never asked for.
-    if cli.daemon || cli.doctor || cli.list_devices || cli.update_yt_dlp {
-        cli.tui = false;
-    }
-    // Portable install without LOCALVOX_LIGHT_TUI in .env: in a normal terminal we open the TUI
-    // by default.
-    #[cfg(feature = "tui")]
-    if !cli.no_tui
-        && !cli.daemon
-        && io::stdout().is_terminal()
-        && std::env::var("LOCALVOX_LIGHT_TUI").is_err()
-        && !cli.tui
-    {
-        cli.tui = true;
-    }
+    cli.tui = terminal_mode(
+        &cli,
+        io::stdout().is_terminal(),
+        std::env::var_os("LOCALVOX_LIGHT_TUI").is_some(),
+    );
 
     #[cfg(feature = "tui")]
     if cli.tui && !io::stdout().is_terminal() {
@@ -180,6 +152,15 @@ fn main() -> Result<()> {
     // One-shot maintenance, same as --doctor: does not need models, so it runs before validation.
     if cli.update_yt_dlp {
         std::process::exit(run_update_yt_dlp());
+    }
+
+    if cli.tui {
+        #[cfg(feature = "tui")]
+        return launch_terminal();
+        #[cfg(not(feature = "tui"))]
+        anyhow::bail!(
+            "TUI launcher unavailable: build with --features tui or run localvox-tui directly"
+        );
     }
 
     validate_vosk_model(&cli)?;
@@ -219,77 +200,6 @@ fn main() -> Result<()> {
         return run_daemon_mode(cli, devices_shared, reload_gen, running);
     }
 
-    if cli.tui {
-        #[cfg(feature = "tui")]
-        {
-            let (ui_tx, ui_rx) = crossbeam_channel::unbounded::<UiMsg>();
-            let (reset_tx, reset_rx) = crossbeam_channel::unbounded::<()>();
-            // Voice module (F2) with live recording indication in the TUI.
-            let (voice_hook, voice_handle, voice_status) = init_voice(Some(ui_tx.clone()));
-            // status goes to the TUI Debug panel, not only to stderr
-            let _ = ui_tx.send(UiMsg::Log(localvox_light_core::events::StructuredLog {
-                stage: "voice".into(),
-                source_id: 0,
-                chunk_sec: 0.0,
-                proc_sec: 0.0,
-                detail: voice_status.clone(),
-                verbose_only: false,
-            }));
-            let record_pcm = Arc::new(AtomicBool::new(true));
-            let tui_verbose = cli.verbose;
-            let cli_engine = cli.clone();
-            let dev_engine = Arc::clone(&devices_shared);
-            let rg_engine = Arc::clone(&reload_gen);
-            let r_engine = running.clone();
-            let r_tui = running.clone();
-            let record_engine = Arc::clone(&record_pcm);
-            let record_tui = Arc::clone(&record_pcm);
-            let hook_engine = voice_hook.clone();
-            let engine_handle = thread::Builder::new()
-                .name("engine".into())
-                .spawn(move || {
-                    if let Err(e) = run_engine(
-                        cli_engine,
-                        dev_engine,
-                        Some(ui_tx),
-                        reset_rx,
-                        r_engine,
-                        record_engine,
-                        rg_engine,
-                        hook_engine,
-                    ) {
-                        tracing::error!("Engine stopped: {e:#}");
-                    }
-                })?;
-            let cfg_path = light_config::save_path_for_write();
-            localvox_light_tui::run(
-                &ui_rx,
-                reset_tx,
-                r_tui,
-                record_tui,
-                "localvox-light".into(),
-                audio_devices,
-                cfg_path,
-                Arc::clone(&devices_shared),
-                Arc::clone(&reload_gen),
-                tui_verbose,
-            )?;
-            let engine_result = join_engine_thread(engine_handle, Duration::from_secs(2));
-            // drain the voice queue: accepted "запиши…" commands are appended to the slots
-            drop(voice_hook);
-            drain_voice(voice_handle);
-            engine_result?;
-            info!("Session finished.");
-            return Ok(());
-        }
-        #[cfg(not(feature = "tui"))]
-        {
-            anyhow::bail!(
-                "TUI unavailable: the package was built without the `tui` feature. Use default features or `--features tui`."
-            );
-        }
-    }
-
     let (voice_hook, voice_handle, voice_status) = init_voice(None);
     eprintln!("Voice module: {voice_status}");
     let (_noop_reset_tx, noop_reset_rx) = crossbeam_channel::unbounded::<()>();
@@ -305,6 +215,69 @@ fn main() -> Result<()> {
     )?;
     drain_voice(voice_handle);
     Ok(())
+}
+
+/// Server and one-shot modes take precedence over an environment/default TUI.
+/// Decided before models, capture controls, Ctrl+C handlers or engine threads.
+fn terminal_mode(cli: &Cli, interactive: bool, environment_override: bool) -> bool {
+    !(cli.no_tui || cli.daemon || cli.doctor || cli.list_devices || cli.update_yt_dlp)
+        && (cli.tui || (cfg!(feature = "tui") && interactive && !environment_override))
+}
+
+#[cfg(feature = "tui")]
+fn launch_terminal() -> Result<()> {
+    let exe = std::env::current_exe()?;
+    let terminal = exe
+        .parent()
+        .context("executable directory")?
+        .join(if cfg!(windows) {
+            "localvox-tui.exe"
+        } else {
+            "localvox-tui"
+        });
+    anyhow::ensure!(terminal.is_file(), "Рядом с localvox-light нет localvox-tui. Соберите комплект: scripts/run.ps1 -Tui -BuildOnly; либо установите новый release");
+    let address = std::env::var("LOCALVOX_TUI_URL").unwrap_or_else(|_| {
+        format!(
+            "http://{}",
+            connectable(
+                &std::env::var("LOCALVOX_API_BIND").unwrap_or_else(|_| "127.0.0.1:3017".into())
+            )
+        )
+    });
+    // Token stays in the inherited environment; the child reads it separately.
+    // Inherit the interactive console and wait, without ever creating an engine.
+    let status = std::process::Command::new(terminal)
+        .args(["--address", &address])
+        .status()?;
+    anyhow::ensure!(
+        status.success(),
+        "Терминальный клиент завершился с ошибкой ({status})"
+    );
+    Ok(())
+}
+
+#[cfg(test)]
+mod launch_tests {
+    use super::*;
+    #[test]
+    fn explicit_server_and_maintenance_modes_never_open_a_terminal_client() {
+        for flag in [
+            "--daemon",
+            "--no-tui",
+            "--doctor",
+            "--list-devices",
+            "--update-yt-dlp",
+        ] {
+            let cli = Cli::try_parse_from(["localvox-light", "--tui", flag]).unwrap();
+            assert!(!terminal_mode(&cli, true, false), "{flag}");
+        }
+        let cli = Cli::try_parse_from(["localvox-light"]).unwrap();
+        assert_eq!(terminal_mode(&cli, true, false), cfg!(feature = "tui"));
+        assert!(!terminal_mode(&cli, true, true));
+        assert!(!terminal_mode(&cli, false, false));
+        let cli = Cli::try_parse_from(["localvox-light", "--tui"]).unwrap();
+        assert!(terminal_mode(&cli, true, true));
+    }
 }
 
 /// Voice module (F2): active when slots.toml is present; a config error does not bring the

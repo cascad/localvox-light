@@ -70,7 +70,8 @@ API-крейт добавляется рядом; выделение демон�
 | Крейт | Статус | Роль |
 |---|---|---|
 | `localvox-light-core` | есть | Ядро: engine, audio, pipeline (VAD), session, transcript, events, config, asr (vosk + onnx) |
-| `localvox-light-tui` | есть | TUI-клиент (ratatui) |
+| `localvox-light-client` | есть | Независимый HTTP-клиент без capture/моделей |
+| `localvox-light-terminal` | есть | Новый TUI архива/документов/журнала; отдельный `localvox-tui` |
 | `localvox-light-ingest` | есть | yt-dlp/ffmpeg, пути, прогресс |
 | `localvox-light` / `-youtube` / `-asr` | есть | Бинарники |
 | `localvox-light-llm` | новый (F1) | Trait `LlmProvider`, OpenAI-compatible HTTP-клиент, профили, шаблоны-файлы, chunking/map-reduce, валидация сводки |

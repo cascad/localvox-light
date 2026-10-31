@@ -1,0 +1,58 @@
+---
+source: crates/localvox-light-terminal/src/render.rs
+assertion_line: 1577
+expression: terminal.backend().buffer()
+---
+Buffer {
+    area: Rect { x: 0, y: 0, width: 120, height: 36 },
+    content: [
+        " localvox  / технический журнал   * готов к записи   очередь 0 · ошибки 0                                               ",
+        " pre-roll 05:00   голос: Голосовые заметки готовы                                                                       ",
+        "+ Аудио · F6 фокус ----------------------------------------------------------------------------------------------------+",
+        "| готов 00:00 / —  волна недоступна                                                                                    |",
+        "|Space play/pause · p фрагмент · g время · Alt+←/→ ±15с · F6 перемотка                                                 |",
+        "+----------------------------------------------------------------------------------------------------------------------+",
+        "+ Разделы -----------------+ > Выберите запись -------------------------------------------------------------------------",
+        "| > Архив                  | 1 Сводка  2 Реплики  3 Текст  4 Участники  5 Ход                                           ",
+        "|   Заметки                |                                                                                            ",
+        "|   Очередь                |Этапы / проверенные результаты                                                              ",
+        "|   Спросить               |Ожидание старта: 00:04 · после старта: — · всего: —                                         ",
+        "|   Настройки              |+ + download  done  00:03                                                                   ",
+        "|   Поиск                  |+ + extract  done  длительность неизвестна                                                  ",
+        "|   Чат с архивом          |+ + transcribe  done  8/8  длительность неизвестна                                          ",
+        "|                          |+ - refine  skipped  —                                                                      ",
+        "+ Список · Enter открыть --|+ + cleanup  done  длительность неизвестна                                                  ",
+        "|Загрузка…                 |+ * summary  running  2/4  00:15                                                            ",
+        "|                          |    Проверка источников                                                                     ",
+        "|                          |    Последний сигнал: 00:05 назад · heartbeat не означает прогресс                          ",
+        "|                          |                                                                                            ",
+        "|                          |Журнал · Enter раскрыть · / фильтр · End хвост · o раньше                                   ",
+        "|                          |run r1                                                                                      ",
+        "|                          |+ summary                                                                                   ",
+        "|                          |  + ! localvox-process --worker-phase summary --llm-model test-model · failed · время       ",
+        "|                          |неизвестно                                                                                  ",
+        "|                          |      ! Сводка не прошла проверку; расшифровка доступна                                     ",
+        "|                          |      + 35 lines                                                                            ",
+        "|                          |                                                                                            ",
+        "|                          |                                                                                            ",
+        "|                          |                                                                                            ",
+        "|                          |                                                                                            ",
+        "|                          |                                                                                            ",
+        "|                          |                                                                                            ",
+        "|                          |                                                                                            ",
+        " Подключение…                                                                                                           ",
+        " Tab фокус   1–5 вкладка   : действия   F8 stop   F9 record   ? помощь   Ctrl+Q закрыть                                 ",
+    ],
+    styles: [
+        x: 0, y: 0, fg: Reset, bg: Reset, underline: Reset, modifier: BOLD,
+        x: 10, y: 0, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
+        x: 1, y: 7, fg: Reset, bg: Reset, underline: Reset, modifier: REVERSED,
+        x: 27, y: 7, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
+        x: 71, y: 7, fg: Reset, bg: Reset, underline: Reset, modifier: BOLD,
+        x: 78, y: 7, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
+        x: 28, y: 23, fg: Reset, bg: Reset, underline: Reset, modifier: REVERSED,
+        x: 113, y: 23, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
+        x: 28, y: 24, fg: Reset, bg: Reset, underline: Reset, modifier: REVERSED,
+        x: 39, y: 24, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
+    ]
+}

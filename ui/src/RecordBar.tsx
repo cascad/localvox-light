@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, type Jobs, type RecordState, type Session, type VoiceStatus } from "./api";
 import { mmss, shortTitle } from "./lib";
 
@@ -45,6 +45,7 @@ export function RecordBar({
 }: Props) {
   const [now, setNow] = useState(() => Date.now());
   const [pending, setPending] = useState<"start" | "stop" | null>(null);
+  const command = useRef(0);
 
   const recording = state?.recording ?? false;
 
@@ -59,9 +60,9 @@ export function RecordBar({
 
   /** Wait for the engine to actually say so. Not a sleep with a guess of a delay: we ask, and we
    *  stop asking the moment the answer changes. */
-  const confirm = async (want: boolean): Promise<boolean> => {
+  const confirm = async (want: boolean, generation: number): Promise<boolean> => {
     const deadline = Date.now() + CONFIRM_TIMEOUT_MS;
-    while (Date.now() < deadline) {
+    while (generation === command.current && Date.now() < deadline) {
       try {
         const r = await api.record();
         if (r.recording === want) return true;
@@ -76,15 +77,18 @@ export function RecordBar({
   const start = async (named: boolean) => {
     const title = named ? prompt("Название записи (можно пусто):", "") : "";
     if (title === null) return;
+    const generation = ++command.current;
     setPending("start");
     try {
       await api.startRecording(title.trim());
     } catch (e) {
+      if (generation !== command.current) return;
       setPending(null);
       say((e as Error).message);
       return;
     }
-    const ok = await confirm(true);
+    const ok = await confirm(true, generation);
+    if (generation !== command.current) return;
     setPending(null);
     onChanged();
     say(
@@ -95,16 +99,19 @@ export function RecordBar({
   };
 
   const stop = async () => {
+    const generation = ++command.current;
     setPending("stop");
     let name = "";
     try {
       name = (await api.stopRecording()).session;
     } catch (e) {
+      if (generation !== command.current) return;
       setPending(null);
       say((e as Error).message);
       return;
     }
-    const ok = await confirm(false);
+    const ok = await confirm(false, generation);
+    if (generation !== command.current) return;
     setPending(null);
     onChanged();
     say(ok ? `Остановлена: ${name} — ушла в обработку` : "Движок не подтвердил остановку");
@@ -145,14 +152,17 @@ export function RecordBar({
           </div>
           <div className="grow" />
         </>
-      ) : pending === "start" ? (
+      ) : pending != null ? (
         // Asked — not yet confirmed. The request travels through a file, and the recording loop
         // reads it about once a second. In that gap the button used to look broken; painting
         // "● recording" on faith instead would be worse than broken — it would be a lie.
         <>
+          <button className="rec-btn stop" onClick={() => void stop()} disabled={pending === "stop"}>
+            {pending === "stop" ? "останавливаю…" : "Остановить"}
+          </button>
           <div className="recpill waiting">
             <span className="dot wait" />
-            <span className="who">запись включается…</span>
+            <span className="who">{pending === "start" ? "запись включается…" : "ожидаю остановку…"}</span>
           </div>
           <div className="grow" />
         </>

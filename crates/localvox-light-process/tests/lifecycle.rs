@@ -32,6 +32,18 @@ fn fixture() {
                 .write_all(&vec![b'x'; 2 * 1024 * 1024])
                 .unwrap();
         }
+        "stream" => {
+            print!("first-fragment");
+            std::io::stdout().flush().unwrap();
+            let release =
+                std::path::PathBuf::from(std::env::var_os("LOCALVOX_TEST_RELEASE").unwrap());
+            let until = Instant::now() + Duration::from_secs(5);
+            while !release.exists() {
+                assert!(Instant::now() < until, "observer did not release fixture");
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            println!("-last-fragment");
+        }
         "leaf" => {
             let path = std::env::var_os("LOCALVOX_TEST_PULSE").unwrap();
             let mut file = std::fs::File::create(path).unwrap();
@@ -96,6 +108,85 @@ fn simultaneous_large_input_and_output_cannot_deadlock() {
     .unwrap();
     assert!(out.termination.success(), "{:?}", out.termination);
     assert!(String::from_utf8_lossy(&out.stdout).contains("received=2097152"));
+}
+
+#[test]
+fn managed_tool_drop_stops_its_descendants() {
+    let directory = tempfile::tempdir().unwrap();
+    let pulse = directory.path().join("pulse");
+    let mut command = helper("tree");
+    command.env("LOCALVOX_TEST_PULSE", &pulse);
+    let mut process = localvox_light_process::ManagedProcess::spawn(command).unwrap();
+    await_pulse(&pulse);
+    assert!(!process.has_exited().unwrap());
+    drop(process);
+    assert_stopped(&pulse);
+}
+#[test]
+fn managed_tool_has_bounded_wait_and_reports_start_failure() {
+    assert!(localvox_light_process::ManagedProcess::spawn(Command::new(
+        "localvox-nonexistent-process-fixture"
+    ))
+    .is_err());
+    let directory = tempfile::tempdir().unwrap();
+    let mut command = helper("leaf");
+    command.env("LOCALVOX_TEST_PULSE", directory.path().join("pulse"));
+    let mut process = localvox_light_process::ManagedProcess::spawn(command).unwrap();
+    assert!(process.wait_for_exit(Duration::from_millis(5)).is_err());
+    process.terminate().unwrap();
+    assert!(process.has_exited().unwrap());
+}
+
+#[test]
+fn output_is_observed_before_exit_without_moving_the_writer_offset() {
+    let temp = tempfile::tempdir().unwrap();
+    let release = temp.path().join("release");
+    let mut command = helper("stream");
+    command.env("LOCALVOX_TEST_RELEASE", &release);
+    let (observer, rx, _) = localvox_light_process::OutputObserver::channel(16);
+    let child = std::thread::spawn(move || {
+        localvox_light_process::run_observed(
+            command,
+            None,
+            Limits::new(Duration::from_secs(8)),
+            || false,
+            |_, _| {},
+            Some(observer),
+        )
+        .unwrap()
+    });
+    let mut seen = Vec::new();
+    while !String::from_utf8_lossy(&seen).contains("first-fragment") {
+        let chunk = rx.recv_timeout(Duration::from_secs(3)).unwrap();
+        seen.extend(chunk.bytes);
+    }
+    assert!(
+        !child.is_finished(),
+        "output must arrive before process exit"
+    );
+    std::fs::write(&release, b"release").unwrap();
+    let out = child.join().unwrap();
+    assert!(out.termination.success());
+    assert!(String::from_utf8_lossy(&out.stdout).contains("first-fragment-last-fragment"));
+}
+
+#[test]
+fn a_full_observation_queue_never_blocks_supervision() {
+    let (observer, _unread, dropped) = localvox_light_process::OutputObserver::channel(1);
+    let started = Instant::now();
+    let out = localvox_light_process::run_observed(
+        helper("noisy"),
+        None,
+        Limits::new(Duration::from_secs(8)),
+        || false,
+        |_, _| {},
+        Some(observer),
+    )
+    .unwrap();
+    assert!(out.termination.success());
+    assert!(dropped.load(std::sync::atomic::Ordering::Relaxed) > 0);
+    assert!(started.elapsed() < Duration::from_secs(4));
+    assert!(out.stdout.len() >= 2 * 1024 * 1024);
 }
 
 #[test]

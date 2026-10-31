@@ -9,6 +9,7 @@ localvox-light-core.workspace = true
 localvox-light-integrations = { path = "../localvox-light-integrations" }
 localvox-light-llm = { path = "../localvox-light-llm" }
 localvox-light-search = { path = "../localvox-light-search" }
+localvox-light-process = { path = "../localvox-light-process" }
 anyhow.workspace = true
 chrono.workspace = true
 clap.workspace = true
@@ -21,5 +22,9 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 
 [dev-dependencies]
+localvox-light-client = { path = "../localvox-light-client" }
+localvox-light-terminal = { path = "../localvox-light-terminal" }
 tempfile.workspace = true
 ureq.workspace = true
+portable-pty = "0.9"
+vt100 = "0.15"

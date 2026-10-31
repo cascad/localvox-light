@@ -21,7 +21,7 @@
 | [note-integrations](specs/note-integrations/spec.md) | F2/F5 | Слоты, file/folder/MCP, чтение/удаление, suggest routing | Полный per-slot конфиг старого F2 не объявлен реализованным |
 | [api-access](specs/api-access/spec.md) | F6/F7 | HTTP, media exception, MCP archive, браузер/LAN | Native/offline mobile и WS не подтверждены |
 | [ad-hoc-asks](specs/ad-hoc-asks/spec.md) | F1/F6 | Материал → отдельная фоновая очередь вопросов | Явный провайдер; текущий API нарушает это правило (RV-009), File.text() без PDF parser |
-| [runtime-settings](specs/runtime-settings/spec.md) | F3/F6/P7 | Демон/окно, комплект сборки, .env, автостарт | Есть расхождения Live vs snapshot; Windows-only автостарт |
+| [runtime-settings](specs/runtime-settings/spec.md) | F3/F6/P7 | Демон/окно, комплект сборки, .env, автостарт | Snapshot честно требует Restart (RV-001 исправлен); аппаратная приёмка открыта |
 | [installation-models](specs/installation-models/spec.md) | Инфраструктура | Скрипты моделей, hashes, пути, doctor | Проверка наличия не заменяет испытание модели |
 
 ## Предложения
@@ -29,7 +29,10 @@
 Конкретные работы ведутся в штатных change-пакетах. Таблица — навигация;
 актуальную готовность документов показывает `openspec status --change <name>`,
 выполнение задач — `openspec instructions apply --change <name> --json`.
-Семь changes имеют полный комплект документов, семь — только proposal.
+Полноту документов показывает CLI; новые UI/TUI реализованы и проходят отдельные
+browser/HTTP/ConPTY/media проверки в [change](changes/add-technical-journal-workspace/evidence/implementation.md).
+Единый UI+TUI прогон выполнен на настоящем temp API с synthetic producer; аппаратная
+приёмка и полный прогон моделей пока не объявлены выполненными.
 BL-001/007/020 реализованы и проверены в исходниках; BL-002/018/019 выполнены частично.
 [Сверка всех capability и выполненные проверки](evidence/implementation-review-2026-09-27.md)
 показывает границы результатов. Исторический архив и установленная release-сборка
@@ -51,6 +54,7 @@ BL-001/007/020 реализованы и проверены в исходник�
 | [disable-cross-session-speaker-recognition](changes/disable-cross-session-speaker-recognition/proposal.md) | [BL-019](backlog.md#bl-019) | Отключить автоматическое узнавание людей между записями |
 | [protect-retained-audio](changes/protect-retained-audio/proposal.md) | [BL-020](backlog.md#bl-020) | Хранить аудио по умолчанию и проверять STT перед opt-in очисткой |
 | [persist-notes-before-delivery](changes/persist-notes-before-delivery/proposal.md) | [BL-021](backlog.md#bl-021) | Сохранить локальную заметку до доставки и подтверждать фактический результат |
+| [add-technical-journal-workspace](changes/add-technical-journal-workspace/proposal.md) | Запрос владельца 2026-10-31 | Общий журнал UI/TUI и новый терминальный аналог графического приложения; [план](changes/add-technical-journal-workspace/design.md), [паритет](changes/add-technical-journal-workspace/parity.md), [реализация и проверки](changes/add-technical-journal-workspace/evidence/implementation.md) в работе |
 
 Группы сырых идей BL-011–017 остаются во [входящем списке](backlog.md).
 Их ещё нужно разделить на конкретные изменения; наличие там записи не запускает разработку.

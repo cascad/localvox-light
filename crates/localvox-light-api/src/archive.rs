@@ -2,6 +2,9 @@
 //! HTTP API (F6). Works only with work_dir files (P5): the recording engine is not
 //! needed.
 
+mod media;
+pub use media::AudioStream;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -373,15 +376,6 @@ fn env_f64(name: &str, default: f64) -> f64 {
         .unwrap_or(default)
 }
 
-/// A byte slice of the recording's WAV, for a Range request. `total` is the whole file's length
-/// (for `Content-Range`); `start..end` is what `bytes` covers.
-pub struct AudioSlice {
-    pub total: u64,
-    pub start: u64,
-    pub end: u64,
-    pub bytes: Vec<u8>,
-}
-
 /// What the recorder is doing right now.
 ///
 /// `engine` and `recording` are DIFFERENT facts, and the app needs both: with a dead
@@ -685,16 +679,22 @@ impl Archive {
                 // because of that, even though semantics would have answered the very
                 // same question perfectly. Degradation must be symmetric: as long as
                 // at least one channel is alive, search works.
-                let lex = self.search(query, limit * 2).unwrap_or_else(|e| {
-                    tracing::warn!("hybrid: lexical unavailable, degrading to semantic: {e:#}");
-                    Vec::new()
-                });
+                let lex = self.search(query, limit * 2);
                 // Semantics is an optional module (Ollama may be turned off): the
                 // hybrid degrades to lexical instead of failing entirely.
-                let sem = self.semantic_hits(query, limit * 2).unwrap_or_else(|e| {
-                    tracing::warn!("hybrid: semantics unavailable, degrading to lexical: {e:#}");
-                    Vec::new()
-                });
+                let sem = self.semantic_hits(query, limit * 2);
+                if let Err(error) = &lex {
+                    tracing::warn!("hybrid: lexical unavailable: {error:#}");
+                }
+                if let Err(error) = &sem {
+                    tracing::warn!("hybrid: semantics unavailable: {error:#}");
+                }
+                anyhow::ensure!(
+                    lex.is_ok() || sem.is_ok(),
+                    "поиск недоступен: лексический и семантический каналы завершились ошибкой"
+                );
+                let lex = lex.unwrap_or_default();
+                let sem = sem.unwrap_or_default();
                 let mut scored: Vec<(f64, Hit)> = Vec::new();
                 // A hit that came from BOTH channels is the most reliable one: same
                 // words and same meaning. A person needs to see that, not deduce it
@@ -957,44 +957,16 @@ impl Archive {
             }
         }
 
-        // No cleanup yet — the recognizer's own words, which is the honest state and not a
-        // fallback for compatibility: nothing has cleaned this recording.
-        let manifest = store.load();
-        let raw = manifest
-            .versions
-            .iter()
-            .filter(|v| v.parents.is_empty()) // built from audio, not from text
-            .max_by_key(|v| v.id)
-            .cloned();
-        let best = raw
-            .or_else(|| store.best())
-            .context("у сессии нет транскрипта (сначала localvox-process)")?;
-        let path = store.resolve(best.id).context("файл версии не найден")?;
-        let lines = read_transcript_lines(&path)?;
-        // Who «Я» actually is depends on where the audio came from — a link is not the owner
-        // speaking — and on what the human called the source. One place decides: `source_label`.
-        let meta: localvox_light_core::chunks::SessionMeta = fs::read(dir.join("meta.json"))
-            .ok()
-            .and_then(|b| serde_json::from_slice(&b).ok())
-            .unwrap_or_default();
+        let (version_id, lines) = localvox_light_core::readable::transcript_lines(&dir)?;
+        let version = store.load().versions.into_iter().find(|v| v.id == version_id);
         Ok(TranscriptDoc {
             session: session.to_string(),
-            label: best.label,
-            model: best.model,
-            lines: lines
-                .into_iter()
-                .map(|l| TranscriptLineOut {
-                    // Diarization gives the real speaker; without it — the audio source.
-                    who: match l.speaker.clone() {
-                        Some(name) => name,
-                        None => localvox_light_core::chunks::source_label(&meta, l.source_id),
-                    },
-                    source_id: l.source_id,
-                    start_sec: l.start_sec,
-                    end_sec: l.end_sec,
-                    text: l.text,
-                })
-                .collect(),
+            label: version.as_ref().map(|v| v.label.clone()).unwrap_or_default(),
+            model: version.map(|v| v.model).unwrap_or_default(),
+            lines: lines.into_iter().map(|l| TranscriptLineOut {
+                who: l.who, source_id: l.source_id, start_sec: l.start_sec,
+                end_sec: l.end_sec, text: l.text,
+            }).collect(),
         })
     }
 
@@ -1778,78 +1750,6 @@ impl Archive {
         out
     }
 
-    /// The WHOLE recording as one WAV, sliced to a byte range.
-    ///
-    /// This is what makes the player instant. Instead of us re-fetching a window on every click,
-    /// the browser is handed one `audio.wav` with HTTP Range support and does the seeking itself —
-    /// it asks for exactly the bytes around the target and lands there at once. The daemon never
-    /// holds the whole file: each range request produces only its own slice, mixed on the fly.
-    ///
-    /// `range` is `(start, end_inclusive)` from the `Range: bytes=` header; `None` — the whole
-    /// file (which is still served slice-by-slice, never built entire).
-    pub fn audio_wav(
-        &self,
-        session: &str,
-        range: Option<(u64, Option<u64>)>,
-    ) -> Result<AudioSlice> {
-        let dir = self.session_dir(session)?;
-        let meta: localvox_light_core::chunks::SessionMeta =
-            serde_json::from_slice(&fs::read(dir.join("meta.json")).context("нет meta.json")?)
-                .context("meta.json не читается")?;
-
-        let duration = meta
-            .chunks
-            .iter()
-            .map(|c| c.start_offset_sec + c.duration_sec)
-            .fold(0.0_f64, f64::max);
-        // Even/whole samples: a WAV frame is 2 bytes, and an odd data length would desync s16.
-        let pcm_len = ((duration * SR) as u64) * 2;
-        let file_len = 44 + pcm_len;
-
-        let (start, end) = match range {
-            Some((s, e)) => {
-                let end = e.map(|e| (e + 1).min(file_len)).unwrap_or(file_len);
-                (s.min(file_len), end.max(s.min(file_len)))
-            }
-            None => (0, file_len),
-        };
-
-        let mut bytes = Vec::with_capacity((end - start) as usize);
-        // The header, if the range reaches into the first 44 bytes.
-        if start < 44 {
-            let header = wav_header(pcm_len as u32);
-            bytes.extend_from_slice(&header[start as usize..end.min(44) as usize]);
-        }
-        // The PCM part, mixed on the fly for exactly the samples this range covers.
-        let pcm_from = start.max(44) - 44;
-        let pcm_to = end.max(44) - 44;
-        if pcm_to > pcm_from {
-            let sample_from = pcm_from / 2;
-            let sample_to = pcm_to.div_ceil(2);
-            let mic = source_pcm(&dir, &meta, 0, sample_from, sample_to).unwrap_or_default();
-            let sys = source_pcm(&dir, &meta, 1, sample_from, sample_to).unwrap_or_default();
-            let mixed = mix(&mic, &sys);
-            // `mixed` begins at byte `sample_from*2`; take the exact window the range asked for.
-            let off = (pcm_from - sample_from * 2) as usize;
-            let want = (pcm_to - pcm_from) as usize;
-            let avail = mixed.len().saturating_sub(off);
-            bytes.extend_from_slice(&mixed[off..off + want.min(avail)]);
-            // A track can end before the timeline does (system audio goes quiet). Pad with silence
-            // so the file's length always matches its declared duration — or the browser's clock
-            // drifts against ours.
-            if want > avail {
-                bytes.resize(bytes.len() + (want - avail), 0);
-            }
-        }
-
-        Ok(AudioSlice {
-            total: file_len,
-            start,
-            end,
-            bytes,
-        })
-    }
-
     /// The shape of the recording: peak loudness per bucket, for the waveform in the player.
     ///
     /// It is REAL. A drawn wave (a sine, noise, anything "pretty") is worse than no wave at all:
@@ -1950,7 +1850,8 @@ impl Archive {
             other => bail!("неизвестный документ: {other}"),
         };
         let dir = self.session_dir(session)?;
-        if localvox_light_core::processing::confirm(&dir, artifact) {
+        let _lease = self.mutation_lease(session, &dir)?;
+        if localvox_light_core::processing::confirm(&dir, artifact)? {
             tracing::info!("{session}/{artifact}: человек подтвердил — пометка снята");
             Ok("Отмечено: всё верно".into())
         } else {
@@ -1968,16 +1869,36 @@ impl Archive {
             })
             .and_then(|m| m.source);
         let queue = localvox_light_core::jobs::JobQueue::load(&self.work_dir);
-        let job = queue.jobs().iter().find(|j| j.session == name);
+        let mut job = queue.jobs().iter().find(|j| j.session == name).cloned();
+        if let Some(job) = &mut job {
+            if job.follow_settings
+                && matches!(
+                    job.state,
+                    localvox_light_core::jobs::JobState::Pending
+                        | localvox_light_core::jobs::JobState::Running
+                )
+            {
+                (job.summary, job.cleanup, job.refine) =
+                    localvox_light_core::jobs::post_processing_from_env();
+            }
+        }
         let view = localvox_light_core::workflow::view(
             &dir,
-            job,
+            job.as_ref(),
             source.is_some(),
             &localvox_light_core::versions::now_rfc3339(),
         );
         let mut value = serde_json::to_value(&view)?;
         value["source"] = serde_json::to_value(source)?;
         value["queue_error"] = json!(queue.error());
+        if let Some(error) = queue.error() {
+            value["execution"]["state"] = json!("unavailable");
+            value["execution"]["message"] = json!(format!("Очередь недоступна: {error}"));
+            value["execution"]["current"] = Value::Null;
+        } else if localvox_light_core::jobs::recording_session(&self.work_dir).as_deref() == Some(name) {
+            value["execution"]["state"] = json!("recording");
+            value["execution"]["message"] = json!("Идёт запись; обработка начнётся после её завершения");
+        }
         // Backwards-compatible field; the UI now names queue, processing and total separately.
         value["elapsed_sec"] = if view.running {
             Value::Null
@@ -1985,6 +1906,17 @@ impl Archive {
             json!(view.timing.processing_sec)
         };
         Ok(value)
+    }
+
+    pub fn journal(
+        &self,
+        name: &str,
+        query: &localvox_light_core::journal::Query,
+    ) -> Result<Value> {
+        let dir = self.session_dir(name)?;
+        Ok(serde_json::to_value(localvox_light_core::journal::read(
+            &dir, query,
+        )?)?)
     }
 
     /// Stop recording: the engine closes the session, and the cook picks it up. The reason
@@ -2782,7 +2714,8 @@ mod tests {
         // Events without output files cannot prove completion; future stages stay blocked.
         assert_eq!(p["stages"][0]["state"], "invalid");
         assert_eq!(p["stages"][1]["state"], "invalid");
-        assert_eq!(p["stages"][2]["state"], "blocked");
+        assert_eq!(p["stages"][2]["state"], "skipped"); // automatic cleanup is no longer requested
+        assert_eq!(p["stages"][3]["state"], "blocked");
         assert_eq!(
             p["running"], true,
             "the chain says the cook is over while the job is still running — the owner's bug"
@@ -3073,24 +3006,41 @@ mod tests {
 }
 
 /// PCM (s16le, 16 kHz mono) of a chunk over the sample range [from, to) (to is
-/// clamped to the length). `.flac` is decoded whole via ffmpeg (the same one that
-/// created it), `.wav` is read pointwise (seek — we do not pull the whole file for the
+/// clamped to the length). `.flac` is decoded over the requested interval by a bounded,
+/// supervised ffmpeg; `.wav` is read pointwise (seek — we do not pull the whole file for the
 /// sake of one piece). `None` — there is no file (or ffmpeg failed): the caller decides
 /// whether that is an error or a skip.
 fn chunk_pcm_range(audio: &Path, file: &str, from: u64, to: u64) -> Option<Vec<u8>> {
     use std::io::{Read, Seek, SeekFrom};
     let flac = audio.join(format!("{file}.flac"));
     if flac.exists() {
+        if to <= from {
+            return Some(Vec::new());
+        }
         // the same strict decode as the cook's: -xerror — a partial decode of a broken
         // FLAC MUST NOT silently shift the clip (env → exe-dir → PATH)
         let ffmpeg = localvox_light_core::chunks::resolve_ffmpeg_for_decode();
-        let out = std::process::Command::new(ffmpeg)
-            .args(["-hide_banner", "-loglevel", "error", "-xerror", "-i"])
+        let mut command = std::process::Command::new(ffmpeg);
+        command
+            .args([
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-nostdin",
+                "-xerror",
+                "-ss",
+            ])
+            .arg(format!("{:.9}", from as f64 / SR))
+            .arg("-i")
             .arg(&flac)
-            .args(["-f", "s16le", "-ac", "1", "-ar", "16000", "-"]) // raw PCM to stdout
-            .output()
-            .ok()?;
-        if !out.status.success() {
+            .arg("-t")
+            .arg(format!("{:.9}", (to - from) as f64 / SR))
+            .args(["-f", "s16le", "-ac", "1", "-ar", "16000", "-"]);
+        let mut limits = localvox_light_process::Limits::new(std::time::Duration::from_secs(30));
+        limits.background = false;
+        limits.output_bytes = (to - from).saturating_mul(2).saturating_add(1024 * 1024);
+        let out = localvox_light_process::run(command, None, limits, || false, |_, _| {}).ok()?;
+        if !out.termination.success() {
             tracing::warn!(
                 "ffmpeg failed to decode {}: {}",
                 flac.display(),
@@ -3098,13 +3048,12 @@ fn chunk_pcm_range(audio: &Path, file: &str, from: u64, to: u64) -> Option<Vec<u
             );
             return None;
         }
-        let total = (out.stdout.len() / 2) as u64;
-        let (a, b) = (from.min(total), to.min(total));
-        return Some(if b > a {
-            out.stdout[(a as usize) * 2..(b as usize) * 2].to_vec()
-        } else {
-            Vec::new()
-        });
+        return Some(
+            out.stdout
+                .into_iter()
+                .take((to - from).saturating_mul(2) as usize)
+                .collect(),
+        );
     }
     let mut f = fs::File::open(audio.join(format!("{file}.wav"))).ok()?;
     let len = f.metadata().ok()?.len();

@@ -155,9 +155,8 @@ export default function App() {
     return () => window.removeEventListener("paste", onPaste);
   }, [ingest]);
 
-  // Everything not finished: what is in the pot, what waits, and what fell over. `running` is a
-  // flag, not a count — the daemon cooks one at a time.
-  const queued = (jobs?.running ? 1 : 0) + (jobs?.pending ?? 0) + (jobs?.failed ?? 0);
+  // Navigation counts all active lanes, pending work and failures.
+  const queued = (jobs?.running ?? 0) + (jobs?.pending ?? 0) + (jobs?.failed ?? 0);
 
   return (
     <div className="app">

@@ -19,6 +19,17 @@ use localvox_light_process::{Limits, Termination};
 
 const MAX_ATTEMPTS: u32 = 3;
 
+struct CoordinatorExit<'a>(&'a AtomicBool);
+impl Drop for CoordinatorExit<'_> {
+    fn drop(&mut self) {
+        if self.0.load(Ordering::Relaxed) {
+            jobs::report_coordinator("blocked", "Координатор неожиданно остановился; задания сохранены, требуется перезапуск движка");
+        } else {
+            jobs::report_coordinator("stopped", "Координатор обработки остановлен");
+        }
+    }
+}
+
 /// Resolve environment once at the composition boundary, before any job is claimed.
 struct Config {
     work_dir: PathBuf,
@@ -27,9 +38,6 @@ struct Config {
     ffmpeg: PathBuf,
     interval: Duration,
     quiescent_sec: u64,
-    summary: bool,
-    cleanup: bool,
-    refine: bool,
     llm_model: String,
     summary_template: Option<String>,
     summary_provider: String,
@@ -54,6 +62,10 @@ fn seconds(name: &str, default: u64) -> Result<u64> {
 
 impl Config {
     fn from_env(work_dir: String) -> Result<Self> {
+        let exe = std::env::current_exe()?;
+        Self::from_env_in(work_dir, exe.parent().context("executable directory")?)
+    }
+    fn from_env_in(work_dir: String, exe_dir: &Path) -> Result<Self> {
         let cwd = std::env::current_dir()?;
         let absolute = |path: PathBuf| {
             if path.is_absolute() {
@@ -62,10 +74,6 @@ impl Config {
                 cwd.join(path)
             }
         };
-        let exe_dir = std::env::current_exe()?
-            .parent()
-            .context("executable directory")?
-            .to_path_buf();
         let exe = exe_dir.join(if cfg!(windows) {
             "localvox-process.exe"
         } else {
@@ -83,7 +91,6 @@ impl Config {
                 }
             });
         // A missing ASR model fails the STT phase, not the whole queue (text may already exist).
-        let (summary, cleanup, refine) = jobs::post_processing_from_env();
         Ok(Self {
             work_dir: absolute(work_dir.into()),
             exe,
@@ -91,9 +98,6 @@ impl Config {
             ffmpeg: localvox_light_core::chunks::resolve_ffmpeg_for_decode().into(),
             interval: Duration::from_secs(seconds("LOCALVOX_LIGHT_AUTOCOOK_INTERVAL_SEC", 5)?),
             quiescent_sec: seconds("LOCALVOX_LIGHT_AUTOCOOK_QUIESCENT_SEC", 15)?,
-            summary,
-            cleanup,
-            refine,
             llm_model: std::env::var("LOCALVOX_LLM_MODEL").unwrap_or_else(|_| "qwen3.5:9b".into()),
             summary_template: std::env::var("LOCALVOX_LLM_SUMMARY_TEMPLATE")
                 .ok()
@@ -173,11 +177,20 @@ pub fn spawn(work_dir: String, running: Arc<AtomicBool>) -> Option<std::thread::
             .as_str(),
         "0" | "off" | "false" | "no"
     ) {
+        jobs::report_coordinator(
+            "disabled",
+            "Автоматическая обработка выключена в настройках",
+        );
         return None;
     }
+    jobs::report_coordinator("starting", "Проверка обработчика");
     let cfg = match Config::from_env(work_dir) {
         Ok(cfg) => cfg,
         Err(e) => {
+            jobs::report_coordinator(
+                "blocked",
+                "Координатор не запущен: проверьте комплект worker и настройки",
+            );
             tracing::error!("autocook configuration: {e:#}");
             return None;
         }
@@ -186,13 +199,16 @@ pub fn spawn(work_dir: String, running: Arc<AtomicBool>) -> Option<std::thread::
         .name("autocook".into())
         .spawn(move || {
             if let Err(e) = cfg.preflight(&running) {
+                jobs::report_coordinator("blocked", "Обработчик не прошёл проверку протокола; обновите комплект и перезапустите движок");
                 tracing::error!("autocook preflight: {e:#}");
                 return;
             }
+            let _status = CoordinatorExit(&running);
             coordinate(&cfg, &running);
         }) {
         Ok(handle) => Some(handle),
         Err(e) => {
+            jobs::report_coordinator("blocked", "Не удалось запустить координатор обработки");
             tracing::error!("starting autocook coordinator: {e}");
             None
         }
@@ -200,6 +216,7 @@ pub fn spawn(work_dir: String, running: Arc<AtomicBool>) -> Option<std::thread::
 }
 
 fn coordinate(cfg: &Config, running: &AtomicBool) {
+    jobs::report_coordinator("ready", "Координатор работает");
     let wd = &cfg.work_dir;
     JobQueue::mutate(wd, |q| {
         let taken = q.reclaim_abandoned(wd);
@@ -208,12 +225,6 @@ fn coordinate(cfg: &Config, running: &AtomicBool) {
         }
         q.drop_orphans(wd);
     });
-    let wanted = jobs::Wanted::new(
-        cfg.summary,
-        cfg.cleanup,
-        cfg.summary_template.clone(),
-        &cfg.llm_model,
-    );
     let lanes = cfg.lanes();
     tracing::info!(?lanes, timeouts_sec = ?cfg.timeouts.map(|t| t.as_secs()), "autocook: coordinator ready");
     // Startup index maintenance waits until queued processing is done as well.
@@ -223,12 +234,20 @@ fn coordinate(cfg: &Config, running: &AtomicBool) {
             let index_dirty = &index_dirty;
             scope.spawn(move || {
                 while running.load(Ordering::Relaxed) {
-                    let ids = JobQueue::mutate(wd, |q| q.pending_for(phases));
+                    let ids = JobQueue::mutate(wd, |q| {
+                        if !q.refresh_post_processing(jobs::post_processing_from_env()) {
+                            return vec![];
+                        }
+                        q.pending_for(phases)
+                    });
                     for id in ids {
                         if !running.load(Ordering::Relaxed) {
                             break;
                         }
                         let claim = JobQueue::mutate(wd, |q| {
+                            if !q.refresh_post_processing(jobs::post_processing_from_env()) {
+                                return None;
+                            }
                             let name = q.jobs().iter().find(|j| j.id == id)?.session.clone();
                             match jobs::try_execution_lock(&wd.join("sessions").join(&name)) {
                                 Ok(Some(lock)) => q.start_phase(id, phases).map(|job| (job, lock)),
@@ -240,7 +259,14 @@ fn coordinate(cfg: &Config, running: &AtomicBool) {
                             }
                         });
                         if let Some((job, _execution_lock)) = claim {
-                            if run_phase(cfg, running, &job) {
+                            let changed = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run_phase(cfg, running, &job))) {
+                                Ok(changed) => changed,
+                                Err(_) => {
+                                    fail_phase(wd, &job, "Сбой координатора при выполнении задания; сохранённые результаты остаются доступны");
+                                    true
+                                }
+                            };
+                            if changed {
                                 index_dirty.store(true, Ordering::Relaxed);
                             }
                         }
@@ -251,19 +277,27 @@ fn coordinate(cfg: &Config, running: &AtomicBool) {
         }
         let mut last_idle = Instant::now();
         while running.load(Ordering::Relaxed) {
+            jobs::report_coordinator("ready", "Координатор работает");
             JobQueue::mutate(wd, |q| {
+                let (summary, cleanup, refine) = jobs::post_processing_from_env();
+                let wanted = jobs::Wanted::new(
+                    summary,
+                    cleanup,
+                    cfg.summary_template.clone(),
+                    &cfg.llm_model,
+                );
                 q.drop_orphans(wd);
                 let revived = q.revive_failed(Duration::from_secs(3600));
                 if revived > 0 {
                     tracing::info!(revived, "autocook: retrying after backoff");
                 }
                 for name in jobs::sessions_needing_cook(wd, cfg.quiescent_sec) {
-                    if q.enqueue_cook(&name, cfg.summary, cfg.cleanup, cfg.refine) {
+                    if q.enqueue_cook(&name, summary, cleanup, refine) {
                         tracing::info!(session = name, "autocook: enqueued");
                     }
                 }
                 for name in jobs::sessions_needing_artifacts(wd, &wanted) {
-                    if q.requeue_for_artifacts(&name, cfg.summary, cfg.cleanup, cfg.refine) {
+                    if q.requeue_for_artifacts(&name, summary, cleanup, refine) {
                         tracing::info!(session = name, "autocook: queued missing artifacts");
                     }
                 }
@@ -308,6 +342,19 @@ fn pause(running: &AtomicBool, duration: Duration) {
 }
 
 fn run_phase(cfg: &Config, running: &AtomicBool, job: &Job) -> bool {
+    run_step(cfg, running, job, true, cfg.timeout(job.phase));
+    // Even a failed attempt may have committed reusable artifacts. The queue
+    // carries success/failure; this return value only dirties idle indexes.
+    running.load(Ordering::Relaxed)
+}
+
+fn run_step(
+    cfg: &Config,
+    running: &AtomicBool,
+    job: &Job,
+    finish: bool,
+    timeout: Duration,
+) -> bool {
     let session = cfg.work_dir.join("sessions").join(&job.session);
     if job.phase == JobPhase::Prepare && job.attempts == 1 {
         progress::new_run(&session);
@@ -315,8 +362,25 @@ fn run_phase(cfg: &Config, running: &AtomicBool, job: &Job) -> bool {
     if (!job.force || job.phase != JobPhase::Transcribe)
         && jobs::verify_phase(&session, job).is_ok()
     {
-        return accept_phase(&cfg.work_dir, job);
+        return if finish {
+            accept_phase(&cfg.work_dir, job)
+        } else {
+            true
+        };
     }
+    let initial_stage = match job.phase {
+        JobPhase::Prepare => progress::Stage::Download,
+        JobPhase::Transcribe => progress::Stage::Transcribe,
+        JobPhase::Text if job.refine => progress::Stage::Refine,
+        JobPhase::Text => progress::Stage::Cleanup,
+        JobPhase::Summary => progress::Stage::Summary,
+    };
+    progress::mark(
+        &session,
+        initial_stage,
+        progress::StageState::Running,
+        Some("Запуск обработчика"),
+    );
     let mut cmd = cfg.command();
     cmd.arg(&session)
         .arg("--worker-phase")
@@ -341,21 +405,77 @@ fn run_phase(cfg: &Config, running: &AtomicBool, job: &Job) -> bool {
     if job.phase == JobPhase::Transcribe && job.force {
         cmd.arg("--force");
     }
-    let timeout = cfg.timeout(job.phase);
-    let outcome = localvox_light_process::run(
-        cmd,
-        None,
-        Limits::new(timeout),
-        || !running.load(Ordering::Relaxed),
-        |pid, elapsed| {
-            let events = progress::read(&session);
-            let event = events.last();
-            tracing::info!(job_id = job.id, session = %job.session, phase = job.phase.as_str(), attempt = job.attempts,
+    let _journal_operation = localvox_light_core::journal::Operation::start(
+        &session,
+        job.phase.as_str(),
+        "localvox-process",
+        Some(localvox_light_core::journal::DisplayCommand::from_args(
+            "localvox-process",
+            &cmd.get_args()
+                .map(|v| v.to_string_lossy().into_owned())
+                .collect::<Vec<_>>(),
+        )),
+    );
+    if let Some(execution) = &job.execution_id {
+        if let Err(error) = _journal_operation.bind_execution(execution) {
+            tracing::debug!("journal execution binding: {error}");
+        }
+    }
+    let outcome = std::thread::scope(|scope| {
+        let (observer, observed, dropped) = localvox_light_process::OutputObserver::channel(16);
+        let listener = scope.spawn(|| {
+            for chunk in observed {
+                // Raw tool output can contain user text or credentials. Publish only facts
+                // about transport; detailed operation labels come from trusted producers.
+                _journal_operation.log(&format!(
+                    "{:?}: получено {} байт; содержимое остаётся в диагностике обработчика",
+                    chunk.stream,
+                    chunk.bytes.len()
+                ));
+            }
+        });
+        let result = localvox_light_process::run_observed(
+            cmd,
+            None,
+            Limits::new(timeout),
+            || !running.load(Ordering::Relaxed),
+            |pid, elapsed| {
+                let events = progress::read(&session);
+                if let Some(event) = events
+                    .last()
+                    .filter(|e| e.state == progress::StageState::Running)
+                {
+                    // A live owned process can be loading a model before its own
+                    // heartbeats start. Keep its stage start/counters intact.
+                    let age = chrono::DateTime::parse_from_rfc3339(&event.at)
+                        .ok()
+                        .map(|at| chrono::Utc::now().signed_duration_since(at).num_seconds());
+                    if age.is_some_and(|age| age >= 10) {
+                        progress::mark(
+                            &session,
+                            event.stage,
+                            progress::StageState::Running,
+                            event.note.as_deref(),
+                        );
+                    }
+                }
+                let event = events.last();
+                tracing::info!(job_id = job.id, session = %job.session, phase = job.phase.as_str(), attempt = job.attempts,
                 pid, elapsed_sec = elapsed.as_secs(), timeout_sec = timeout.as_secs(),
                 operation = event.and_then(|e| e.note.as_deref()).unwrap_or("запуск обработчика"),
                 last_signal = event.map(|e| e.at.as_str()).unwrap_or("нет"), "autocook: heartbeat");
-        },
-    );
+            },
+            Some(observer),
+        );
+        if listener.join().is_err() {
+            tracing::warn!("journal observer stopped");
+        }
+        let lost = dropped.load(Ordering::Relaxed);
+        if lost > 0 {
+            _journal_operation.log(&format!("Наблюдение вывода пропустило {lost} байт; обработка и сохранённый результат не изменены"));
+        }
+        result
+    });
     let reason = match outcome {
         Ok(out) => {
             for line in String::from_utf8_lossy(&out.stdout).lines() {
@@ -368,7 +488,20 @@ fn run_phase(cfg: &Config, running: &AtomicBool, job: &Job) -> bool {
                 pid = out.pid, elapsed_sec = out.elapsed.as_secs(), termination = ?out.termination, "autocook: worker stopped");
             match out.termination {
                 Termination::Exited(status) if status.success() => {
-                    return accept_phase(&cfg.work_dir, job)
+                    if finish {
+                        return accept_phase(&cfg.work_dir, job);
+                    }
+                    return match jobs::verify_phase(&session, job) {
+                        Ok(()) => true,
+                        Err(error) => {
+                            fail_phase(
+                                &cfg.work_dir,
+                                job,
+                                &format!("Результат этапа Text не подтверждён: {error:#}"),
+                            );
+                            false
+                        }
+                    };
                 }
                 // Interrupted jobs are recovered on restart and reuse verified artifacts.
                 Termination::Cancelled => return false,
@@ -391,11 +524,13 @@ fn run_phase(cfg: &Config, running: &AtomicBool, job: &Job) -> bool {
         Err(e) => format!("Фаза {}: {e:#}", job.phase.as_str()),
     };
     fail_phase(&cfg.work_dir, job, &reason);
-    true // A failed phase may still have committed a reusable artifact.
+    false
 }
 
 fn accept_phase(wd: &Path, job: &Job) -> bool {
-    let result = JobQueue::mutate(wd, |q| q.finish_phase(job.id, job.phase));
+    let result = JobQueue::mutate(wd, |q| {
+        q.finish_phase_with_policy(job.id, job.phase, Some(jobs::post_processing_from_env()))
+    });
     match result {
         Ok(()) => {
             tracing::info!(job_id = job.id, session = %job.session, phase = job.phase.as_str(), "autocook: артефакт подтверждён");
@@ -508,6 +643,143 @@ fn warm_indexes(cfg: &Config, running: &AtomicBool) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    static POST_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    #[test]
+    fn verified_gigaam_finishes_without_starting_a_postprocessing_worker_when_disabled() {
+        let _guard = POST_ENV_LOCK.lock().unwrap();
+        use localvox_light_core::{
+            processing,
+            versions::{VersionEntry, VersionStore},
+        };
+        struct Restore(Vec<(String, Option<String>)>);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                localvox_light_core::settings::apply_live(&self.0);
+            }
+        }
+        let keys: Vec<_> = ["SUMMARY", "CLEANUP", "REFINE"]
+            .map(|s| format!("LOCALVOX_LIGHT_AUTOCOOK_{s}"))
+            .into();
+        let _restore = Restore(
+            keys.iter()
+                .map(|key| (key.clone(), std::env::var(key).ok()))
+                .collect(),
+        );
+        localvox_light_core::settings::apply_live(
+            &keys
+                .into_iter()
+                .map(|key| {
+                    let value = if key.ends_with("SUMMARY") {
+                        "off"
+                    } else {
+                        "on"
+                    };
+                    (key, Some(value.into()))
+                })
+                .collect::<Vec<_>>(),
+        );
+        let root = tempfile::tempdir().unwrap();
+        let session = root.path().join("sessions/two-hours");
+        std::fs::create_dir_all(&session).unwrap();
+        let store = VersionStore::open(&session).unwrap();
+        let (id, path) = store.next_version("gigaam").unwrap();
+        std::fs::write(&path, serde_json::json!({"source_id":0,"start_sec":0,"end_sec":7200,"text":"Synthetic long recording"}).to_string()+"\n").unwrap();
+        store
+            .commit(VersionEntry {
+                id,
+                file: path.file_name().unwrap().to_string_lossy().into(),
+                label: "GigaAM".into(),
+                model: "synthetic".into(),
+                params: serde_json::json!({}),
+                created_at: "2026-10-31T00:00:00Z".into(),
+                parents: vec![],
+            })
+            .unwrap();
+        processing::record(
+            &session,
+            processing::TRANSCRIPT,
+            "fixture",
+            processing::Outcome::Ok,
+            None,
+            Some(id),
+        )
+        .unwrap();
+        // A non-executable file makes any accidental child startup fail this test.
+        std::fs::write(
+            root.path().join(if cfg!(windows) {
+                "localvox-process.exe"
+            } else {
+                "localvox-process"
+            }),
+            [],
+        )
+        .unwrap();
+        let config =
+            Config::from_env_in(root.path().to_string_lossy().into(), root.path()).unwrap();
+        let job = JobQueue::mutate(root.path(), |q| {
+            q.enqueue_cook("two-hours", true, true, true);
+            let mut job = q.start_phase(0, &[JobPhase::Prepare]).unwrap();
+            q.finish_phase(0, job.phase).unwrap();
+            job = q.start_phase(0, &[JobPhase::Transcribe]).unwrap();
+            job
+        });
+        assert!(run_phase(&config, &AtomicBool::new(true), &job));
+        let queue = JobQueue::load(root.path());
+        assert_eq!(queue.jobs()[0].state, JobState::Done);
+        assert!(!queue.jobs()[0].summary && !queue.jobs()[0].cleanup && !queue.jobs()[0].refine);
+        assert!(path.is_file());
+        assert!(!session.join("summary.md").exists());
+    }
+    #[test]
+    fn saving_a_model_reports_restart_while_an_existing_coordinator_keeps_its_snapshot() {
+        const KEY: &str = "LOCALVOX_LLM_MODEL";
+        struct Restore(Option<std::ffi::OsString>);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                match &self.0 {
+                    Some(value) => std::env::set_var(KEY, value),
+                    None => std::env::remove_var(KEY),
+                }
+            }
+        }
+        let _restore = Restore(std::env::var_os(KEY));
+        let work = tempfile::tempdir().unwrap();
+        std::fs::write(
+            work.path().join(if cfg!(windows) {
+                "localvox-process.exe"
+            } else {
+                "localvox-process"
+            }),
+            [],
+        )
+        .unwrap();
+        std::env::set_var(KEY, "synthetic-before");
+        let before =
+            Config::from_env_in(work.path().to_string_lossy().into_owned(), work.path()).unwrap();
+        let restart = localvox_light_core::settings::apply_live(&[(
+            KEY.into(),
+            Some("synthetic-after".into()),
+        )]);
+        assert!(!restart.is_empty());
+        assert_eq!(before.llm_model, "synthetic-before");
+        let command = before.command();
+        assert_eq!(
+            command.get_envs().find(|(key, _)| *key == KEY).unwrap().1,
+            Some(std::ffi::OsStr::new("synthetic-before"))
+        );
+        let restarted =
+            Config::from_env_in(work.path().to_string_lossy().into_owned(), work.path()).unwrap();
+        assert_eq!(restarted.llm_model, "synthetic-after");
+        assert_eq!(
+            restarted
+                .command()
+                .get_envs()
+                .find(|(key, _)| *key == KEY)
+                .unwrap()
+                .1,
+            Some(std::ffi::OsStr::new("synthetic-after"))
+        );
+    }
     #[test]
     fn diagnostics_are_bounded_and_plain_text() {
         assert_eq!(clean_line("\u{1b}[32mготово\u{1b}[0m"), "готово");

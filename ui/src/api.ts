@@ -1,5 +1,6 @@
 // The only contract with the daemon. Everything the app knows about the archive it
 // learns here — no component talks to the network on its own.
+import type { JournalPage } from "./journal-model";
 
 export type JobState = "running" | "pending" | "failed";
 
@@ -105,7 +106,7 @@ export interface Answer {
 }
 
 export interface Jobs {
-  running: boolean;
+  running: number;
   current?: string | null;
   pending: number;
   failed: number;
@@ -171,8 +172,8 @@ export interface SettingsDoc {
   path: string;
   exists: boolean;
   settings: Setting[];
-  /** Everything else the file already holds. Hiding it would misrepresent what is in effect. */
-  extra: { key: string; value: string }[];
+  /** Unknown keys may contain secrets. Only names and presence are public. */
+  extra: { key: string; set: boolean }[];
 }
 
 /** A note being dictated right now. `slot` is the name from slots.toml — «идеи», «входящие» —
@@ -229,6 +230,7 @@ export interface ReadableLine {
 }
 
 export interface ReadableDoc {
+  from_transcript?: boolean;
   lines: ReadableLine[];
   /** Which transcript version this was cleaned from. */
   version_id: number;
@@ -319,6 +321,19 @@ export interface StageStatus {
 }
 
 export interface Progress {
+  at?: string;
+  execution?: {
+    run?: string | null;
+    operation?: string | null;
+    state: string;
+    message: string;
+    current?: Stage | null;
+    phase?: "prepare" | "transcribe" | "text" | "summary" | null;
+    since?: string | null;
+    next: Stage[];
+    retry_at?: string | null;
+    last_signal_at?: string | null;
+  };
   queue_error?: string | null;
   stages: StageStatus[];
   source?: { url: string; title?: string | null } | null;
@@ -355,11 +370,11 @@ function headers(): HeadersInit {
 export class ApiError extends Error {}
 
 async function call<T>(path: string, init: RequestInit & { timeoutMs?: number } = {}): Promise<T> {
-  const { timeoutMs = 15_000, ...rest } = init;
+  const { timeoutMs = 15_000, signal, ...rest } = init;
   let r: Response;
   try {
     r = await fetch(path, {
-      signal: AbortSignal.timeout(timeoutMs),
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs),
       ...rest,
       headers: { ...headers(), ...(rest.headers ?? {}) },
     });
@@ -461,7 +476,11 @@ export const api = {
   route: (text: string) =>
     post<{ suggestions: { slot: string; reason?: string }[] }>("/api/route", { text }),
 
-  progress: (s: string) => call<Progress>(`/api/sessions/${enc(s)}/progress`),
+  progress: (s: string, signal?: AbortSignal) => call<Progress>(`/api/sessions/${enc(s)}/progress`, { signal }),
+  journal: (s: string, after?: string, before?: string, signal?: AbortSignal) => call<JournalPage>(
+    `/api/sessions/${enc(s)}/journal?limit=200${after ? `&after=${enc(after)}` : ""}${before ? `&before=${enc(before)}` : ""}`,
+    { signal },
+  ),
   /** The shape of the recording: peak loudness per bucket, 0…1. REAL — people aim at the loud
    *  stretch by it, and a drawn wave would send them to the wrong place while looking just as
    *  trustworthy as a true one. */
@@ -476,7 +495,7 @@ export const api = {
   ingest: (url: string) => post<{ session: string }>("/api/ingest", { url }),
 
   /** The queue itself, in the order the daemon will work through it. */
-  queue: () => call<{ queue: QueueItem[] }>("/api/queue"),
+  queue: (signal?: AbortSignal) => call<{ queue: QueueItem[] }>("/api/queue", { signal }),
 
   /** What `.env` currently sets. Reports THE FILE, not the daemon's live environment: the daemon
    *  read its environment once at startup, so after a save the two disagree — and showing the live
@@ -502,7 +521,11 @@ export const api = {
   nameSource: (s: string, source_id: number, name: string) =>
     post<{ msg: string }>(`/api/sessions/${enc(s)}/sources`, { source_id, name }),
 
-  settings: () => call<SettingsDoc>("/api/settings"),
+  settings: async () => {
+    const doc = await call<SettingsDoc>("/api/settings");
+    // Also discard raw extra values returned by an older daemon.
+    return { ...doc, extra: (doc.extra ?? []).map(({ key, set }) => ({ key, set: set ?? true })) };
+  },
   /** Write keys into `.env`. `null` unsets a key — it is commented out and the code default takes
    *  over again. The write is surgical: comments and untouched lines survive. */
   saveSettings: (set: Record<string, string | null>) =>

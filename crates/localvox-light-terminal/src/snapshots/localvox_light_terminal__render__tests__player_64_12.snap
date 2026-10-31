@@ -1,0 +1,43 @@
+---
+source: crates/localvox-light-terminal/src/render.rs
+assertion_line: 1231
+expression: buffer
+---
+Buffer {
+    area: Rect { x: 0, y: 0, width: 64, height: 12 },
+    content: [
+        " localvox  / технический журнал   ● движок недоступен   очередь ",
+        " pre-roll 00:00                                                 ",
+        "┌ Аудио · F6 фокус ────────────────────────────────────────────┐",
+        "│ пауза 65:00 / 120:00  ████▆██████▆█████▆██████▆██████▆       │",
+        "│←/→ ±5с · Home/End · g время · Space пауза · F6 назад         │",
+        "└──────────────────────────────────────────────────────────────┘",
+        "┌ Архив · Tab переключить панель ───────────────────────────────",
+        "│ 1 Сводка  2 Реплики  3 Текст  4 Участники  5 Ход              ",
+        "│                                                               ",
+        "│Результат пока недоступен.                                     ",
+        " Подключение…                                                   ",
+        " Tab фокус  : действия  F8 stop  F9 rec  ?  Ctrl+Q выход        ",
+    ],
+    styles: [
+        x: 0, y: 0, fg: Rgb(216, 220, 227), bg: Rgb(23, 25, 29), underline: Reset, modifier: BOLD,
+        x: 10, y: 0, fg: Rgb(156, 164, 175), bg: Rgb(23, 25, 29), underline: Reset, modifier: NONE,
+        x: 18, y: 1, fg: Rgb(216, 220, 227), bg: Rgb(23, 25, 29), underline: Reset, modifier: NONE,
+        x: 0, y: 2, fg: Rgb(133, 180, 220), bg: Rgb(23, 25, 29), underline: Reset, modifier: NONE,
+        x: 42, y: 3, fg: Rgb(156, 164, 175), bg: Rgb(23, 25, 29), underline: Reset, modifier: NONE,
+        x: 56, y: 3, fg: Rgb(216, 220, 227), bg: Rgb(23, 25, 29), underline: Reset, modifier: NONE,
+        x: 63, y: 3, fg: Rgb(133, 180, 220), bg: Rgb(23, 25, 29), underline: Reset, modifier: NONE,
+        x: 1, y: 4, fg: Rgb(156, 164, 175), bg: Rgb(23, 25, 29), underline: Reset, modifier: NONE,
+        x: 54, y: 4, fg: Rgb(216, 220, 227), bg: Rgb(23, 25, 29), underline: Reset, modifier: NONE,
+        x: 63, y: 4, fg: Rgb(133, 180, 220), bg: Rgb(23, 25, 29), underline: Reset, modifier: NONE,
+        x: 0, y: 6, fg: Rgb(52, 57, 66), bg: Rgb(23, 25, 29), underline: Reset, modifier: NONE,
+        x: 1, y: 7, fg: Rgb(133, 180, 220), bg: Rgb(23, 25, 29), underline: Reset, modifier: BOLD,
+        x: 11, y: 7, fg: Rgb(156, 164, 175), bg: Rgb(23, 25, 29), underline: Reset, modifier: NONE,
+        x: 51, y: 7, fg: Rgb(216, 220, 227), bg: Rgb(23, 25, 29), underline: Reset, modifier: NONE,
+        x: 0, y: 8, fg: Rgb(52, 57, 66), bg: Rgb(23, 25, 29), underline: Reset, modifier: NONE,
+        x: 1, y: 8, fg: Rgb(216, 220, 227), bg: Rgb(23, 25, 29), underline: Reset, modifier: NONE,
+        x: 0, y: 9, fg: Rgb(52, 57, 66), bg: Rgb(23, 25, 29), underline: Reset, modifier: NONE,
+        x: 1, y: 9, fg: Rgb(156, 164, 175), bg: Rgb(23, 25, 29), underline: Reset, modifier: NONE,
+        x: 13, y: 10, fg: Rgb(216, 220, 227), bg: Rgb(23, 25, 29), underline: Reset, modifier: NONE,
+    ]
+}

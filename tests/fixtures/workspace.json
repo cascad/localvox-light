@@ -1,0 +1,18 @@
+{
+  "sessions": [{"name":"20261031_demo","title":"Обсуждение архитектуры","started_at":"2026-10-31T10:00:00+03:00","source_url":"https://example.org/meeting","duration_sec":120,"recording":false,"cooked":true,"empty":false,"job":"running","has_summary":true,"has_processed":true,"lang":"ru"}],
+  "record": {"engine":true,"recording":false,"preroll_sec":300,"voice":{"active":true,"detail":"Голосовые заметки готовы"}},
+  "jobs": {"running":1,"current":"20261031_demo","pending":2,"failed":0},
+  "queue": [{"session":"20261031_demo","title":"Обсуждение архитектуры","state":"running","kind":"ingest","position":null,"attempts":1,"stuck":false}],
+  "progress": {"running":true,"phase":"summary","stages":[{"stage":"download","state":"done","started_at":"2026-10-31T07:00:00Z","ended_at":"2026-10-31T07:00:03Z","files":["audio.wav"]},{"stage":"extract","state":"done"},{"stage":"transcribe","state":"done","done":8,"total":8},{"stage":"refine","state":"skipped"},{"stage":"cleanup","state":"done"},{"stage":"summary","state":"running","started_at":"2026-10-31T07:00:10Z","updated_at":"2026-10-31T07:00:20Z","done":2,"total":4,"note":"Проверка источников"}],"source":{"url":"https://example.org/meeting"},"timing":{"queue_sec":4,"processing_sec":null,"total_sec":null}},
+  "summary": {"blocks":[{"kind":"heading","text":"Архитектура и следующие шаги","sources":[]},{"kind":"bullet","text":"Разделить клиент и движок обработки.","sources":[{"line":0,"start_sec":0,"end_sec":10}]}]},
+  "transcript": {"lines":[{"start_sec":0,"end_sec":10,"who":"Участник 1","text":"Давайте отделим интерфейс от движка.","source_id":0}]},
+  "readable": {"lines":[{"start_sec":0,"end_sec":10,"who":"Участник 1","text":"Отделим интерфейс от движка.","source_id":0,"original":"Давайте отделим интерфейс от движка."}],"version_id":1,"omitted":0,"rejected":0},
+  "versions": [{"id":1,"best":true,"derived":false,"model":"test-asr","created_at":"2026-10-31T07:00:00Z","lines":1}],
+  "speakers": [{"name":"Участник 1","what":"отдельный голос","named":false,"voices":["speaker_0"],"sources":[0],"speech_sec":10,"lines":1}],
+  "sources": [{"source_id":0,"name":"Рассказчик","custom":false,"what":"звук из источника"}],
+  "slots": [{"name":"идеи","default":true,"readable":true,"notes":[{"text":"Проверить очередь","date":"2026-10-31","raw":"- Проверить очередь","source":"synthetic-notes.md"}]}],
+  "asks": [{"id":"demo-ask","created_at":"2026-10-31T07:00:00Z","provider":"ollama","input_name":"Материал","input_chars":30,"status":"done"}],
+  "ask": {"id":"demo-ask","created_at":"2026-10-31T07:00:00Z","provider":"ollama","input_name":"Материал","input_chars":30,"status":"done","prompt":"Сделай выжимку","input":"Синтетический текст для теста.","answer":"Клиент работает отдельно от движка."},
+  "settings": {"path":"synthetic/.env","exists":true,"extra":[],"settings":[{"key":"LOCALVOX_LANG","group":"Распознавание","label":"Язык новых записей","applies":"restart","hint":"ru","kind":"text","value":"ru","set":true}]},
+  "journal": {"events":[],"next_cursor":"demo:100:0","previous_cursor":"demo:0:0","has_more":false,"reset":false,"truncated":false,"discarded":0,"read_bytes":100}
+}

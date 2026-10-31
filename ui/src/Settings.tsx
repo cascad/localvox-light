@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { api, type Setting, type SettingsDoc } from "./api";
+import { api, token, type Setting, type SettingsDoc } from "./api";
 
 /** The settings screen — an editor for ONE file, `.env`.
  *
@@ -7,9 +7,8 @@ import { api, type Setting, type SettingsDoc } from "./api";
  *  overrides them, and this screen edits `.env`. The write is surgical, so the 280 lines of
  *  comments in that file — measurements, why a threshold is what it is — survive every save.
  *
- *  THE SCREEN NEVER PRETENDS A CHANGE IS LIVE. These values are read once, when the daemon starts;
- *  saving writes the file and nothing more. Saying so plainly is the difference between "it did not
- *  work" and "not yet" — and the app has exactly one rule about lying to the person using it. */
+ *  Application timing comes from the server catalogue: automatic post-processing flags are
+ *  live for future phases; settings retained by startup consumers require a restart. */
 export function SettingsPane({ say }: { say: (m: string) => void }) {
   const [doc, setDoc] = useState<SettingsDoc | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -61,13 +60,14 @@ export function SettingsPane({ say }: { say: (m: string) => void }) {
     }
   };
 
-  if (err) return <main className="main"><div className="pane"><p className="err">{err}</p></div></main>;
-  if (!doc) return <main className="main"><div className="pane"><p className="hint">загрузка…</p></div></main>;
+  if (err) return <main className="main"><div className="pane"><Access onChanged={() => void load()} say={say} /><p className="err">{err}</p></div></main>;
+  if (!doc) return <main className="main"><div className="pane"><Access onChanged={() => void load()} say={say} /><p className="hint">загрузка…</p></div></main>;
 
   return (
     <main className="main">
       <div className="pane">
         <h1 style={{ fontSize: 19, margin: "0 0 4px" }}>Настройки</h1>
+        <Access onChanged={() => void load()} say={say} />
         <p className="hint" style={{ margin: "0 0 14px" }}>
           Всё живёт в одном файле: <code>{doc.path}</code>
           {!doc.exists && " — его пока нет, он появится при первом сохранении"}. Пустое поле — значит
@@ -98,6 +98,10 @@ export function SettingsPane({ say }: { say: (m: string) => void }) {
         {groups.map(([group, items]) => (
           <section key={group} className="set-group">
             <h2>{group}</h2>
+            {group === "После распознавания" && <>
+              <p className="hint">Транскрибация обязательна. После неё можно автоматически построить сводку по исходной расшифровке. Во вкладке «Текст» доступна та же расшифровка; дополнительная очистка запускается вручную.</p>
+              <p className="hint">Переключатель сводки действует без перезапуска для новых автоматических заданий. Текущий LLM-этап завершится и сохранит результат. Старые задания и явные ручные операции сохраняют свои параметры.</p>
+            </>}
             {items.map((s) => (
               <Field
                 key={s.key}
@@ -133,6 +137,27 @@ export function SettingsPane({ say }: { say: (m: string) => void }) {
       </div>
     </main>
   );
+}
+
+function Access({ onChanged, say }: { onChanged: () => void; say: (message: string) => void }) {
+  const [draft, setDraft] = useState("");
+  const [present, setPresent] = useState(() => !!token.get());
+  const save = (clear: boolean) => {
+    if (!clear && !draft.trim()) return;
+    token.set(clear ? "" : draft.trim());
+    setPresent(!clear); setDraft("");
+    say(clear ? "Токен доступа удалён из этого браузера" : "Токен доступа сохранён в этом браузере");
+    onChanged();
+  };
+  return <section className="set-group">
+    <h2>Подключение этого браузера</h2>
+    <p className="hint">Токен {present ? "задан" : "не задан"}. Используется для доступа к API; настройки демона меняются ниже.</p>
+    <div className="row">
+      <input type="password" autoComplete="off" aria-label="Новый токен доступа" placeholder="новый токен" value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") save(false); }} />
+      <button className="btn" disabled={!draft.trim()} onClick={() => save(false)}>Подключиться</button>
+      <button className="btn" disabled={!present} onClick={() => save(true)}>Очистить токен доступа</button>
+    </div>
+  </section>;
 }
 
 /** Says BEFORE the save what the save will cost. A field that needs a restart is not broken and
@@ -176,7 +201,7 @@ function Field({
           <Applies of={s} />
         </label>
         <div className="set-ctl">
-          <select value={shown} onChange={(e) => onChange(e.target.value)}>
+          <select aria-label={s.label} value={shown} onChange={(e) => onChange(e.target.value)}>
             <option value="">по умолчанию ({s.hint})</option>
             {s.options.map((o) => (
               <option key={o.value} value={o.value}>
@@ -203,7 +228,7 @@ function Field({
           <Applies of={s} />
         </label>
         <div className="set-ctl">
-          <select value={on === null ? "" : on ? "on" : "off"} onChange={(e) => onChange(e.target.value)}>
+          <select aria-label={s.label} value={on === null ? "" : on ? "on" : "off"} onChange={(e) => onChange(e.target.value)}>
             <option value="">по умолчанию ({s.hint})</option>
             <option value="on">включено</option>
             <option value="off">выключено</option>
@@ -235,11 +260,7 @@ function Field({
   );
 }
 
-/** Everything the file holds beyond the catalogue.
- *
- *  Every setting is just a `.env` key, so this covers the rest of them without a hand-written field
- *  for each — and, more importantly, it does not hide what is already in effect. A settings screen
- *  that showed only the keys it knows about would misrepresent the file it claims to edit. */
+/** Unknown keys expose presence and explicit replace/unset actions, never a saved value. */
 function Extra({
   doc,
   edits,
@@ -277,16 +298,20 @@ function Extra({
               </label>
               <div className="set-ctl">
                 <input
-                  value={edits[x.key] === undefined ? x.value : (edits[x.key] ?? "")}
+                  type="password"
+                  autoComplete="off"
+                  placeholder={x.set ? "сохранено · значение скрыто" : "не задано"}
+                  aria-label={`Новое значение ${x.key}`}
+                  value={edits[x.key] ?? ""}
                   onChange={(e) =>
                     setEdits((s) => {
                       const next = { ...s };
-                      if (e.target.value === x.value) delete next[x.key];
-                      else next[x.key] = e.target.value === "" ? null : e.target.value;
+                      next[x.key] = e.target.value === "" ? null : e.target.value;
                       return next;
                     })
                   }
                 />
+                <button className="btn sm" onClick={() => setEdits((s) => ({ ...s, [x.key]: null }))}>Сбросить</button>
               </div>
             </div>
           ))}
@@ -308,6 +333,7 @@ function Extra({
             </button>
           </div>
           <p className="hint">
+            Значения неизвестных ключей скрыты. Ввод заменяет значение, «Сбросить» снимает ключ. {" "}
             Писать можно только ключи <code>LOCALVOX_*</code> и <code>RUST_LOG</code>: через этот
             список нельзя подменить окружение демона, например <code>PATH</code>.
           </p>

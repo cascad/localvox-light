@@ -121,6 +121,10 @@ pub struct Job {
     /// Clean the transcript up with an LLM as a new best version (`--refine`).
     #[serde(default)]
     pub refine: bool,
+    /// New automatic jobs follow the three live post-processing switches. Legacy
+    /// queues and explicit derivative requests retain their original snapshot.
+    #[serde(default)]
+    pub follow_settings: bool,
     pub state: JobState,
     pub attempts: u32,
     pub created_at: String,
@@ -128,6 +132,12 @@ pub struct Job {
     pub enqueued_at: Option<String>,
     #[serde(default)]
     pub started_at: Option<String>,
+    #[serde(default)]
+    pub phase_queued_at: Option<String>,
+    #[serde(default)]
+    pub phase_started_at: Option<String>,
+    #[serde(default)]
+    pub execution_id: Option<String>,
     #[serde(default)]
     pub finished_at: Option<String>,
     #[serde(default)]
@@ -357,6 +367,8 @@ impl JobQueue {
         }
         job.phase = JobPhase::Prepare;
         job.enqueued_at = Some(now_rfc3339());
+        job.phase_queued_at = job.enqueued_at.clone();
+        job.phase_started_at = None;
         job.started_at = None;
         job.finished_at = None;
         job.state = JobState::Pending;
@@ -381,6 +393,8 @@ impl JobQueue {
             .find(|j| j.session == session && j.state == JobState::Running)
         {
             j.state = JobState::Pending;
+            j.phase_queued_at = Some(now_rfc3339());
+            j.phase_started_at = None;
             j.force = false;
             self.save();
             true
@@ -406,7 +420,15 @@ impl JobQueue {
             JobPhase::Summary
         };
         let Some(job) = self.file.jobs.iter_mut().find(|j| j.session == session) else {
-            return self.enqueue_new(session, JobKind::Cook, phase, summary, cleanup, refine);
+            return self.enqueue_new(
+                session,
+                JobKind::Cook,
+                phase,
+                summary,
+                cleanup,
+                refine,
+                false,
+            );
         };
         if matches!(job.state, JobState::Running) {
             return false;
@@ -414,6 +436,8 @@ impl JobQueue {
         let previous = job.clone();
         job.phase = phase;
         job.enqueued_at = Some(now_rfc3339());
+        job.phase_queued_at = job.enqueued_at.clone();
+        job.phase_started_at = None;
         job.started_at = None;
         job.finished_at = None;
         job.state = JobState::Pending;
@@ -423,6 +447,7 @@ impl JobQueue {
         job.summary = summary;
         job.cleanup = cleanup;
         job.refine = refine;
+        job.follow_settings = false;
         job.force = false;
         job.revivals = 0;
         if self.save() {
@@ -458,6 +483,8 @@ impl JobQueue {
             }
             job.phase = JobPhase::Prepare;
             job.enqueued_at = Some(now_rfc3339());
+            job.phase_queued_at = job.enqueued_at.clone();
+            job.phase_started_at = None;
             job.started_at = None;
             job.finished_at = None;
             job.state = JobState::Pending;
@@ -472,6 +499,7 @@ impl JobQueue {
             job.cleanup = cleanup;
             job.refine = refine;
             job.force = true;
+            job.follow_settings = true;
             return self.save();
         }
         let queued = self.enqueue_cook(session, summary, cleanup, refine);
@@ -505,6 +533,8 @@ impl JobQueue {
         }
         job.phase = JobPhase::Prepare;
         job.enqueued_at = Some(now_rfc3339());
+        job.phase_queued_at = job.enqueued_at.clone();
+        job.phase_started_at = None;
         job.started_at = None;
         job.finished_at = None;
         job.state = JobState::Pending;
@@ -514,6 +544,7 @@ impl JobQueue {
         job.summary = summary;
         job.cleanup = cleanup;
         job.refine = refine;
+        job.follow_settings = true;
         self.save()
     }
 
@@ -534,6 +565,7 @@ impl JobQueue {
             summary,
             cleanup,
             refine,
+            true,
         )
     }
 
@@ -545,6 +577,7 @@ impl JobQueue {
         summary: bool,
         cleanup: bool,
         refine: bool,
+        follow_settings: bool,
     ) -> bool {
         if self.file.jobs.iter().any(|j| j.session == session) {
             return false;
@@ -559,11 +592,15 @@ impl JobQueue {
             summary,
             cleanup,
             refine,
+            follow_settings,
             state: JobState::Pending,
             attempts: 0,
             created_at: now_rfc3339(),
             enqueued_at: None,
             started_at: None,
+            phase_queued_at: Some(now_rfc3339()),
+            phase_started_at: None,
+            execution_id: None,
             finished_at: None,
             last_error: None,
             failed_at: None,
@@ -598,6 +635,7 @@ impl JobQueue {
             summary,
             cleanup,
             refine,
+            true,
         )
     }
 
@@ -628,6 +666,8 @@ impl JobQueue {
         for j in &mut self.file.jobs {
             if j.state == JobState::Running {
                 j.state = JobState::Pending;
+                j.phase_queued_at = Some(now_rfc3339());
+                j.phase_started_at = None;
                 j.force = false;
                 taken += 1;
                 // Keep completed events; close the interrupted attempt before resuming it.
@@ -661,6 +701,8 @@ impl JobQueue {
             return None;
         }
         job.state = JobState::Running;
+        job.phase_started_at = Some(now_rfc3339());
+        job.execution_id = Some(uuid::Uuid::now_v7().to_string());
         if job.started_at.is_none() {
             job.started_at = Some(now_rfc3339());
         }
@@ -705,8 +747,53 @@ impl JobQueue {
         self.start(id)
     }
 
+    /// Reconcile only waiting automatic work. Running owns an immutable phase
+    /// snapshot; explicit recooks and old queues must keep their requested work.
+    pub fn refresh_post_processing(&mut self, flags: (bool, bool, bool)) -> bool {
+        let previous = self.file.jobs.clone();
+        let mut changed = false;
+        for job in &mut self.file.jobs {
+            if job.state != JobState::Pending || !job.follow_settings {
+                continue;
+            }
+            if (job.summary, job.cleanup, job.refine) != flags {
+                (job.summary, job.cleanup, job.refine) = flags;
+                changed = true;
+            }
+            if job.phase == JobPhase::Text && !job.cleanup && !job.refine {
+                job.phase = JobPhase::Summary;
+                job.phase_queued_at = Some(now_rfc3339());
+                job.phase_started_at = None;
+                job.attempts = 0;
+                changed = true;
+            }
+            if job.phase == JobPhase::Summary && !job.summary {
+                job.state = JobState::Done;
+                job.finished_at = Some(now_rfc3339());
+                job.last_error = None;
+                job.failed_at = None;
+                job.force = false;
+                changed = true;
+            }
+        }
+        if changed && !self.save() {
+            self.file.jobs = previous;
+            return false;
+        }
+        true
+    }
+
     /// Commit one completed phase. A retry never repeats earlier successful phases.
     pub fn finish_phase(&mut self, id: u64, phase: JobPhase) -> anyhow::Result<()> {
+        self.finish_phase_with_policy(id, phase, None)
+    }
+
+    pub fn finish_phase_with_policy(
+        &mut self,
+        id: u64,
+        phase: JobPhase,
+        flags: Option<(bool, bool, bool)>,
+    ) -> anyhow::Result<()> {
         let job = self
             .file
             .jobs
@@ -725,6 +812,13 @@ impl JobQueue {
             .join(&job.session);
         verify_phase(&session, job)?;
         let previous = job.clone();
+        // Verify the phase with its ORIGINAL flags before selecting future work.
+        if previous.follow_settings {
+            if let Some(flags) = flags {
+                let job = self.file.jobs.iter_mut().find(|j| j.id == id).unwrap();
+                (job.summary, job.cleanup, job.refine) = flags;
+            }
+        }
         self.advance_phase(id, phase);
         if !self.save() {
             if let Some(job) = self.file.jobs.iter_mut().find(|j| j.id == id) {
@@ -756,6 +850,8 @@ impl JobQueue {
         if let Some(next) = next {
             j.phase = next;
             j.state = JobState::Pending;
+            j.phase_queued_at = Some(now_rfc3339());
+            j.phase_started_at = None;
             j.attempts = 0;
         } else {
             j.state = JobState::Done;
@@ -841,6 +937,8 @@ impl JobQueue {
     pub fn mark_failed(&mut self, id: u64, err: &str, max_attempts: u32) {
         if let Some(j) = self.file.jobs.iter_mut().find(|j| j.id == id) {
             j.last_error = Some(err.to_string());
+            j.phase_queued_at = Some(now_rfc3339());
+            j.phase_started_at = None;
             j.state = if j.attempts >= max_attempts {
                 j.failed_at = Some(unix_now());
                 j.finished_at = Some(now_rfc3339());
@@ -879,6 +977,8 @@ impl JobQueue {
                 continue;
             }
             j.state = JobState::Pending;
+            j.phase_queued_at = Some(now_rfc3339());
+            j.phase_started_at = None;
             j.attempts = 0;
             j.failed_at = None;
             j.finished_at = None;
@@ -1002,6 +1102,7 @@ pub fn sessions_needing_cook(work_dir: &Path, quiescent_secs: u64) -> Vec<String
 /// «redo it» and got «delete it». Two readings of one setting is not code duplication, it
 /// is two different answers to one question.
 pub fn post_processing_from_env() -> (bool, bool, bool) {
+    let _guard = post_processing_guard();
     let on_unless_off = |name: &str| {
         !matches!(
             std::env::var(name)
@@ -1011,20 +1112,51 @@ pub fn post_processing_from_env() -> (bool, bool, bool) {
             "0" | "off" | "false" | "no"
         )
     };
-    let off_unless_on = |name: &str| {
-        matches!(
-            std::env::var(name)
-                .unwrap_or_default()
-                .to_lowercase()
-                .as_str(),
-            "1" | "on" | "true" | "yes"
-        )
-    };
+    // Automatic work is STT followed by an optional existing summary. Text
+    // cleanup/refinement are explicit manual operations, including for old envs.
     (
         on_unless_off("LOCALVOX_LIGHT_AUTOCOOK_SUMMARY"),
-        on_unless_off("LOCALVOX_LIGHT_AUTOCOOK_CLEANUP"),
-        off_unless_on("LOCALVOX_LIGHT_AUTOCOOK_REFINE"),
+        false,
+        false,
     )
+}
+
+pub(crate) fn post_processing_guard() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: Mutex<()> = Mutex::new(());
+    LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+#[derive(Clone)]
+pub struct CoordinatorStatus {
+    pub state: String,
+    pub message: String,
+    pub at: String,
+}
+static COORDINATOR_STATUS: std::sync::RwLock<Option<CoordinatorStatus>> =
+    std::sync::RwLock::new(None);
+pub fn report_coordinator(state: &str, message: &str) {
+    *COORDINATOR_STATUS
+        .write()
+        .unwrap_or_else(|e| e.into_inner()) = Some(CoordinatorStatus {
+        state: state.into(),
+        message: message.into(),
+        at: now_rfc3339(),
+    });
+}
+pub fn coordinator_status() -> Option<CoordinatorStatus> {
+    COORDINATOR_STATUS
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
+}
+pub fn automatic_retry_at(job: &Job) -> Option<String> {
+    if job.state != JobState::Failed || job.revivals >= MAX_REVIVALS {
+        return None;
+    }
+    let seconds = job
+        .failed_at?
+        .saturating_add(3600 * (1u64 << job.revivals.min(16)));
+    chrono::DateTime::from_timestamp(seconds.try_into().ok()?, 0).map(|at| at.to_rfc3339())
 }
 
 /// The recipe depends on the LANGUAGE, and every session has its own language, so what
@@ -1246,6 +1378,121 @@ fn newest_wav_mtime(audio_dir: &Path) -> Option<SystemTime> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn disabling_pending_automatic_text_never_claims_a_text_or_summary_worker() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut q = JobQueue::load(dir.path());
+        q.enqueue_cook("auto", true, true, true);
+        q.file.jobs[0].phase = JobPhase::Text;
+        assert!(q.refresh_post_processing((false, false, false)));
+        assert_eq!(q.jobs()[0].state, JobState::Done);
+        assert!(q
+            .start_phase(0, &[JobPhase::Text, JobPhase::Summary])
+            .is_none());
+        assert_eq!(JobQueue::load(dir.path()).jobs()[0].state, JobState::Done);
+    }
+
+    #[test]
+    fn skipping_pending_cleanup_starts_a_new_summary_wait_clock() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut q = JobQueue::load(dir.path());
+        q.enqueue_cook("auto", true, true, true);
+        q.file.jobs[0].phase = JobPhase::Text;
+        q.file.jobs[0].phase_queued_at = Some("2026-10-30T00:00:00Z".into());
+        q.file.jobs[0].phase_started_at = Some("2026-10-30T00:00:01Z".into());
+        assert!(q.refresh_post_processing((true, false, false)));
+        let saved = JobQueue::load(dir.path());
+        let job = &saved.jobs()[0];
+        assert_eq!(job.phase, JobPhase::Summary);
+        assert_ne!(job.phase_queued_at.as_deref(), Some("2026-10-30T00:00:00Z"));
+        assert!(job.phase_queued_at.is_some());
+        assert!(job.phase_started_at.is_none());
+    }
+
+    #[test]
+    fn live_policy_preserves_running_manual_and_legacy_requests() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut q = JobQueue::load(dir.path());
+        q.enqueue_cook("running", true, true, true);
+        q.file.jobs[0].phase = JobPhase::Text;
+        q.start_phase(0, &[JobPhase::Text]).unwrap();
+        q.requeue_derivatives("manual", true, true, false);
+        q.enqueue_cook("legacy", true, true, true);
+        let mut old = serde_json::to_value(&q.file.jobs[2]).unwrap();
+        old.as_object_mut().unwrap().remove("follow_settings");
+        q.file.jobs[2] = serde_json::from_value(old).unwrap();
+        q.refresh_post_processing((false, false, false));
+        for job in q.jobs() {
+            assert!(job.summary && job.cleanup);
+        }
+        assert_eq!(q.jobs()[0].state, JobState::Running);
+        assert!(!q.jobs()[1].follow_settings);
+        assert!(!q.jobs()[2].follow_settings);
+    }
+
+    #[test]
+    fn after_verified_stt_all_eight_live_policies_select_only_requested_work() {
+        for summary in [false, true] {
+            for cleanup in [false, true] {
+                for refine in [false, true] {
+                    let dir = tempfile::tempdir().unwrap();
+                    let session = dir.path().join("sessions/long-recording");
+                    std::fs::create_dir_all(&session).unwrap();
+                    crate::artifacts::tests::fixture(&session);
+                    crate::processing::record(
+                        &session,
+                        crate::processing::TRANSCRIPT,
+                        "fixture",
+                        crate::processing::Outcome::Ok,
+                        None,
+                        Some(1),
+                    )
+                    .unwrap();
+                    let raw = std::fs::read(session.join("transcripts/v001-raw.jsonl")).unwrap();
+                    let mut q = JobQueue::load(dir.path());
+                    q.enqueue_cook("long-recording", true, true, true);
+                    q.file.jobs[0].phase = JobPhase::Transcribe;
+                    q.start_phase(0, &[JobPhase::Transcribe]).unwrap();
+                    q.finish_phase_with_policy(
+                        0,
+                        JobPhase::Transcribe,
+                        Some((summary, cleanup, refine)),
+                    )
+                    .unwrap();
+                    let job = &q.jobs()[0];
+                    if cleanup || refine {
+                        assert_eq!(job.phase, JobPhase::Text);
+                    } else if summary {
+                        assert_eq!(job.phase, JobPhase::Summary);
+                    } else {
+                        assert_eq!(job.state, JobState::Done);
+                    }
+                    assert_eq!(
+                        std::fs::read(session.join("transcripts/v001-raw.jsonl")).unwrap(),
+                        raw
+                    );
+                    assert!(
+                        crate::processing::inspect(&session, crate::processing::TRANSCRIPT)
+                            .complete()
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn failed_policy_publication_does_not_apply_unsaved_skips_in_memory() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut q = JobQueue::load(dir.path());
+        q.enqueue_cook("auto", true, true, true);
+        q.file.jobs[0].phase = JobPhase::Text;
+        std::fs::remove_file(dir.path().join("jobs.json")).unwrap();
+        std::fs::create_dir(dir.path().join("jobs.json")).unwrap();
+        assert!(!q.refresh_post_processing((false, false, false)));
+        assert_eq!(q.jobs()[0].state, JobState::Pending);
+        assert!(q.jobs()[0].refine);
+    }
 
     #[test]
     fn failed_new_enqueue_rolls_back_memory_and_does_not_consume_id() {

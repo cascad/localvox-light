@@ -3,7 +3,8 @@ resolver = "2"
 members = [
     "crates/localvox-light-core",
     "crates/localvox-light-process",
-    "crates/localvox-light-tui",
+    "crates/localvox-light-client",
+    "crates/localvox-light-terminal",
     "crates/localvox-light",
     "crates/localvox-light-youtube",
     "crates/localvox-light-ingest",
@@ -44,7 +45,6 @@ localvox-light-core = { path = "crates/localvox-light-core" }
 localvox-light-process = { path = "crates/localvox-light-process" }
 localvox-light-ingest = { path = "crates/localvox-light-ingest" }
 localvox-light-llm = { path = "crates/localvox-light-llm" }
-localvox-light-tui = { path = "crates/localvox-light-tui" }
 toml = "0.8"
 # Морфология и близость строк — берём библиотеки, а не самописные эвристики:
 # rust-stemmers (Snowball ru) вместо «первые 5 символов», strsim вместо своего

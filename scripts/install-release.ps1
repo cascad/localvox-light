@@ -10,6 +10,7 @@
 #   localvox-light.exe    демон: запись, варка, HTTP-интерфейс
 #   localvox-process.exe  повар: расшифровка и сводка (БЕЗ НЕГО АРХИВ НЕ РАСШИФРУЕТСЯ)
 #   localvox-desktop.exe  окно (если есть в релизе; иначе интерфейс в браузере)
+#   localvox-tui.exe      независимый терминальный клиент HTTP API
 #   libvosk.dll           нативная библиотека — грузится ДО main(), поэтому лежит рядом
 #   models\               vosk-model-ru-0.42, gigaam-v3-e2e-ctc, diarize, ner-gliner
 #   .env                  пути, прописанные абсолютно
@@ -89,6 +90,9 @@ try {
         if (-not (Test-Path -LiteralPath (Join-Path $InstallDir 'localvox-process.exe'))) {
             Write-Warning "В архиве нет localvox-process.exe — архив не будет расшифровываться"
         }
+        if (-not (Test-Path -LiteralPath (Join-Path $InstallDir 'localvox-tui.exe'))) {
+            Write-Warning 'Этот старый release не содержит новый TUI. Установите комплект с localvox-tui.exe.'
+        }
         # Windows помечает скачанное как «из интернета» (Zone.Identifier); на exe это даёт
         # предупреждение SmartScreen при каждом запуске. Снимаем: мы это только что скачали сами.
         Get-ChildItem -LiteralPath $InstallDir -Filter '*.exe' -File |
@@ -149,6 +153,8 @@ try {
     Write-Host "  Запуск:            cd `"$InstallDir`"; .\localvox-light.exe --daemon"
     Write-Host "  Проверить ещё раз: cd `"$InstallDir`"; .\localvox-light.exe --doctor"
     Write-Host "  Интерфейс:         http://127.0.0.1:3017/"
+    Write-Host "  Терминал:          cd `"$InstallDir`"; .\localvox-tui.exe"
+    Write-Host "  Звук в TUI: mpv >= 0.38; установка описана в docs/terminal-workspace.md"
 }
 finally {
     Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue

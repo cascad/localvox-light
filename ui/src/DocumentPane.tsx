@@ -121,6 +121,8 @@ export function DocumentPane({ session, tab, setTab, pos, onSeek, onChanged, say
 
       <div className="doc" ref={doc}>
         {tab === "transcript" && (
+          <>
+          <SessionLanguage session={session} onChanged={onChanged} say={say} />
           <Transcript
             session={session}
             pos={pos}
@@ -129,6 +131,7 @@ export function DocumentPane({ session, tab, setTab, pos, onSeek, onChanged, say
             say={say}
             refresh={tick}
           />
+          </>
         )}
         {tab === "summary" && (
           <Article session={session} onSeek={onSeek} onChanged={onChanged} say={say} refresh={tick} />
@@ -141,6 +144,31 @@ export function DocumentPane({ session, tab, setTab, pos, onSeek, onChanged, say
       </div>
     </main>
   );
+}
+
+function SessionLanguage({ session, onChanged, say }: { session: Session; onChanged: () => void; say: (message: string) => void }) {
+  const [langs, setLangs] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    let live = true;
+    api.langs().then((doc) => { if (live) setLangs(doc.langs); }).catch(() => {});
+    return () => { live = false; };
+  }, []);
+  const current = session.lang || "auto";
+  const change = async (lang: string) => {
+    if (lang === current || !confirm(`Изменить язык на «${lang}» и заново обработать всю запись?\nНужны исходное аудио и модель этого языка.`)) return;
+    setBusy(true);
+    try { const result = await api.setLang(session.name, lang); say(result.msg ?? "Язык сохранён; начата полная переработка"); onChanged(); }
+    catch (e) { say((e as Error).message); }
+    finally { setBusy(false); }
+  };
+  return <div className="ver-switch" data-nocopy>
+    <label className="lbl" htmlFor="session-language">Язык:</label>
+    <select id="session-language" value={current} disabled={busy} onChange={(event) => void change(event.target.value)}>
+      {[...new Set(["auto", ...langs, current])].map((lang) => <option value={lang} key={lang}>{lang === "auto" ? "авто" : lang}</option>)}
+    </select>
+    <span className="hint">смена языка запускает полную переработку</span>
+  </div>;
 }
 
 /** Loading an artifact. A stale answer must never touch the screen: clicking another
@@ -566,7 +594,7 @@ function Readable({
 
   return (
     <>
-      {session.processed_doubts && (
+      {!data.from_transcript && session.processed_doubts && (
         <div className="doubt" data-nocopy>
           <span aria-hidden="true">⚠</span>
           <div className="txt">
@@ -585,16 +613,17 @@ function Readable({
           ⓘ
         </span>
         <span>
-          Тот же разговор без слов-паразитов, обрывов и повторов — слово в слово по смыслу.
-          Копируется как есть: ни таймкодов, ни меток, чистить после вставки не надо. Проверить
-          кусок по звуку можно рядом, по строкам.
+          {data.from_transcript
+            ? "Отдельной очищенной версии нет. Показан тот же текст расшифровки, что во вкладке «Реплики», без дополнительного прохода модели."
+            : "Тот же разговор без слов-паразитов, обрывов и повторов — слово в слово по смыслу."}
+          {" "}Копируется без таймкодов и служебных меток. Проверить кусок по звуку можно во вкладке «Реплики».
         </span>
       </p>
       <Provenance p={data.provenance} />
       {/* How much cleanup actually happened. «Модель ничего не поправила» and «модель молчала»
           are different facts, and a document that hid the difference let 120 lost lines look like
           a job well done. */}
-      <div className="prov" data-nocopy>
+      {!data.from_transcript && <div className="prov" data-nocopy>
         <span>
           поправлено <b>{edited}</b> из <b>{lines.length}</b> строк
         </span>
@@ -610,7 +639,13 @@ function Readable({
             <span>откачено проверкой: {data.rejected}</span>
           </>
         )}
-      </div>
+      </div>}
+      {edited > 0 && <details data-nocopy className="prov">
+        <summary>Исходные реплики ({edited})</summary>
+        {lines.filter((line) => line.original).map((line, index) => <div key={index}>
+          <span className="tc">{mmss(line.start_sec)}</span> {line.who}: {line.original}
+        </div>)}
+      </details>}
       <div className="book">
         {turns.map((t, i) =>
           t.paras.map((p, j) => (
@@ -702,8 +737,8 @@ function Speakers({
   );
 
   /** One button, two mechanisms — genuinely different, which is why the row says which ones it
-   *  is made of. Naming a VOICE re-labels its lines everywhere and remembers the print for later
-   *  recordings; naming a SOURCE only changes what unattributed lines are called.
+   *  is made of. Naming a VOICE re-labels its lines only in this session;
+   *  naming a SOURCE changes what its unattributed lines are called.
    *
    *  A row can be made of both, and then both are renamed. Sequentially and reporting the first
    *  failure: half a rename leaves some lines under the old name, and the person has to see that

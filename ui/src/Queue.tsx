@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { api, type QueueItem } from "./api";
+import { api } from "./api";
+import { usePolling } from "./usePolling";
 
 /** THE QUEUE: what is being cooked now, and what comes after it, in order.
  *
@@ -20,30 +20,7 @@ export function QueuePane({
   say: (m: string) => void;
   onChanged: () => void;
 }) {
-  const [items, setItems] = useState<QueueItem[] | null>(null);
-  const [err, setErr] = useState<string | null>(null);
-
-  useEffect(() => {
-    let alive = true;
-    const load = async () => {
-      try {
-        const q = (await api.queue()).queue ?? [];
-        if (alive) {
-          setItems(q);
-          setErr(null);
-        }
-      } catch (e) {
-        if (alive) setErr((e as Error).message);
-      }
-    };
-    void load();
-    // The queue moves on its own — it must move on the screen too, not on F5.
-    const t = setInterval(() => void load(), 3000);
-    return () => {
-      alive = false;
-      clearInterval(t);
-    };
-  }, []);
+  const { data: items, error: err } = usePolling("queue", async (signal) => (await api.queue(signal)).queue ?? []);
 
   const retry = async (s: string) => {
     try {
@@ -55,13 +32,13 @@ export function QueuePane({
     }
   };
 
-  if (err) return <main className="main"><div className="pane"><p className="err">{err}</p></div></main>;
-  if (!items) return <main className="main"><div className="pane"><p className="hint">загрузка…</p></div></main>;
+  if (!items) return <main className="main"><div className="pane"><p className={err ? "err" : "hint"}>{err ?? "загрузка…"}</p></div></main>;
 
   return (
     <main className="main">
       <div className="pane">
         <h1 style={{ fontSize: 19, margin: "0 0 4px" }}>Очередь обработки</h1>
+        {err && <p className="err">Очередь не обновляется: {err}. Показаны последние полученные данные.</p>}
         <p className="hint" style={{ marginTop: 0 }}>
           Порядок настоящий — демон берёт записи сверху вниз. Готовых здесь нет: они уже в архиве.
         </p>

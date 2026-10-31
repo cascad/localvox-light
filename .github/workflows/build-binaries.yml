@@ -29,6 +29,8 @@ on:
       - "scripts/setup-vosk.ps1"
       - "scripts/install-release.sh"
       - "scripts/install-release.ps1"
+      - "scripts/setup-mpv.mjs"
+      - "docs/terminal-workspace.md"
 
 env:
   CARGO_TERM_COLOR: always
@@ -125,13 +127,13 @@ jobs:
 
       # Демон И ПОВАР. Раньше собирался только демон — установленный продукт писал звук и
       # не расшифровывал НИЧЕГО, потому что автоварке нечего было запускать.
-      - name: Cargo build (демон + повар)
+      - name: Cargo build (демон + повар + TUI)
         shell: bash
         env:
           RUSTFLAGS: -L native=${{ github.workspace }}/vosk-lib
         run: |
           cargo build --release --locked --target ${{ matrix.target }} \
-            -p localvox-light -p localvox-light-asr
+            -p localvox-light -p localvox-light-asr -p localvox-light-terminal
 
       # Окно — только там, где им пользуются. На Linux оно требует webkit2gtk, чьё имя пакета
       # разъезжается между версиями Ubuntu; браузер там работает и так.
@@ -151,7 +153,7 @@ jobs:
           out="dist/${{ matrix.artifact }}"
           mkdir -p "$out"
           src="target/${{ matrix.target }}/release"
-          for b in localvox-light localvox-process localvox-desktop; do
+          for b in localvox-light localvox-process localvox-desktop localvox-tui; do
             for f in "$src/$b" "$src/$b.exe"; do
               [ -f "$f" ] && cp "$f" "$out/"
             done
@@ -159,6 +161,12 @@ jobs:
           ls -la "$out"
           test -f "$out/localvox-light" -o -f "$out/localvox-light.exe"
           test -f "$out/localvox-process" -o -f "$out/localvox-process.exe"
+          test -f "$out/localvox-tui" -o -f "$out/localvox-tui.exe"
+          # The media backend is installed separately; keep the verified Windows
+          # installer and instructions in the same bundle as the client.
+          mkdir -p "$out/scripts" "$out/docs"
+          cp scripts/setup-mpv.mjs "$out/scripts/"
+          cp docs/terminal-workspace.md "$out/docs/"
           cd dist
           if [ "${{ runner.os }}" = "Windows" ]; then
             7z a "${{ matrix.artifact }}.zip" "${{ matrix.artifact }}"/*

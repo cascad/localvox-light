@@ -1,0 +1,95 @@
+// Real embedded frontend/API/archive. The owned Rust fixture supplies synthetic
+// processing artifacts explicitly; this is not a speech/model benchmark.
+import { chromium, expect } from "@playwright/test";
+import { readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+const root = process.env.LOCALVOX_CROSS_ROOT;
+const output = process.env.LOCALVOX_CROSS_OUTPUT;
+const browser = await chromium.launch({ args: ["--mute-audio"] });
+const context = await browser.newContext({ baseURL: process.env.LOCALVOX_CROSS_URL, viewport: { width: 1440, height: 1000 }, locale: "ru-RU", timezoneId: "Europe/Moscow", reducedMotion: "reduce" });
+await context.addInitScript(() => localStorage.setItem("lv-token", "synthetic-cross-token"));
+await context.tracing.start({ screenshots: true, snapshots: true });
+const page = await context.newPage();
+let passed = false;
+const waitFile = async (name) => {
+  const deadline = Date.now() + 15000;
+  while (Date.now() < deadline) { try { return await readFile(join(root, name), "utf8"); } catch { await new Promise((resolve) => setTimeout(resolve, 30)); } }
+  throw new Error(`fixture did not produce ${name}`);
+};
+try {
+  await page.clock.install({ time: new Date("2026-10-31T07:00:25Z") });
+  await page.goto("/");
+  await expect(page.getByText("Записей пока нет.", { exact: true })).toBeVisible();
+  await page.getByPlaceholder("Поиск по архиву…").fill("https://example.org/shared-test");
+  await page.getByRole("button", { name: "↓ Расшифровать по ссылке", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Ход", exact: true })).toHaveAttribute("aria-selected", "true");
+  const response = await page.request.get("/api/sessions", { headers: { Authorization: "Bearer synthetic-cross-token" } });
+  const sessions = await response.json(); expect(sessions).toHaveLength(1);
+  await writeFile(join(root, "finish-import"), sessions[0].name);
+  await waitFile("artifact-ready"); await page.clock.runFor(5100);
+  await page.getByRole("button", { name: "Сводка", exact: true }).click();
+  await expect(page.locator(".doc")).toContainText("Архитектура клиента согласована.");
+  await page.getByRole("button", { name: "Ход", exact: true }).click();
+  await page.getByRole("button", { name: "+ 35 lines", exact: true }).click();
+  await expect(page.getByText("Synthetic detail 35", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Реплики", exact: true }).click();
+  await page.getByTitle("Послушать этот фрагмент (00:00–00:02)", { exact: true }).click();
+  await expect.poll(() => page.locator("audio").evaluate((audio) => audio.readyState)).toBeGreaterThan(0);
+  await page.getByTitle("Пауза", { exact: true }).click();
+  const search = page.getByPlaceholder("Поиск по архиву…"); await search.fill("архитектура"); await search.press("Enter");
+  await expect(page.locator(".side .item").first()).toContainText("Согласовали архитектуру клиента");
+  await search.fill("");
+  await page.getByRole("button", { name: /📝 Заметки/ }).click();
+  await page.getByPlaceholder("Записать в «идеи»…").fill("Общая заметка UI TUI");
+  await page.getByRole("button", { name: "Записать", exact: true }).click();
+  await expect(page.getByText("Общая заметка UI TUI", { exact: true })).toBeVisible();
+  await waitFile("terminal-saw-note");
+  await page.getByRole("button", { name: /💬 Спросить/ }).click();
+  await page.getByPlaceholder(/Вставьте текст/).fill("Общий материал UI TUI");
+  await page.locator(".ask-actions select").selectOption("ollama");
+  await page.getByRole("button", { name: "Спросить", exact: true }).click();
+  await waitFile("ask-ready");
+  await page.clock.runFor(2300);
+  await expect(page.getByText("Общий ответ UI TUI", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: /⚙ Настройки/ }).click();
+  const model = page.locator(".set-row").filter({ has: page.getByText("LOCALVOX_LLM_MODEL", { exact: true }) }).locator("input");
+  await model.fill("synthetic-after");
+  await page.getByRole("button", { name: "Сохранить (1)", exact: true }).click();
+  await expect(page.getByText(/Применится после перезапуска демона:/)).toBeVisible();
+  expect(await readFile(join(root, ".env"), "utf8")).toContain("LOCALVOX_LLM_MODEL=synthetic-after");
+  const summary = page.locator('.set-row').filter({ has: page.getByText('LOCALVOX_LIGHT_AUTOCOOK_SUMMARY', { exact: true }) }).locator('select');
+  await summary.selectOption('off');
+  await page.getByRole('button', { name: /\(1\)/ }).click();
+  await expect(summary).toHaveValue('off');
+  expect(await readFile(join(root, '.env'), 'utf8')).toContain('LOCALVOX_LIGHT_AUTOCOOK_SUMMARY=off');
+  await page.getByRole("button", { name: /Остальное в файле/ }).click();
+  await page.getByPlaceholder("LOCALVOX_…", { exact: true }).fill("PATH");
+  await page.getByPlaceholder("значение", { exact: true }).fill("must-not-apply");
+  await page.getByRole("button", { name: "Добавить", exact: true }).click();
+  await page.getByRole("button", { name: "Сохранить (1)", exact: true }).click();
+  await expect(page.getByText(/нельзя писать ключ «PATH»/)).toBeVisible();
+  expect(await readFile(join(root, ".env"), "utf8")).not.toContain("PATH=");
+  await page.getByRole("button", { name: "Отменить правки", exact: true }).click();
+  await page.getByRole("button", { name: "Очистить токен доступа", exact: true }).click();
+  await expect(page.getByText("нет доступа — задайте токен", { exact: true })).toBeVisible();
+  await page.getByLabel("Новый токен доступа").fill("synthetic-cross-token");
+  await page.getByRole("button", { name: "Подключиться", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Настройки", exact: true })).toBeVisible();
+  await waitFile("terminal-reconnected");
+  await page.getByRole("button", { name: /📼 Записи/ }).click();
+  await page.getByRole("button", { name: "Сводка", exact: true }).click();
+  await expect(page.locator(".doc")).toContainText("Архитектура клиента согласована.");
+  await page.clock.runFor(2700);
+  await page.evaluate(() => document.fonts.ready);
+  await page.screenshot({ path: join(output, "browser.png"), fullPage: true });
+  passed = true;
+} catch (error) {
+  await writeFile(join(output, "browser-error.txt"), String(error.stack ?? error));
+  await writeFile(join(output, "browser-dom.txt"), await page.locator("body").innerText().catch(() => "page closed"));
+  await page.screenshot({ path: join(output, "browser-failed.png"), fullPage: true }).catch(() => {});
+  process.exitCode = 1;
+} finally {
+  await context.tracing.stop({ path: join(output, "trace.zip") });
+  await browser.close();
+}
+if (passed) await writeFile(join(root, "browser-passed"), "real API/browser passed");

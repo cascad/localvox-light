@@ -353,29 +353,20 @@ pub fn doubts(session_dir: &Path, artifact: &str) -> Option<String> {
 /// (measured: «Сергей» and «муж» were flagged as invented although both were said out
 /// loud). The person has read the document and can listen to the recording — the machine
 /// cannot. His verdict outweighs and is REMEMBERED.
-pub fn confirm(session_dir: &Path, artifact: &str) -> bool {
-    let result = (|| -> Result<bool> {
-        let _lock = lock(session_dir)?;
-        let mut log = load_strict(session_dir)?;
-        let Some(r) = log.artifacts.get_mut(artifact) else {
-            return Ok(false);
-        };
-        if r.outcome != Outcome::Unverified {
-            return Ok(false);
-        }
-        crate::artifacts::verify(session_dir, artifact, r)?;
-        r.outcome = Outcome::Confirmed;
-        r.detail = Some("confirmed by the human".into());
-        write_log_checked(session_dir, &log)?;
-        Ok(true)
-    })();
-    match result {
-        Ok(ok) => ok,
-        Err(e) => {
-            tracing::error!("processing.json: {e:#}");
-            false
-        }
+pub fn confirm(session_dir: &Path, artifact: &str) -> Result<bool> {
+    let _lock = lock(session_dir)?;
+    let mut log = load_strict(session_dir)?;
+    let Some(r) = log.artifacts.get_mut(artifact) else {
+        return Ok(false);
+    };
+    if r.outcome != Outcome::Unverified {
+        return Ok(false);
     }
+    crate::artifacts::verify(session_dir, artifact, r)?;
+    r.outcome = Outcome::Confirmed;
+    r.detail = Some("confirmed by the human".into());
+    write_log_checked(session_dir, &log)?;
+    Ok(true)
 }
 
 /// IS THIS DOCUMENT MADE? The whole question, and nothing else.
@@ -528,5 +519,55 @@ mod tests {
         crate::artifacts::tests::fixture(dir.path());
         fs::write(dir.path().join(FILE), "{ not json").unwrap();
         assert!(!is_current(dir.path(), SUMMARY, "any"));
+    }
+    #[test]
+    fn confirmation_distinguishes_no_doubt_from_invalid_artifact_and_read_failure() {
+        let dir = tempdir().unwrap();
+        crate::artifacts::tests::fixture(dir.path());
+        assert!(!confirm(dir.path(), SUMMARY).unwrap());
+        record(
+            dir.path(),
+            SUMMARY,
+            "test",
+            Outcome::Unverified,
+            Some("doubt".into()),
+            Some(1),
+        )
+        .unwrap();
+        let ledger = fs::read(dir.path().join(FILE)).unwrap();
+        fs::write(dir.path().join("summary.md"), "changed after validation").unwrap();
+        assert!(confirm(dir.path(), SUMMARY).is_err());
+        assert_eq!(fs::read(dir.path().join(FILE)).unwrap(), ledger);
+        fs::write(dir.path().join(FILE), "{corrupt").unwrap();
+        assert!(confirm(dir.path(), SUMMARY).is_err());
+        assert_eq!(fs::read(dir.path().join(FILE)).unwrap(), b"{corrupt");
+    }
+    #[cfg(windows)]
+    #[test]
+    fn failed_confirmation_write_preserves_the_previous_doubt() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let dir = tempdir().unwrap();
+        crate::artifacts::tests::fixture(dir.path());
+        record(
+            dir.path(),
+            SUMMARY,
+            "test",
+            Outcome::Unverified,
+            Some("doubt".into()),
+            Some(1),
+        )
+        .unwrap();
+        let before = fs::read(dir.path().join(FILE)).unwrap();
+        // FILE_SHARE_READ permits verification while denying replacement of the ledger.
+        let handle = fs::OpenOptions::new()
+            .read(true)
+            .share_mode(1)
+            .open(dir.path().join(FILE))
+            .unwrap();
+        assert!(confirm(dir.path(), SUMMARY).is_err());
+        assert_eq!(fs::read(dir.path().join(FILE)).unwrap(), before);
+        assert_eq!(doubts(dir.path(), SUMMARY).as_deref(), Some("doubt"));
+        drop(handle);
+        assert!(confirm(dir.path(), SUMMARY).unwrap());
     }
 }

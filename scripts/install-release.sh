@@ -7,6 +7,7 @@
 #   localvox-light        демон: запись, варка, HTTP-интерфейс
 #   localvox-process      повар: расшифровка и сводка (БЕЗ НЕГО АРХИВ НЕ РАСШИФРУЕТСЯ)
 #   localvox-desktop      окно (если есть в релизе; иначе интерфейс в браузере)
+#   localvox-tui          независимый терминальный клиент HTTP API
 #   libvosk.dylib/.so     нативная библиотека — грузится ДО main(), поэтому лежит рядом
 #   models/               vosk-model-ru-0.42, gigaam-v3-e2e-ctc, diarize, ner-gliner
 #   .env                  пути, прописанные абсолютно
@@ -101,7 +102,7 @@ if [ "$SKIP_BINARY" = 0 ]; then
   curl -fL --progress-bar -A "localvox-install/1.0" "$url" -o "$TMP/bin.tar.gz"
   tar -xzf "$TMP/bin.tar.gz" -C "$INSTALL_DIR"
 
-  for f in localvox-light localvox-process localvox-desktop; do
+  for f in localvox-light localvox-process localvox-desktop localvox-tui; do
     [ -f "$INSTALL_DIR/$f" ] && chmod +x "$INSTALL_DIR/$f"
   done
   # macOS вешает карантин на всё скачанное, и Gatekeeper убивает бинарь без объяснений
@@ -158,4 +159,6 @@ cat <<EOF
   Запуск:            cd "$INSTALL_DIR" && ./localvox-light --daemon
   Проверить ещё раз: cd "$INSTALL_DIR" && ./localvox-light --doctor
   Интерфейс:         http://127.0.0.1:3017/
+  Терминал:          cd "$INSTALL_DIR" && ./localvox-tui
+  Звук в TUI: mpv >= 0.38; установка описана в docs/terminal-workspace.md
 EOF

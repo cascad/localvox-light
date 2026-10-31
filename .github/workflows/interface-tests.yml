@@ -1,0 +1,86 @@
+name: Interface contracts and visuals
+
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    env:
+      # Never create/accept visual baselines in a normal or CI test run.
+      INSTA_UPDATE: "no"
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install native link dependency (no speech models)
+        shell: pwsh
+        run: ./scripts/setup-vosk.ps1
+      - name: Build and test UI
+        working-directory: ui
+        run: |
+          npm ci
+          npm run build
+          npm test
+          npx --no-install playwright install chromium
+          npm run test:e2e
+          npm run setup:mpv
+      - name: Rust client, styles, ConPTY and process ownership
+        run: cargo test --locked -p localvox-light-client -p localvox-light-terminal -p localvox-light-process
+      - name: Main launcher delegation and snapshot settings
+        run: |
+          cargo test --locked -p localvox-light --bin localvox-light
+          cargo test --locked -p localvox-light --test launcher_modes -- --ignored
+          cargo check --locked -p localvox-light --no-default-features
+      - name: Journal, legacy progress and real HTTP
+        run: |
+          cargo test --locked -p localvox-light-core journal:: --lib
+          cargo test --locked -p localvox-light-core progress:: --lib
+          cargo test --locked -p localvox-light-core processing:: --lib
+          cargo test --locked -p localvox-light-core artifacts:: --lib
+          cargo test --locked -p localvox-light-api --test journal_http_contract
+          cargo test --locked -p localvox-light-api journal_http_ --lib
+          cargo test --locked -p localvox-light-api http::tests::workspace --lib
+          cargo test --locked -p localvox-light-api http::tests::settings --lib
+          cargo test --locked -p localvox-light-core settings:: --lib
+          cargo test --locked -p localvox-light-core env_file:: --lib
+          cargo test --locked -p localvox-light-core jobs:: --lib
+          cargo test --locked -p localvox-light-core workflow:: --lib
+          cargo test --locked -p localvox-light-core readable:: --lib
+      - name: Both clients against one actual temporary API/archive
+        run: cargo test --locked -p localvox-light-api --lib -- --ignored --exact http::tests::cross_clients::shared_workspace --nocapture
+      - name: Real media backend (generated PCM, null audio output)
+        run: cargo test --locked -p localvox-light-terminal --test media_playback -- --ignored --nocapture
+      - name: Install FLAC test dependency on the CI runner
+        run: choco install ffmpeg --yes --no-progress
+      - name: Real archive HTTP media and sample-accurate FLAC
+        run: |
+          cargo test --locked -p localvox-light-api media_http_range_plays --lib -- --ignored --nocapture
+          cargo test --locked -p localvox-light-api flac_range_is_sample_accurate --lib -- --ignored --nocapture
+      - name: Specification checks
+        run: |
+          npx --yes @fission-ai/openspec@1.13.2 validate --specs --strict --no-interactive
+          npx --yes @fission-ai/openspec@1.13.2 validate add-technical-journal-workspace --type change --strict --no-interactive
+          npx --yes @fission-ai/openspec@1.13.2 validate control-postprocessing-and-terminal-player --type change --strict --no-interactive
+          python scripts/check-openspec.py
+          git diff --check
+      - name: Upload browser diffs, traces and terminal snapshot proposals
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: interface-test-evidence-windows
+          if-no-files-found: ignore
+          path: |
+            ui/test-results/
+            ui/playwright-report/
+            crates/localvox-light-terminal/src/snapshots/*.snap.new

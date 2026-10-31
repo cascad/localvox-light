@@ -84,7 +84,7 @@ pub struct Cli {
     #[arg(long, env = "LOCALVOX_LIGHT_LOOPBACK_DEVICE")]
     pub loopback_device: Option<String>,
 
-    /// JSON with the fields mic, loopback, loopback_device (saved from the TUI, F2). Otherwise localvox-light-config.json is looked up in cwd.
+    /// Capture JSON with mic, loopback, loopback_device. Otherwise localvox-light-config.json is looked up in cwd.
     #[arg(long, env = "LOCALVOX_LIGHT_CONFIG")]
     pub config: Option<std::path::PathBuf>,
 
@@ -104,7 +104,7 @@ pub struct Cli {
     )]
     pub audio_dir: String,
 
-    /// Export directory for `e` in the TUI: a sorted `transcript_dump_*.jsonl`. An empty string disables export.
+    /// Directory for sorted transcript_dump_*.jsonl exports. Empty disables export.
     #[arg(
         long,
         default_value = "./transcript-dumps",
@@ -145,7 +145,7 @@ pub struct Cli {
     #[arg(long)]
     pub update_yt_dlp: bool,
 
-    /// Full-screen TUI (transcript + stage table)
+    /// Open the independent localvox-tui client of the daemon's HTTP API
     #[arg(long)]
     pub tui: bool,
 
@@ -157,7 +157,7 @@ pub struct Cli {
     #[arg(long)]
     pub debug: bool,
 
-    /// Verbose stage lines in the TUI (Debug panel: segment / gate / asr / load …)
+    /// Verbose diagnostics for server/processing operations
     #[arg(long)]
     pub verbose: bool,
 

@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { api, type SlotNotes, type StoredNote, type VoiceStatus } from "./api";
 
 /** The notebook: what is actually IN the slots.
@@ -137,17 +137,25 @@ function SlotBody({
   const [text, setText] = useState("");
   const [hints, setHints] = useState<{ slot: string; reason?: string }[]>([]);
   const [routing, setRouting] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const sending = useRef(false);
+  const revision = useRef(0);
+  useEffect(() => { revision.current++; setHints([]); }, [slot.name]);
+  const edit = (value: string) => { revision.current++; setText(value); setHints([]); };
 
   const add = async () => {
-    if (!text.trim()) return;
+    if (!text.trim() || sending.current) return;
+    sending.current = true; setSaving(true);
+    const submitted = revision.current;
     try {
       const j = await api.note(text, slot.name);
       say(j.dest ?? "Записано");
-      setText("");
-      setHints([]);
+      if (submitted === revision.current) edit("");
       onChanged(); // the note must appear in the list at once, not on the next poll
     } catch (e) {
       say((e as Error).message);
+    } finally {
+      sending.current = false; setSaving(false);
     }
   };
 
@@ -164,11 +172,14 @@ function SlotBody({
       return;
     }
     setRouting(true);
+    const submitted = revision.current;
     try {
       const r = await api.route(text);
       const found = r.suggestions ?? [];
-      setHints(found);
-      if (found.length === 0) say("Модель не выбрала слот — решайте сами");
+      if (submitted === revision.current) {
+        setHints(found);
+        if (found.length === 0) say("Модель не выбрала слот — решайте сами");
+      }
     } catch (e) {
       say((e as Error).message);
     } finally {
@@ -182,7 +193,7 @@ function SlotBody({
         <input
           placeholder={`Записать в «${slot.name}»…`}
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => edit(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter") void add();
           }}
@@ -196,8 +207,8 @@ function SlotBody({
         >
           {routing ? "думаю…" : "🧭"}
         </button>
-        <button className="btn primary" onClick={() => void add()}>
-          Записать
+        <button className="btn primary" disabled={saving} onClick={() => void add()}>
+          {saving ? "записываю…" : "Записать"}
         </button>
       </div>
       {hints.length > 0 && (

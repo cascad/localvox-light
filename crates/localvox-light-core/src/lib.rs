@@ -3,7 +3,7 @@
 //! The `localvox-light` binary and other clients link this crate
 //! and call [`run_engine`] with a [`UiMsg`] channel, or with no UI at all.
 //!
-//! The TUI lives in the `localvox-light-tui` crate.
+//! The independent HTTP TUI lives in the `localvox-light-terminal` crate.
 
 pub mod artifacts;
 pub mod asks;
@@ -26,6 +26,7 @@ pub mod events;
 pub mod export;
 pub mod ingest;
 pub mod jobs;
+pub mod journal;
 pub mod lang;
 pub mod lexicon;
 pub mod links;

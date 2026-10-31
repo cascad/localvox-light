@@ -130,7 +130,7 @@ Windows autostart SHALL сохранять HKCU Run для текущего exe 
 
 ## Implementation status
 
-CFG-002 неверно обещает Live при snapshot (RV-001); CFG-003 возвращает неизвестные значения через extra (RV-010). INV-RUN-001 проверен; исходная причина 10-секундного зависания остаётся BL-018. Desktop bundle собран без перезапуска пользовательского приложения.
+RV-001/010 исправлены в исходниках 2026-10-31: snapshot-настройки требуют Restart, extra раскрывает только имя/наличие. Пройдены Config/child_env, отдельный settings HTTP с temp .env и UI/TUI формы; [результаты](../../changes/add-technical-journal-workspace/evidence/implementation.md). INV-RUN-001 проверен; исходная причина 10-секундного зависания остаётся BL-018. Работающее пользовательское приложение не перезапускалось.
 
 [Матрица по требованиям](../../evidence/coverage.md#runtime-settings) ·
 [Расхождения RV](../../review.md) ·
@@ -139,7 +139,7 @@ CFG-002 неверно обещает Live при snapshot (RV-001); CFG-003 в�
 
 ## Observed limitations
 
-RV-001: рассогласование каталога Live и snapshot autocook; RV-010: extra не фильтрует неизвестные секреты. TCP-проверка окна не проверяет, что порт занят именно LocalVox. Живые macOS/Linux, tray и аппаратный capture при миграции не проверены; старые слова «должно работать везде» не подтверждение. Restart окна не равен restart демона.
+RV-001/010 исправлены отдельно от аппаратной приёмки. TCP-проверка окна Tauri пока не проверяет, что порт занят именно LocalVox; новый терминальный launcher проверяет health service/protocol/capabilities. Живые macOS/Linux, tray и аппаратный capture при миграции не проверены; старые слова «должно работать везде» не подтверждение. Restart окна не равен restart демона.
 
 RV-014 / [BL-018](../../backlog.md#bl-018): исходный общий лог 10 с не позволяет
 определить зависший компонент. В текущих исходниках [Daemon::shutdown](../../../crates/localvox-light/src/main.rs)

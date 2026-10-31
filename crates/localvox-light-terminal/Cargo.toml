@@ -1,0 +1,35 @@
+[package]
+name = "localvox-light-terminal"
+version.workspace = true
+edition.workspace = true
+description = "Independent terminal workspace for LocalVox."
+
+[[bin]]
+name = "localvox-tui"
+path = "src/main.rs"
+
+[dependencies]
+localvox-light-client = { path = "../localvox-light-client" }
+localvox-light-process = { path = "../localvox-light-process" }
+anyhow.workspace = true
+clap.workspace = true
+crossbeam-channel.workspace = true
+crossterm.workspace = true
+ratatui = { workspace = true, features = ["unstable-rendered-line-info"] }
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+tui-textarea = "=0.7.0"
+arboard = { version = "3", default-features = false }
+tempfile.workspace = true
+tokio = { version = "1", features = ["rt", "net", "time", "io-util"] }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62.2", features = ["Win32_Security_Authorization", "Win32_System_Pipes"] }
+
+[dev-dependencies]
+insta = "1"
+portable-pty = "0.9"
+# 0.16 requires unicode-width >=0.2.1; Ratatui 0.29 pins 0.2.0.
+vt100 = "0.15"
+tiny_http.workspace = true
