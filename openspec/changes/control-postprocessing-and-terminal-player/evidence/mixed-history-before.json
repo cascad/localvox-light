@@ -1,0 +1,37 @@
+{
+  "measurements": [
+    {
+      "events_retained": 0,
+      "historical_runs": 1,
+      "history_bytes": 854253,
+      "read": {
+        "max_ms": 2.3251,
+        "median_ms": 2.2672999999999996,
+        "min_ms": 2.2510999999999997
+      },
+      "workflow": {
+        "max_ms": 236.85660000000001,
+        "median_ms": 236.0571,
+        "min_ms": 235.97799999999998
+      }
+    },
+    {
+      "events_retained": 0,
+      "historical_runs": 12,
+      "history_bytes": 10251036,
+      "read": {
+        "max_ms": 28.7373,
+        "median_ms": 28.200699999999998,
+        "min_ms": 28.1319
+      },
+      "workflow": {
+        "max_ms": 298.70459999999997,
+        "median_ms": 295.28090000000003,
+        "min_ms": 294.79060000000004
+      }
+    }
+  ],
+  "profile": "dev",
+  "samples": 5,
+  "synthetic_transcript_seconds": 7200
+}

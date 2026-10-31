@@ -12,6 +12,7 @@
 //! shown in the app is DERIVED (see [`fold`]) and therefore disposable: it is recomputed from
 //! the facts, never stored.
 
+use std::io::BufRead;
 #[cfg(test)]
 use std::io::Write;
 use std::path::Path;
@@ -95,6 +96,7 @@ const FILE: &str = "progress.jsonl";
 /// while the work had not even started. A person pressed "re-cook", saw "finished", and waited for
 /// movement that could not come.
 #[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RunMark {
     run: String,
 }
@@ -232,17 +234,42 @@ pub fn activity<T>(session: &Path, stage: Stage, note: &str, work: impl FnOnce()
 /// A broken line is skipped rather than fatal: a half-written one (the machine lost power
 /// mid-append) must not hide the rest of the story.
 pub fn read(session_dir: &Path) -> Vec<StageEvent> {
-    let Ok(text) = std::fs::read_to_string(session_dir.join(FILE)) else {
-        return Vec::new();
+    read_run(session_dir).events
+}
+
+#[derive(Default)]
+pub struct Run {
+    pub started_at: Option<String>,
+    pub events: Vec<StageEvent>,
+}
+
+/// The marker and events come from the same pass. Journal payloads are skipped
+/// without allocating their text; only a standalone marker resets the view.
+pub fn read_run(session_dir: &Path) -> Run {
+    #[derive(Deserialize)]
+    struct Kind {
+        journal: Option<serde::de::IgnoredAny>,
+    }
+    let Ok(file) = std::fs::File::open(session_dir.join(FILE)) else {
+        return Run::default();
     };
-    let mut current: Vec<StageEvent> = Vec::new();
-    for line in text.lines() {
-        if serde_json::from_str::<RunMark>(line).is_ok() {
-            current.clear(); // a new run: everything above is history
+    let mut current = Run::default();
+    let mut reader = std::io::BufReader::new(file);
+    let mut line = Vec::new();
+    loop {
+        line.clear();
+        match reader.read_until(b'\n', &mut line) {
+            Ok(0) | Err(_) => break,
+            Ok(_) => {}
+        }
+        if serde_json::from_slice::<Kind>(&line).is_ok_and(|kind| kind.journal.is_some()) {
             continue;
         }
-        if let Ok(event) = serde_json::from_str::<StageEvent>(line) {
-            current.push(event);
+        if let Ok(mark) = serde_json::from_slice::<RunMark>(&line) {
+            current.started_at = Some(mark.run);
+            current.events.clear();
+        } else if let Ok(event) = serde_json::from_slice::<StageEvent>(&line) {
+            current.events.push(event);
         }
     }
     current
@@ -327,6 +354,137 @@ pub fn fold(events: &[StageEvent]) -> Vec<StageStatus> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn journal_operations_do_not_erase_stage_events_or_hide_an_interruption() {
+        let dir = tempfile::tempdir().unwrap();
+        new_run(dir.path());
+        mark(
+            dir.path(),
+            Stage::Transcribe,
+            StageState::Running,
+            Some("loading"),
+        );
+        let worker = crate::journal::Operation::start(dir.path(), "transcribe", "worker", None);
+        worker.log("model loaded");
+        assert_eq!(interrupted_stage(dir.path()), Some(Stage::Transcribe));
+        progress(dir.path(), Stage::Transcribe, 3, 3);
+        mark(dir.path(), Stage::Transcribe, StageState::Done, None);
+        drop(worker);
+        let rows = fold(&read(dir.path()));
+        assert_eq!(
+            rows.len(),
+            1,
+            "operation_end must not erase the completed stage"
+        );
+        assert_eq!(rows[0].state, StageState::Done);
+        assert!(rows[0].started_at.is_some() && rows[0].ended_at.is_some());
+        assert_eq!(rows[0].done, Some(3));
+        assert_eq!(interrupted_stage(dir.path()), None);
+
+        new_run(dir.path());
+        let retry = crate::journal::Operation::start(dir.path(), "summary", "retry", None);
+        assert!(
+            read(dir.path()).is_empty(),
+            "a genuine run mark still starts a new view"
+        );
+        mark(dir.path(), Stage::Summary, StageState::Running, None);
+        retry.log("waiting for model");
+        assert_eq!(interrupted_stage(dir.path()), Some(Stage::Summary));
+    }
+
+    #[test]
+    fn run_marker_is_exact_and_broken_records_do_not_erase_valid_events() {
+        let dir = tempfile::tempdir().unwrap();
+        let bytes = b"{\"run\":\"first\"}\n{\"stage\":\"transcribe\",\"state\":\"running\",\"at\":\"start\"}\n{\"run\":\"not-a-marker\",\"extra\":true}\n{\"journal\":1,\"run\":\"not-a-marker\",\"state\":\"done\",\"stage\":\"summary\",\"at\":\"end\"}\n\xff\n{broken}\n{\"stage\":\"transcribe\",\"state\":\"done\",\"at\":\"end\"}\n{\"run\":\"partial";
+        std::fs::write(dir.path().join(FILE), bytes).unwrap();
+        let run = read_run(dir.path());
+        assert_eq!(run.started_at.as_deref(), Some("first"));
+        assert_eq!(run.events.len(), 2);
+        let rows = fold(&run.events);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].started_at.as_deref(), Some("start"));
+        assert_eq!(rows[0].ended_at.as_deref(), Some("end"));
+        assert_eq!(rows[0].state, StageState::Done);
+    }
+
+    #[test]
+    #[ignore = "synthetic history polling profile; no models, capture or user archive"]
+    fn profile_mixed_history_polling() {
+        use std::io::{BufWriter, Write};
+        use std::time::Instant;
+        let dir = tempfile::tempdir().unwrap();
+        let transcript = crate::artifacts::tests::fixture(dir.path());
+        let mut speech = BufWriter::new(std::fs::File::create(transcript).unwrap());
+        for second in 0..7200 {
+            serde_json::to_writer(&mut speech, &serde_json::json!({
+                "source_id": 0, "start_sec": second, "end_sec": second + 1,
+                "text": "Synthetic meeting words for an isolated polling measurement.", "speaker": "S1"
+            })).unwrap();
+            writeln!(speech).unwrap();
+        }
+        drop(speech);
+        for artifact in [
+            crate::processing::TRANSCRIPT,
+            crate::processing::PROCESSED,
+            crate::processing::SUMMARY,
+        ] {
+            crate::processing::record(
+                dir.path(),
+                artifact,
+                "fixture",
+                crate::processing::Outcome::Ok,
+                None,
+                Some(1),
+            )
+            .unwrap();
+        }
+        let measure = |f: &mut dyn FnMut()| {
+            f();
+            let mut samples = (0..5)
+                .map(|_| {
+                    let started = Instant::now();
+                    f();
+                    started.elapsed().as_secs_f64() * 1000.0
+                })
+                .collect::<Vec<_>>();
+            samples.sort_by(f64::total_cmp);
+            serde_json::json!({"median_ms": samples[2], "min_ms": samples[0], "max_ms": samples[4]})
+        };
+        let mut report = vec![];
+        for runs in [1, 12] {
+            let mut file = BufWriter::new(std::fs::File::create(dir.path().join(FILE)).unwrap());
+            let verbose = "x".repeat(2048);
+            for run in 0..runs {
+                writeln!(file, "{{\"run\":\"2026-10-31T00:{run:02}:00Z\"}}").unwrap();
+                writeln!(file, "{{\"stage\":\"transcribe\",\"state\":\"running\",\"at\":\"2026-10-31T00:00:01Z\"}}").unwrap();
+                for _ in 0..400 {
+                    serde_json::to_writer(&mut file, &serde_json::json!({"journal": 1, "run": format!("2026-10-31T00:{run:02}:00Z"), "stage": "transcribe", "kind": "log", "text": verbose})).unwrap();
+                    writeln!(file).unwrap();
+                }
+                writeln!(file, "{{\"stage\":\"transcribe\",\"state\":\"done\",\"at\":\"2026-10-31T00:00:11Z\"}}").unwrap();
+                writeln!(file, "{{\"journal\":1,\"run\":\"2026-10-31T00:{run:02}:00Z\",\"stage\":\"transcribe\",\"kind\":\"operation_end\"}}").unwrap();
+            }
+            drop(file);
+            let read = measure(&mut || {
+                std::hint::black_box(super::read(dir.path()));
+            });
+            let view = measure(&mut || {
+                std::hint::black_box(crate::workflow::view(
+                    dir.path(),
+                    None,
+                    false,
+                    "2026-10-31T01:00:00Z",
+                ));
+            });
+            report.push(serde_json::json!({"historical_runs": runs, "history_bytes": std::fs::metadata(dir.path().join(FILE)).unwrap().len(), "events_retained": super::read(dir.path()).len(), "read": read, "workflow": view}));
+        }
+        let report = serde_json::json!({"profile": if cfg!(debug_assertions) {"dev"} else {"release"}, "samples": 5, "synthetic_transcript_seconds": 7200, "measurements": report});
+        if let Some(path) = std::env::var_os("LOCALVOX_PROFILE_OUTPUT") {
+            std::fs::write(path, serde_json::to_vec_pretty(&report).unwrap()).unwrap();
+        }
+        println!("{}", serde_json::to_string_pretty(&report).unwrap());
+    }
 
     fn event(state: StageState, at: &str, done: Option<u32>) -> StageEvent {
         StageEvent {

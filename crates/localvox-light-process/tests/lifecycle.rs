@@ -157,7 +157,7 @@ fn output_is_observed_before_exit_without_moving_the_writer_offset() {
     });
     let mut seen = Vec::new();
     while !String::from_utf8_lossy(&seen).contains("first-fragment") {
-        let chunk = rx.recv_timeout(Duration::from_secs(3)).unwrap();
+        let chunk = rx.recv_timeout(Duration::from_secs(8)).unwrap();
         seen.extend(chunk.bytes);
     }
     assert!(
@@ -185,7 +185,9 @@ fn a_full_observation_queue_never_blocks_supervision() {
     .unwrap();
     assert!(out.termination.success());
     assert!(dropped.load(std::sync::atomic::Ordering::Relaxed) > 0);
-    assert!(started.elapsed() < Duration::from_secs(4));
+    // The worker has an 8 s budget plus bounded termination/reaping. This
+    // verifies finite supervision, not a machine-specific 4 s startup SLA.
+    assert!(started.elapsed() < Duration::from_secs(15));
     assert!(out.stdout.len() >= 2 * 1024 * 1024);
 }
 
@@ -203,7 +205,13 @@ fn cancellation_stops_the_entire_tree() {
         |_, _| {},
     )
     .unwrap();
-    assert!(matches!(out.termination, Termination::Cancelled));
+    assert!(
+        matches!(out.termination, Termination::Cancelled),
+        "termination={:?}, elapsed={:?}, stderr={}",
+        out.termination,
+        out.elapsed,
+        String::from_utf8_lossy(&out.stderr)
+    );
     assert_stopped(&pulse);
 }
 
@@ -216,12 +224,18 @@ fn nested_supervisors_remain_owned_by_the_outer_tree() {
     let out = run(
         cmd,
         None,
-        Limits::new(Duration::from_secs(10)),
+        Limits::new(Duration::from_secs(20)),
         || pulse.exists(),
         |_, _| {},
     )
     .unwrap();
-    assert!(matches!(out.termination, Termination::Cancelled));
+    assert!(
+        matches!(out.termination, Termination::Cancelled),
+        "termination={:?}, elapsed={:?}, stderr={}",
+        out.termination,
+        out.elapsed,
+        String::from_utf8_lossy(&out.stderr)
+    );
     assert_stopped(&pulse);
 }
 

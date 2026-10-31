@@ -1962,6 +1962,9 @@ mod tests {
         // A cook that died mid-transcribe: a heartbeat with no terminal event after it.
         crate::progress::new_run(&sess);
         crate::progress::progress(&sess, crate::progress::Stage::Transcribe, 3, 12);
+        let worker = crate::journal::Operation::start(&sess, "transcribe", "worker", None);
+        worker.log("last worker output before restart");
+        drop(worker);
         assert_eq!(
             crate::progress::interrupted_stage(&sess),
             Some(crate::progress::Stage::Transcribe),
@@ -1977,6 +1980,9 @@ mod tests {
         assert_eq!(q.reclaim_abandoned(dir.path()), 1);
         assert_eq!(q.jobs()[0].state, JobState::Pending);
         // The status is reset — the dangling «running» is now closed with a terminal event.
+        let stages = crate::progress::fold(&crate::progress::read(&sess));
+        assert_eq!(stages[0].state, crate::progress::StageState::Failed);
+        assert_eq!(stages[0].done, Some(3));
         assert_eq!(
             crate::progress::interrupted_stage(&sess),
             None,

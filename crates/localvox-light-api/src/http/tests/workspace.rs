@@ -132,6 +132,107 @@ fn progress_explains_missing_job_and_corrupt_queue_after_stt() {
 }
 
 #[test]
+fn mixed_worker_and_journal_records_keep_stage_boundaries_through_real_http() {
+    use localvox_light_core::{journal, processing, progress};
+    let directory = tempfile::tempdir().unwrap();
+    session(directory.path(), "mixed");
+    let dir = directory.path().join("sessions/mixed");
+    processing::record(
+        &dir,
+        processing::TRANSCRIPT,
+        "fixture",
+        processing::Outcome::Ok,
+        None,
+        Some(2),
+    )
+    .unwrap();
+    progress::new_run(&dir);
+    let now = chrono::Utc::now();
+    let run = (now - chrono::Duration::seconds(11)).to_rfc3339();
+    let start = (now - chrono::Duration::seconds(10)).to_rfc3339();
+    let end = (now - chrono::Duration::seconds(1)).to_rfc3339();
+    let lines = [
+        json!({"run":run}),
+        json!({"stage":"transcribe","state":"running","at":start}),
+        json!({"stage":"transcribe","state":"done","at":end}),
+    ];
+    fs::write(
+        dir.join("progress.jsonl"),
+        lines
+            .iter()
+            .map(|line| format!("{line}\n"))
+            .collect::<String>(),
+    )
+    .unwrap();
+    let old = journal::Operation::start(&dir, "transcribe", "finished worker", None);
+    old.log("worker output");
+    drop(old);
+    let server = journal_http_fixture(directory.path(), Some("synthetic-token"));
+    let client = Client::new(&server.address, "synthetic-token".into()).unwrap();
+    let assert_stt = |view: &localvox_light_client::Progress| {
+        let stt = view
+            .stages
+            .iter()
+            .find(|row| row.stage == "transcribe")
+            .unwrap();
+        assert_eq!(stt.state, "done");
+        assert_eq!(stt.started_at.as_deref(), Some(start.as_str()));
+        assert_eq!(stt.ended_at.as_deref(), Some(end.as_str()));
+    };
+    assert_stt(&client.progress("mixed").unwrap());
+    let job = jobs::JobQueue::mutate(directory.path(), |queue| {
+        assert!(queue.requeue_derivatives("mixed", true, false, false));
+        queue.start_phase(0, &[jobs::JobPhase::Summary]).unwrap()
+    });
+    progress::mark(
+        &dir,
+        progress::Stage::Summary,
+        progress::StageState::Running,
+        None,
+    );
+    let worker = journal::Operation::start(&dir, "summary", "summary worker", None);
+    worker
+        .bind_execution(job.execution_id.as_deref().unwrap())
+        .unwrap();
+    worker.log("model loading");
+    let view = client.progress("mixed").unwrap();
+    assert_stt(&view);
+    let execution = view.execution.unwrap();
+    assert_eq!(execution.state, "running");
+    assert_eq!(execution.current.as_deref(), Some("summary"));
+    assert!(execution.operation.is_some());
+    processing::record(
+        &dir,
+        processing::SUMMARY,
+        "fixture",
+        processing::Outcome::Ok,
+        None,
+        Some(2),
+    )
+    .unwrap();
+    progress::mark(
+        &dir,
+        progress::Stage::Summary,
+        progress::StageState::Done,
+        None,
+    );
+    jobs::JobQueue::mutate(directory.path(), |queue| {
+        queue.finish_phase(job.id, job.phase)
+    })
+    .unwrap();
+    drop(worker);
+    let finished = client.progress("mixed").unwrap();
+    assert_stt(&finished);
+    assert_eq!(finished.execution.unwrap().state, "done");
+    assert!(client
+        .journal("mixed", None, None)
+        .unwrap()
+        .events
+        .iter()
+        .any(|entry| entry.kind == "operation_end"));
+}
+
+#[test]
 fn document_actions_preserve_transcripts_and_enforce_worker_ownership_through_http() {
     let directory = tempfile::tempdir().unwrap();
     let files = session(directory.path(), "demo");

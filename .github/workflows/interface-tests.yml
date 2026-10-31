@@ -15,6 +15,8 @@ jobs:
     env:
       # Never create/accept visual baselines in a normal or CI test run.
       INSTA_UPDATE: "no"
+      # OS fixtures spawn their own children/threads; keep runner contention bounded.
+      RUST_TEST_THREADS: "2"
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v4

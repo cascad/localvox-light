@@ -70,25 +70,31 @@ pub fn transcript(bytes: &[u8]) -> Result<Vec<TranscriptLine>> {
         .collect()
 }
 
-fn stamp(session: &Path, path: &str, is_transcript: bool) -> Result<FileStamp> {
+fn stamp(session: &Path, path: &str) -> Result<FileStamp> {
     let bytes = fs::read(session.join(relative_path(path)?))
         .with_context(|| format!("артефакт {path} недоступен"))?;
-    let hash = if is_transcript {
-        let lines = transcript(&bytes)?;
-        // Names are presentation data: VersionStore::relabel_speaker changes them in place.
-        let speech: Vec<_> = lines
-            .iter()
-            .map(|l| (l.source_id, l.start_sec, l.end_sec, &l.text))
-            .collect();
-        Sha256::digest(serde_json::to_vec(&speech)?).to_vec()
-    } else {
-        Sha256::digest(&bytes).to_vec()
-    };
+    let hash = Sha256::digest(&bytes);
     Ok(FileStamp {
         path: path.into(),
         bytes: bytes.len() as u64,
         sha256: hash.iter().map(|b| format!("{b:02x}")).collect(),
-        transcript: is_transcript,
+        transcript: false,
+    })
+}
+
+fn transcript_stamp(path: &str, bytes: u64, lines: &[TranscriptLine]) -> Result<FileStamp> {
+    // Preserve the receipt format. Speaker names are presentation data; speech
+    // and timing must be hashed from the same strict parse used by validation.
+    let speech: Vec<_> = lines
+        .iter()
+        .map(|l| (l.source_id, l.start_sec, l.end_sec, &l.text))
+        .collect();
+    let hash = Sha256::digest(serde_json::to_vec(&speech)?);
+    Ok(FileStamp {
+        path: path.into(),
+        bytes,
+        sha256: hash.iter().map(|b| format!("{b:02x}")).collect(),
+        transcript: true,
     })
 }
 
@@ -109,8 +115,9 @@ fn version(
         .with_context(|| format!("версия расшифровки v{id} отсутствует в манифесте"))?;
     relative_path(&entry.file)?;
     let path = format!("transcripts/{}", entry.file);
-    let fingerprint = stamp(session, &path, true)?;
-    let lines = transcript(&fs::read(session.join(&path))?)?;
+    let bytes = fs::read(session.join(&path))?;
+    let lines = transcript(&bytes)?;
+    let fingerprint = transcript_stamp(&path, bytes.len() as u64, &lines)?;
     Ok((entry, fingerprint, lines, best))
 }
 
@@ -170,7 +177,7 @@ pub fn capture(
         );
         return Ok(Receipt {
             outputs: vec![],
-            input: Some(stamp(session, "meta.json", false)?),
+            input: Some(stamp(session, "meta.json")?),
         });
     }
     let (entry, input, lines, best) =
@@ -231,7 +238,7 @@ pub fn capture(
             } else {
                 "summary.md"
             };
-            let output = stamp(session, path, false)?;
+            let output = stamp(session, path)?;
             if artifact == PROCESSED {
                 let readable = crate::readable::load(session)?;
                 ensure!(
@@ -337,7 +344,7 @@ pub fn commit_preparation(session: &Path, sample_count: u64) -> Result<()> {
     );
     receipt.files = audio_files(session)?
         .iter()
-        .map(|p| stamp(session, p, false))
+        .map(|p| stamp(session, p))
         .collect::<Result<_>>()?;
     receipt.sample_count = sample_count;
     receipt.complete = true;
@@ -397,7 +404,7 @@ fn inspect_audio(session: &Path, verify_hashes: bool) -> Result<Vec<String>> {
             );
             if verify_hashes {
                 ensure!(
-                    recorded.matches(&stamp(session, path, false)?),
+                    recorded.matches(&stamp(session, path)?),
                     "контрольная сумма аудио изменилась: {path}"
                 );
             }
@@ -611,6 +618,18 @@ pub(crate) mod tests {
             processing::record(dir.path(), TRANSCRIPT, "test", Outcome::Ok, None, Some(1)).is_err()
         );
         assert!(!dir.path().join("processing.json").exists());
+    }
+
+    #[test]
+    fn transcript_receipts_keep_the_existing_canonical_digest() {
+        let dir = tempfile::tempdir().unwrap();
+        fixture(dir.path());
+        let receipt = capture(dir.path(), TRANSCRIPT, Outcome::Ok, Some(1), None).unwrap();
+        assert_eq!(
+            receipt.outputs[0].sha256,
+            "372205e1f6c2317f6a5c38bb058ca6b9fde792e7001966d3db968651c1593705"
+        );
+        assert!(receipt.outputs[0].transcript);
     }
 
     #[test]

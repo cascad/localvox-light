@@ -131,7 +131,9 @@ fn a_single_owned_start_becomes_ready_and_outlives_the_client() {
     fs::write(&marker, "keep fixture alive").unwrap();
     let client = unused_client();
     let starts = AtomicUsize::new(0);
-    ensure(&client, true, Duration::from_secs(3), || {
+    // Windows connection refusal alone can consume over a second; exercise
+    // successful startup with the same finite budget as the real launcher.
+    ensure(&client, true, START_TIMEOUT, || {
         starts.fetch_add(1, Ordering::Relaxed);
         Ok(helper(&client, &marker, "ready"))
     })
@@ -187,7 +189,7 @@ fn daemon_fixture() {
         "ready" => {
             let server =
                 Server::http(address.trim_start_matches("http://").trim_end_matches('/')).unwrap();
-            let deadline = Instant::now() + Duration::from_secs(4);
+            let deadline = Instant::now() + START_TIMEOUT + Duration::from_secs(2);
             while marker.exists() && Instant::now() < deadline {
                 if let Some(request) = server.recv_timeout(Duration::from_millis(20)).unwrap() {
                     assert_eq!(request.url(), "/api/health");

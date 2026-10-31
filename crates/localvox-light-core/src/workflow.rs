@@ -254,19 +254,13 @@ pub fn view(session: &Path, job: Option<&Job>, from_link: bool, now: &str) -> Vi
     let executor_available = coordinator
         .as_ref()
         .is_none_or(|c| matches!(c.state.as_str(), "ready" | "starting"));
-    let events = progress::read(session);
+    let run = progress::read_run(session);
+    let events = run.events;
     let folded = progress::fold(&events);
     let live = job.is_some_and(|j| matches!(j.state, JobState::Pending | JobState::Running));
     let queued = job.map(|j| j.enqueued_at.as_ref().unwrap_or(&j.created_at).clone());
     // Run marks predate model/title loading. Older queues have no started_at field.
-    let run_start = std::fs::read_to_string(session.join("progress.jsonl"))
-        .ok()
-        .and_then(|s| {
-            s.lines()
-                .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
-                .filter_map(|v| v["run"].as_str().map(str::to_owned))
-                .last()
-        });
+    let run_start = run.started_at;
     let has_started = job.is_none_or(|j| {
         j.started_at.is_some()
             || j.attempts > 0
@@ -340,7 +334,11 @@ pub fn view(session: &Path, job: Option<&Job>, from_link: bool, now: &str) -> Vi
             row.ended_at = None;
         }
         if let Some(artifact) = artifact {
-            let proof = processing::inspect(session, artifact);
+            let proof = if artifact == processing::TRANSCRIPT {
+                transcription.clone()
+            } else {
+                processing::inspect(session, artifact)
+            };
             row.files = proof
                 .receipt
                 .as_ref()

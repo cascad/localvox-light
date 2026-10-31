@@ -192,3 +192,11 @@
 | ARCH-007 | [archive delta](../changes/control-postprocessing-and-terminal-player/specs/archive-playback/spec.md), [resolver](../../crates/localvox-light-core/src/readable.rs), [HTTP](../../crates/localvox-light-api/src/http.rs), [TUI](../../crates/localvox-light-terminal/src/render/documents.rs) | [test-run](../changes/control-postprocessing-and-terminal-player/evidence/transcript-summary-timeline.md): одинаковые слова/говорящие/таймкоды первичного текста; UI/TUI читают и копируют без processed.json; сохранённая очистка и ошибки не скрываются | Модель для fallback не вызывается; ложная квитанция не создаётся |
 | PIPE-016 | [pipeline delta](../changes/control-postprocessing-and-terminal-player/specs/processing-pipeline/spec.md), [workflow](../../crates/localvox-light-core/src/workflow.rs), [journal](../../crates/localvox-light-core/src/journal.rs), [UI](../../ui/src/Progress.tsx), [TUI](../../crates/localvox-light-terminal/src/render.rs) | [test-run](../changes/control-postprocessing-and-terminal-player/evidence/transcript-summary-timeline.md): переходы/ожидание/backoff/неизвестные времена, orphan running, связь попытки с операцией, заморозка при ошибке и стабильный итоговый таймер | Настоящая загрузка/скорость моделей и физическое оборудование не проверялись |
 
+Дополнительный [прогон смешанного журнала и замер опроса](../changes/control-postprocessing-and-terminal-player/evidence/mixed-history-polling.md)
+для PIPE-002/004/008/011 и delta PIPE-016, 2026-10-31: воспроизведён и исправлен
+сброс StageEvent строками journal.run; настоящий HTTP сохраняет границы STT при
+запуске/завершении summary, startup-reclaim замечает прерванный этап. Потоковое
+чтение и исключение повторного разбора не меняют канонический SHA-256; прежние
+проверки повреждений и переименований пройдены заново. Числа замера относятся
+к dev-опросу синтетических файлов; BL-003 и аппаратная приёмка остаются открытыми.
+
