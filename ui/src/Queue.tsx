@@ -1,3 +1,4 @@
+import { useRef, useState } from "react";
 import { api } from "./api";
 import { usePolling } from "./usePolling";
 
@@ -20,15 +21,22 @@ export function QueuePane({
   say: (m: string) => void;
   onChanged: () => void;
 }) {
-  const { data: items, error: err } = usePolling("queue", async (signal) => (await api.queue(signal)).queue ?? []);
+  const { data: items, error: err, refresh } = usePolling("queue", async (signal) => (await api.queue(signal)).queue ?? []);
+  const submitting = useRef(new Set<string>());
+  const [pending, setPending] = useState(new Set<string>());
 
   const retry = async (s: string) => {
+    if (submitting.current.has(s)) return;
+    submitting.current.add(s); setPending(new Set(submitting.current));
     try {
-      const r = await api.recook(s);
-      say(r.msg ?? "Поставлено заново");
+      const r = await api.retry(s);
+      say(r.msg ?? "Этап поставлен в очередь");
+      refresh();
       onChanged();
     } catch (e) {
       say((e as Error).message);
+    } finally {
+      submitting.current.delete(s); setPending(new Set(submitting.current));
     }
   };
 
@@ -70,8 +78,8 @@ export function QueuePane({
                 {/* Out of retries: it will not move again by itself, and saying so beats a queue
                     that silently never advances. The way out is the human's, so it is right here. */}
                 {i.stuck && (
-                  <button className="btn sm" onClick={() => void retry(i.session)}>
-                    ♻ Повторить
+                  <button className="btn sm" disabled={pending.has(i.session)} onClick={() => void retry(i.session)}>
+                    {pending.has(i.session) ? "Постановка…" : "♻ Повторить этап"}
                   </button>
                 )}
               </div>

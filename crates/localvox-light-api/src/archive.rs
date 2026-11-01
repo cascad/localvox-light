@@ -1142,6 +1142,36 @@ impl Archive {
             .is_some_and(|t| now - t > COOK_STALL_SEC)
     }
 
+    /// Resume an interrupted request; unlike recook, preserve all committed artifacts.
+    pub fn retry(&self, session: &str) -> Result<String> {
+        use localvox_light_core::jobs::{JobQueue, JobState};
+        let dir = self.session_dir(session)?;
+        let _lease = self.mutation_lease(session, &dir)?;
+        JobQueue::mutate(&self.work_dir, |queue| -> Result<String> {
+            if let Some(error) = queue.error() {
+                return Err(QueueUnavailable(error.to_owned()).into());
+            }
+            let job = queue
+                .jobs()
+                .iter()
+                .find(|job| job.session == session)
+                .context("нет остановленного задания для повтора")?;
+            anyhow::ensure!(
+                job.state == JobState::Failed,
+                "повтор этапа доступен только для остановленного задания"
+            );
+            let phase = job.phase;
+            if !queue.retry_failed(session) {
+                return Err(QueueUnavailable("не удалось сохранить повтор этапа".into()).into());
+            }
+            localvox_light_core::progress::new_run(&dir);
+            Ok(format!(
+                "повтор этапа {} поставлен в очередь; готовые результаты сохранены",
+                phase.as_str()
+            ))
+        })
+    }
+
     pub fn recook(&self, session: &str, scope: RecookScope) -> Result<String> {
         let dir = self.session_dir(session)?;
         let _lease = self.mutation_lease(session, &dir)?;

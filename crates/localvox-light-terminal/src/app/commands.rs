@@ -41,6 +41,7 @@ pub enum Action {
     RestoreDraft,
     FilterSettings,
     DiscardSettings,
+    RetryFailed,
 }
 
 /// Only this list defines palette order; shortcuts dispatch by Action.
@@ -83,6 +84,7 @@ pub const COMMANDS: &[(Action, &str)] = &[
     (Action::RestoreDraft, "Восстановить черновик после ошибки"),
     (Action::FilterSettings, "Фильтр настроек"),
     (Action::DiscardSettings, "Отменить черновик настроек"),
+    (Action::RetryFailed, "Повторить упавший этап"),
 ];
 
 impl App {
@@ -90,6 +92,23 @@ impl App {
         self.palette = false;
         let s = self.current.clone().unwrap_or_default();
         match action {
+            Action::RetryFailed => {
+                let target = if self.view == View::Queue {
+                    self.queue
+                        .get(self.selected)
+                        .filter(|job| job.state == "failed")
+                        .map(|job| job.session.clone())
+                } else if self.view == View::Archive {
+                    self.current.clone()
+                } else {
+                    None
+                };
+                if let Some(session) = target {
+                    self.action(Task::Retry(session));
+                } else {
+                    self.status = "Выберите остановленное задание в очереди или запись".into();
+                }
+            }
             Action::ImportUrl => self.open("Импорт", FormKind::Import, &[("URL", "")]),
             Action::StartRecording => {
                 self.open("Начать запись", FormKind::Start, &[("Название", "")])

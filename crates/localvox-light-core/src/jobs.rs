@@ -465,6 +465,38 @@ impl JobQueue {
         }
     }
 
+    /// Resume the failed phase without invalidating reusable results or changing its request.
+    pub fn retry_failed(&mut self, session: &str) -> bool {
+        let Some(index) = self
+            .file
+            .jobs
+            .iter()
+            .position(|job| job.session == session && job.state == JobState::Failed)
+        else {
+            return false;
+        };
+        let previous = self.file.jobs[index].clone();
+        let job = &mut self.file.jobs[index];
+        job.state = JobState::Pending;
+        job.enqueued_at = Some(now_rfc3339());
+        job.phase_queued_at = job.enqueued_at.clone();
+        job.started_at = None;
+        job.phase_started_at = None;
+        job.execution_id = None;
+        job.finished_at = None;
+        job.last_error = None;
+        job.failed_at = None;
+        job.attempts = 0;
+        job.revivals = 0;
+        job.force = false;
+        if self.save() {
+            true
+        } else {
+            self.file.jobs[index] = previous;
+            false
+        }
+    }
+
     /// «This is bad — re-cook it». A human rejected the result: we throw the derived
     /// artifacts away and cook again from scratch, regardless of dedup, of the recipe
     /// and of the version that is already there. The audio we do not touch — everything
@@ -1379,6 +1411,109 @@ fn newest_wav_mtime(audio_dir: &Path) -> Option<SystemTime> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn retry_failed_preserves_the_request_and_resumes_each_phase_with_a_fresh_budget() {
+        for (index, phase) in [
+            JobPhase::Prepare,
+            JobPhase::Transcribe,
+            JobPhase::Text,
+            JobPhase::Summary,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let dir = tempfile::tempdir().unwrap();
+            let mut queue = JobQueue::load(dir.path());
+            queue.enqueue_cook("resume", true, index % 2 == 0, index % 2 != 0);
+            let job = &mut queue.file.jobs[0];
+            job.phase = phase;
+            job.kind = if index == 0 {
+                JobKind::Ingest
+            } else {
+                JobKind::Cook
+            };
+            job.follow_settings = index % 2 == 0;
+            job.state = JobState::Failed;
+            job.attempts = 3;
+            job.revivals = MAX_REVIVALS;
+            job.force = true;
+            job.last_error = Some("synthetic failure".into());
+            job.failed_at = Some(1);
+            job.enqueued_at = Some("2000-01-01T00:00:00Z".into());
+            job.started_at = job.enqueued_at.clone();
+            job.phase_started_at = job.enqueued_at.clone();
+            job.finished_at = job.enqueued_at.clone();
+            job.execution_id = Some("old-execution".into());
+            let previous = job.clone();
+            assert!(queue.save());
+            assert!(queue.retry_failed("resume"));
+            let saved = JobQueue::load(dir.path());
+            let actual = &saved.jobs()[0];
+            assert_eq!(
+                (actual.id, actual.phase, actual.kind),
+                (previous.id, phase, previous.kind)
+            );
+            assert_eq!(
+                (
+                    actual.summary,
+                    actual.cleanup,
+                    actual.refine,
+                    actual.follow_settings
+                ),
+                (
+                    previous.summary,
+                    previous.cleanup,
+                    previous.refine,
+                    previous.follow_settings
+                )
+            );
+            assert_eq!(actual.created_at, previous.created_at);
+            assert_eq!(actual.state, JobState::Pending);
+            assert_eq!(
+                (actual.attempts, actual.revivals, actual.force),
+                (0, 0, false)
+            );
+            assert!(
+                actual.started_at.is_none()
+                    && actual.finished_at.is_none()
+                    && actual.phase_started_at.is_none()
+            );
+            assert!(
+                actual.execution_id.is_none()
+                    && actual.last_error.is_none()
+                    && actual.failed_at.is_none()
+            );
+            assert_ne!(actual.enqueued_at, previous.enqueued_at);
+            assert_eq!(actual.phase_queued_at, actual.enqueued_at);
+            let bytes = fs::read(dir.path().join("jobs.json")).unwrap();
+            assert!(!queue.retry_failed("resume"));
+            assert_eq!(fs::read(dir.path().join("jobs.json")).unwrap(), bytes);
+            let running = queue.start_phase(actual.id, &[phase]).unwrap();
+            assert_eq!(running.attempts, 1);
+            assert_ne!(running.execution_id.as_deref(), Some("old-execution"));
+            assert!(!queue.retry_failed("resume"));
+            queue.file.jobs[0].state = JobState::Done;
+            assert!(!queue.retry_failed("resume"));
+            assert!(!queue.retry_failed("unknown"));
+        }
+    }
+
+    #[test]
+    fn retry_failed_rolls_back_memory_when_the_queue_cannot_be_saved() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut queue = JobQueue::load(dir.path());
+        queue.enqueue_cook("failed", true, false, false);
+        let job = queue.start(0).unwrap();
+        queue.mark_failed(job.id, "failed", 1);
+        let before = serde_json::to_value(&queue.file).unwrap();
+        let bytes = fs::read(&queue.path).unwrap();
+        queue.path = dir.path().join("not-a-file");
+        fs::create_dir(&queue.path).unwrap();
+        assert!(!queue.retry_failed("failed"));
+        assert_eq!(serde_json::to_value(&queue.file).unwrap(), before);
+        assert_eq!(fs::read(dir.path().join("jobs.json")).unwrap(), bytes);
+    }
 
     #[test]
     fn disabling_pending_automatic_text_never_claims_a_text_or_summary_worker() {

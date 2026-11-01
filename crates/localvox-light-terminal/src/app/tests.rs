@@ -1206,6 +1206,102 @@ fn queue_read_errors_retain_snapshots_and_clear_only_on_their_own_recovery() {
 }
 
 #[test]
+fn retry_failed_uses_the_selected_queue_session_and_pending_actions_prevent_double_submit() {
+    let mut app = App::default();
+    app.current = Some("old-open-session".into());
+    app.view = View::Queue;
+    app.focus = 1;
+    app.queue = vec![
+        QueueItem {
+            session: "running".into(),
+            state: "running".into(),
+            ..Default::default()
+        },
+        QueueItem {
+            session: "failed".into(),
+            state: "failed".into(),
+            ..Default::default()
+        },
+    ];
+    app.selected = 0;
+    app.key(KeyEvent::new(KeyCode::Char('R'), KeyModifiers::SHIFT));
+    assert!(app.effects.is_empty());
+    app.selected = 1;
+    for _ in 0..2 {
+        app.key(KeyEvent::new(KeyCode::Char('R'), KeyModifiers::SHIFT));
+    }
+    assert_eq!(app.effects.len(), 1);
+    assert!(matches!(&app.effects[0].1, Task::Retry(session) if session == "failed"));
+    app.effects.clear();
+    app.apply(Response {
+        id: 1,
+        epoch: app.epoch,
+        resource: Resource::Action,
+        result: Err("API retry unavailable".into()),
+    });
+    assert!(!app
+        .effects
+        .iter()
+        .any(|(_, task)| matches!(task, Task::Retry(..) | Task::Recook(..))));
+    app.effects.clear();
+    choose_palette(&mut app, "Повторить упавший этап");
+    assert!(matches!(&app.effects[0].1, Task::Retry(session) if session == "failed"));
+}
+
+#[test]
+fn retry_failed_from_archive_keeps_the_target_and_uppercase_r_remains_input_inside_forms() {
+    let mut app = App::default();
+    app.current = Some("archive-session".into());
+    app.command(Action::RetryFailed);
+    assert!(matches!(&app.effects[0].1, Task::Retry(session) if session == "archive-session"));
+    app.effects.clear();
+    app.pending_actions.clear();
+    app.command(Action::ImportUrl);
+    app.key(KeyEvent::new(KeyCode::Char('R'), KeyModifiers::SHIFT));
+    assert_eq!(app.form.as_ref().unwrap().fields[0].value, "R");
+    assert!(app.effects.is_empty());
+}
+
+#[test]
+fn retry_success_fences_old_progress_without_hiding_documents_or_blocking_record_controls() {
+    let mut app = App::default();
+    app.current = Some("saved".into());
+    app.transcript.push(TranscriptLine {
+        text: "Готовый текст".into(),
+        ..Default::default()
+    });
+    app.command(Action::RetryFailed);
+    let previous = app.epoch;
+    app.apply(Response {
+        id: 1,
+        epoch: previous,
+        resource: Resource::Control,
+        result: Ok(Data::Reply(Reply::default())),
+    });
+    assert_eq!(app.pending_retry, Some(previous));
+    assert_eq!(app.epoch, previous);
+    app.apply(Response {
+        id: 2,
+        epoch: previous,
+        resource: Resource::Action,
+        result: Ok(Data::Reply(Reply::default())),
+    });
+    assert_eq!(app.epoch, previous + 1);
+    assert!(app.pending_retry.is_none());
+    assert_eq!(app.transcript[0].text, "Готовый текст");
+    app.apply(Response {
+        id: 3,
+        epoch: previous,
+        resource: Resource::Progress,
+        result: Ok(Data::Progress(Progress {
+            running: true,
+            ..Default::default()
+        })),
+    });
+    assert!(!app.progress.running);
+}
+
+#[test]
 fn queue_keeps_server_order_and_retries_the_selected_session_with_explicit_scope() {
     let mut a = App::default();
     a.view = View::Queue;

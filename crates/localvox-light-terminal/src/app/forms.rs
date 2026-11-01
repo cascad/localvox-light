@@ -49,6 +49,9 @@ impl App {
             ) {
                 self.pending_document = Some(self.epoch);
             }
+            if matches!(t, Task::Retry(..)) {
+                self.pending_retry = Some(self.epoch);
+            }
             self.pending_context.insert(resource, self.epoch);
             self.effects.push((resource, t));
         } else {
@@ -73,6 +76,7 @@ impl App {
             if resource == Resource::Action {
                 self.settings_pending = None;
                 self.pending_document = None;
+                self.pending_retry = None;
             }
             if resource == Resource::Control {
                 self.pending_record = None;

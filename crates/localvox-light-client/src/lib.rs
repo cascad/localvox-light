@@ -394,6 +394,9 @@ impl Client {
     pub fn ingest(&self, url: &str) -> Result<Reply> {
         self.post(&["api", "ingest"], &[], json!({"url":url}))
     }
+    pub fn retry(&self, s: &str) -> Result<Reply> {
+        self.post(&["api", "sessions", s, "retry"], &[], json!({}))
+    }
     pub fn recook(&self, s: &str, scope: Scope) -> Result<Reply> {
         self.post(
             &["api", "sessions", s, "recook"],

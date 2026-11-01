@@ -1065,6 +1065,64 @@ test("an initial queue read failure is visible and never claims all work is done
   expect(mutations).toEqual([]);
 });
 
+test("queue retry resumes its failed phase without requesting a full recook", async ({ page }) => {
+  await workspace(page);
+  const posts: string[] = [];
+  let accepted = false;
+  await page.route("**/api/queue", route => route.fulfill({ json: { queue: [{ ...fixture.queue[0], state: accepted ? "pending" : "failed", stuck: !accepted }] } }));
+  await page.route(/\/api\/sessions\/[^/]+\/(retry|recook)(\?.*)?$/, route => {
+    posts.push(new URL(route.request().url()).pathname);
+    accepted = true;
+    return route.fulfill({ json: { msg: "Этап поставлен в очередь" } });
+  });
+  await page.locator(".nav").getByRole("button", { name: /Очередь/ }).click();
+  await page.getByRole("button", { name: /♻ Повторить/ }).click();
+  await expect.poll(() => posts.length).toBe(1);
+  expect(posts).toEqual(["/api/sessions/20261031_demo/retry"]);
+  await expect(page.locator(".qrow")).toHaveClass(/pending/);
+});
+
+test("queue retry remains a single pending POST until the server acknowledges it", async ({ page }) => {
+  await workspace(page);
+  let posts = 0; let accepted = false;
+  let release!: () => void; const gate = new Promise<void>(resolve => { release = resolve; });
+  await page.route("**/api/queue", route => route.fulfill({ json: { queue: [{ ...fixture.queue[0], state: accepted ? "pending" : "failed", stuck: !accepted }] } }));
+  await page.route("**/retry", async route => { posts++; await gate; accepted = true; await route.fulfill({ json: { msg: "Этап поставлен в очередь" } }); });
+  await page.locator(".nav").getByRole("button", { name: /Очередь/ }).click();
+  await page.getByRole("button", { name: "♻ Повторить этап", exact: true }).click();
+  const pending = page.getByRole("button", { name: "Постановка…", exact: true });
+  await expect(pending).toBeDisabled();
+  await pending.evaluate((node: HTMLButtonElement) => node.click());
+  await page.clock.runFor(5100);
+  expect(posts).toBe(1);
+  await expect(page.locator(".qrow")).toHaveClass(/failed/);
+  release();
+  await expect(page.locator(".qrow")).toHaveClass(/pending/);
+  expect(posts).toBe(1);
+});
+
+for (const status of [503, 404]) {
+  test(`queue retry ${status} never falls back to full recook or loses the stopped job`, async ({ page }) => {
+    await workspace(page);
+    const posts: string[] = [];
+    await page.route("**/api/queue", route => route.fulfill({ json: { queue: [{ ...fixture.queue[0], state: "failed", stuck: true, last_error: "previous failure" }] } }));
+    await page.route(/\/api\/sessions\/[^/]+\/(retry|recook)(\?.*)?$/, route => {
+      posts.push(new URL(route.request().url()).pathname);
+      return route.fulfill({ status, json: { error: "retry unavailable" } });
+    });
+    await page.locator(".nav").getByRole("button", { name: /Очередь/ }).click();
+    const retry = page.getByRole("button", { name: "♻ Повторить этап", exact: true });
+    await retry.click();
+    await expect(page.getByText("retry unavailable", { exact: true })).toBeVisible();
+    await expect(retry).toBeEnabled();
+    await expect(page.locator(".qrow")).toContainText("previous failure");
+    await page.clock.runFor(5100);
+    expect(posts).toEqual(["/api/sessions/20261031_demo/retry"]);
+    await retry.click(); await expect.poll(() => posts.length).toBe(2);
+    expect(posts.every(path => path.endsWith("/retry"))).toBe(true);
+  });
+}
+
 test("an initial jobs read failure shows unavailable status without invented counters", async ({ page }) => {
   await workspace(page, { jobsError: true, record: true });
   const badge = page.locator(".bar > .queue.failed");

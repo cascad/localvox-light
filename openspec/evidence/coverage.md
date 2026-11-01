@@ -224,6 +224,15 @@
 |---|---|---|---|
 | API-006 | [API delta](../changes/fix-workspace-status-polling/specs/api-access/spec.md), [App](../../ui/src/App.tsx), [usePolling](../../ui/src/usePolling.ts), [API client](../../ui/src/api.ts) | [test-run](../changes/fix-workspace-status-polling/evidence/implementation.md): до исправления перекрывались sessions/jobs/record; после — независимые последовательные циклы, свежий снимок после start/stop/import, отмена старого GET, сохранение выбора и backoff/recovery; полный browser и общий API/UI/TUI | Mock задержки и команды записи, без физического захвата; REC-001/003 и аппаратная приёмка этим полностью не закрываются |
 
+## Ручное возобновление обработки · 2026-11-01
+
+Продолжение PIPE-010/011/012: [ручное возобновление Failed](../changes/resume-failed-processing/evidence/implementation.md),
+[уточнение PIPE-010](../changes/resume-failed-processing/specs/processing-pipeline/spec.md).
+Кнопка очереди больше не отправляет полный recook. Проверены сохранение фазы,
+параметров и артефактов, fresh budget/force=false, отказ busy/recording/queue I/O,
+повторный POST, pending/error/success UI и R/палитра/формы TUI.
+Автоматический ремонт Done и controlled cancel/delete остаются BL-004/002.
+
 ## Проверка отказа чтения очереди · 2026-11-01
 
 Дополнение к PIPE-002/011: [исправление и проверки](../changes/fix-queue-read-failures/evidence/implementation.md),

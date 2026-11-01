@@ -50,6 +50,7 @@ pub enum Task {
     Stop,
     Ingest(String),
     Recook(String, Scope),
+    Retry(String),
     DeleteSession(String),
     Best(String, u32),
     Lang(String, String),
@@ -261,6 +262,7 @@ pub fn perform(c: &Client, task: Task) -> anyhow::Result<Data> {
         Task::Stop => Data::Reply(c.stop_recording()?),
         Task::Ingest(url) => Data::Reply(c.ingest(&url)?),
         Task::Recook(s, scope) => Data::Reply(c.recook(&s, scope)?),
+        Task::Retry(s) => Data::Reply(c.retry(&s)?),
         Task::DeleteSession(s) => Data::Reply(c.delete_session(&s)?),
         Task::Best(s, id) => {
             c.set_best(&s, id)?;

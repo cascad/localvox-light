@@ -542,6 +542,7 @@ export const api = {
   // `all` (or omitted) — everything from the audio up.
   recook: (s: string, scope?: "summary" | "text" | "all") =>
     post<{ msg?: string }>(`/api/sessions/${enc(s)}/recook${scope ? `?scope=${scope}` : ""}`),
+  retry: (s: string) => post<{ msg?: string }>(`/api/sessions/${enc(s)}/retry`),
   /** Delete a session entirely — audio and all derivatives. The ONLY irreversible action:
    *  everywhere else the audio is kept and the rest recomputes from it. The name is echoed back
    *  as `confirm` so a stray call cannot wipe the wrong recording. */

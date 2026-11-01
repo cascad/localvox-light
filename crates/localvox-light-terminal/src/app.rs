@@ -129,6 +129,7 @@ pub struct App {
     pub pending_actions: HashSet<Resource>,
     pub pending_context: HashMap<Resource, u64>,
     pub pending_document: Option<u64>,
+    pub pending_retry: Option<u64>,
     pub failed_drafts: std::collections::VecDeque<Form>,
     pub palette: bool,
     pub help: bool,
@@ -205,6 +206,7 @@ impl Default for App {
             pending_actions: HashSet::new(),
             pending_context: HashMap::new(),
             pending_document: None,
+            pending_retry: None,
             failed_drafts: std::collections::VecDeque::new(),
             palette: false,
             help: false,
@@ -371,6 +373,7 @@ impl App {
                 self.pending_context.remove(&r.resource);
                 if r.resource == Resource::Action {
                     self.settings_pending = None;
+                    self.pending_retry = None;
                     if self.pending_document.take() == Some(self.epoch) {
                         // Multi-label rename may have partially succeeded. Keep
                         // the current document until an authoritative read arrives.
@@ -401,6 +404,7 @@ impl App {
             self.status = "Данные обновлены".into();
         }
         let response_id = r.id;
+        let response_resource = r.resource;
         match data {
             Data::Sessions(s) => {
                 let selected = self.sessions.get(self.selected).map(|s| s.name.clone());
@@ -575,6 +579,13 @@ impl App {
                 }
             }
             Data::Reply(r) => {
+                if response_resource == Resource::Action
+                    && self.pending_retry.take() == Some(self.epoch)
+                    && action_context == Some(self.epoch)
+                {
+                    // Fence the previous attempt's reads, keeping its committed documents visible.
+                    self.epoch += 1;
+                }
                 let changes_document = self.pending_document.take() == Some(self.epoch);
                 if changes_document && action_context == Some(self.epoch) {
                     self.epoch += 1;
@@ -847,6 +858,7 @@ impl App {
                 }
             }
             KeyCode::Char('r') => self.refresh(),
+            KeyCode::Char('R') => self.command(Action::RetryFailed),
             KeyCode::Char(' ') => self.command(Action::TogglePlayback),
             KeyCode::Char('p') => self.command(Action::PlayFragment),
             KeyCode::Left if key.modifiers.contains(KeyModifiers::ALT) => self.nudge(-15.0),

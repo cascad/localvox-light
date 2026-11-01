@@ -882,6 +882,13 @@ pub fn respond(
                     .context("нужно поле url")?;
                 Ok(json!({"ok": true, "session": archive.ingest(url)?}))
             }
+            (Method::Post, p) if p.ends_with("/retry") => {
+                let name = p
+                    .strip_prefix("/api/sessions/")
+                    .and_then(|rest| rest.strip_suffix("/retry"))
+                    .context("не найдено")?;
+                Ok(json!({"ok": true, "msg": archive.retry(name)?}))
+            }
             (Method::Post, p) if p.ends_with("/recook") => {
                 let rest = p
                     .strip_prefix("/api/sessions/")

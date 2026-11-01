@@ -180,6 +180,181 @@ fn queue_read_errors_are_redacted_for_remote_clients() {
 }
 
 #[test]
+fn retry_resumes_failed_summary_and_ingest_without_invalidating_saved_work() {
+    use localvox_light_core::{processing, progress};
+    let directory = tempfile::tempdir().unwrap();
+    let transcripts = session(directory.path(), "summary");
+    let dir = directory.path().join("sessions/summary");
+    for artifact in [
+        processing::TRANSCRIPT,
+        processing::PROCESSED,
+        processing::SUMMARY,
+    ] {
+        processing::record(
+            &dir,
+            artifact,
+            "fixture",
+            processing::Outcome::Ok,
+            None,
+            Some(2),
+        )
+        .unwrap();
+    }
+    let mut files = transcripts;
+    files.extend(
+        [
+            "versions.json",
+            "meta.json",
+            "processed.json",
+            "summary.md",
+            "processing.json",
+        ]
+        .map(|file| dir.join(file)),
+    );
+    let originals: Vec<_> = files.iter().map(|file| fs::read(file).unwrap()).collect();
+    progress::new_run(&dir);
+    progress::mark(
+        &dir,
+        progress::Stage::Summary,
+        progress::StageState::Failed,
+        Some("previous failed attempt"),
+    );
+    let history = fs::read(dir.join("progress.jsonl")).unwrap();
+    jobs::JobQueue::mutate(directory.path(), |queue| {
+        assert!(queue.requeue_derivatives("summary", true, false, false));
+        let job = queue.start_phase(0, &[jobs::JobPhase::Summary]).unwrap();
+        queue.mark_failed(job.id, "synthetic model failure", 1);
+    });
+    let server = journal_http_fixture(directory.path(), Some("synthetic-token"));
+    let client = Client::new(&server.address, "synthetic-token".into()).unwrap();
+    assert!(client
+        .retry("summary")
+        .unwrap()
+        .msg
+        .unwrap()
+        .contains("summary"));
+    let queue = jobs::JobQueue::load(directory.path());
+    assert_eq!(queue.jobs().len(), 1);
+    let job = &queue.jobs()[0];
+    assert_eq!(
+        (job.phase, job.state, job.force),
+        (jobs::JobPhase::Summary, jobs::JobState::Pending, false)
+    );
+    assert_eq!((job.attempts, job.revivals), (0, 0));
+    assert!(!job.follow_settings && job.summary);
+    let view = client.progress("summary").unwrap();
+    assert_eq!(view.execution.unwrap().state, "queued");
+    let new_history = fs::read(dir.join("progress.jsonl")).unwrap();
+    assert!(new_history.starts_with(&history) && new_history.len() > history.len());
+    let queue_bytes = fs::read(directory.path().join("jobs.json")).unwrap();
+    assert!(
+        client.retry("summary").is_err(),
+        "a duplicate POST must not requeue Pending"
+    );
+    assert_eq!(
+        fs::read(directory.path().join("jobs.json")).unwrap(),
+        queue_bytes
+    );
+    assert_eq!(fs::read(dir.join("progress.jsonl")).unwrap(), new_history);
+    for (file, before) in files.iter().zip(&originals) {
+        assert_eq!(
+            &fs::read(file).unwrap(),
+            before,
+            "{} changed",
+            file.display()
+        );
+    }
+    let imported = client
+        .ingest("https://example.test/not-downloaded")
+        .unwrap()
+        .session
+        .unwrap();
+    jobs::JobQueue::mutate(directory.path(), |queue| {
+        let id = queue
+            .jobs()
+            .iter()
+            .find(|job| job.session == imported)
+            .unwrap()
+            .id;
+        queue.start_phase(id, &[jobs::JobPhase::Prepare]).unwrap();
+        queue.mark_failed(id, "download unavailable", 1);
+    });
+    let imported_dir = directory.path().join("sessions").join(&imported);
+    let source = fs::read(imported_dir.join("meta.json")).unwrap();
+    localvox_light_terminal::io::perform(
+        &client,
+        localvox_light_terminal::io::Task::Retry(imported.clone()),
+    )
+    .unwrap();
+    let queue = jobs::JobQueue::load(directory.path());
+    let job = queue
+        .jobs()
+        .iter()
+        .find(|job| job.session == imported)
+        .unwrap();
+    assert_eq!(
+        (job.kind, job.phase, job.state),
+        (
+            jobs::JobKind::Ingest,
+            jobs::JobPhase::Prepare,
+            jobs::JobState::Pending
+        )
+    );
+    assert_eq!(fs::read(imported_dir.join("meta.json")).unwrap(), source);
+}
+
+#[test]
+fn retry_rejects_busy_recording_invalid_queue_and_other_states_before_changing_progress() {
+    let directory = tempfile::tempdir().unwrap();
+    session(directory.path(), "failed");
+    let dir = directory.path().join("sessions/failed");
+    jobs::JobQueue::mutate(directory.path(), |queue| {
+        queue.requeue_derivatives("failed", true, false, false);
+        let job = queue.start_phase(0, &[jobs::JobPhase::Summary]).unwrap();
+        queue.mark_failed(job.id, "failed", 1);
+    });
+    let queue_file = directory.path().join("jobs.json");
+    let saved = fs::read(&queue_file).unwrap();
+    let server = journal_http_fixture(directory.path(), Some("synthetic-token"));
+    let client = Client::new(&server.address, "synthetic-token".into()).unwrap();
+    let lease = jobs::try_execution_lock(&dir).unwrap().unwrap();
+    assert!(client.retry("failed").is_err());
+    drop(lease);
+    fs::write(directory.path().join(".recording_session"), "failed").unwrap();
+    assert!(client.retry("failed").is_err());
+    fs::remove_file(directory.path().join(".recording_session")).unwrap();
+    assert_eq!(fs::read(&queue_file).unwrap(), saved);
+    for state in ["pending", "running", "done"] {
+        let mut queue: Value = serde_json::from_slice(&saved).unwrap();
+        queue["jobs"][0]["state"] = json!(state);
+        let bytes = serde_json::to_vec(&queue).unwrap();
+        fs::write(&queue_file, &bytes).unwrap();
+        assert!(client.retry("failed").is_err());
+        assert_eq!(fs::read(&queue_file).unwrap(), bytes);
+    }
+    fs::write(&queue_file, "{broken").unwrap();
+    assert!(client.retry("failed").is_err());
+    assert_eq!(fs::read(&queue_file).unwrap(), b"{broken");
+    fs::write(&queue_file, &saved).unwrap();
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        let _deny_replace = fs::OpenOptions::new()
+            .read(true)
+            .share_mode(1)
+            .open(&queue_file)
+            .unwrap();
+        assert!(
+            client.retry("failed").is_err(),
+            "queue write failure must not acknowledge retry"
+        );
+        assert_eq!(fs::read(&queue_file).unwrap(), saved);
+    }
+    assert!(!dir.join("progress.jsonl").exists());
+    assert!(dir.join("summary.md").is_file() && dir.join("processed.json").is_file());
+}
+
+#[test]
 fn raw_transcript_is_readable_without_cleanup_through_the_real_api() {
     let directory = tempfile::tempdir().unwrap();
     session(directory.path(), "raw-only");
