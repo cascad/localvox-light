@@ -506,7 +506,7 @@ pub fn respond(
             (Method::Get, "/api/health") => Ok(json!({
                 "ok": true, "service": "localvox-light",
                 "version": env!("CARGO_PKG_VERSION"), "api_protocol": 1,
-                "capabilities": ["technical-journal-v1", "terminal-workspace-v1"]
+                "capabilities": ["technical-journal-v1", "terminal-workspace-v1", "session-cancel-v1"]
             })),
             // Visibility of the autopilot: what is cooking / how many are queued (WP-C13)
             (Method::Get, "/api/jobs") => Ok(serde_json::to_value(archive.jobs_status()?)?),
@@ -881,6 +881,13 @@ pub fn respond(
                     .and_then(Value::as_str)
                     .context("нужно поле url")?;
                 Ok(json!({"ok": true, "session": archive.ingest(url)?}))
+            }
+            (Method::Post, p) if p.ends_with("/cancel") => {
+                let name = p
+                    .strip_prefix("/api/sessions/")
+                    .and_then(|rest| rest.strip_suffix("/cancel"))
+                    .context("не найдено")?;
+                Ok(json!({"ok":true,"msg":archive.cancel(name)?}))
             }
             (Method::Post, p) if p.ends_with("/retry") => {
                 let name = p

@@ -254,6 +254,7 @@ pub struct Operation<'a> {
     stage: String,
     label: String,
     started: std::time::Instant,
+    outcome: Option<&'static str>,
 }
 impl<'a> Operation<'a> {
     pub fn start(
@@ -269,6 +270,7 @@ impl<'a> Operation<'a> {
             stage: stage.into(),
             label: label.into(),
             started: std::time::Instant::now(),
+            outcome: None,
         };
         op.emit("operation_start", command, None);
         op
@@ -276,6 +278,11 @@ impl<'a> Operation<'a> {
     fn emit(&self, kind: &str, command: Option<DisplayCommand>, text: Option<String>) {
         let e = Entry {
             elapsed_sec: (kind == "operation_end").then(|| self.started.elapsed().as_secs_f64()),
+            status: if kind == "operation_end" {
+                self.outcome.map(str::to_owned)
+            } else {
+                None
+            },
             run: self.run.clone(),
             operation: Some(self.id.clone()),
             parent: Some(format!("stage:{}", self.stage)),
@@ -294,6 +301,9 @@ impl<'a> Operation<'a> {
     pub fn log(&self, text: &str) {
         self.emit("log", None, Some(safe_text(text)));
     }
+    pub fn cancelled(&mut self) {
+        self.outcome = Some("cancelled");
+    }
     /// Bind to the supervisor's durable phase attempt; a start record alone
     /// never proves that an old operation is still running.
     pub fn bind_execution(&self, execution: &str) -> io::Result<()> {
@@ -310,7 +320,12 @@ impl Drop for Operation<'_> {
             "operation_end",
             None,
             Some(format!(
-                "Выполнение завершено за {:.3} с; результат проверяется отдельно",
+                "Выполнение {} за {:.3} с; результат проверяется отдельно",
+                if self.outcome == Some("cancelled") {
+                    "отменено"
+                } else {
+                    "завершено"
+                },
                 self.started.elapsed().as_secs_f64()
             )),
         );

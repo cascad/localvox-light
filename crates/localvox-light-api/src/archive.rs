@@ -3,6 +3,7 @@
 //! needed.
 
 mod media;
+mod mutations;
 pub use media::AudioStream;
 
 use std::fs;
@@ -207,6 +208,8 @@ pub struct JobsStatus {
     pub running: usize,
     pub done: usize,
     pub failed: usize,
+    pub cancelling: usize,
+    pub cancelled: usize,
     /// The session being cooked right now.
     pub current: Option<String>,
     pub last_error: Option<String>,
@@ -819,6 +822,8 @@ impl Archive {
                 .filter_map(|j| {
                     let state = match j.state {
                         S::Running => "running",
+                        S::Cancelling => "cancelling",
+                        S::Cancelled => "cancelled",
                         S::Pending => "pending",
                         S::Failed => "failed",
                         S::Done => return None,
@@ -1159,7 +1164,7 @@ impl Archive {
                 .find(|job| job.session == session)
                 .context("нет остановленного задания для повтора")?;
             anyhow::ensure!(
-                job.state == JobState::Failed,
+                matches!(job.state, JobState::Failed | JobState::Cancelled),
                 "повтор этапа доступен только для остановленного задания"
             );
             let phase = job.phase;
@@ -1297,9 +1302,14 @@ impl Archive {
         Ok(())
     }
 
-    fn mutation_lease(&self, session: &str, dir: &Path) -> Result<fs::File> {
+    fn mutation_lease(
+        &self,
+        session: &str,
+        dir: &Path,
+    ) -> Result<localvox_light_core::jobs::control::MutationLease> {
         self.ensure_not_recording(session)?;
-        localvox_light_core::jobs::try_execution_lock(dir)?
+        self.checked_mutation_target(session, dir)?;
+        localvox_light_core::jobs::control::MutationLease::try_acquire(dir)?
             .context("сессия занята: обработка ещё выполняется; изменения не применены")
     }
 
@@ -1352,13 +1362,15 @@ impl Archive {
             bail!("удаление не подтверждено: передайте имя сессии в поле confirm");
         }
 
-        let _lease = self.mutation_lease(session, &dir)?;
-
-        localvox_light_core::jobs::JobQueue::mutate(&self.work_dir, |queue| {
-            queue.forget_session(session)
-        });
-
+        let _lease = self.stopped_lease(session, &dir, std::time::Duration::from_secs(5))?;
         std::fs::remove_dir_all(&dir).with_context(|| format!("не удалось удалить {session}"))?;
+        // The cancellation tombstone was saved before touching files. A cleanup failure
+        // cannot resurrect the removed source and is not a failed physical deletion.
+        if let Err(error) = localvox_light_core::jobs::JobQueue::mutate(&self.work_dir, |queue| {
+            queue.try_forget_session(session)
+        }) {
+            tracing::warn!("session deleted, queue cleanup pending: {error:#}");
+        }
         tracing::info!("session deleted: {session}");
         Ok(session.to_string())
     }
@@ -2154,6 +2166,8 @@ impl Archive {
                     started_at: meta.and_then(|m| Some(m.started_at)),
                     state: match j.state {
                         S::Running => "running",
+                        S::Cancelling => "cancelling",
+                        S::Cancelled => "cancelled",
                         S::Pending => "pending",
                         S::Failed => "failed",
                         S::Done => "done",
@@ -2187,6 +2201,13 @@ impl Archive {
                     st.current = Some(j.session.clone());
                 }
                 S::Done => st.done += 1,
+                S::Cancelling => {
+                    st.cancelling += 1;
+                    if st.current.is_none() {
+                        st.current = Some(j.session.clone());
+                    }
+                }
+                S::Cancelled => st.cancelled += 1,
                 S::Failed => {
                     st.failed += 1;
                     if st.last_error.is_none() {

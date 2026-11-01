@@ -108,7 +108,7 @@ fn command(args: &Args, root: &Path, summary: bool) -> Command {
         .env("LOCALVOX_LLM_MODEL", &args.llm_model)
         .env("LOCALVOX_LLM_BASE_URL", &args.llm_base_url)
         .env("LOCALVOX_SUMMARY_PROVIDER", "ollama")
-        .env("LOCALVOX_GLOSSARY_DIR", root.join("glossary"))
+        .env("LOCALVOX_LLM_GLOSSARY_DIR", root.join("glossary"))
         .arg("--work-dir")
         .arg(root)
         .arg("--worker")
@@ -167,8 +167,12 @@ pub fn run(
         let name = record["session"].as_str().unwrap();
         let session = root.join("sessions").join(name);
         let job = queue.jobs().iter().find(|job| job.session == name);
-        let terminal =
-            job.is_some_and(|job| matches!(job.state, JobState::Done | JobState::Failed));
+        let terminal = job.is_some_and(|job| {
+            matches!(
+                job.state,
+                JobState::Done | JobState::Failed | JobState::Cancelled
+            )
+        });
         let verification = job
             .map(|job| localvox_light_core::jobs::verify_phase(&session, job).is_ok())
             .unwrap_or(false);

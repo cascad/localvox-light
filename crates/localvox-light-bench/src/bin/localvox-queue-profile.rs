@@ -87,7 +87,7 @@ fn validate(root: &Path, worker: &Path, runner: &Path) -> Result<()> {
             "session escapes profiling workspace"
         );
         ensure!(
-            job.state != JobState::Running,
+            !matches!(job.state, JobState::Running | JobState::Cancelling),
             "workspace already has a running job"
         );
     }
@@ -187,10 +187,12 @@ fn run(args: Args, running: Arc<AtomicBool>) -> Result<PathBuf> {
         }
         let state = jobs::coordinator_status().map(|s| s.state);
         if state.as_deref() == Some("ready")
-            && queue
-                .jobs()
-                .iter()
-                .all(|j| matches!(j.state, JobState::Done | JobState::Failed))
+            && queue.jobs().iter().all(|j| {
+                matches!(
+                    j.state,
+                    JobState::Done | JobState::Failed | JobState::Cancelled
+                )
+            })
         {
             break "terminal";
         }

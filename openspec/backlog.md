@@ -17,7 +17,8 @@
 
 ### BL-002
 
-[Согласовать владение сессией во всех изменяющих операциях.](changes/serialize-session-mutations/proposal.md)
+[Согласовать владение сессией во всех изменяющих операциях.](changes/archive/2026-11-01-serialize-session-mutations/proposal.md)
+Реализовано и проверено 2026-11-01; [результаты и ограничения](changes/archive/2026-11-01-serialize-session-mutations/evidence/implementation.md).
 
 ### BL-003
 

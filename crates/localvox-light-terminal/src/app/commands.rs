@@ -42,6 +42,7 @@ pub enum Action {
     FilterSettings,
     DiscardSettings,
     RetryFailed,
+    CancelProcessing,
 }
 
 /// Only this list defines palette order; shortcuts dispatch by Action.
@@ -84,7 +85,8 @@ pub const COMMANDS: &[(Action, &str)] = &[
     (Action::RestoreDraft, "Восстановить черновик после ошибки"),
     (Action::FilterSettings, "Фильтр настроек"),
     (Action::DiscardSettings, "Отменить черновик настроек"),
-    (Action::RetryFailed, "Повторить упавший этап"),
+    (Action::RetryFailed, "Повторить или продолжить этап"),
+    (Action::CancelProcessing, "Отменить обработку"),
 ];
 
 impl App {
@@ -92,11 +94,44 @@ impl App {
         self.palette = false;
         let s = self.current.clone().unwrap_or_default();
         match action {
+            Action::CancelProcessing => {
+                let target = if self.view == View::Queue {
+                    self.queue
+                        .get(self.selected)
+                        .filter(|job| {
+                            matches!(job.state.as_str(), "pending" | "running" | "failed")
+                        })
+                        .map(|job| job.session.clone())
+                } else if self.view == View::Archive {
+                    self.current
+                        .as_ref()
+                        .and_then(|current| {
+                            self.sessions
+                                .iter()
+                                .find(|session| &session.name == current)
+                        })
+                        .filter(|session| {
+                            !session.recording
+                                && matches!(
+                                    session.job.as_deref(),
+                                    Some("pending" | "running" | "failed")
+                                )
+                        })
+                        .map(|session| session.name.clone())
+                } else {
+                    None
+                };
+                if let Some(session) = target {
+                    self.action(Task::Cancel(session));
+                } else {
+                    self.status = "Выберите ожидающую или выполняющуюся обработку".into();
+                }
+            }
             Action::RetryFailed => {
                 let target = if self.view == View::Queue {
                     self.queue
                         .get(self.selected)
-                        .filter(|job| job.state == "failed")
+                        .filter(|job| matches!(job.state.as_str(), "failed" | "cancelled"))
                         .map(|job| job.session.clone())
                 } else if self.view == View::Archive {
                     self.current.clone()

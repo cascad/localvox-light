@@ -1068,3 +1068,120 @@ fn grounded_chat_and_route_keep_sources_and_destinations_explicit_with_a_mock_mo
     assert!(client.ask("архитектура").is_err());
     assert!(client.route("архитектура").is_err());
 }
+
+#[test]
+fn cancellation_http_exposes_stopping_then_cancelled_and_manual_resume_without_erasing_transcript()
+{
+    use localvox_light_core::{jobs::control::ManagedExecution, processing};
+    use std::time::{Duration, Instant};
+    let root = tempfile::tempdir().unwrap();
+    let files = session(root.path(), "cancel");
+    let dir = root.path().join("sessions/cancel");
+    fs::remove_file(dir.join("summary.md")).unwrap();
+    processing::record(
+        &dir,
+        processing::TRANSCRIPT,
+        "fixture",
+        processing::Outcome::Ok,
+        None,
+        Some(2),
+    )
+    .unwrap();
+    let originals: Vec<_> = files.iter().map(|file| fs::read(file).unwrap()).collect();
+    let owner = jobs::JobQueue::mutate(root.path(), |queue| {
+        assert!(queue.requeue_derivatives("cancel", true, false, false));
+        let job = queue.start_phase(0, &[jobs::JobPhase::Summary]).unwrap();
+        ManagedExecution::register(&dir, &job, jobs::try_execution_lock(&dir).unwrap().unwrap())
+    });
+    let server = journal_http_fixture(root.path(), Some("synthetic-token"));
+    let client = Client::new(&server.address, "synthetic-token".into()).unwrap();
+    let (release, wait) = std::sync::mpsc::channel::<()>();
+    std::thread::scope(|scope| {
+        let worker = scope.spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while !owner.cancelled() && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            assert!(owner.cancelled());
+            let _ = wait.recv_timeout(Duration::from_secs(5));
+            drop(owner);
+        });
+        let cancellation = scope.spawn(|| client.cancel("cancel"));
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while client.jobs().unwrap().cancelling == 0 && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(client.queue().unwrap()[0].state, "cancelling");
+        assert_eq!(
+            client.progress("cancel").unwrap().execution.unwrap().state,
+            "cancelling"
+        );
+        assert!(client.retry("cancel").is_err());
+        assert!(jobs::try_execution_lock(&dir).unwrap().is_none());
+        release.send(()).unwrap();
+        worker.join().unwrap();
+        assert!(cancellation.join().unwrap().is_ok());
+    });
+    assert_eq!(client.jobs().unwrap().cancelled, 1);
+    assert_eq!(client.queue().unwrap()[0].state, "cancelled");
+    let view = client.progress("cancel").unwrap();
+    assert_eq!(view.execution.unwrap().state, "cancelled");
+    assert_eq!(
+        view.stages
+            .iter()
+            .find(|stage| stage.stage == "summary")
+            .unwrap()
+            .state,
+        "cancelled"
+    );
+    assert_eq!(
+        view.stages
+            .iter()
+            .find(|stage| stage.stage == "transcribe")
+            .unwrap()
+            .state,
+        "done"
+    );
+    for (file, before) in files.iter().zip(originals) {
+        assert_eq!(fs::read(file).unwrap(), before);
+    }
+    client.retry("cancel").unwrap();
+    let queue = client.queue().unwrap();
+    assert_eq!(queue[0].state, "pending");
+    assert_eq!(queue[0].phase.as_deref(), Some("summary"));
+}
+
+#[test]
+fn cancellation_http_conflicts_do_not_stop_recording_or_change_busy_cli_files() {
+    let root = tempfile::tempdir().unwrap();
+    session(root.path(), "busy");
+    let dir = root.path().join("sessions/busy");
+    jobs::JobQueue::mutate(root.path(), |queue| {
+        queue.enqueue_cook("busy", true, false, false)
+    });
+    let before = fs::read(root.path().join("jobs.json")).unwrap();
+    let server = journal_http_fixture(root.path(), Some("synthetic-token"));
+    let client = Client::new(&server.address, "synthetic-token".into()).unwrap();
+    let cli = jobs::try_execution_lock(&dir).unwrap().unwrap();
+    assert!(client
+        .cancel("busy")
+        .unwrap_err()
+        .to_string()
+        .contains("CLI"));
+    drop(cli);
+    fs::write(root.path().join(jobs::RECORDING_MARKER), "busy").unwrap();
+    assert!(client.cancel("busy").is_err());
+    assert!(!root.path().join(jobs::RECORD_STOP_MARKER).exists());
+    assert_eq!(fs::read(root.path().join("jobs.json")).unwrap(), before);
+    fs::write(root.path().join("jobs.json"), "{broken").unwrap();
+    fs::remove_file(root.path().join(jobs::RECORDING_MARKER)).unwrap();
+    let result = ureq::post(&format!("{}/api/sessions/busy/cancel", server.address))
+        .set("Authorization", "Bearer synthetic-token")
+        .send_json(json!({}))
+        .unwrap_err();
+    assert!(matches!(result, ureq::Error::Status(503, _)));
+    assert_eq!(
+        fs::read_to_string(root.path().join("jobs.json")).unwrap(),
+        "{broken"
+    );
+}

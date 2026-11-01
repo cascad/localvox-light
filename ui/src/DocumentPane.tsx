@@ -46,7 +46,9 @@ export function DocumentPane({ session, tab, setTab, pos, onSeek, onChanged, say
   // ONLY while there is work (recording, queued or cooking), fires one final reload the moment that
   // work ends, and — thanks to `useArtifact`'s in-place reload — never flickers to «загрузка…».
   const live =
-    session.recording || session.job === "running" || session.job === "pending";
+    session.recording || session.job === "running" || session.job === "pending" || session.job === "cancelling";
+  const controlPending = useRef(false);
+  const [controlBusy, setControlBusy] = useState(false);
   const [tick, setTick] = useState(0);
   const wasLive = useRef(false);
   useEffect(() => {
@@ -102,6 +104,15 @@ export function DocumentPane({ session, tab, setTab, pos, onSeek, onChanged, say
       say((e as Error).message);
     }
   };
+  const control = async (action: "cancel" | "retry") => {
+    if (controlPending.current) return;
+    controlPending.current = true; setControlBusy(true);
+    try {
+      const reply = await api[action](session.name);
+      say(`${sessionTitle(session)}: ${reply.msg ?? (action === "cancel" ? "обработка отменена" : "обработка продолжится")}`);
+    } catch (e) { say((e as Error).message); }
+    finally { controlPending.current = false; setControlBusy(false); onChanged(); setTick((n) => n + 1); }
+  };
 
   return (
     <main className="main">
@@ -125,12 +136,19 @@ export function DocumentPane({ session, tab, setTab, pos, onSeek, onChanged, say
             </button>
           ))}
           <span className="grow" />
+          {!session.recording && session.job && ["running", "pending", "failed"].includes(session.job) && <button className="tool" disabled={controlBusy} onClick={() => void control("cancel")}>
+            {controlBusy ? "Остановка…" : "Отменить обработку"}
+          </button>}
+          {session.job === "cancelling" && <span className="hint">Ожидается остановка…</span>}
+          {session.job === "cancelled" && <button className="tool" disabled={controlBusy} onClick={() => void control("retry")}>
+            {controlBusy ? "Постановка…" : "Продолжить обработку"}
+          </button>}
           <button className="tool" onClick={copy}
             aria-keyshortcuts={tab === "processed" ? "Control+Shift+C Meta+Shift+C" : undefined}
             title={`Скопировать документ (без служебных сносок)${tab === "processed" ? " · Ctrl+Shift+C" : ""}`}>
             ⧉ Копировать
           </button>
-          <button className="tool" onClick={recook} title={`Переварить ${scopeWord}`}>
+          <button className="tool" disabled={controlBusy || session.job === "cancelling"} onClick={recook} title={`Переварить ${scopeWord}`}>
             ♻ Переварить
           </button>
         </div>

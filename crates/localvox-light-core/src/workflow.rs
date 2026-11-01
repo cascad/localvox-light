@@ -201,6 +201,22 @@ fn execution(
                             .into();
                 }
             }
+            JobState::Cancelling => {
+                value.state = "cancelling".into();
+                value.message = "Запрошена остановка; ожидается освобождение обработчика".into();
+                value.current = active.map(|s| s.stage);
+                value.since = None; // There is no independent stop-request clock in legacy Job data.
+                value.next.clear();
+            }
+            JobState::Cancelled => {
+                value.state = "cancelled".into();
+                value.message =
+                    "Обработка отменена; сохранённые результаты доступны, продолжение — вручную"
+                        .into();
+                value.current = None;
+                value.since = j.finished_at.clone();
+                value.next.clear();
+            }
             JobState::Failed => {
                 let plan = retry_plan(j, coordinator, now).expect("Failed has a retry plan");
                 value.since = (plan.state != "failed")
@@ -292,11 +308,19 @@ pub fn view(session: &Path, job: Option<&Job>, from_link: bool, now: &str) -> Vi
     let run = progress::read_run(session);
     let events = run.events;
     let folded = progress::fold(&events);
-    let live = job.is_some_and(|j| matches!(j.state, JobState::Pending | JobState::Running));
+    let live = job.is_some_and(|j| {
+        matches!(
+            j.state,
+            JobState::Pending | JobState::Running | JobState::Cancelling
+        )
+    });
     let queued = job.map(|j| j.enqueued_at.as_ref().unwrap_or(&j.created_at).clone());
     // Run marks predate model/title loading. Older queues have no started_at field.
     let run_start = run.started_at;
     let has_started = job.is_none_or(|j| {
+        if j.state == JobState::Cancelled {
+            return j.started_at.is_some() || j.attempts > 0;
+        }
         j.started_at.is_some()
             || j.attempts > 0
             || j.phase != JobPhase::Prepare
@@ -456,6 +480,13 @@ pub fn view(session: &Path, job: Option<&Job>, from_link: bool, now: &str) -> Vi
                 {
                     row.state = StageState::Skipped;
                     row.note = Some("Нет речи: подтверждено результатом распознавания".into());
+                } else if job.state == JobState::Cancelled {
+                    row.state = StageState::Cancelled;
+                    row.note = Some("Обработка отменена; этап не объявляется выполненным".into());
+                    row.ended_at = job.finished_at.clone();
+                } else if job.state == JobState::Cancelling {
+                    row.state = StageState::Blocked;
+                    row.note = Some("Ожидается подтверждённая остановка обработчика".into());
                 } else if live {
                     let previous_in_phase = events.last().is_some_and(|e| {
                         e.state == StageState::Running

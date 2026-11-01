@@ -90,3 +90,8 @@ python scripts/check-openspec.py
 
 Работающий release-демон и пользовательский архив при этой работе не изменялись.
 Открытые BL/RV не закрыты принятием baseline.
+
+Дополнение 2026-11-01: по ранее принятому DEC-007 уточнено INV-SESSION-001
+в processing-pipeline. [BL-002](changes/archive/2026-11-01-serialize-session-mutations/evidence/implementation.md)
+реализован и проверен на временном Windows-архиве; аппаратная приёмка, внешняя LLM
+и общая многофайловая crash-транзакция этим не подтверждаются.

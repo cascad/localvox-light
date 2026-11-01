@@ -60,6 +60,7 @@ pub enum StageState {
     Running,
     Done,
     Failed,
+    Cancelled,
     /// Deliberately not done (the summary is off, there is no LLM, the recording is silent).
     /// This is an ANSWER, not a gap: a stage that is simply missing from the chain reads as
     /// "it is still coming", and a person waits for something that will never happen.

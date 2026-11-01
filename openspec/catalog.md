@@ -44,7 +44,8 @@ reference-бюджет и отдельные model/verification/resource timings
 browser/HTTP/ConPTY/media проверки в [change](changes/add-technical-journal-workspace/evidence/implementation.md).
 Единый UI+TUI прогон выполнен на настоящем temp API с synthetic producer; аппаратная
 приёмка и полный прогон моделей пока не объявлены выполненными.
-BL-001/007/020 реализованы и проверены в исходниках; BL-002/018/019 выполнены частично.
+BL-001/002/007/020 реализованы и проверены в исходниках; BL-018/019 выполнены частично.
+BL-003 завершён как reference-измерение с [условным бюджетом](changes/benchmark-processing-batch/evidence/queue-benchmark.md); это не SLA.
 [Сверка всех capability и выполненные проверки](evidence/implementation-review-2026-09-27.md)
 показывает границы результатов. Исторический архив и установленная release-сборка
 не обновлялись; наличие полного плана не означает завершённую работу.
@@ -52,8 +53,8 @@ BL-001/007/020 реализованы и проверены в исходник�
 | Изменение | Основание | Тема |
 |---|---|---|
 | [fix-ingest-ack](changes/fix-ingest-ack/proposal.md) | [BL-001](backlog.md#bl-001) | Подтверждать приём ссылки сохранением meta и очереди |
-| [serialize-session-mutations](changes/serialize-session-mutations/proposal.md) | [BL-002](backlog.md#bl-002) | Согласовать владение сессией для изменяющих операций |
-| [benchmark-processing-batch](changes/benchmark-processing-batch/proposal.md) | [BL-003](backlog.md#bl-003) | Изолированные worker-замеры: [STT](changes/benchmark-processing-batch/evidence/calibration.md), [настоящая summary/NER](changes/benchmark-processing-batch/evidence/summary-probes.md); полный координатор/репрезентативная длинная речь и бюджет открыты |
+| [serialize-session-mutations](changes/archive/2026-11-01-serialize-session-mutations/proposal.md) | [BL-002](backlog.md#bl-002) | Реализовано/проверено: владение, controlled cancel/delete, native CLI и restart/fault; [результаты](changes/archive/2026-11-01-serialize-session-mutations/evidence/implementation.md) |
+| [benchmark-processing-batch](changes/benchmark-processing-batch/proposal.md) | [BL-003](backlog.md#bl-003) | Изолированные worker-замеры: [STT](changes/benchmark-processing-batch/evidence/calibration.md), [настоящая summary/NER](changes/benchmark-processing-batch/evidence/summary-probes.md); полный координатор с длинной русской речью и repeats off/on, [бюджет и границы](changes/benchmark-processing-batch/evidence/queue-benchmark.md) проверены |
 | [recover-corrupt-processing-artifacts](changes/recover-corrupt-processing-artifacts/proposal.md) | [BL-004](backlog.md#bl-004) | Восстанавливать повреждённые готовые артефакты |
 | [verify-background-indexing](changes/verify-background-indexing/proposal.md) | [BL-005](backlog.md#bl-005) | Проверить индексатор вместе с очередью и поиском |
 | [unify-manual-and-queued-import](changes/unify-manual-and-queued-import/proposal.md) | [BL-006](backlog.md#bl-006) | Объединить ручной импорт и фоновый Prepare |
@@ -107,7 +108,7 @@ P1/P2: фактические commit/flush/ошибки описаны по пу
 crash-safe поведения любого файла и побайтовой неизменности всех версий.
 P3: retention исправлен по DEC-001: по умолчанию выключен, opt-in требует проверенного STT.
 P4/P5: отдельные крейты/флаги существуют, не каждый subprocess изолирован одинаково.
-P6: параллельны фазы разных сессий; бюджет «час за пять минут» не измерен.
+P6: параллельны фазы разных сессий; есть условный reference-бюджет BL-003, универсальное «час за пять минут» не заявлено.
 P7: UI — клиент; история про обязательную общую шину не доказывает WS.
 P8: явный выбор обязателен по DEC-006; неявный API default Claude остаётся дефектом RV-009.
 P9: источники — файлы, индексы производные; обязательная meta.sqlite не обнаружена.

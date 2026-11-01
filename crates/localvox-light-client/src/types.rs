@@ -91,6 +91,8 @@ pub struct Jobs {
     pub current: Option<String>,
     pub pending: usize,
     pub failed: usize,
+    pub cancelling: usize,
+    pub cancelled: usize,
 }
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(default)]

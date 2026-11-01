@@ -6,6 +6,16 @@ import { groupJournal, journalState, mergeJournal, type JournalEntry, type Journ
 const entry = (id: string, extra: Partial<JournalEntry> = {}): JournalEntry => ({ id, run: "r1", stage: "summary", kind: "log", at: "2026-10-31T07:00:00Z", label: "summary", ...extra });
 const page = (events: JournalEntry[], reset = false): JournalPage => ({ events, reset, next_cursor: "next", previous_cursor: "previous", has_more: false, truncated: false, discarded: 0, read_bytes: 0 });
 
+test("cancelled operations retain their terminal reason without becoming successful or failed", () => {
+  const group = groupJournal([
+    entry("start", { operation: "cancelled", kind: "operation_start" }),
+    entry("end", { operation: "cancelled", kind: "operation_end", status: "cancelled", elapsed_sec: 2.5 }),
+  ])[0];
+  assert.equal(group.elapsed, 2.5);
+  assert.equal(journalState(group, false).label, "отменено");
+  assert.equal(journalState(group, false).cls, "mute");
+});
+
 test("a start without live execution is unconfirmed and a completed operation retains its measured duration", () => {
   const events = [entry("start", { kind: "operation_start", operation: "old", at: "2026-10-31T07:00:00Z" })];
   let group = groupJournal(events)[0];

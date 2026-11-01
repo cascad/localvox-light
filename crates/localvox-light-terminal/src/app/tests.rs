@@ -1,5 +1,34 @@
 use super::*;
 
+#[test]
+fn cancel_shortcut_uses_queue_selection_once_and_never_stops_recording() {
+    let mut app = App::default();
+    app.view = View::Queue;
+    app.current = Some("other".into());
+    app.record.recording = true;
+    app.record.session = Some("live-recording".into());
+    app.queue = vec![QueueItem {
+        session: "queued".into(),
+        state: "pending".into(),
+        ..Default::default()
+    }];
+    app.key(KeyEvent::new(KeyCode::Char('X'), KeyModifiers::NONE));
+    assert!(matches!(&app.effects[0].1,Task::Cancel(session) if session=="queued"));
+    let count = app.effects.len();
+    app.key(KeyEvent::new(KeyCode::Char('X'), KeyModifiers::NONE));
+    assert_eq!(app.effects.len(), count);
+    assert!(app.record.recording);
+    assert!(!app
+        .effects
+        .iter()
+        .any(|(_, task)| matches!(task, Task::Stop)));
+    app.pending_actions.clear();
+    app.effects.clear();
+    app.queue[0].state = "cancelled".into();
+    app.key(KeyEvent::new(KeyCode::Char('R'), KeyModifiers::NONE));
+    assert!(matches!(&app.effects[0].1,Task::Retry(session) if session=="queued"));
+}
+
 fn choose_palette(app: &mut App, label: &str) {
     app.key(KeyEvent::new(KeyCode::Char(':'), KeyModifiers::NONE));
     assert!(app.palette);
@@ -1244,7 +1273,7 @@ fn retry_failed_uses_the_selected_queue_session_and_pending_actions_prevent_doub
         .iter()
         .any(|(_, task)| matches!(task, Task::Retry(..) | Task::Recook(..))));
     app.effects.clear();
-    choose_palette(&mut app, "Повторить упавший этап");
+    choose_palette(&mut app, "Повторить или продолжить этап");
     assert!(matches!(&app.effects[0].1, Task::Retry(session) if session == "failed"));
 }
 

@@ -19,6 +19,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::versions::{now_rfc3339, VersionStore};
 
+mod cancellation;
+pub mod control;
 pub mod discovery;
 
 /// A queue read/write failure may be retried without rerunning a worker.
@@ -37,9 +39,20 @@ impl std::error::Error for QueueStorageError {}
 pub enum JobState {
     Pending,
     Running,
+    Cancelling,
+    Cancelled,
     Done,
     Failed,
 }
+
+#[derive(Debug)]
+pub struct CancellationRequested;
+impl std::fmt::Display for CancellationRequested {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("обработка отменяется")
+    }
+}
+impl std::error::Error for CancellationRequested {}
 
 /// How many times a `Failed` job may be resurrected before it settles for good.
 ///
@@ -84,11 +97,15 @@ pub const WORKER_PROTOCOL: &str = "localvox-worker/1";
 /// OS-backed ownership, held from claim through artifact acceptance. A missing heartbeat is not
 /// evidence that a worker died. API repairs use the same lock before invalidating its outputs.
 pub fn try_execution_lock(session: &Path) -> std::io::Result<Option<fs::File>> {
+    try_lock_file(&session.join(".worker.lock"))
+}
+
+fn try_lock_file(path: &Path) -> std::io::Result<Option<fs::File>> {
     let file = fs::OpenOptions::new()
         .create(true)
         .write(true)
         .truncate(false)
-        .open(session.join(".worker.lock"))?;
+        .open(path)?;
     match file.try_lock() {
         Ok(()) => Ok(Some(file)),
         Err(std::fs::TryLockError::WouldBlock) => Ok(None),
@@ -180,6 +197,41 @@ pub struct Job {
     /// throwing them away is no loss. Only the audio itself is untouchable.
     #[serde(default)]
     pub force: bool,
+}
+
+impl Job {
+    fn pending(
+        id: u64,
+        session: &str,
+        kind: JobKind,
+        phase: JobPhase,
+        flags: (bool, bool, bool),
+        follow_settings: bool,
+    ) -> Self {
+        Self {
+            id,
+            session: session.into(),
+            kind,
+            phase,
+            summary: flags.0,
+            cleanup: flags.1,
+            refine: flags.2,
+            follow_settings,
+            state: JobState::Pending,
+            attempts: 0,
+            created_at: now_rfc3339(),
+            enqueued_at: None,
+            started_at: None,
+            phase_queued_at: Some(now_rfc3339()),
+            phase_started_at: None,
+            execution_id: None,
+            finished_at: None,
+            last_error: None,
+            failed_at: None,
+            revivals: 0,
+            force: false,
+        }
+    }
 }
 
 /// The same prerequisite checks are used for reuse and for accepting a child result.
@@ -473,7 +525,7 @@ impl JobQueue {
                 false,
             );
         };
-        if matches!(job.state, JobState::Running) {
+        if matches!(job.state, JobState::Running | JobState::Cancelling) {
             return false;
         }
         let previous = job.clone();
@@ -508,12 +560,9 @@ impl JobQueue {
 
     /// Resume the failed phase without invalidating reusable results or changing its request.
     pub fn retry_failed(&mut self, session: &str) -> bool {
-        let Some(index) = self
-            .file
-            .jobs
-            .iter()
-            .position(|job| job.session == session && job.state == JobState::Failed)
-        else {
+        let Some(index) = self.file.jobs.iter().position(|job| {
+            job.session == session && matches!(job.state, JobState::Failed | JobState::Cancelled)
+        }) else {
             return false;
         };
         let previous = self.file.jobs[index].clone();
@@ -553,7 +602,7 @@ impl JobQueue {
         refine: bool,
     ) -> bool {
         if let Some(job) = self.file.jobs.iter_mut().find(|j| j.session == session) {
-            if matches!(job.state, JobState::Running) {
+            if matches!(job.state, JobState::Running | JobState::Cancelling) {
                 return false;
             }
             job.phase = JobPhase::Prepare;
@@ -659,29 +708,14 @@ impl JobQueue {
         }
         let id = self.file.next_id;
         self.file.next_id += 1;
-        self.file.jobs.push(Job {
+        self.file.jobs.push(Job::pending(
             id,
-            session: session.to_string(),
+            session,
             kind,
             phase,
-            summary,
-            cleanup,
-            refine,
+            (summary, cleanup, refine),
             follow_settings,
-            state: JobState::Pending,
-            attempts: 0,
-            created_at: now_rfc3339(),
-            enqueued_at: None,
-            started_at: None,
-            phase_queued_at: Some(now_rfc3339()),
-            phase_started_at: None,
-            execution_id: None,
-            finished_at: None,
-            last_error: None,
-            failed_at: None,
-            revivals: 0,
-            force: false,
-        });
+        ));
         if self.save() {
             true
         } else {
@@ -898,6 +932,9 @@ impl JobQueue {
             .iter()
             .find(|j| j.id == id)
             .ok_or_else(|| anyhow::anyhow!("задание не найдено"))?;
+        if matches!(job.state, JobState::Cancelling | JobState::Cancelled) {
+            return Err(CancellationRequested.into());
+        }
         anyhow::ensure!(
             job.state == JobState::Running && job.phase == phase,
             "фаза задания уже изменилась"
@@ -956,6 +993,9 @@ impl JobQueue {
 
     pub fn mark_done(&mut self, id: u64) {
         if let Some(j) = self.file.jobs.iter_mut().find(|j| j.id == id) {
+            if matches!(j.state, JobState::Cancelling | JobState::Cancelled) {
+                return;
+            }
             j.state = JobState::Done;
             j.finished_at = Some(now_rfc3339());
             j.last_error = None;
@@ -1041,6 +1081,9 @@ impl JobQueue {
             .position(|j| j.id == id)
             .ok_or_else(|| anyhow::anyhow!("задание не найдено"))?;
         let j = &mut self.file.jobs[index];
+        if matches!(j.state, JobState::Cancelling | JobState::Cancelled) {
+            return Err(CancellationRequested.into());
+        }
         let previous = j.clone();
         j.last_error = Some(err.to_string());
         j.phase_queued_at = Some(now_rfc3339());

@@ -221,7 +221,12 @@ impl Journal {
 }
 impl Group {
     pub fn state(&self) -> &str {
-        if self.ended && !matches!(self.status.as_str(), "failed" | "invalid" | "done") {
+        if self.ended
+            && !matches!(
+                self.status.as_str(),
+                "failed" | "invalid" | "done" | "cancelled"
+            )
+        {
             "ended"
         } else {
             &self.status
@@ -330,6 +335,8 @@ mod tests {
             },
         ];
         assert_eq!(j.groups()[0].state(), "ended");
+        j.entries.last_mut().unwrap().status = Some("cancelled".into());
+        assert_eq!(j.groups()[0].state(), "cancelled");
     }
     #[test]
     fn paused_reader_survives_eviction_and_replay_is_not_new() {

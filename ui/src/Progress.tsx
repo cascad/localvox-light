@@ -20,6 +20,7 @@ const STATE: Record<Shown, { cls: string; label: string }> = {
   running: { cls: "busy", label: "идёт" },
   done: { cls: "done", label: "готово" },
   failed: { cls: "err", label: "сорвалось" },
+  cancelled: { cls: "mute", label: "отменено" },
   // Deliberately not done. This is an ANSWER, not a gap: a stage silently missing reads as
   // "still coming", and a person waits for something that will never happen.
   skipped: { cls: "mute", label: "пропущено" },
@@ -138,7 +139,7 @@ export function ProgressChain({ session }: { session: Session }) {
         <span>
           <b>{error ? "Текущее выполнение не подтверждено; показан последний полученный статус" : prog.execution.message}</b>
           {prog.execution.current && <> · {NAME[prog.execution.current]}</>}
-          {["running", "queued", "retry_wait", "blocked", "stalled"].includes(prog.execution.state) && <>
+          {["running", "queued", "retry_wait", "blocked", "stalled", "cancelling"].includes(prog.execution.state) && <>
             {" · "}{prog.execution.state === "running" ? "После запуска" : "Ожидание"}: {prog.execution.since ? hms(Math.max(0, elapsed(prog.execution.since, clockNow))) : "время неизвестно"}
           </>}
           <br />
@@ -170,9 +171,9 @@ export function ProgressChain({ session }: { session: Session }) {
                     <span className="hint">⏱ {hms(s.duration)}</span>
                   ) : s.duration != null ? (
                     <span className="hint">
-                      {["done", "failed", "invalid"].includes(s.state) ? "за" : "ранее"} {hms(s.duration)}
+                      {["done", "failed", "invalid", "cancelled"].includes(s.state) ? "за" : "ранее"} {hms(s.duration)}
                     </span>
-                  ) : ["done", "failed", "invalid"].includes(s.state) ? <span className="hint">длительность неизвестна</span> : s.state === "running" ? <span className="hint">начало не записано</span> : null}
+                  ) : ["done", "failed", "invalid", "cancelled"].includes(s.state) ? <span className="hint">длительность неизвестна</span> : s.state === "running" ? <span className="hint">начало не записано</span> : null}
                 </span>
                 {s.state === "running" && s.updated_at && <span className="hint">
                   Последний сигнал: {hms(Math.max(0, elapsed(s.updated_at, clockNow)))} назад

@@ -189,7 +189,21 @@ pub fn draw(f: &mut Frame, a: &App) {
                     if a.errors.contains_key(&Resource::Jobs) {
                         "   очередь недоступна".into()
                     } else {
-                        format!("   очередь {} · ошибки {}", a.jobs.pending, a.jobs.failed)
+                        format!(
+                            "   очередь {} · ошибки {}{}{}",
+                            a.jobs.pending,
+                            a.jobs.failed,
+                            if a.jobs.cancelling > 0 {
+                                format!(" · остановка {}", a.jobs.cancelling)
+                            } else {
+                                String::new()
+                            },
+                            if a.jobs.cancelled > 0 {
+                                format!(" · отменено {}", a.jobs.cancelled)
+                            } else {
+                                String::new()
+                            }
+                        )
                     },
                     Style::default().fg(if a.errors.contains_key(&Resource::Jobs) {
                         t.error
@@ -322,7 +336,7 @@ pub fn draw(f: &mut Frame, a: &App) {
     if a.help {
         let rect = modal(area, 78, 26);
         f.render_widget(Clear, rect);
-        f.render_widget(Paragraph::new("НОВОЕ ТЕРМИНАЛЬНОЕ ПРОСТРАНСТВО\nSpace play/pause; p fragment; g time; Alt+Left/Right +/-15s\nF6 player focus: Left/Right +/-5s, Home/End\n\nTab / Shift+Tab — фокус панели\n↑↓ / j k — выбрать строку; Enter — открыть\n1–5 — вкладка документа; y — копировать всё\n/ — поиск; : — все действия; n — создать; i — импорт URL\nF8 — остановить запись; F9 — начать запись\nPgUp / PgDn, Home / End — чтение документа\n← / → — свернуть / раскрыть подробности\n\nВ форме: Tab — поле; Enter — новая строка\nCtrl+Enter — отправить; Esc — отменить\nВставка остаётся текстом, команды не исполняются.\n\nq / F10 / Ctrl+Q закрывают только клиент.\nДемон и запись продолжают работать.\n\nЛюбая клавиша — закрыть справку").block(borders(a.ascii).title(" Помощь ").style(Style::default().bg(t.bg).fg(t.ink))).wrap(Wrap{trim:false}),rect);
+        f.render_widget(Paragraph::new("НОВОЕ ТЕРМИНАЛЬНОЕ ПРОСТРАНСТВО\nSpace play/pause; p fragment; g time; Alt+Left/Right +/-15s\nF6 player focus: Left/Right +/-5s, Home/End\n\nTab / Shift+Tab — фокус панели\n↑↓ / j k — выбрать строку; Enter — открыть\n1–5 — вкладка документа; y — копировать всё\n/ — поиск; : — все действия; n — создать; i — импорт URL\nF8 — остановить запись; F9 — начать запись\nX — отменить обработку; R — продолжить этап\nPgUp / PgDn, Home / End — чтение документа\n← / → — свернуть / раскрыть подробности\n\nВ форме: Tab — поле; Enter — новая строка\nCtrl+Enter — отправить; Esc — отменить\nВставка остаётся текстом, команды не исполняются.\n\nq / F10 / Ctrl+Q закрывают только клиент.\nДемон и запись продолжают работать.\n\nЛюбая клавиша — закрыть справку").block(borders(a.ascii).title(" Помощь ").style(Style::default().bg(t.bg).fg(t.ink))).wrap(Wrap{trim:false}),rect);
     }
     if let Some(form) = &a.form {
         let rect = modal(area, 88, area.height.saturating_sub(4).min(30));
@@ -525,7 +539,12 @@ fn items(f: &mut Frame, a: &App, area: Rect, t: Theme) {
                 .map(|q| {
                     format!(
                         "{} {}",
-                        if q.retry
+                        if q.state == "cancelling" {
+                            "~ остановка"
+                        } else if q.state == "cancelled" {
+                            "x отменено"
+                        } else if q
+                            .retry
                             .as_ref()
                             .is_some_and(|plan| plan.state == "retry_wait")
                         {
@@ -829,6 +848,8 @@ fn journal_projection(a: &App, t: Theme) -> JournalProjection {
                         .contains(&execution.state.as_str())
                 {
                     t.error
+                } else if execution.state == "cancelled" {
+                    t.dim
                 } else {
                     t.busy
                 },
@@ -1785,6 +1806,49 @@ mod tests {
         terminal.draw(|f| draw(f, &app)).unwrap();
         insta::assert_debug_snapshot!(format!("journal_{width}_{height}_light{light}_ascii{ascii}_mono{mono}_open{open}_failed{failed}"),terminal.backend().buffer());
     }
+    #[test]
+    fn snapshot_cancelled_journal_keeps_completed_transcript_and_frozen_clocks() {
+        let mut app = App {
+            tab: Tab::Progress,
+            focus: 2,
+            expanded: true,
+            viewport: (80, 24),
+            ..Default::default()
+        };
+        app.wall_ms = chrono::DateTime::parse_from_rfc3339("2026-10-31T08:00:00Z")
+            .unwrap()
+            .timestamp_millis();
+        let mut fixture: serde_json::Value =
+            serde_json::from_str(include_str!("../../../tests/fixtures/workspace.json")).unwrap();
+        fixture["progress"]["execution"] = serde_json::json!({
+            "state":"cancelled", "message":"Обработка отменена; результаты сохранены",
+            "since":"2026-10-31T07:00:25Z", "next":[]
+        });
+        for stage in fixture["progress"]["stages"].as_array_mut().unwrap() {
+            if stage["stage"] == "summary" {
+                stage["state"] = serde_json::json!("cancelled");
+                stage["ended_at"] = serde_json::json!("2026-10-31T07:00:25Z");
+                stage["note"] = serde_json::json!("Этап отменён; продолжение вручную");
+            }
+        }
+        app.progress = serde_json::from_value(fixture["progress"].clone()).unwrap();
+        let lines = journal_lines(&app, Theme::for_app(&app));
+        let transcript = lines
+            .iter()
+            .find(|line| line.to_string().contains("transcribe"))
+            .unwrap();
+        assert!(transcript.to_string().contains("done"));
+        let summary = lines
+            .iter()
+            .find(|line| line.to_string().contains("summary"))
+            .unwrap();
+        assert!(summary.to_string().contains("cancelled") && summary.to_string().contains("00:15"));
+        assert_eq!(summary.spans[0].style.fg, Some(Theme::for_app(&app).dim));
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        insta::assert_debug_snapshot!("journal_cancelled_80_24", terminal.backend().buffer());
+    }
+
     #[test]
     fn snapshot_journal_collapsed_dark() {
         journal_snapshot(160, 48, false, false, false, false, false);

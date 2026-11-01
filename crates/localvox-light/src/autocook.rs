@@ -242,7 +242,8 @@ fn spawn_inner(
 fn recover_before_start(work_dir: &Path, running: &AtomicBool, interval: Duration) -> bool {
     while running.load(Ordering::Relaxed) {
         let recovered = JobQueue::mutate(work_dir, |queue| {
-            let count = queue.try_reclaim_abandoned(work_dir)?;
+            let count = queue.try_reclaim_abandoned(work_dir)?
+                + queue.try_reconcile_cancellations(work_dir)?;
             queue.drop_orphans(work_dir);
             Ok::<_, anyhow::Error>(count)
         });
@@ -296,6 +297,7 @@ fn coordinate(cfg: &Config, running: &AtomicBool) {
                             let name = q.jobs().iter().find(|j| j.id == id)?.session.clone();
                             match jobs::try_execution_lock(&wd.join("sessions").join(&name)) {
                                 Ok(Some(lock)) => q.start_phase(id, phases).map(|job| {
+                                    let lock = jobs::control::ManagedExecution::register(&wd.join("sessions").join(&name), &job, lock);
                                     if let Some(observer) = &cfg.observer { observer.emit("claimed", &job, &job); }
                                     (job, lock)
                                 }),
@@ -307,13 +309,16 @@ fn coordinate(cfg: &Config, running: &AtomicBool) {
                             }
                         });
                         if let Some((job, _execution_lock)) = claim {
-                            let changed = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run_phase(cfg, running, &job))) {
+                            let changed = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run_phase_controlled(cfg, running, &job, Some(&_execution_lock)))) {
                                 Ok(changed) => changed,
                                 Err(_) => {
                                     fail_phase_observed(wd, running, &job, "Сбой координатора при выполнении задания; сохранённые результаты остаются доступны", cfg.observer.as_ref());
                                     true
                                 }
                             };
+                            if _execution_lock.cancelled() {
+                                finish_cancellation(cfg, running, &job);
+                            }
                             if changed {
                                 index_dirty.store(true, Ordering::Relaxed);
                             }
@@ -327,6 +332,19 @@ fn coordinate(cfg: &Config, running: &AtomicBool) {
         while running.load(Ordering::Relaxed) {
             let maintenance = JobQueue::mutate(wd, |q| {
                 q.drop_orphans(wd);
+                for job in q
+                    .jobs()
+                    .iter()
+                    .filter(|job| job.state == JobState::Cancelling)
+                {
+                    if let Some(owner) =
+                        jobs::control::managed_owner(&wd.join("sessions").join(&job.session))
+                            .filter(|owner| owner.matches(job))
+                    {
+                        owner.signal();
+                    }
+                }
+                q.try_reconcile_cancellations(wd)?;
                 q.try_revive_failed(Duration::from_secs(3600))
             });
             match maintenance {
@@ -361,10 +379,12 @@ fn coordinate(cfg: &Config, running: &AtomicBool) {
                 tracing::error!("autocook queue unavailable: {error}");
             }
             let idle = queue.error().is_none()
-                && !queue
-                    .jobs()
-                    .iter()
-                    .any(|j| matches!(j.state, JobState::Running | JobState::Pending));
+                && !queue.jobs().iter().any(|j| {
+                    matches!(
+                        j.state,
+                        JobState::Running | JobState::Pending | JobState::Cancelling
+                    )
+                });
             if idle && index_dirty.swap(false, Ordering::Relaxed) && running.load(Ordering::Relaxed)
             {
                 if !warm_indexes(cfg, running) {
@@ -409,10 +429,22 @@ fn discover_with(
 }
 
 #[cfg(test)]
+mod cancellation_tests;
+#[cfg(test)]
 mod discovery_tests;
 
+#[cfg(test)]
 fn run_phase(cfg: &Config, running: &AtomicBool, job: &Job) -> bool {
-    run_step(cfg, running, job, true, cfg.timeout(job.phase));
+    run_phase_controlled(cfg, running, job, None)
+}
+
+fn run_phase_controlled(
+    cfg: &Config,
+    running: &AtomicBool,
+    job: &Job,
+    owner: Option<&jobs::control::ManagedExecution>,
+) -> bool {
+    run_step(cfg, running, job, true, cfg.timeout(job.phase), owner);
     // Even a failed attempt may have committed reusable artifacts. The queue
     // carries success/failure; this return value only dirties idle indexes.
     running.load(Ordering::Relaxed)
@@ -424,7 +456,11 @@ fn run_step(
     job: &Job,
     finish: bool,
     timeout: Duration,
+    owner: Option<&jobs::control::ManagedExecution>,
 ) -> bool {
+    if owner.is_some_and(|owner| owner.cancelled()) {
+        return false;
+    }
     let session = cfg.work_dir.join("sessions").join(&job.session);
     if job.phase == JobPhase::Prepare && job.attempts == 1 {
         progress::new_run(&session);
@@ -475,7 +511,7 @@ fn run_step(
     if job.phase == JobPhase::Transcribe && job.force {
         cmd.arg("--force");
     }
-    let _journal_operation = localvox_light_core::journal::Operation::start(
+    let mut _journal_operation = localvox_light_core::journal::Operation::start(
         &session,
         job.phase.as_str(),
         "localvox-process",
@@ -508,7 +544,7 @@ fn run_step(
             cmd,
             None,
             Limits::new(timeout),
-            || !running.load(Ordering::Relaxed),
+            || !running.load(Ordering::Relaxed) || owner.is_some_and(|owner| owner.cancelled()),
             |pid, elapsed| {
                 let events = progress::read(&session);
                 if let Some(event) = events
@@ -581,7 +617,10 @@ fn run_step(
                     };
                 }
                 // Interrupted jobs are recovered on restart and reuse verified artifacts.
-                Termination::Cancelled => return false,
+                Termination::Cancelled => {
+                    _journal_operation.cancelled();
+                    return false;
+                }
                 Termination::TimedOut => format!(
                     "Фаза {}: превышен лимит {} с",
                     job.phase.as_str(),
@@ -616,6 +655,7 @@ fn retry_queue_commit(
     while running.load(Ordering::Relaxed) {
         match commit() {
             Ok(()) => return Ok(true),
+            Err(error) if error.is::<jobs::CancellationRequested>() => return Ok(false),
             Err(error) if error.is::<jobs::QueueStorageError>() => {
                 if waiting.is_none() {
                     let operation = localvox_light_core::journal::Operation::start(
@@ -641,6 +681,40 @@ fn retry_queue_commit(
         }
     }
     Ok(false)
+}
+
+fn finish_cancellation(cfg: &Config, running: &AtomicBool, owner: &Job) {
+    let session = cfg.work_dir.join("sessions").join(&owner.session);
+    let mut acknowledged = false;
+    let result = retry_queue_commit(&cfg.work_dir, running, owner, || {
+        JobQueue::mutate(&cfg.work_dir, |queue| {
+            let before = queue.jobs().iter().find(|job| job.id == owner.id).cloned();
+            if queue.try_complete_owned_cancellation(owner)? {
+                acknowledged = true;
+                let after = queue.jobs().iter().find(|job| job.id == owner.id).unwrap();
+                if let Some(observer) = &cfg.observer {
+                    observer.emit("cancelled", &before.unwrap(), after);
+                }
+            }
+            Ok(())
+        })
+    });
+    if acknowledged {
+        if let Some(event) = progress::read(&session)
+            .last()
+            .filter(|event| event.state == progress::StageState::Running)
+        {
+            progress::mark(
+                &session,
+                event.stage,
+                progress::StageState::Cancelled,
+                Some("Обработка отменена; сохранённые результаты доступны"),
+            );
+        }
+    }
+    if let Err(error) = result {
+        tracing::error!(job_id = owner.id, "stop acknowledgement: {error:#}");
+    }
 }
 
 #[cfg(test)]
@@ -932,7 +1006,7 @@ mod tests {
         }
     }
 
-    fn outcome_fixture(valid: bool) -> (tempfile::TempDir, Job) {
+    pub(super) fn outcome_fixture(valid: bool) -> (tempfile::TempDir, Job) {
         use localvox_light_core::versions::{VersionEntry, VersionStore};
         let root = tempfile::tempdir().unwrap();
         let session = root.path().join("sessions/result");

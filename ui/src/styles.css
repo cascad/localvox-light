@@ -667,12 +667,16 @@ mark { background: var(--mark); color: inherit; padding: 0 .1em; border-radius: 
    not an event worth a colour. */
 .qrow.running { border-color: var(--busy); }
 .qrow.failed { border-color: var(--rec); }
+.qrow.cancelling { border-color: var(--busy); }
+.qactions { display: flex; flex-direction: column; align-items: stretch; gap: 6px; flex: none; max-width: 45%; }
+.qactions .btn { white-space: normal; }
 .qpos {
   flex: none; width: 22px; text-align: center; font-variant-numeric: tabular-nums;
   color: var(--mute); font-size: 12px;
 }
 .qrow.running .qpos { color: var(--busy); }
 .qrow.failed .qpos { color: var(--rec); }
+.qrow.cancelling .qpos { color: var(--busy); }
 .qname {
   flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px;
   background: none; border: 0; padding: 0; text-align: left; cursor: pointer; color: inherit;

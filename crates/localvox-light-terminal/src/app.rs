@@ -859,6 +859,7 @@ impl App {
             }
             KeyCode::Char('r') => self.refresh(),
             KeyCode::Char('R') => self.command(Action::RetryFailed),
+            KeyCode::Char('X') => self.command(Action::CancelProcessing),
             KeyCode::Char(' ') => self.command(Action::TogglePlayback),
             KeyCode::Char('p') => self.command(Action::PlayFragment),
             KeyCode::Left if key.modifiers.contains(KeyModifiers::ALT) => self.nudge(-15.0),
@@ -1182,6 +1183,20 @@ pub fn timecode(sec: f64) -> String {
 }
 pub fn state_symbol(state: &str, ascii: bool) -> &'static str {
     match state {
+        "cancelling" => {
+            if ascii {
+                "~"
+            } else {
+                "◌"
+            }
+        }
+        "cancelled" => {
+            if ascii {
+                "x"
+            } else {
+                "■"
+            }
+        }
         "done" | "ready" => {
             if ascii {
                 "+"

@@ -5,6 +5,98 @@ import { fileURLToPath } from "node:url";
 const fixture = JSON.parse(readFileSync(fileURLToPath(new URL("../../../tests/fixtures/workspace.json", import.meta.url)), "utf8"));
 const journalFixture = JSON.parse(readFileSync(fileURLToPath(new URL("../../../tests/fixtures/journal.json", import.meta.url)), "utf8"));
 
+test("queue cancellation waits for acknowledgement and resumes without a full recook", async ({ page }) => {
+  await workspace(page);
+  let state = "running"; const posts: string[] = [];
+  let release!: () => void; const gate = new Promise<void>(resolve => { release = resolve; });
+  await page.route("**/api/queue", route => route.fulfill({ json: { queue: [{ ...fixture.queue[0], phase: "summary", state, stuck: false, last_error: null }] } }));
+  await page.route("**/api/jobs", route => route.fulfill({ json: { running: state === "running" ? 1 : 0, pending: state === "pending" ? 1 : 0, failed: 0, cancelling: state === "cancelling" ? 1 : 0, cancelled: state === "cancelled" ? 1 : 0 } }));
+  await page.route(/\/api\/sessions(\?.*)?$/, route => route.fulfill({ json: fixture.sessions.map((session: object) => ({ ...session, job: state })) }));
+  await page.route("**/cancel", async route => {
+    posts.push(new URL(route.request().url()).pathname); state = "cancelling";
+    await gate; state = "cancelled";
+    await route.fulfill({ json: { ok: true, msg: "Обработка отменена; текст сохранён" } });
+  });
+  await page.route(/\/(retry|recook)(\?.*)?$/, route => {
+    posts.push(new URL(route.request().url()).pathname); state = "pending";
+    return route.fulfill({ json: { ok: true, msg: "Обработка продолжится" } });
+  });
+  await page.locator(".nav").getByRole("button", { name: /Очередь/ }).click();
+  await page.getByRole("button", { name: "Отменить обработку", exact: true }).click();
+  const pending = page.getByRole("button", { name: "Остановка…", exact: true });
+  await expect(pending).toBeDisabled(); await pending.evaluate((node: HTMLButtonElement) => node.click());
+  try {
+    await page.clock.runFor(3100);
+    await expect(page.locator(".qrow")).toHaveClass(/cancelling/);
+    await expect(page.locator(".bar > .queue")).toContainText("Останавливается");
+    await expect(page.getByRole("button", { name: "Продолжить обработку", exact: true })).toHaveCount(0);
+    expect(posts).toEqual(["/api/sessions/20261031_demo/cancel"]);
+  } finally { release(); }
+  await expect(page.locator(".qrow")).toHaveClass(/cancelled/);
+  await expect(page.getByText("Продолжение — только вручную", { exact: true })).toBeVisible();
+  await page.setViewportSize({ width: 480, height: 850 }); await page.mouse.move(0, 0);
+  await expect(page.locator(".pane")).toHaveScreenshot("queue-cancelled-dark-480.png");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);
+  await page.getByRole("button", { name: "Продолжить обработку", exact: true }).click();
+  await expect(page.locator(".qrow")).toHaveClass(/pending/);
+  expect(posts).toEqual(["/api/sessions/20261031_demo/cancel", "/api/sessions/20261031_demo/retry"]);
+});
+
+for (const status of [409, 503]) {
+  test(`queue cancellation ${status} keeps the source and permits an explicit retry`, async ({ page }) => {
+    await workspace(page); const posts: string[] = [];
+    await page.route("**/cancel", route => {
+      posts.push(new URL(route.request().url()).pathname);
+      return route.fulfill({ status, json: { error: "stop not accepted; files retained" } });
+    });
+    await page.locator(".nav").getByRole("button", { name: /Очередь/ }).click();
+    const cancel = page.getByRole("button", { name: "Отменить обработку", exact: true });
+    await cancel.click(); await expect(page.getByText("stop not accepted; files retained", { exact: true })).toBeVisible();
+    await expect(cancel).toBeEnabled(); await expect(page.locator(".qrow")).toHaveClass(/running/);
+    expect(posts).toEqual(["/api/sessions/20261031_demo/cancel"]);
+  });
+}
+
+test("queue cancellation timeout preserves its stopping state instead of declaring completion", async ({ page }) => {
+  await workspace(page); let stopping = false;
+  await page.route("**/api/queue", route => route.fulfill({ json: { queue: [{ ...fixture.queue[0], state: stopping ? "cancelling" : "running" }] } }));
+  await page.route("**/cancel", route => { stopping = true; return route.fulfill({ status: 409, json: { error: "stop acknowledgement is pending" } }); });
+  await page.locator(".nav").getByRole("button", { name: /Очередь/ }).click();
+  await page.getByRole("button", { name: "Отменить обработку", exact: true }).click();
+  await expect(page.getByText("stop acknowledgement is pending", { exact: true })).toBeVisible();
+  await expect(page.locator(".qrow")).toHaveClass(/cancelling/);
+  await expect(page.getByRole("button", { name: "Продолжить обработку", exact: true })).toHaveCount(0);
+  await page.clock.runFor(5100); await expect(page.locator(".qrow")).toHaveClass(/cancelling/);
+});
+
+test("document cancellation preserves readable text and shows the unfinished summary as cancelled", async ({ page }) => {
+  await workspace(page); let state = "running"; const posts: string[] = [];
+  await page.route(/\/api\/sessions(\?.*)?$/, route => route.fulfill({ json: fixture.sessions.map((session: object) => ({ ...session, job: state })) }));
+  await page.route("**/progress", route => route.fulfill({ json: {
+    ...fixture.progress, execution: { state, message: state === "cancelled" ? "Обработка отменена; продолжение вручную" : "Обрабатывается", next: [] },
+    stages: fixture.progress.stages.map((stage: { stage: string }) => stage.stage === "summary" ? { ...stage, state: state === "cancelled" ? "cancelled" : "running", ended_at: state === "cancelled" ? "2026-10-31T07:00:25Z" : null } : stage),
+  } }));
+  await page.route(/\/(cancel|retry|recook)(\?.*)?$/, route => {
+    const path = new URL(route.request().url()).pathname; posts.push(path);
+    state = path.endsWith("/cancel") ? "cancelled" : "pending";
+    return route.fulfill({ json: { msg: "Сохранено" } });
+  });
+  await page.route("**/processed", route => route.fulfill({ json: { lines: fixture.transcript.lines, version_id: 1, from_transcript: true } }));
+  await page.getByRole("button", { name: "Текст", exact: true }).click();
+  const text = fixture.transcript.lines.map((line: { text: string }) => line.text).join(" ");
+  await expect(page.locator("[data-plain-text]")).toHaveText(text);
+  await page.getByRole("button", { name: "Отменить обработку", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Продолжить обработку", exact: true })).toBeVisible();
+  await expect(page.locator("[data-plain-text]")).toHaveText(text);
+  await page.getByRole("button", { name: "Ход", exact: true }).click();
+  await expect(page.locator(".step.cancelled")).toContainText("Сводка");
+  await expect(page.locator(".step.cancelled .st")).toHaveClass(/mute/);
+  await expect(page.locator(".step.done").filter({ hasText: "Распознавание" })).toBeVisible();
+  await page.getByRole("button", { name: "Продолжить обработку", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Продолжить обработку", exact: true })).toHaveCount(0);
+  expect(posts).toEqual(["/api/sessions/20261031_demo/cancel", "/api/sessions/20261031_demo/retry"]);
+});
+
 async function workspace(page: Page, options: { journalError?: boolean; record?: boolean; jobsError?: boolean } = {}) {
   await page.clock.install({ time: new Date("2026-10-31T07:00:25Z") });
   await page.route("**/api/**", async (route) => {

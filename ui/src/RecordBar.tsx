@@ -332,17 +332,19 @@ function Queue({
   open: () => void;
 }) {
   if (error) return (
-    <button className="queue failed" onClick={open} title={`${error}${jobs ? ` · Последние данные: ${jobs.running} в работе · ${jobs.pending} ждут · ${jobs.failed} ошибок` : ""}`}>
+    <button className="queue failed" onClick={open} title={`${error}${jobs ? ` · Последние данные: ${jobs.running} в работе · ${jobs.pending} ждут · ${jobs.failed} ошибок · ${jobs.cancelling ?? 0} останавливаются` : ""}`}>
       <span className="qdot err" />
       <span className="queue-status">
         <span>очередь недоступна</span>
-        {jobs && <span className="mut">последние данные: {jobs.running} в работе · {jobs.pending} ждут · {jobs.failed} ошибок</span>}
+        {jobs && <span className="mut">последние данные: {jobs.running} в работе · {jobs.pending} ждут · {jobs.failed} ошибок{jobs.cancelling ? ` · остановка ${jobs.cancelling}` : ""}</span>}
       </span>
     </button>
   );
   if (!jobs) return null;
-  const { running, pending, failed } = jobs;
-  if (!running && !pending && !failed) return null;
+  const { running, pending, failed, cancelling = 0, cancelled = 0 } = jobs;
+  if (!running && !pending && !failed && !cancelling && !cancelled) return null;
+  if (!running && cancelling) return <button className="queue" onClick={open}><span className="qdot busy" />Останавливается: {cancelling}</button>;
+  if (!running && !pending && !failed && cancelled) return <button className="queue" onClick={open}><span className="qdot" />Отменено: {cancelled}</button>;
 
   if (!running && failed) {
     return (
@@ -364,6 +366,7 @@ function Queue({
         <>в очереди</>
       )}
       {pending > 0 && <span className="mut">+{pending}</span>}
+      {cancelling > 0 && <span className="mut">остановка: {cancelling}</span>}
     </button>
   );
 }

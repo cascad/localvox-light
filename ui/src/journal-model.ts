@@ -66,6 +66,7 @@ export function groupJournal(events: JournalEntry[]): JournalGroup[] {
 }
 
 export function journalState(group: JournalGroup, active?: boolean) {
+  if (group.state === "cancelled") return { symbol: "■", label: "отменено", cls: "mute" };
   if (group.state === "failed" || group.state === "invalid") return { symbol: "!", label: group.state === "invalid" ? "не подтверждён" : "ошибка", cls: "err" };
   if (group.state === "done") return { symbol: "✓", label: "этап завершён", cls: "done" };
   if (group.state === "skipped") return { symbol: "–", label: "пропущено", cls: "mute" };

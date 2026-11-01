@@ -2,7 +2,7 @@
 // learns here — no component talks to the network on its own.
 import type { JournalPage } from "./journal-model";
 
-export type JobState = "running" | "pending" | "failed";
+export type JobState = "running" | "pending" | "failed" | "cancelling" | "cancelled";
 
 export interface Session {
   name: string;
@@ -110,6 +110,8 @@ export interface Jobs {
   current?: string | null;
   pending: number;
   failed: number;
+  cancelling?: number;
+  cancelled?: number;
 }
 
 /** One line of the queue: a session waiting for the pot, in the order it will get there.
@@ -118,7 +120,7 @@ export interface QueueItem {
   session: string;
   title: string;
   started_at?: string | null;
-  state: "running" | "pending" | "failed";
+  state: JobState;
   kind: "cook" | "ingest";
   /** Place in the line; null for what is already cooking. */
   position?: number | null;
@@ -300,7 +302,7 @@ export interface RecordState {
  *  the list — a microphone recording has no download, and drawing it as "pending" would
  *  promise a step that will never come. */
 export type Stage = "download" | "extract" | "transcribe" | "refine" | "cleanup" | "summary";
-export type StageState = "waiting" | "queued" | "blocked" | "running" | "done" | "failed" | "skipped" | "invalid";
+export type StageState = "waiting" | "queued" | "blocked" | "running" | "done" | "failed" | "skipped" | "invalid" | "cancelled";
 
 export interface StageStatus {
   stage: Stage;
@@ -545,6 +547,7 @@ export const api = {
   recook: (s: string, scope?: "summary" | "text" | "all") =>
     post<{ msg?: string }>(`/api/sessions/${enc(s)}/recook${scope ? `?scope=${scope}` : ""}`),
   retry: (s: string) => post<{ msg?: string }>(`/api/sessions/${enc(s)}/retry`),
+  cancel: (s: string) => post<{ msg?: string }>(`/api/sessions/${enc(s)}/cancel`),
   /** Delete a session entirely — audio and all derivatives. The ONLY irreversible action:
    *  everywhere else the audio is kept and the rest recomputes from it. The name is echoed back
    *  as `confirm` so a stray call cannot wipe the wrong recording. */

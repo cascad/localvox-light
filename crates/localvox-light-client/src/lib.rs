@@ -397,6 +397,9 @@ impl Client {
     pub fn retry(&self, s: &str) -> Result<Reply> {
         self.post(&["api", "sessions", s, "retry"], &[], json!({}))
     }
+    pub fn cancel(&self, s: &str) -> Result<Reply> {
+        self.post(&["api", "sessions", s, "cancel"], &[], json!({}))
+    }
     pub fn recook(&self, s: &str, scope: Scope) -> Result<Reply> {
         self.post(
             &["api", "sessions", s, "recook"],

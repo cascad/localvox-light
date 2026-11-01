@@ -52,14 +52,17 @@ fn real_coordinator_empty_timeout_and_preflight_failure_are_bounded() {
         runner.is_file() && worker.is_file(),
         "build queue runner and worker first"
     );
-    for mode in ["empty", "timeout", "failed", "incompatible"] {
+    for mode in ["empty", "timeout", "failed", "cancelled", "incompatible"] {
         let root = tempfile::tempdir().unwrap();
         fs::write(root.path().join(MARKER), "localvox-profile/v1\n").unwrap();
-        if matches!(mode, "timeout" | "failed") {
+        if matches!(mode, "timeout" | "failed" | "cancelled") {
             fs::create_dir_all(root.path().join("sessions/fixture")).unwrap();
             JobQueue::mutate(root.path(), |q| {
                 q.enqueue_cook("fixture", false, false, false)
             });
+            if mode == "cancelled" {
+                JobQueue::mutate(root.path(), |q| q.try_complete_cancellation("fixture")).unwrap();
+            }
         }
         let (binary, chosen_worker) = if mode == "incompatible" {
             let bin = root.path().join("bin");
@@ -94,14 +97,14 @@ fn real_coordinator_empty_timeout_and_preflight_failure_are_bounded() {
         assert_eq!(report["coordinator_joined"], true, "{mode}");
         assert_eq!(
             report["complete"],
-            matches!(mode, "empty" | "failed"),
+            matches!(mode, "empty" | "failed" | "cancelled"),
             "{mode}"
         );
         assert_eq!(report["all_success"], mode == "empty", "{mode}");
         assert_eq!(
             report["reason"],
             match mode {
-                "empty" | "failed" => "terminal",
+                "empty" | "failed" | "cancelled" => "terminal",
                 "timeout" => "timeout",
                 _ => "coordinator_stopped",
             }
@@ -112,6 +115,12 @@ fn real_coordinator_empty_timeout_and_preflight_failure_are_bounded() {
             assert!(!report["events"].as_array().unwrap().is_empty());
             assert_eq!(report["jobs"].as_array().unwrap().len(), 1);
             assert_ne!(report["jobs"][0]["state"], "Done");
+        }
+        if mode == "cancelled" {
+            assert_eq!(report["jobs"][0]["state"], "Cancelled");
+            assert_eq!(report["jobs"][0]["attempt"], 0);
+            assert!(report["events"].as_array().unwrap().is_empty());
+            assert!(root.path().join("sessions/fixture").is_dir());
         }
         if mode == "failed" {
             assert_eq!(report["jobs"][0]["state"], "Failed");
@@ -211,11 +220,13 @@ fn unsafe_or_running_session_is_rejected_and_error_contents_are_not_reported() {
         assert!(validate(root.path(), &worker, &runner).is_err());
     }
     job.session = "fixture".into();
-    job.state = JobState::Running;
-    fs::write(
-        root.path().join("jobs.json"),
-        serde_json::to_vec(&json!({"next_id":2,"jobs":[job]})).unwrap(),
-    )
-    .unwrap();
-    assert!(validate(root.path(), &worker, &runner).is_err());
+    for state in [JobState::Running, JobState::Cancelling] {
+        job.state = state;
+        fs::write(
+            root.path().join("jobs.json"),
+            serde_json::to_vec(&json!({"next_id":2,"jobs":[job.clone()]})).unwrap(),
+        )
+        .unwrap();
+        assert!(validate(root.path(), &worker, &runner).is_err());
+    }
 }

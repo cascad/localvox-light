@@ -55,7 +55,10 @@ impl Observer {
     pub(super) fn emit(&self, kind: &'static str, before: &Job, after: &Job) {
         let ended_at = if kind == "claimed" {
             None
-        } else if matches!(after.state, JobState::Done | JobState::Failed) {
+        } else if matches!(
+            after.state,
+            JobState::Done | JobState::Failed | JobState::Cancelled
+        ) {
             after.finished_at.clone()
         } else {
             after.phase_queued_at.clone()

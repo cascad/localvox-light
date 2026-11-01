@@ -41,6 +41,8 @@ export function dayLabel(s: Session): string {
 export function stateOf(s: Session): { cls: string; text: string } {
   if (s.recording) return { cls: "rec", text: "идёт запись" };
   if (s.job === "running") return { cls: "busy", text: "обрабатывается" };
+  if (s.job === "cancelling") return { cls: "busy", text: "останавливается" };
+  if (s.job === "cancelled") return { cls: "mute", text: "обработка отменена" };
   if (s.job === "pending") return { cls: "busy", text: "в очереди" };
   if (s.job === "failed") return { cls: "err", text: "обработка сорвалась" };
   if (!s.cooked) return { cls: "busy", text: "не обработана" };

@@ -71,7 +71,7 @@ openspec validate --specs --strict --no-interactive
 python scripts/check-openspec.py
 ```
 
-Main specs: 15 capability, 86 требований. Матрица покрывает каждый ID.
+Main specs: 15 capability, 87 требований. Матрица покрывает каждый ID.
 Проверка формы/ссылок не заменяет проверку логики или benchmark.
 
 Для готового change:

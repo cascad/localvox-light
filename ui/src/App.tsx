@@ -128,7 +128,7 @@ export default function App() {
   }, [ingest]);
 
   // Navigation counts all active lanes, pending work and failures.
-  const queued = (jobs?.running ?? 0) + (jobs?.pending ?? 0) + (jobs?.failed ?? 0);
+  const queued = (jobs?.running ?? 0) + (jobs?.pending ?? 0) + (jobs?.failed ?? 0) + (jobs?.cancelling ?? 0) + (jobs?.cancelled ?? 0);
 
   return (
     <div className="app">
@@ -236,12 +236,16 @@ export default function App() {
         </div>
 
         <div className="side-foot">
-          {jobs?.running ? (
+          {jobs?.cancelling ? (
+            <span className="st busy">останавливается: {jobs.cancelling}</span>
+          ) : jobs?.running ? (
             <span className="st busy">варится{jobs.pending ? ` (+${jobs.pending})` : ""}</span>
           ) : jobs?.pending ? (
             <span className="st busy">в очереди: {jobs.pending}</span>
           ) : jobs?.failed ? (
             <span className="st err">упало: {jobs.failed}</span>
+          ) : jobs?.cancelled ? (
+            <span className="hint">отменено: {jobs.cancelled}</span>
           ) : (
             <span className="hint">архив</span>
           )}
