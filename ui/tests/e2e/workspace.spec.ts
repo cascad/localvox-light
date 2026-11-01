@@ -83,6 +83,45 @@ test("only summary is optional and the Text tab reads the primary transcript wit
   expect(sent[1]).toEqual({ LOCALVOX_LIGHT_AUTOCOOK_SUMMARY: "on" });
 });
 
+test("raw Text is a single body and the copy shortcut includes offscreen text without intercepting editors", async ({ page }) => {
+  await workspace(page);
+  let lines = [
+    { who: "Анна", start_sec: 0, end_sec: 2, text: "Первая реплика." },
+    { who: "Борис", start_sec: 3600, end_sec: 3602, text: "Вторая реплика." },
+  ];
+  const copied: string[] = [];
+  await page.exposeFunction("capturePlainText", (text: string) => { copied.push(text); });
+  await page.evaluate(() => Object.defineProperty(navigator, "clipboard", { value: { writeText: (text: string) => (window as unknown as { capturePlainText: (text: string) => Promise<void> }).capturePlainText(text) } }));
+  await page.route("**/processed", route => route.fulfill({ json: { lines, version_id: 1, from_transcript: true, provenance: null, omitted: 0, rejected: 0 } }));
+  await page.getByRole("button", { name: "Текст", exact: true }).click();
+  await expect(page.locator(".book p")).toHaveCount(1);
+  await expect(page.locator("[data-plain-text]")).toHaveText("Первая реплика. Вторая реплика.");
+  await expect(page.locator(".book")).not.toContainText(/Анна|Борис|00:00|—/);
+  await page.keyboard.press("Control+Shift+C");
+  await expect.poll(() => copied).toEqual(["Первая реплика. Вторая реплика."]);
+  await expect(page.locator(".doc")).toHaveScreenshot("raw-text.png");
+  lines = Array.from({ length: 500 }, (_, i) => ({ who: "Голос", start_sec: i, end_sec: i + 1, text: `Фрагмент ${i}.` }));
+  const full = lines.map(line => line.text).join(" ");
+  await page.clock.runFor(3100);
+  await expect(page.locator("[data-plain-text]")).toHaveText(full);
+  expect(await page.locator("[data-plain-text]").evaluate(element => {
+    const text = element.firstChild!;
+    const range = document.createRange(); range.setStart(text, text.textContent!.length - 12); range.setEnd(text, text.textContent!.length);
+    return range.getBoundingClientRect().top > window.innerHeight;
+  })).toBe(true);
+  await page.keyboard.press("Control+Shift+C");
+  await expect.poll(() => copied.length).toBe(2);
+  expect(copied[1]).toBe(full);
+  const search = page.getByPlaceholder("Поиск по архиву…");
+  await search.fill("черновик");
+  await search.press("Control+Shift+C");
+  expect(copied.length).toBe(2);
+  await expect(search).toHaveValue("черновик");
+  await page.locator(".doc-head").getByRole("button", { name: /Копировать/ }).click();
+  await expect.poll(() => copied.length).toBe(3);
+  expect(copied[2]).toBe(full);
+});
+
 test("pipeline keeps elapsed time, the next step and an explicit reason between workers and retries", async ({ page }) => {
   await workspace(page);
   let state = "queued";

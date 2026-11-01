@@ -60,14 +60,23 @@ pub(super) fn project(a: &App, t: Theme, metadata: bool) -> Projection {
     let focused = a.focus == 2;
     match a.view {
         View::Archive => match a.tab {
+            Tab::Readable if a.readable.from_transcript => {
+                projection.lines.push(Line::from(Span::styled(
+                    "Исходная расшифровка · y копировать целиком",
+                    Style::default().fg(t.dim),
+                )));
+                projection.lines.push(Line::from(""));
+                block(
+                    &mut projection,
+                    String::new(),
+                    &a.copy_text(),
+                    None,
+                    false,
+                    false,
+                    t,
+                );
+            }
             Tab::Transcript | Tab::Readable => {
-                if a.tab == Tab::Readable && a.readable.from_transcript {
-                    projection.lines.push(Line::from(Span::styled(
-                        "Текст расшифровки · без дополнительной очистки",
-                        Style::default().fg(t.dim),
-                    )));
-                    projection.lines.push(Line::from(""));
-                }
                 let lines = if a.tab == Tab::Transcript {
                     &a.transcript
                 } else {
@@ -210,7 +219,10 @@ pub(super) fn project(a: &App, t: Theme, metadata: bool) -> Projection {
             }
         }
     }
-    if metadata && !projection.lines.is_empty() {
+    if metadata
+        && !projection.lines.is_empty()
+        && !(a.view == View::Archive && a.tab == Tab::Readable && a.readable.from_transcript)
+    {
         let text = a.metadata_text();
         if !text.is_empty() {
             projection.lines.push(Line::from(Span::styled(

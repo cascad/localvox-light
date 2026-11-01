@@ -285,7 +285,7 @@ fn real_terminal_accepts_paste_resize_and_restores_screen_on_quit() {
         &mut queries,
         deadline,
     );
-    writer.write_all(b"\x1b\x11").unwrap();
+    writer.write_all(b"\x1b[21~").unwrap(); // F10, including an open form
     writer.flush().unwrap();
     wait_for(
         "\x1b[?1049l",
@@ -377,7 +377,7 @@ fn unauthorized_start_can_reconnect_through_the_masked_form_without_replaying_st
     writer.flush().unwrap();
     see!("Архитектура и следующие шаги");
     assert_eq!(api.stops.load(Ordering::Relaxed), 0);
-    writer.write_all(b"\x11").unwrap();
+    writer.write_all(b"q").unwrap(); // plain exit when the host reserves Ctrl+Q
     writer.flush().unwrap();
     see!("\x1b[?1049l");
     assert!(child.0.wait().unwrap().success());

@@ -1,6 +1,6 @@
 ---
 source: crates/localvox-light-terminal/src/render.rs
-assertion_line: 1577
+assertion_line: 1645
 expression: terminal.backend().buffer()
 ---
 Buffer {
@@ -53,7 +53,7 @@ Buffer {
         "│                          │                                                                                                        │                           ",
         "│                          │                                                                                                        │                           ",
         " Подключение…                                                                                                                                                   ",
-        " Tab фокус   1–5 вкладка   : действия   F8 stop   F9 record   ? помощь   Ctrl+Q закрыть                                                                         ",
+        " Tab фокус   1–5 вкладка   : действия   y копия   F8 stop   F9 rec   ?   q / F10 выход                                                                          ",
     ],
     styles: [
         x: 0, y: 0, fg: Rgb(39, 43, 48), bg: Rgb(246, 245, 241), underline: Reset, modifier: BOLD,

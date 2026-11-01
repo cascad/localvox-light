@@ -705,6 +705,7 @@ impl App {
         if (key.modifiers.contains(KeyModifiers::CONTROL)
             && matches!(key.code, KeyCode::Char('q' | 'Q' | 'й' | 'Й')))
             || key.code == KeyCode::Char('\u{11}')
+            || (key.code == KeyCode::F(10) && key.modifiers.is_empty())
         {
             self.quit = true;
             return;
@@ -796,6 +797,20 @@ impl App {
                 if let Some(duration) = self.media_duration() {
                     self.seek_to(duration);
                 }
+            }
+            KeyCode::Char('q' | 'Q' | 'й' | 'Й')
+                if !key
+                    .modifiers
+                    .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+            {
+                self.quit = true
+            }
+            KeyCode::Char('y' | 'Y' | 'н' | 'Н')
+                if !key
+                    .modifiers
+                    .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+            {
+                self.command(22)
             }
             KeyCode::Char('g') => self.command(26),
             KeyCode::Char('?') => self.help = true,
@@ -1032,6 +1047,9 @@ impl App {
             View::Archive if self.tab == Tab::Progress => self.journal.visible_groups().len(),
             View::Archive if self.tab == Tab::Speakers => self.speakers.len(),
             View::Archive if self.tab == Tab::Transcript => self.transcript.len(),
+            View::Archive if self.tab == Tab::Readable && self.readable.from_transcript => {
+                usize::from(!self.readable.lines.is_empty())
+            }
             View::Archive if self.tab == Tab::Readable => self.readable.lines.len(),
             View::Archive if self.tab == Tab::Summary => self.summary.blocks.len(),
             View::Notes => self

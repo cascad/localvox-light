@@ -141,7 +141,7 @@ pub fn draw(f: &mut Frame, a: &App) {
     if area.width < 35 || area.height < 10 {
         f.render_widget(
             Paragraph::new(
-                "LocalVox\nОкно слишком мало\nF8 — остановить запись\nCtrl+Q — закрыть клиент",
+                "LocalVox\nОкно слишком мало\nF8 — остановить запись\nq / F10 — закрыть клиент",
             )
             .wrap(Wrap { trim: false }),
             area,
@@ -257,7 +257,7 @@ pub fn draw(f: &mut Frame, a: &App) {
         .map(|e| format!("Данные не обновляются: {e}"))
         .unwrap_or_else(|| a.status.clone());
     let keys = if area.width < 95 {
-        Line::from(" Tab фокус  : действия  F8 stop  F9 rec  ?  Ctrl+Q выход")
+        Line::from(" F8 stop  q/F10 выход  y копия  Tab фокус  : действия  ?")
     } else {
         Line::from(vec![
             Span::styled(" Tab", Style::default().fg(t.command)),
@@ -265,7 +265,7 @@ pub fn draw(f: &mut Frame, a: &App) {
             Span::styled("1–5", Style::default().fg(t.argument)),
             Span::raw(" вкладка   "),
             Span::styled(":", Style::default().fg(t.command)),
-            Span::raw(" действия   F8 stop   F9 record   ? помощь   Ctrl+Q закрыть"),
+            Span::raw(" действия   y копия   F8 stop   F9 rec   ?   q / F10 выход"),
         ])
     };
     f.render_widget(
@@ -315,7 +315,7 @@ pub fn draw(f: &mut Frame, a: &App) {
     if a.help {
         let rect = modal(area, 78, 26);
         f.render_widget(Clear, rect);
-        f.render_widget(Paragraph::new("НОВОЕ ТЕРМИНАЛЬНОЕ ПРОСТРАНСТВО\nSpace play/pause; p fragment; g time; Alt+Left/Right +/-15s\nF6 player focus: Left/Right +/-5s, Home/End\n\nTab / Shift+Tab — фокус панели\n↑↓ / j k — выбрать строку; Enter — открыть\n1–5 — вкладка документа\n/ — поиск; : — все действия; n — создать; i — импорт URL\nF8 — остановить запись; F9 — начать запись\nPgUp / PgDn, Home / End — чтение документа\n← / → — свернуть / раскрыть подробности\n\nВ форме: Tab — поле; Enter — новая строка\nCtrl+Enter — отправить; Esc — отменить\nВставка остаётся текстом, команды не исполняются.\n\nCtrl+Q закрывает только этот клиент.\nДемон и запись продолжают работать.\n\nЛюбая клавиша — закрыть справку").block(borders(a.ascii).title(" Помощь ").style(Style::default().bg(t.bg).fg(t.ink))).wrap(Wrap{trim:false}),rect);
+        f.render_widget(Paragraph::new("НОВОЕ ТЕРМИНАЛЬНОЕ ПРОСТРАНСТВО\nSpace play/pause; p fragment; g time; Alt+Left/Right +/-15s\nF6 player focus: Left/Right +/-5s, Home/End\n\nTab / Shift+Tab — фокус панели\n↑↓ / j k — выбрать строку; Enter — открыть\n1–5 — вкладка документа; y — копировать всё\n/ — поиск; : — все действия; n — создать; i — импорт URL\nF8 — остановить запись; F9 — начать запись\nPgUp / PgDn, Home / End — чтение документа\n← / → — свернуть / раскрыть подробности\n\nВ форме: Tab — поле; Enter — новая строка\nCtrl+Enter — отправить; Esc — отменить\nВставка остаётся текстом, команды не исполняются.\n\nq / F10 / Ctrl+Q закрывают только клиент.\nДемон и запись продолжают работать.\n\nЛюбая клавиша — закрыть справку").block(borders(a.ascii).title(" Помощь ").style(Style::default().bg(t.bg).fg(t.ink))).wrap(Wrap{trim:false}),rect);
     }
     if let Some(form) = &a.form {
         let rect = modal(area, 88, area.height.saturating_sub(4).min(30));
@@ -1430,6 +1430,15 @@ mod tests {
                 end_sec: 3.0,
                 ..Default::default()
             });
+        app.readable
+            .lines
+            .push(localvox_light_client::TranscriptLine {
+                text: "Продолжение разговора.".into(),
+                who: "Борис".into(),
+                start_sec: 3600.0,
+                end_sec: 3602.0,
+                ..Default::default()
+            });
         let projection = documents::project(&app, Theme::for_app(&app), false);
         let text = projection
             .lines
@@ -1442,10 +1451,55 @@ mod tests {
             })
             .collect::<Vec<_>>()
             .join("\n");
-        assert!(
-            text.contains("без дополнительной очистки") && text.contains("Первичная расшифровка")
+        assert!(text.contains("Исходная расшифровка") && text.contains("Первичная расшифровка"));
+        assert_eq!(
+            app.copy_text(),
+            "Первичная расшифровка Продолжение разговора."
         );
-        assert_eq!(app.copy_text(), "Первичная расшифровка");
+        assert!(text.contains(&app.copy_text()));
+        assert!(!text.contains("Анна") && !text.contains("Борис") && !text.contains("00:02"));
+        assert!(projection.selected.is_none());
+    }
+
+    fn plain_text_snapshot(width: u16, height: u16) {
+        let mut app = App {
+            tab: Tab::Readable,
+            focus: 2,
+            viewport: (width, height),
+            ..Default::default()
+        };
+        app.readable.from_transcript = true;
+        app.readable.lines = (0..20)
+            .map(|i| localvox_light_client::TranscriptLine {
+                text: format!("Реплика {i}: сохраняем все слова и читаем документ целиком."),
+                who: "Скрытый говорящий".into(),
+                start_sec: i as f64,
+                end_sec: i as f64 + 1.0,
+                ..Default::default()
+            })
+            .collect();
+        let projection = documents::project(&app, Theme::for_app(&app), true);
+        let count = Paragraph::new(projection.lines.clone())
+            .wrap(Wrap { trim: false })
+            .line_count(width - 1);
+        let offset = documents::scroll(&projection, width - 1, 6, u16::MAX, true);
+        assert!(offset > 0 && offset as usize <= count.saturating_sub(6));
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        insta::assert_debug_snapshot!(
+            format!("plain_text_{width}_{height}"),
+            terminal.backend().buffer()
+        );
+    }
+
+    #[test]
+    fn snapshot_plain_text_wide() {
+        plain_text_snapshot(120, 36);
+    }
+
+    #[test]
+    fn snapshot_plain_text_narrow() {
+        plain_text_snapshot(64, 24);
     }
 
     fn player_snapshot(width: u16, height: u16) {
@@ -1733,7 +1787,7 @@ mod tests {
                 .map(|c| c.symbol())
                 .collect::<String>();
             assert!(text.contains("F8"), "{w}x{h}");
-            assert!(text.contains("Ctrl+Q"), "{w}x{h}");
+            assert!(text.contains("F10"), "{w}x{h}");
             if w >= 35 {
                 assert!(buffer
                     .content
@@ -1854,7 +1908,7 @@ mod tests {
                 .iter()
                 .map(|c| c.symbol())
                 .collect::<String>();
-            assert!(text.contains("F8") && text.contains("Ctrl+Q"));
+            assert!(text.contains("F8") && text.contains("F10"));
             assert!(app.form.as_ref().unwrap().fields[0]
                 .value
                 .contains("Черновик"));

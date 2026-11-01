@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   api,
   type Line,
@@ -58,18 +58,32 @@ export function DocumentPane({ session, tab, setTab, pos, onSeek, onChanged, say
 
   // The document goes to the clipboard WITHOUT the system footnotes and without the
   // doubt banner: our own explanation has no business opening someone else's protocol.
-  const copy = async () => {
+  const copy = useCallback(async () => {
     const box = doc.current?.cloneNode(true) as HTMLElement | undefined;
     if (!box) return;
     box.querySelectorAll("[data-nocopy]").forEach((n) => n.remove());
-    const text = (box.innerText ?? "").replace(/\n{3,}/g, "\n\n").trim();
+    const plain = box.querySelector("[data-plain-text]");
+    const text = (plain?.textContent ?? box.innerText ?? "").replace(/\n{3,}/g, "\n\n").trim();
+    if (!text) { say("Нет текста для копирования"); return; }
     try {
       await navigator.clipboard.writeText(text);
       say("Скопировано");
     } catch {
       say("Буфер недоступен");
     }
-  };
+  }, [say]);
+
+  useEffect(() => {
+    if (tab !== "processed") return;
+    const keydown = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || !event.shiftKey || event.altKey || event.repeat || event.key.toLowerCase() !== "c") return;
+      if (event.target instanceof Element && event.target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])')) return;
+      event.preventDefault();
+      void copy();
+    };
+    window.addEventListener("keydown", keydown);
+    return () => window.removeEventListener("keydown", keydown);
+  }, [tab, copy]);
 
   // The one «Переварить» does what the tab implies: on «Сводка» — only the summary; on
   // «Реплики»/«Текст» — the cleaned text and the summary that follows; elsewhere — everything.
@@ -110,7 +124,9 @@ export function DocumentPane({ session, tab, setTab, pos, onSeek, onChanged, say
             </button>
           ))}
           <span className="grow" />
-          <button className="tool" onClick={copy} title="Скопировать документ (без служебных сносок)">
+          <button className="tool" onClick={copy}
+            aria-keyshortcuts={tab === "processed" ? "Control+Shift+C Meta+Shift+C" : undefined}
+            title={`Скопировать документ (без служебных сносок)${tab === "processed" ? " · Ctrl+Shift+C" : ""}`}>
             ⧉ Копировать
           </button>
           <button className="tool" onClick={recook} title={`Переварить ${scopeWord}`}>
@@ -614,9 +630,9 @@ function Readable({
         </span>
         <span>
           {data.from_transcript
-            ? "Отдельной очищенной версии нет. Показан тот же текст расшифровки, что во вкладке «Реплики», без дополнительного прохода модели."
+            ? "Отдельной очищенной версии нет. Исходная расшифровка · Ctrl+Shift+C — скопировать весь текст."
             : "Тот же разговор без слов-паразитов, обрывов и повторов — слово в слово по смыслу."}
-          {" "}Копируется без таймкодов и служебных меток. Проверить кусок по звуку можно во вкладке «Реплики».
+          {!data.from_transcript && <> Копируется без таймкодов и служебных меток. Проверить кусок по звуку можно во вкладке «Реплики».</>}
         </span>
       </p>
       <Provenance p={data.provenance} />
@@ -647,7 +663,9 @@ function Readable({
         </div>)}
       </details>}
       <div className="book">
-        {turns.map((t, i) =>
+        {data.from_transcript ? <p className="raw-transcript" data-plain-text>
+          {lines.map(line => line.text.trim()).filter(Boolean).join(" ")}
+        </p> : turns.map((t, i) =>
           t.paras.map((p, j) => (
             // A change of speaker is marked the way a book marks it: the dash of direct speech, on
             // the first paragraph of a turn only — a person continuing after a pause is still the

@@ -56,6 +56,7 @@ impl App {
                     .map(|l| format!("{}  {}\n{}", timecode(l.start_sec), l.who, l.text))
                     .collect::<Vec<_>>()
                     .join("\n\n"),
+                Tab::Readable if self.readable.from_transcript => self.copy_text(),
                 Tab::Readable => self
                     .readable
                     .lines
@@ -226,6 +227,14 @@ impl App {
                     .map(|l| format!("{}: {}", l.who, l.text))
                     .collect::<Vec<_>>()
                     .join("\n\n"),
+                Tab::Readable if self.readable.from_transcript => self
+                    .readable
+                    .lines
+                    .iter()
+                    .map(|line| line.text.trim())
+                    .filter(|text| !text.is_empty())
+                    .collect::<Vec<_>>()
+                    .join(" "),
                 Tab::Readable => self
                     .readable
                     .lines
@@ -331,6 +340,17 @@ impl App {
                     .transcript
                     .get(self.item)
                     .map(|l| (session.clone(), l.start_sec, Some(l.end_sec))),
+                Tab::Readable if self.readable.from_transcript => {
+                    let first = self.readable.lines.first()?;
+                    let (start, end) = self
+                        .readable
+                        .lines
+                        .iter()
+                        .fold((first.start_sec, first.end_sec), |(start, end), line| {
+                            (start.min(line.start_sec), end.max(line.end_sec))
+                        });
+                    Some((session.clone(), start, Some(end)))
+                }
                 Tab::Readable => self
                     .readable
                     .lines

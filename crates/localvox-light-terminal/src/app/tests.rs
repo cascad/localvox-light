@@ -132,6 +132,64 @@ fn ctrl_q_works_in_russian_layout() {
     a.key(KeyEvent::new(KeyCode::Char('й'), KeyModifiers::CONTROL));
     assert!(a.quit);
 }
+
+#[test]
+fn plain_text_copy_is_whole_document_and_letter_shortcuts_stay_text_in_forms() {
+    let mut app = App::default();
+    app.tab = Tab::Readable;
+    app.focus = 2;
+    app.current = Some("meeting".into());
+    app.readable.from_transcript = true;
+    app.readable.lines = (0..2000)
+        .map(|index| TranscriptLine {
+            text: format!("Фрагмент {index}."),
+            who: format!("Голос {index}"),
+            start_sec: index as f64,
+            end_sec: index as f64 + 1.0,
+            original: Some("служебное".into()),
+            ..Default::default()
+        })
+        .collect();
+    let expected = (0..2000)
+        .map(|i| format!("Фрагмент {i}."))
+        .collect::<Vec<_>>()
+        .join(" ");
+    app.item = 800;
+    app.scroll = 100;
+    assert_eq!(app.document_text(), expected);
+    assert_eq!(app.selection_len(), 1);
+    assert_eq!(app.fragment(), Some(("meeting".into(), 0.0, Some(2000.0))));
+    for key in ['y', 'н'] {
+        app.effects.clear();
+        app.pending_actions.clear();
+        app.key(KeyEvent::new(KeyCode::Char(key), KeyModifiers::NONE));
+        assert!(matches!(&app.effects[0].1, Task::Copy(text) if text == &expected));
+    }
+    app.effects.clear();
+    app.pending_actions.clear();
+    app.command(7);
+    for key in ['q', 'y', 'й', 'н'] {
+        app.key(KeyEvent::new(KeyCode::Char(key), KeyModifiers::NONE));
+    }
+    assert!(!app.quit && app.effects.is_empty());
+    assert_eq!(app.form.as_ref().unwrap().fields[0].value, "qyйн");
+}
+
+#[test]
+fn quit_alternatives_leave_recording_and_daemon_alone() {
+    for key in [KeyCode::Char('q'), KeyCode::Char('й'), KeyCode::F(10)] {
+        let mut app = App::default();
+        app.record.recording = true;
+        app.key(KeyEvent::new(key, KeyModifiers::NONE));
+        assert!(app.quit);
+        assert!(app.effects.is_empty() && app.player_effects.is_empty());
+        assert!(app.record.recording);
+    }
+    let mut app = App::default();
+    app.command(7);
+    app.key(KeyEvent::new(KeyCode::F(10), KeyModifiers::NONE));
+    assert!(app.quit && app.effects.is_empty());
+}
 #[test]
 fn editing_preserves_unicode_at_the_cursor() {
     let mut a = App::default();

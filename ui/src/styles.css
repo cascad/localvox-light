@@ -449,6 +449,7 @@ button[disabled] { opacity: .4; cursor: not-allowed; }
    pane is what the person sized. */
 .book { max-width: none; }
 .book p { margin: 0 0 13px; font-size: 15.5px; line-height: 1.65; }
+.book .raw-transcript { white-space: pre-wrap; }
 
 .lines { display: flex; flex-direction: column; }
 .ln {
