@@ -224,6 +224,18 @@
 |---|---|---|---|
 | API-006 | [API delta](../changes/fix-workspace-status-polling/specs/api-access/spec.md), [App](../../ui/src/App.tsx), [usePolling](../../ui/src/usePolling.ts), [API client](../../ui/src/api.ts) | [test-run](../changes/fix-workspace-status-polling/evidence/implementation.md): до исправления перекрывались sessions/jobs/record; после — независимые последовательные циклы, свежий снимок после start/stop/import, отмена старого GET, сохранение выбора и backoff/recovery; полный browser и общий API/UI/TUI | Mock задержки и команды записи, без физического захвата; REC-001/003 и аппаратная приёмка этим полностью не закрываются |
 
+## Сохранение переходов очереди · 2026-11-01
+
+Дополнение к PIPE-002/008/010/011:
+[исправление и проверки](../changes/commit-queue-execution-transitions/evidence/implementation.md),
+[уточнение PIPE-002](../changes/commit-queue-execution-transitions/specs/processing-pipeline/spec.md).
+Три воспроизведённых отказа записи больше не оставляют ложный Running, не тратят
+attempt/revival и не дописывают recovery progress до сохранения. Startup helper
+проверен с настоящим Windows deny-replace, снятием запрета и остановкой; размещение
+барьера перед созданием линий проверено по коду. Это не полный прогон демона с
+моделями, аудит остальных мутаций или crash-транзакция queue/progress. BL-002/003/004
+и физическая приёмка 10.2 остаются открытыми.
+
 ## План автоматического повтора · 2026-11-01
 
 Дополнение к PIPE-010/011 и delta PIPE-016:

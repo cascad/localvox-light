@@ -215,16 +215,38 @@ pub fn spawn(work_dir: String, running: Arc<AtomicBool>) -> Option<std::thread::
     }
 }
 
-fn coordinate(cfg: &Config, running: &AtomicBool) {
-    jobs::report_coordinator("ready", "Координатор работает");
-    let wd = &cfg.work_dir;
-    JobQueue::mutate(wd, |q| {
-        let taken = q.reclaim_abandoned(wd);
-        if taken > 0 {
-            tracing::info!(taken, "autocook: interrupted jobs recovered");
+/// No resource lane exists until startup recovery has been accepted by the queue.
+fn recover_before_start(work_dir: &Path, running: &AtomicBool, interval: Duration) -> bool {
+    while running.load(Ordering::Relaxed) {
+        let recovered = JobQueue::mutate(work_dir, |queue| {
+            let count = queue.try_reclaim_abandoned(work_dir)?;
+            queue.drop_orphans(work_dir);
+            Ok::<_, anyhow::Error>(count)
+        });
+        match recovered {
+            Ok(count) => {
+                if count > 0 {
+                    tracing::info!(taken = count, "autocook: interrupted jobs recovered");
+                }
+                return true;
+            }
+            Err(error) => {
+                let message = format!("Не удалось сохранить восстановление очереди; запуск обработчиков отложен: {error:#}");
+                tracing::error!("{message}");
+                jobs::report_coordinator("blocked", &message);
+                pause(running, interval);
+            }
         }
-        q.drop_orphans(wd);
-    });
+    }
+    false
+}
+
+fn coordinate(cfg: &Config, running: &AtomicBool) {
+    let wd = &cfg.work_dir;
+    if !recover_before_start(wd, running, cfg.interval) {
+        return;
+    }
+    jobs::report_coordinator("ready", "Координатор работает");
     let lanes = cfg.lanes();
     tracing::info!(?lanes, timeouts_sec = ?cfg.timeouts.map(|t| t.as_secs()), "autocook: coordinator ready");
     // Startup index maintenance waits until queued processing is done as well.
@@ -277,14 +299,25 @@ fn coordinate(cfg: &Config, running: &AtomicBool) {
         }
         let mut last_idle = Instant::now();
         while running.load(Ordering::Relaxed) {
-            jobs::report_coordinator("ready", "Координатор работает");
-            JobQueue::mutate(wd, |q| {
+            let maintenance = JobQueue::mutate(wd, |q| {
                 q.drop_orphans(wd);
-                let revived = q.revive_failed(Duration::from_secs(3600));
-                if revived > 0 {
-                    tracing::info!(revived, "autocook: retrying after backoff");
-                }
+                q.try_revive_failed(Duration::from_secs(3600))
             });
+            match maintenance {
+                Ok(revived) => {
+                    if revived > 0 {
+                        tracing::info!(revived, "autocook: retrying after backoff");
+                    }
+                    jobs::report_coordinator("ready", "Координатор работает");
+                }
+                Err(error) => {
+                    let message = format!("Автоматический повтор не сохранён; очередь будет проверена снова: {error:#}");
+                    tracing::error!("{message}");
+                    jobs::report_coordinator("blocked", &message);
+                    pause(running, cfg.interval);
+                    continue;
+                }
+            }
             let (summary, cleanup, _) = jobs::post_processing_from_env();
             let wanted = jobs::Wanted::new(
                 summary,
@@ -655,6 +688,110 @@ fn warm_indexes(cfg: &Config, running: &AtomicBool) -> bool {
 mod tests {
     use super::*;
     static POST_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[cfg(windows)]
+    fn recovery_commit_fixture() -> tempfile::TempDir {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(root.path().join("sessions/resume")).unwrap();
+        JobQueue::mutate(root.path(), |queue| {
+            assert!(queue.requeue_derivatives("resume", true, false, false));
+            queue.start_phase(0, &[JobPhase::Summary]).unwrap();
+        });
+        root
+    }
+
+    #[cfg(windows)]
+    fn wait_for_blocked_recovery() {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !jobs::coordinator_status().is_some_and(|state| state.state == "blocked") {
+            assert!(
+                Instant::now() < deadline,
+                "recovery did not report its queue failure"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    #[cfg(windows)]
+    struct StopRecovery<'a>(&'a AtomicBool);
+    #[cfg(windows)]
+    impl Drop for StopRecovery<'_> {
+        fn drop(&mut self) {
+            self.0.store(false, Ordering::Relaxed);
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn startup_recovery_waits_for_a_saved_transition_before_returning_ready() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let _guard = POST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let root = recovery_commit_fixture();
+        let path = root.path().join("jobs.json");
+        let before = std::fs::read(&path).unwrap();
+        let deny = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(1)
+            .open(&path)
+            .unwrap();
+        let running = AtomicBool::new(true);
+        jobs::report_coordinator("starting", "test recovery");
+        std::thread::scope(|scope| {
+            let _stop = StopRecovery(&running);
+            let helper = scope
+                .spawn(|| recover_before_start(root.path(), &running, Duration::from_millis(10)));
+            wait_for_blocked_recovery();
+            assert!(!helper.is_finished());
+            assert_eq!(std::fs::read(&path).unwrap(), before);
+            assert_eq!(
+                JobQueue::load(root.path()).jobs()[0].state,
+                JobState::Running
+            );
+            assert!(!root.path().join("sessions/resume/progress.jsonl").exists());
+            drop(deny);
+            assert!(helper.join().unwrap());
+        });
+        let queue = JobQueue::load(root.path());
+        assert_eq!(
+            (
+                queue.jobs()[0].state,
+                queue.jobs()[0].phase,
+                queue.jobs()[0].attempts
+            ),
+            (JobState::Pending, JobPhase::Summary, 1)
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn startup_recovery_can_stop_while_queue_replacement_is_denied() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let _guard = POST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let root = recovery_commit_fixture();
+        let path = root.path().join("jobs.json");
+        let before = std::fs::read(&path).unwrap();
+        let _deny = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(1)
+            .open(&path)
+            .unwrap();
+        let running = AtomicBool::new(true);
+        jobs::report_coordinator("starting", "test recovery stop");
+        std::thread::scope(|scope| {
+            let _stop = StopRecovery(&running);
+            let helper = scope
+                .spawn(|| recover_before_start(root.path(), &running, Duration::from_millis(10)));
+            wait_for_blocked_recovery();
+            running.store(false, Ordering::Relaxed);
+            assert!(!helper.join().unwrap());
+        });
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        assert!(!root.path().join("sessions/resume/progress.jsonl").exists());
+    }
     #[test]
     fn verified_gigaam_finishes_without_starting_a_postprocessing_worker_when_disabled() {
         let _guard = POST_ENV_LOCK.lock().unwrap();

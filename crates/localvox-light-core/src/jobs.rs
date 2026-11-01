@@ -349,6 +349,32 @@ impl JobQueue {
         self.load_error.as_deref()
     }
 
+    fn ensure_readable(&self) -> anyhow::Result<()> {
+        if let Some(error) = self.error() {
+            anyhow::bail!("jobs.json недоступна: {error}");
+        }
+        Ok(())
+    }
+
+    /// Only accepted writes spend the changes in these jobs. next_id is unchanged here.
+    fn commit_jobs(
+        &mut self,
+        previous: Vec<(usize, Job)>,
+        transition: &str,
+    ) -> anyhow::Result<usize> {
+        let count = previous.len();
+        if count == 0 {
+            return Ok(0);
+        }
+        if !self.save() {
+            for (index, job) in previous {
+                self.file.jobs[index] = job;
+            }
+            anyhow::bail!("не удалось сохранить {transition} в jobs.json");
+        }
+        Ok(count)
+    }
+
     /// The session was cooked by a stale recipe — put it back into the queue, even if
     /// its job is already `Done`. Without this, dedup by session name would close the
     /// road to a re-cook forever: we improved the cook, but the archive stayed as it was.
@@ -696,26 +722,35 @@ impl JobQueue {
     /// what is done. If the forced run was killed before it managed anything, the replay does
     /// nothing and the human presses «переварить» again — one word, one wipe.
     pub fn reclaim_abandoned(&mut self, work_dir: &Path) -> usize {
-        let mut taken = 0;
-        for j in &mut self.file.jobs {
+        self.try_reclaim_abandoned(work_dir).unwrap_or(0)
+    }
+
+    pub fn try_reclaim_abandoned(&mut self, work_dir: &Path) -> anyhow::Result<usize> {
+        self.ensure_readable()?;
+        let mut previous = Vec::new();
+        for (index, j) in self.file.jobs.iter_mut().enumerate() {
             if j.state == JobState::Running {
+                previous.push((index, j.clone()));
                 j.state = JobState::Pending;
                 j.phase_queued_at = Some(now_rfc3339());
                 j.phase_started_at = None;
                 j.force = false;
-                taken += 1;
-                // Keep completed events; close the interrupted attempt before resuming it.
-                let dir = work_dir.join("sessions").join(&j.session);
-                if let Some(stage) = crate::progress::interrupted_stage(&dir) {
-                    crate::progress::mark(&dir, stage, crate::progress::StageState::Failed,
-                        Some("Процесс прерван; сохранённые результаты будут проверены перед продолжением"));
-                }
             }
         }
-        if taken > 0 {
-            self.save();
+        let recovered: Vec<_> = previous
+            .iter()
+            .map(|(_, job)| job.session.clone())
+            .collect();
+        let count = self.commit_jobs(previous, "восстановление заданий")?;
+        // The history describes an accepted recovery, never an unsuccessful write.
+        for session in recovered {
+            let dir = work_dir.join("sessions").join(session);
+            if let Some(stage) = crate::progress::interrupted_stage(&dir) {
+                crate::progress::mark(&dir, stage, crate::progress::StageState::Failed,
+                    Some("Процесс прерван; сохранённые результаты будут проверены перед продолжением"));
+            }
         }
-        taken
+        Ok(count)
     }
 
     pub fn pending_ids(&self) -> Vec<u64> {
@@ -730,11 +765,20 @@ impl JobQueue {
     /// Mark a specific job as `Running` (+an attempt). Returns a copy if it really was
     /// `Pending` (otherwise None — already claimed/finished).
     pub fn start(&mut self, id: u64) -> Option<Job> {
+        self.try_start(id).ok().flatten()
+    }
+
+    pub fn try_start(&mut self, id: u64) -> anyhow::Result<Option<Job>> {
+        self.ensure_readable()?;
         let active = self.path.parent().and_then(recording_session);
-        let job = self.file.jobs.iter_mut().find(|j| j.id == id)?;
+        let Some(index) = self.file.jobs.iter().position(|j| j.id == id) else {
+            return Ok(None);
+        };
+        let job = &mut self.file.jobs[index];
         if job.state != JobState::Pending || active.as_deref() == Some(job.session.as_str()) {
-            return None;
+            return Ok(None);
         }
+        let previous = job.clone();
         job.state = JobState::Running;
         job.phase_started_at = Some(now_rfc3339());
         job.execution_id = Some(uuid::Uuid::now_v7().to_string());
@@ -743,10 +787,8 @@ impl JobQueue {
         }
         job.attempts += 1;
         let claimed = job.clone();
-        if !self.save() {
-            return None;
-        }
-        Some(claimed)
+        self.commit_jobs(vec![(index, previous)], "захват задания")?;
+        Ok(Some(claimed))
     }
 
     /// Take the next pending job (FIFO). A thin wrapper around `start`.
@@ -771,15 +813,20 @@ impl JobQueue {
     }
 
     pub fn start_phase(&mut self, id: u64, phases: &[JobPhase]) -> Option<Job> {
+        self.try_start_phase(id, phases).ok().flatten()
+    }
+
+    pub fn try_start_phase(&mut self, id: u64, phases: &[JobPhase]) -> anyhow::Result<Option<Job>> {
+        self.ensure_readable()?;
         if !self
             .file
             .jobs
             .iter()
             .any(|j| j.id == id && phases.contains(&j.phase))
         {
-            return None;
+            return Ok(None);
         }
-        self.start(id)
+        self.try_start(id)
     }
 
     /// Reconcile only waiting automatic work. Running owns an immutable phase
@@ -990,9 +1037,14 @@ impl JobQueue {
     /// of attempts + the backoff keep the protection against hammering forever — the
     /// cook is idempotent, and a repeat is cheap (`Skipped`).
     pub fn revive_failed(&mut self, min_age: std::time::Duration) -> usize {
+        self.try_revive_failed(min_age).unwrap_or(0)
+    }
+
+    pub fn try_revive_failed(&mut self, min_age: std::time::Duration) -> anyhow::Result<usize> {
+        self.ensure_readable()?;
         let now = unix_now();
-        let mut revived = 0usize;
-        for j in &mut self.file.jobs {
+        let mut previous = Vec::new();
+        for (index, j) in self.file.jobs.iter_mut().enumerate() {
             if j.state != JobState::Failed {
                 continue;
             }
@@ -1011,6 +1063,7 @@ impl JobQueue {
             if !old_enough {
                 continue;
             }
+            previous.push((index, j.clone()));
             j.state = JobState::Pending;
             j.phase_queued_at = Some(now_rfc3339());
             j.phase_started_at = None;
@@ -1018,12 +1071,8 @@ impl JobQueue {
             j.failed_at = None;
             j.finished_at = None;
             j.revivals += 1;
-            revived += 1;
         }
-        if revived > 0 {
-            self.save();
-        }
-        revived
+        self.commit_jobs(previous, "автоматический повтор заданий")
     }
 }
 
@@ -1411,6 +1460,136 @@ fn newest_wav_mtime(audio_dir: &Path) -> Option<SystemTime> {
 
 #[cfg(test)]
 mod tests {
+
+    fn deny_queue_target(queue: &mut JobQueue) -> PathBuf {
+        let original = queue.path.clone();
+        let denied = original.with_file_name("queue-target-is-a-directory");
+        fs::create_dir(&denied).unwrap();
+        queue.path = denied;
+        original
+    }
+
+    #[test]
+    fn checked_execution_transitions_reject_a_corrupt_queue_without_replacing_it() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("jobs.json");
+        fs::write(&path, "{broken").unwrap();
+        let mut queue = JobQueue::load(root.path());
+        assert!(queue.try_start(0).is_err());
+        assert!(queue.try_start_phase(0, &[JobPhase::Prepare]).is_err());
+        assert!(queue.try_reclaim_abandoned(root.path()).is_err());
+        assert!(queue.try_revive_failed(std::time::Duration::ZERO).is_err());
+        assert_eq!(fs::read(&path).unwrap(), b"{broken");
+        assert!(!root.path().join("sessions").exists());
+    }
+
+    #[test]
+    fn commit_failure_start_keeps_pending_identity_and_attempt_budget() {
+        let root = tempfile::tempdir().unwrap();
+        let mut queue = JobQueue::load(root.path());
+        queue.enqueue_cook("pending", true, false, false);
+        queue.file.jobs[0].phase = JobPhase::Summary;
+        queue.file.jobs[0].attempts = 2;
+        queue.save();
+        let before = serde_json::to_value(&queue.file).unwrap();
+        let path = deny_queue_target(&mut queue);
+        let bytes = fs::read(&path).unwrap();
+        assert!(queue.try_start_phase(0, &[JobPhase::Summary]).is_err());
+        assert!(queue.start_phase(0, &[JobPhase::Summary]).is_none());
+        assert_eq!(serde_json::to_value(&queue.file).unwrap(), before);
+        assert_eq!(fs::read(&path).unwrap(), bytes);
+        queue.path = path;
+        let job = queue.start_phase(0, &[JobPhase::Summary]).unwrap();
+        assert_eq!(job.attempts, 3);
+        assert_eq!(job.state, JobState::Running);
+    }
+
+    #[test]
+    fn commit_failure_revival_keeps_the_whole_batch_and_only_spends_one_successful_round() {
+        let root = tempfile::tempdir().unwrap();
+        let mut queue = JobQueue::load(root.path());
+        for name in ["a", "b"] {
+            queue.enqueue_cook(name, true, false, false);
+        }
+        for id in [0, 1] {
+            queue.start(id).unwrap();
+            queue.mark_failed(id, "offline", 1);
+        }
+        let before = serde_json::to_value(&queue.file).unwrap();
+        let path = deny_queue_target(&mut queue);
+        let bytes = fs::read(&path).unwrap();
+        assert!(queue.try_revive_failed(std::time::Duration::ZERO).is_err());
+        assert_eq!(queue.revive_failed(std::time::Duration::ZERO), 0);
+        assert_eq!(serde_json::to_value(&queue.file).unwrap(), before);
+        assert_eq!(fs::read(&path).unwrap(), bytes);
+        queue.path = path;
+        assert_eq!(queue.revive_failed(std::time::Duration::ZERO), 2);
+        assert!(queue
+            .jobs()
+            .iter()
+            .all(|job| job.state == JobState::Pending && job.revivals == 1 && job.attempts == 0));
+    }
+
+    #[test]
+    fn commit_failure_recovery_keeps_running_jobs_and_progress_until_saved() {
+        let root = tempfile::tempdir().unwrap();
+        let session = root.path().join("sessions/recover");
+        fs::create_dir_all(&session).unwrap();
+        crate::progress::new_run(&session);
+        crate::progress::mark(
+            &session,
+            crate::progress::Stage::Transcribe,
+            crate::progress::StageState::Done,
+            None,
+        );
+        crate::progress::mark(
+            &session,
+            crate::progress::Stage::Summary,
+            crate::progress::StageState::Running,
+            None,
+        );
+        let history = fs::read(session.join("progress.jsonl")).unwrap();
+        let mut queue = JobQueue::load(root.path());
+        queue.enqueue_cook("recover", true, false, false);
+        queue.file.jobs[0].phase = JobPhase::Summary;
+        queue.file.jobs[0].force = true;
+        queue.start(0).unwrap();
+        let before = serde_json::to_value(&queue.file).unwrap();
+        let path = deny_queue_target(&mut queue);
+        let bytes = fs::read(&path).unwrap();
+        assert!(queue.try_reclaim_abandoned(root.path()).is_err());
+        assert_eq!(queue.reclaim_abandoned(root.path()), 0);
+        assert_eq!(serde_json::to_value(&queue.file).unwrap(), before);
+        assert_eq!(fs::read(&path).unwrap(), bytes);
+        assert_eq!(fs::read(session.join("progress.jsonl")).unwrap(), history);
+        queue.path = path;
+        assert_eq!(queue.reclaim_abandoned(root.path()), 1);
+        let job = &queue.jobs()[0];
+        assert_eq!(
+            (job.state, job.phase, job.force, job.attempts),
+            (JobState::Pending, JobPhase::Summary, false, 1)
+        );
+        assert!(fs::read(session.join("progress.jsonl"))
+            .unwrap()
+            .starts_with(&history));
+        let stages = crate::progress::fold(&crate::progress::read(&session));
+        assert_eq!(
+            stages
+                .iter()
+                .find(|row| row.stage == crate::progress::Stage::Transcribe)
+                .unwrap()
+                .state,
+            crate::progress::StageState::Done
+        );
+        assert_eq!(
+            stages
+                .iter()
+                .find(|row| row.stage == crate::progress::Stage::Summary)
+                .unwrap()
+                .state,
+            crate::progress::StageState::Failed
+        );
+    }
 
     #[test]
     fn retry_failed_preserves_the_request_and_resumes_each_phase_with_a_fresh_budget() {

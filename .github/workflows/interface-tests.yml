@@ -86,6 +86,7 @@ jobs:
           npx --yes @fission-ai/openspec@1.13.2 validate fix-queue-read-failures --type change --strict --no-interactive
           npx --yes @fission-ai/openspec@1.13.2 validate resume-failed-processing --type change --strict --no-interactive
           npx --yes @fission-ai/openspec@1.13.2 validate explain-automatic-retry-state --type change --strict --no-interactive
+          npx --yes @fission-ai/openspec@1.13.2 validate commit-queue-execution-transitions --type change --strict --no-interactive
           python scripts/check-openspec.py
           git diff --check
       - name: Upload browser diffs, traces and terminal snapshot proposals
