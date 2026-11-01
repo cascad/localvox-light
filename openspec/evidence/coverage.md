@@ -224,6 +224,18 @@
 |---|---|---|---|
 | API-006 | [API delta](../changes/fix-workspace-status-polling/specs/api-access/spec.md), [App](../../ui/src/App.tsx), [usePolling](../../ui/src/usePolling.ts), [API client](../../ui/src/api.ts) | [test-run](../changes/fix-workspace-status-polling/evidence/implementation.md): до исправления перекрывались sessions/jobs/record; после — независимые последовательные циклы, свежий снимок после start/stop/import, отмена старого GET, сохранение выбора и backoff/recovery; полный browser и общий API/UI/TUI | Mock задержки и команды записи, без физического захвата; REC-001/003 и аппаратная приёмка этим полностью не закрываются |
 
+## Сохранение исхода worker · 2026-11-01
+
+Дополнение к PIPE-008/010/011:
+[исправление и проверки](../changes/persist-worker-outcomes/evidence/implementation.md),
+[уточнение PIPE-008](../changes/persist-worker-outcomes/specs/processing-pipeline/spec.md).
+Воспроизведён rollback failure mark_failed; типизированные storage errors больше
+не считаются невалидным артефактом. Windows deny/release проверяет сохранение той
+же попытки без нового worker, исходную причину и публикацию Failed после очереди;
+stop проверен для обоих исходов. [Короткий справочник](../../docs/user-guide.md)
+сверен с пользовательскими входами; правило AGENTS.md требует его сопровождения.
+Реальные модели/захват, multi-file crash, BL-002/003/004 и аппаратная приёмка не закрыты.
+
 ## Сохранение переходов очереди · 2026-11-01
 
 Дополнение к PIPE-002/008/010/011:

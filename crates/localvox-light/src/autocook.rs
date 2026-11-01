@@ -284,7 +284,7 @@ fn coordinate(cfg: &Config, running: &AtomicBool) {
                             let changed = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run_phase(cfg, running, &job))) {
                                 Ok(changed) => changed,
                                 Err(_) => {
-                                    fail_phase(wd, &job, "Сбой координатора при выполнении задания; сохранённые результаты остаются доступны");
+                                    fail_phase(wd, running, &job, "Сбой координатора при выполнении задания; сохранённые результаты остаются доступны");
                                     true
                                 }
                             };
@@ -407,7 +407,7 @@ fn run_step(
         && jobs::verify_phase(&session, job).is_ok()
     {
         return if finish {
-            accept_phase(&cfg.work_dir, job)
+            accept_phase(&cfg.work_dir, running, job)
         } else {
             true
         };
@@ -533,13 +533,14 @@ fn run_step(
             match out.termination {
                 Termination::Exited(status) if status.success() => {
                     if finish {
-                        return accept_phase(&cfg.work_dir, job);
+                        return accept_phase(&cfg.work_dir, running, job);
                     }
                     return match jobs::verify_phase(&session, job) {
                         Ok(()) => true,
                         Err(error) => {
                             fail_phase(
                                 &cfg.work_dir,
+                                running,
                                 job,
                                 &format!("Результат этапа Text не подтверждён: {error:#}"),
                             );
@@ -567,28 +568,85 @@ fn run_step(
         }
         Err(e) => format!("Фаза {}: {e:#}", job.phase.as_str()),
     };
-    fail_phase(&cfg.work_dir, job, &reason);
+    fail_phase(&cfg.work_dir, running, job, &reason);
     false
 }
 
-fn accept_phase(wd: &Path, job: &Job) -> bool {
-    let result = JobQueue::mutate(wd, |q| {
-        q.finish_phase_with_policy(job.id, job.phase, Some(jobs::post_processing_from_env()))
+/// The caller still owns the session's execution lock. Never hold the queue mutex while waiting.
+fn retry_queue_commit(
+    wd: &Path,
+    running: &AtomicBool,
+    job: &Job,
+    mut commit: impl FnMut() -> anyhow::Result<()>,
+) -> anyhow::Result<bool> {
+    let session = wd.join("sessions").join(&job.session);
+    let mut waiting = None;
+    while running.load(Ordering::Relaxed) {
+        match commit() {
+            Ok(()) => return Ok(true),
+            Err(error) if error.is::<jobs::QueueStorageError>() => {
+                if waiting.is_none() {
+                    let operation = localvox_light_core::journal::Operation::start(
+                        &session,
+                        job.phase.as_str(),
+                        "Ожидание сохранения очереди",
+                        None,
+                    );
+                    if let Some(execution) = &job.execution_id {
+                        let _ = operation.bind_execution(execution);
+                    }
+                    operation.log("Хранилище очереди недоступно; повторяется только сохранение исхода, без нового запуска обработчика");
+                    waiting = Some(operation);
+                }
+                tracing::error!(
+                    job_id = job.id,
+                    phase = job.phase.as_str(),
+                    "Ожидание сохранения очереди: {error:#}"
+                );
+                pause(running, Duration::from_secs(1));
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(false)
+}
+
+fn accept_phase(wd: &Path, running: &AtomicBool, job: &Job) -> bool {
+    let result = retry_queue_commit(wd, running, job, || {
+        JobQueue::mutate(wd, |q| {
+            q.finish_phase_with_policy(job.id, job.phase, Some(jobs::post_processing_from_env()))
+        })
     });
     match result {
-        Ok(()) => {
+        Ok(true) => {
             tracing::info!(job_id = job.id, session = %job.session, phase = job.phase.as_str(), "autocook: артефакт подтверждён");
             true
         }
+        Ok(false) => false,
         Err(e) => {
-            fail_phase(wd, job, &format!("Результат фазы не подтверждён: {e:#}"));
+            fail_phase(
+                wd,
+                running,
+                job,
+                &format!("Результат фазы не подтверждён: {e:#}"),
+            );
             false
         }
     }
 }
 
-fn fail_phase(wd: &Path, job: &Job, reason: &str) {
+fn fail_phase(wd: &Path, running: &AtomicBool, job: &Job, reason: &str) -> bool {
     use progress::{Stage, StageState};
+    match retry_queue_commit(wd, running, job, || {
+        JobQueue::mutate(wd, |q| q.try_mark_failed(job.id, reason, MAX_ATTEMPTS))
+    }) {
+        Ok(true) => {}
+        Ok(false) => return false,
+        Err(error) => {
+            tracing::error!(job_id = job.id, "Не удалось принять отказ этапа: {error:#}");
+            return false;
+        }
+    }
     let session = wd.join("sessions").join(&job.session);
     let stages: &[Stage] = match job.phase {
         JobPhase::Prepare => &[Stage::Download, Stage::Extract],
@@ -605,8 +663,8 @@ fn fail_phase(wd: &Path, job: &Job, reason: &str) {
             progress::mark(&session, event.stage, StageState::Failed, Some(reason));
         }
     }
-    JobQueue::mutate(wd, |q| q.mark_failed(job.id, reason, MAX_ATTEMPTS));
     tracing::warn!(job_id = job.id, session = %job.session, phase = job.phase.as_str(), attempt = job.attempts, "{reason}");
+    true
 }
 
 fn clean_line(line: &str) -> String {
@@ -688,6 +746,271 @@ fn warm_indexes(cfg: &Config, running: &AtomicBool) -> bool {
 mod tests {
     use super::*;
     static POST_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn outcome_fixture(valid: bool) -> (tempfile::TempDir, Job) {
+        use localvox_light_core::versions::{VersionEntry, VersionStore};
+        let root = tempfile::tempdir().unwrap();
+        let session = root.path().join("sessions/result");
+        std::fs::create_dir_all(&session).unwrap();
+        if valid {
+            let store = VersionStore::open(&session).unwrap();
+            let (id, path) = store.next_version("fixture").unwrap();
+            std::fs::write(
+                &path,
+                "{\"source_id\":0,\"start_sec\":0,\"end_sec\":1,\"text\":\"Synthetic result\"}\n",
+            )
+            .unwrap();
+            store
+                .commit(VersionEntry {
+                    id,
+                    file: path.file_name().unwrap().to_string_lossy().into(),
+                    label: "fixture".into(),
+                    model: "fixture".into(),
+                    params: serde_json::json!({}),
+                    created_at: "2026-11-01T00:00:00Z".into(),
+                    parents: vec![],
+                })
+                .unwrap();
+            localvox_light_core::processing::record(
+                &session,
+                localvox_light_core::processing::TRANSCRIPT,
+                "fixture",
+                localvox_light_core::processing::Outcome::Ok,
+                None,
+                Some(id),
+            )
+            .unwrap();
+        }
+        progress::new_run(&session);
+        progress::mark(
+            &session,
+            progress::Stage::Download,
+            progress::StageState::Running,
+            None,
+        );
+        let job = JobQueue::mutate(root.path(), |queue| {
+            assert!(queue.enqueue_cook("result", false, false, false));
+            queue.start(0).unwrap()
+        });
+        (root, job)
+    }
+
+    #[cfg(windows)]
+    fn deny_outcome_queue(root: &Path) -> std::fs::File {
+        use std::os::windows::fs::OpenOptionsExt;
+        std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(1)
+            .open(root.join("jobs.json"))
+            .unwrap()
+    }
+
+    #[cfg(windows)]
+    fn wait_for_outcome_journal(session: &Path) {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            // Windows append briefly locks this same file. Poll after that lock as well.
+            if localvox_light_core::journal::read(
+                session,
+                &localvox_light_core::journal::Query {
+                    limit: 200,
+                    ..Default::default()
+                },
+            )
+            .is_ok_and(|page| {
+                page.events.iter().any(|entry| {
+                    entry.kind == "operation_start" && entry.label == "Ожидание сохранения очереди"
+                })
+            }) {
+                return;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "queue save wait was not journaled"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn outcome_commit_waits_for_storage_then_accepts_the_same_artifact_without_failure() {
+        let _guard = POST_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let (root, job) = outcome_fixture(true);
+        let session = root.path().join("sessions/result");
+        let before = std::fs::read(root.path().join("jobs.json")).unwrap();
+        let deny = deny_outcome_queue(root.path());
+        let running = AtomicBool::new(true);
+        let _lease = jobs::try_execution_lock(&session).unwrap().unwrap();
+        std::thread::scope(|scope| {
+            let _stop = StopRecovery(&running);
+            let helper = scope.spawn(|| accept_phase(root.path(), &running, &job));
+            wait_for_outcome_journal(&session);
+            assert!(!helper.is_finished());
+            assert_eq!(
+                std::fs::read(root.path().join("jobs.json")).unwrap(),
+                before
+            );
+            // A reader can take the queue mutex while the outcome is waiting.
+            assert_eq!(JobQueue::mutate(root.path(), |q| q.jobs()[0].attempts), 1);
+            assert!(jobs::try_execution_lock(&session).unwrap().is_none());
+            drop(deny);
+            assert!(helper.join().unwrap());
+        });
+        let queue = JobQueue::load(root.path());
+        let accepted = &queue.jobs()[0];
+        assert_eq!(
+            (accepted.state, accepted.phase, accepted.attempts),
+            (JobState::Pending, JobPhase::Transcribe, 0)
+        );
+        assert_eq!(accepted.execution_id, job.execution_id);
+        assert!(accepted.last_error.is_none());
+        assert!(progress::read(&session)
+            .iter()
+            .all(|event| event.state != progress::StageState::Failed));
+        let events = localvox_light_core::journal::read(
+            &session,
+            &localvox_light_core::journal::Query {
+                limit: 200,
+                ..Default::default()
+            },
+        )
+        .unwrap()
+        .events;
+        for kind in ["operation_start", "operation_end"] {
+            assert_eq!(
+                events
+                    .iter()
+                    .filter(
+                        |event| event.kind == kind && event.label == "Ожидание сохранения очереди"
+                    )
+                    .count(),
+                1
+            );
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn outcome_failure_is_journaled_only_after_the_queue_accepts_its_original_reason() {
+        let _guard = POST_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let (root, job) = outcome_fixture(false);
+        let session = root.path().join("sessions/result");
+        let before = std::fs::read(root.path().join("jobs.json")).unwrap();
+        let deny = deny_outcome_queue(root.path());
+        let running = AtomicBool::new(true);
+        std::thread::scope(|scope| {
+            let _stop = StopRecovery(&running);
+            let helper =
+                scope.spawn(|| fail_phase(root.path(), &running, &job, "worker timed out"));
+            wait_for_outcome_journal(&session);
+            assert!(!helper.is_finished());
+            assert_eq!(
+                std::fs::read(root.path().join("jobs.json")).unwrap(),
+                before
+            );
+            assert_eq!(
+                progress::read(&session).last().unwrap().state,
+                progress::StageState::Running
+            );
+            drop(deny);
+            assert!(helper.join().unwrap());
+        });
+        let queue = JobQueue::load(root.path());
+        let failed = &queue.jobs()[0];
+        assert_eq!(
+            (failed.state, failed.phase, failed.attempts, failed.revivals),
+            (JobState::Pending, job.phase, 1, 0)
+        );
+        assert_eq!(failed.last_error.as_deref(), Some("worker timed out"));
+        let events = progress::read(&session);
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event.state == progress::StageState::Failed)
+                .count(),
+            1
+        );
+        assert_eq!(
+            events.last().unwrap().note.as_deref(),
+            Some("worker timed out")
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn outcome_commit_can_stop_without_accepting_success_or_failure() {
+        let _guard = POST_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        for success in [true, false] {
+            let (root, job) = outcome_fixture(success);
+            let session = root.path().join("sessions/result");
+            let before = std::fs::read(root.path().join("jobs.json")).unwrap();
+            let _deny = deny_outcome_queue(root.path());
+            let running = AtomicBool::new(true);
+            std::thread::scope(|scope| {
+                let _stop = StopRecovery(&running);
+                let helper = scope.spawn(|| {
+                    if success {
+                        accept_phase(root.path(), &running, &job)
+                    } else {
+                        fail_phase(root.path(), &running, &job, "not yet saved")
+                    }
+                });
+                wait_for_outcome_journal(&session);
+                running.store(false, Ordering::Relaxed);
+                assert!(!helper.join().unwrap());
+            });
+            assert_eq!(
+                std::fs::read(root.path().join("jobs.json")).unwrap(),
+                before
+            );
+            assert_eq!(
+                JobQueue::load(root.path()).jobs()[0].state,
+                JobState::Running
+            );
+            assert_eq!(
+                progress::read(&session).last().unwrap().state,
+                progress::StageState::Running
+            );
+        }
+    }
+
+    #[test]
+    fn outcome_verification_failure_does_not_wait_for_storage_or_accept_the_phase() {
+        let _guard = POST_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let (root, job) = outcome_fixture(false);
+        assert!(!accept_phase(root.path(), &AtomicBool::new(true), &job));
+        let queue = JobQueue::load(root.path());
+        assert_eq!(
+            (
+                queue.jobs()[0].state,
+                queue.jobs()[0].phase,
+                queue.jobs()[0].attempts
+            ),
+            (JobState::Pending, job.phase, 1)
+        );
+        assert!(queue.jobs()[0]
+            .last_error
+            .as_deref()
+            .unwrap()
+            .contains("Результат фазы не подтверждён"));
+        let session = root.path().join("sessions/result");
+        assert_eq!(
+            progress::read(&session).last().unwrap().state,
+            progress::StageState::Failed
+        );
+        assert!(localvox_light_core::journal::read(
+            &session,
+            &localvox_light_core::journal::Query {
+                limit: 200,
+                ..Default::default()
+            }
+        )
+        .unwrap()
+        .events
+        .iter()
+        .all(|entry| entry.kind != "operation_start"));
+    }
 
     #[cfg(windows)]
     fn recovery_commit_fixture() -> tempfile::TempDir {

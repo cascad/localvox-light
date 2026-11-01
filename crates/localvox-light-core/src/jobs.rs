@@ -21,6 +21,18 @@ use crate::versions::{now_rfc3339, VersionStore};
 
 pub mod discovery;
 
+/// A queue read/write failure may be retried without rerunning a worker.
+#[derive(Debug)]
+pub struct QueueStorageError(String);
+
+impl std::fmt::Display for QueueStorageError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for QueueStorageError {}
+
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum JobState {
     Pending,
@@ -351,7 +363,7 @@ impl JobQueue {
 
     fn ensure_readable(&self) -> anyhow::Result<()> {
         if let Some(error) = self.error() {
-            anyhow::bail!("jobs.json недоступна: {error}");
+            return Err(QueueStorageError(format!("jobs.json недоступна: {error}")).into());
         }
         Ok(())
     }
@@ -370,7 +382,10 @@ impl JobQueue {
             for (index, job) in previous {
                 self.file.jobs[index] = job;
             }
-            anyhow::bail!("не удалось сохранить {transition} в jobs.json");
+            return Err(QueueStorageError(format!(
+                "не удалось сохранить {transition} в jobs.json"
+            ))
+            .into());
         }
         Ok(count)
     }
@@ -876,6 +891,7 @@ impl JobQueue {
         phase: JobPhase,
         flags: Option<(bool, bool, bool)>,
     ) -> anyhow::Result<()> {
+        self.ensure_readable()?;
         let job = self
             .file
             .jobs
@@ -902,12 +918,8 @@ impl JobQueue {
             }
         }
         self.advance_phase(id, phase);
-        if !self.save() {
-            if let Some(job) = self.file.jobs.iter_mut().find(|j| j.id == id) {
-                *job = previous;
-            }
-            anyhow::bail!("не удалось сохранить подтверждение фазы в jobs.json");
-        }
+        let index = self.file.jobs.iter().position(|j| j.id == id).unwrap();
+        self.commit_jobs(vec![(index, previous)], "подтверждение фазы")?;
         Ok(())
     }
 
@@ -1017,19 +1029,31 @@ impl JobQueue {
     /// A job failure: while the attempts are below `max_attempts` — back to `Pending`
     /// (retry later), otherwise — `Failed` (we do not hammer a broken session forever).
     pub fn mark_failed(&mut self, id: u64, err: &str, max_attempts: u32) {
-        if let Some(j) = self.file.jobs.iter_mut().find(|j| j.id == id) {
-            j.last_error = Some(err.to_string());
-            j.phase_queued_at = Some(now_rfc3339());
-            j.phase_started_at = None;
-            j.state = if j.attempts >= max_attempts {
-                j.failed_at = Some(unix_now());
-                j.finished_at = Some(now_rfc3339());
-                JobState::Failed
-            } else {
-                JobState::Pending
-            };
-        }
-        self.save();
+        let _ = self.try_mark_failed(id, err, max_attempts);
+    }
+
+    pub fn try_mark_failed(&mut self, id: u64, err: &str, max_attempts: u32) -> anyhow::Result<()> {
+        self.ensure_readable()?;
+        let index = self
+            .file
+            .jobs
+            .iter()
+            .position(|j| j.id == id)
+            .ok_or_else(|| anyhow::anyhow!("задание не найдено"))?;
+        let j = &mut self.file.jobs[index];
+        let previous = j.clone();
+        j.last_error = Some(err.to_string());
+        j.phase_queued_at = Some(now_rfc3339());
+        j.phase_started_at = None;
+        j.state = if j.attempts >= max_attempts {
+            j.failed_at = Some(unix_now());
+            j.finished_at = Some(now_rfc3339());
+            JobState::Failed
+        } else {
+            JobState::Pending
+        };
+        self.commit_jobs(vec![(index, previous)], "отказ этапа")?;
+        Ok(())
     }
 
     /// Revive `Failed` jobs older than `min_age`: a transient failure (Ollama was
@@ -1470,6 +1494,40 @@ mod tests {
     }
 
     #[test]
+    fn failed_failure_commit_preserves_running_and_the_original_error_until_saved() {
+        for limit in [1, 3] {
+            let root = tempfile::tempdir().unwrap();
+            let mut queue = JobQueue::load(root.path());
+            queue.enqueue_cook("failure", true, false, false);
+            queue.start(0).unwrap();
+            let before = serde_json::to_value(&queue.file).unwrap();
+            let path = deny_queue_target(&mut queue);
+            let bytes = fs::read(&path).unwrap();
+            let error = queue
+                .try_mark_failed(0, "worker timeout", limit)
+                .unwrap_err();
+            assert!(error.is::<QueueStorageError>());
+            queue.mark_failed(0, "worker timeout", limit);
+            assert_eq!(serde_json::to_value(&queue.file).unwrap(), before);
+            assert_eq!(fs::read(&path).unwrap(), bytes);
+            queue.path = path;
+            queue.mark_failed(0, "worker timeout", limit);
+            let job = &queue.jobs()[0];
+            assert_eq!(job.attempts, 1);
+            assert_eq!(job.revivals, 0);
+            assert_eq!(job.last_error.as_deref(), Some("worker timeout"));
+            assert_eq!(
+                job.state,
+                if limit == 1 {
+                    JobState::Failed
+                } else {
+                    JobState::Pending
+                }
+            );
+        }
+    }
+
+    #[test]
     fn checked_execution_transitions_reject_a_corrupt_queue_without_replacing_it() {
         let root = tempfile::tempdir().unwrap();
         let path = root.path().join("jobs.json");
@@ -1479,6 +1537,14 @@ mod tests {
         assert!(queue.try_start_phase(0, &[JobPhase::Prepare]).is_err());
         assert!(queue.try_reclaim_abandoned(root.path()).is_err());
         assert!(queue.try_revive_failed(std::time::Duration::ZERO).is_err());
+        assert!(queue
+            .try_mark_failed(0, "failure", 3)
+            .unwrap_err()
+            .is::<QueueStorageError>());
+        assert!(queue
+            .finish_phase(0, JobPhase::Prepare)
+            .unwrap_err()
+            .is::<QueueStorageError>());
         assert_eq!(fs::read(&path).unwrap(), b"{broken");
         assert!(!root.path().join("sessions").exists());
     }
@@ -1834,7 +1900,10 @@ mod tests {
         let mut q = JobQueue::load(dir.path());
         q.enqueue_cook("a", false, false, false);
         q.start(0).unwrap();
-        assert!(q.finish_phase(0, JobPhase::Prepare).is_err());
+        assert!(!q
+            .finish_phase(0, JobPhase::Prepare)
+            .unwrap_err()
+            .is::<QueueStorageError>());
         assert_eq!(q.jobs()[0].phase, JobPhase::Prepare);
         let output = crate::artifacts::tests::fixture(&session);
         processing::record(
@@ -1887,7 +1956,10 @@ mod tests {
         q.start(0).unwrap();
         fs::remove_file(dir.path().join("jobs.json")).unwrap();
         fs::create_dir(dir.path().join("jobs.json")).unwrap(); // deterministic publication failure
-        assert!(q.finish_phase(0, JobPhase::Prepare).is_err());
+        assert!(q
+            .finish_phase(0, JobPhase::Prepare)
+            .unwrap_err()
+            .is::<QueueStorageError>());
         assert_eq!(q.jobs()[0].phase, JobPhase::Prepare);
         assert_eq!(q.jobs()[0].state, JobState::Running);
     }
