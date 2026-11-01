@@ -140,8 +140,9 @@ Observer отправляет события `try_send` после сохран�
 обратные границы дают null. Время фазы включает проверку и принятие артефакта;
 это не отдельное время модели. Память/GPU и внешняя LLM здесь ещё не измеряются.
 
-Model-free runtime проверяет пустую очередь, timeout/stop с сохранённым заданием и
-несовместимый worker. Сначала нужна сборка двух binaries из команды выше:
+Model-free runtime проверяет пустую очередь, terminal Failed после трёх попыток,
+timeout/stop с сохранённым заданием и несовместимый worker. Сначала нужна сборка
+двух binaries из команды выше:
 
 ```powershell
 cargo test --locked -j 2 -p localvox-light --lib --bin localvox-light -- --test-threads=2
@@ -152,3 +153,51 @@ cargo test --locked -j 2 -p localvox-light-bench --bin localvox-queue-profile --
 Coordinator tests перенесены из binary в lib без копии реализации; launcher tests
 остались в binary. CI запускает оба. Создание стенда не закрывает полный BL-003
 или аппаратную приёмку записи/плеера.
+
+## Пачка из manifest через координатор
+
+Добавьте `--queue-runner` из той же сборочной папки, что и `--worker`:
+
+```powershell
+cargo build --locked --release -j 2 -p localvox-light-asr --bin localvox-process -p localvox-light-bench --bin localvox-profile --bin localvox-queue-profile
+target/release/localvox-profile.exe --manifest scripts/fixtures/profile-golos-five.json --worker target/release/localvox-process.exe --model-dir models/gigaam-v3-e2e-ctc --queue-runner target/release/localvox-queue-profile.exe --output target/profile-queue-new --repeats 2 --timeout-sec 900
+```
+
+Весь manifest/repeats сначала копируется в новые sessions. Подготовленное PCM
+получает source metadata и проверенный preparation receipt; затем публикуются
+настоящие Cook jobs. Prepare принимает готовое аудио обычным путём. Загрузка из
+сети и конверсия здесь исключены. В одной пачке `summary` одинакова для всех cases;
+для сравнения переключателя нужны два manifest. Automatic cleanup/refine и
+диаризация выключены. Interval координатора — обычные 5 s, ресурсные линии прежние.
+
+`--timeout-sec` в этом режиме ограничивает всю очередь и каждую фазу; внешний
+supervisor даёт 15 s на её кооперативное завершение. Ctrl+C внешнего профилировщика
+останавливает принадлежащее дерево, поэтому финальный queue report может остаться
+pending. Сохранённые исходы и артефакты не превращаются в успешный неполный замер.
+
+`report.json` содержит `queue` с точными переходами, проверенные состояния
+артефактов/timelines каждой сессии и `coordinator_process.resources` с наблюдаемыми
+потомками на Windows. Суммарный пик текущей памяти считается по одновременной
+выборке каждые 100 ms, индивидуальные OS peaks хранятся отдельно; они не
+складываются в «пик дерева». Короткие процессы могут быть пропущены. Внешний
+Ollama в эти ресурсы не входит. Per-job `rtf` остаётся null: фаза координатора
+включает проверку/commit, отдельный worker wall здесь не замерен. Фазы разных
+сессий пересекаются; отношение batch wall к сумме audio_sec — throughput пачки.
+
+Только профилировщик задаёт `LOCALVOX_PROFILE_TIMINGS=1`: операция `asr_model_load`
+измеряет создание adapter/vocabulary и inference session внутри STT. Обычное
+приложение эту операцию не добавляет. Она вложена в STT и не прибавляется к нему.
+`--trace-ollama` сохраняет общий trace с started/ended timestamps запросов; при
+параллельных фазах отдельная сессия не назначается HTTP-запросу автоматически.
+Raw labels/notes/errors в queue-отчёте отсутствуют. Hash worker и queue runner
+повторно проверяется после завершения; пересборка во время запуска делает замер
+неполным.
+
+Для отдельного внешнего замера на Windows/PowerShell 7.4+ есть
+[рецепт](../openspec/changes/benchmark-processing-batch/evidence/profile-external.ps1):
+запустите из корня с `-Manifest ... -Output target/profile-new -Repeats 2
+-TimeoutSec 1800 -TraceOllama`. Он использует существующий локальный Ollama,
+снимает API model residency, observed CPU/RAM его процессов и **глобальную**
+NVIDIA GPU-память/загрузку примерно раз в 2 s. Внешний сервер не останавливается.
+GPU включает другие приложения; `size_vram` означает выделение модели. Ресурсы
+и результаты профилировщика сохраняются в отдельных связанных JSON.

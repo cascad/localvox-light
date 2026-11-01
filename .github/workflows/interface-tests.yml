@@ -63,6 +63,7 @@ jobs:
           cargo test --locked -p localvox-light-core env_file:: --lib
           cargo test --locked -p localvox-light-core jobs:: --lib
           cargo test --locked -p localvox-light-core workflow:: --lib
+          cargo test --locked -p localvox-light-core --features onnx cook:: --lib
           cargo test --locked -p localvox-light-core readable:: --lib
       - name: Worker profiling fixture contracts (no speech models)
         run: |
@@ -98,6 +99,7 @@ jobs:
           npx --yes @fission-ai/openspec@1.13.2 validate commit-queue-execution-transitions --type change --strict --no-interactive
           npx --yes @fission-ai/openspec@1.13.2 validate persist-worker-outcomes --type change --strict --no-interactive
           npx --yes @fission-ai/openspec@1.13.2 validate benchmark-processing-batch --type change --strict --no-interactive
+          npx --yes @fission-ai/openspec@1.13.2 validate profile-summary-grounding-cost --type change --strict --no-interactive
           npx --yes @fission-ai/openspec@1.13.2 validate extract-headless-processing-coordinator --type change --strict --no-interactive
           python scripts/check-openspec.py
           git diff --check

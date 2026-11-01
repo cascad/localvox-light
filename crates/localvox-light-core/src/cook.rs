@@ -252,6 +252,16 @@ pub fn cook_session_asr(session_dir: &Path, p: &CookParams) -> Result<CookOutcom
     // mush, and afterwards nobody will tell it apart from a bad recording.
     let model = lang::asr_model(&lang, &p.model_dir)
         .with_context(|| format!("session language «{lang}»"))?;
+    // Explicit engineering profile only; ordinary capture/cook emits no extra operation.
+    // Includes adapter/vocabulary construction and inference-session loading.
+    let model_load = (std::env::var("LOCALVOX_PROFILE_TIMINGS").as_deref() == Ok("1")).then(|| {
+        crate::journal::Operation::start(
+            session_dir,
+            "transcribe",
+            "Загрузка ASR-модели и адаптера",
+            None,
+        )
+    });
     let (engine, model_name): (Box<dyn AsrEngine>, String) = match model.engine {
         lang::Engine::Onnx => {
             let file = find_model_file(&model.dir)?;
@@ -277,6 +287,8 @@ pub fn cook_session_asr(session_dir: &Path, p: &CookParams) -> Result<CookOutcom
             (Box::new(engine), name)
         }
     };
+
+    drop(model_load);
 
     // The diarization models — if they exist at all. If they do not (or it is switched
     // off), we work as before: we do not know the speakers, and we say so with

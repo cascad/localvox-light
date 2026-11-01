@@ -1,0 +1,1708 @@
+{
+  "all_success": true,
+  "arch": "x86_64",
+  "batch_wall_sec": 369.3496697,
+  "complete": true,
+  "configuration": {
+    "cleanup": false,
+    "coordinator_interval_sec": 5,
+    "diarization": false,
+    "llm_base_url": "http://127.0.0.1:11434/v1",
+    "llm_model": "qwen3.5:9b",
+    "prepare_input": "preconverted_pcm_with_verified_receipt; download_conversion_excluded",
+    "refine": false,
+    "summary_provider": "ollama",
+    "timeout_sec": 1800,
+    "trace_ollama": true
+  },
+  "coordinator_process": {
+    "diagnostic_content_omitted": true,
+    "exit_code": 0,
+    "ner_loaded_worker_diagnostic": null,
+    "resources": {
+      "availability": "observed",
+      "cpu_sec_observed": 131.453125,
+      "limits": "short-lived descendants may be missed; simultaneous sampled totals are not sums of individual peaks; external Ollama excluded",
+      "partial_memory_samples": 0,
+      "peak_sampled_commit_bytes": 2555256832,
+      "peak_sampled_working_set_bytes": 2146164736,
+      "processes": [
+        {
+          "cpu_sec": 0.0,
+          "peak_commit_bytes": 5652480,
+          "peak_working_set_bytes": 11792384,
+          "pid": 1884
+        },
+        {
+          "cpu_sec": 25.828125,
+          "peak_commit_bytes": 670707712,
+          "peak_working_set_bytes": 575229952,
+          "pid": 18304
+        },
+        {
+          "cpu_sec": 0.0,
+          "peak_commit_bytes": 5652480,
+          "peak_working_set_bytes": 11788288,
+          "pid": 19996
+        },
+        {
+          "cpu_sec": 36.0,
+          "peak_commit_bytes": 1931235328,
+          "peak_working_set_bytes": 1525121024,
+          "pid": 20784
+        },
+        {
+          "cpu_sec": 36.796875,
+          "peak_commit_bytes": 1930309632,
+          "peak_working_set_bytes": 1524195328,
+          "pid": 21968
+        },
+        {
+          "cpu_sec": 0.0,
+          "peak_commit_bytes": 5632000,
+          "peak_working_set_bytes": 11972608,
+          "pid": 23252
+        },
+        {
+          "cpu_sec": 0.0,
+          "peak_commit_bytes": 5611520,
+          "peak_working_set_bytes": 11784192,
+          "pid": 24312
+        },
+        {
+          "cpu_sec": 0.109375,
+          "peak_commit_bytes": 232738816,
+          "peak_working_set_bytes": 239411200,
+          "pid": 24800
+        },
+        {
+          "cpu_sec": 32.71875,
+          "peak_commit_bytes": 670683136,
+          "peak_working_set_bytes": 575877120,
+          "pid": 27736
+        },
+        {
+          "cpu_sec": 0.0,
+          "peak_commit_bytes": 5636096,
+          "peak_working_set_bytes": 11784192,
+          "pid": 27844
+        }
+      ],
+      "processes_discovered": 10,
+      "processes_queried": 10,
+      "samples": 3528,
+      "sampling_interval_ms": 100,
+      "scope": "coordinator_and_observed_descendants"
+    },
+    "status": "success",
+    "stderr_bytes": 0,
+    "stdout_bytes": 98,
+    "wall_sec": 369.2959158
+  },
+  "executables_unchanged": true,
+  "external_llm_resources": null,
+  "fingerprints_pre_read_inputs_and_models": true,
+  "inputs": [
+    {
+      "audio_sec": 7146.527375,
+      "audio_sha256": "96e50ce45af3988b3b069c0ebd4363842eb06b3fe5b536490a8dc9d81f02cd46",
+      "name": "podlodka-109",
+      "summary": true
+    }
+  ],
+  "label": "Public natural conversation Podlodka 109; full 1h59m episode; optional summary; no user archive",
+  "llm_trace": {
+    "generation_sec": 121.706062,
+    "http_wall_sec": 134.7869726,
+    "model_load_sec": 2.5638115999999993,
+    "non_http_worker_wall_sec": null,
+    "prompt_sec": 8.51284,
+    "request_count": 25,
+    "requests": [
+      {
+        "ended_at": "2026-11-01T17:02:29.559403200+03:00",
+        "http_status": 200,
+        "http_wall_sec": 5.757142,
+        "message_count": 1,
+        "ollama": {
+          "done": true,
+          "done_reason": "stop",
+          "eval_count": 329,
+          "generation_sec": 2.444055,
+          "load_sec": 2.5090583,
+          "prompt_eval_count": 5726,
+          "prompt_sec": 0.783491,
+          "total_sec": 5.7567503
+        },
+        "options": {
+          "frequency_penalty": 0.0,
+          "num_ctx": 32768,
+          "num_predict": 8192,
+          "presence_penalty": 0.0,
+          "repeat_penalty": 1.0,
+          "temperature": 0.20000000298023224,
+          "top_k": 20,
+          "top_p": 0.8999999761581421
+        },
+        "request_bytes": 29170,
+        "response_bytes": 2294,
+        "started_at": "2026-11-01T17:02:23.802213300+03:00",
+        "status": "completed",
+        "stream": false,
+        "think": false
+      },
+      {
+        "ended_at": "2026-11-01T17:03:38.812702200+03:00",
+        "http_status": 200,
+        "http_wall_sec": 2.4949048,
+        "message_count": 3,
+        "ollama": {
+          "done": true,
+          "done_reason": "stop",
+          "eval_count": 294,
+          "generation_sec": 2.228553,
+          "load_sec": 0.0021628,
+          "prompt_eval_count": 6143,
+          "prompt_sec": 0.240746,
+          "total_sec": 2.4946095
+        },
+        "options": {
+          "frequency_penalty": 0.0,
+          "num_ctx": 32768,
+          "num_predict": 8192,
+          "presence_penalty": 0.0,
+          "repeat_penalty": 1.0,
+          "temperature": 0.20000000298023224,
+          "top_k": 20,
+          "top_p": 0.8999999761581421
+        },
+        "request_bytes": 31727,
+        "response_bytes": 2185,
+        "started_at": "2026-11-01T17:03:36.317786900+03:00",
+        "status": "completed",
+        "stream": false,
+        "think": false
+      },
+      {
+        "ended_at": "2026-11-01T17:03:43.688222300+03:00",
+        "http_status": 200,
+        "http_wall_sec": 4.3004104,
+        "message_count": 1,
+        "ollama": {
+          "done": true,
+          "done_reason": "stop",
+          "eval_count": 470,
+          "generation_sec": 3.490644,
+          "load_sec": 0.0025942,
+          "prompt_eval_count": 5527,
+          "prompt_sec": 0.722017,
+          "total_sec": 4.3005437
+        },
+        "options": {
+          "frequency_penalty": 0.0,
+          "num_ctx": 32768,
+          "num_predict": 8192,
+          "presence_penalty": 0.0,
+          "repeat_penalty": 1.0,
+          "temperature": 0.20000000298023224,
+          "top_k": 20,
+          "top_p": 0.8999999761581421
+        },
+        "request_bytes": 28896,
+        "response_bytes": 3041,
+        "started_at": "2026-11-01T17:03:39.387799300+03:00",
+        "status": "completed",
+        "stream": false,
+        "think": false
+      },
+      {
+        "ended_at": "2026-11-01T17:03:48.187119300+03:00",
+        "http_status": 200,
+        "http_wall_sec": 3.5943429,
+        "message_count": 1,
+        "ollama": {
+          "done": true,
+          "done_reason": "stop",
+          "eval_count": 378,
+          "generation_sec": 2.799462,
+          "load_sec": 0.0020545,
+          "prompt_eval_count": 5472,
+          "prompt_sec": 0.711923,
+          "total_sec": 3.5945826
+        },
+        "options": {
+          "frequency_penalty": 0.0,
+          "num_ctx": 32768,
+          "num_predict": 8192,
+          "presence_penalty": 0.0,
+          "repeat_penalty": 1.0,
+          "temperature": 0.20000000298023224,
+          "top_k": 20,
+          "top_p": 0.8999999761581421
+        },
+        "request_bytes": 29138,
+        "response_bytes": 2811,
+        "started_at": "2026-11-01T17:03:44.592766500+03:00",
+        "status": "completed",
+        "stream": false,
+        "think": false
+      },
+      {
+        "ended_at": "2026-11-01T17:03:53.097953600+03:00",
+        "http_status": 200,
+        "http_wall_sec": 4.2754753,
+        "message_count": 1,
+        "ollama": {
+          "done": true,
+          "done_reason": "stop",
+          "eval_count": 472,
+          "generation_sec": 3.492723,
+          "load_sec": 0.0015441,
+          "prompt_eval_count": 5400,
+          "prompt_sec": 0.703563,
+          "total_sec": 4.2749742
+        },
+        "options": {
+          "frequency_penalty": 0.0,
+          "num_ctx": 32768,
+          "num_predict": 8192,
+          "presence_penalty": 0.0,
+          "repeat_penalty": 1.0,
+          "temperature": 0.20000000298023224,
+          "top_k": 20,
+          "top_p": 0.8999999761581421
+        },
+        "request_bytes": 28924,
+        "response_bytes": 3086,
+        "started_at": "2026-11-01T17:03:48.822467600+03:00",
+        "status": "completed",
+        "stream": false,
+        "think": false
+      },
+      {
+        "ended_at": "2026-11-01T17:03:57.262987600+03:00",
+        "http_status": 200,
+        "http_wall_sec": 3.3247121,
+        "message_count": 1,
+        "ollama": {
+          "done": true,
+          "done_reason": "stop",
+          "eval_count": 343,
+          "generation_sec": 2.549018,
+          "load_sec": 0.002604,
+          "prompt_eval_count": 5366,
+          "prompt_sec": 0.698481,
+          "total_sec": 3.3246976
+        },
+        "options": {
+          "frequency_penalty": 0.0,
+          "num_ctx": 32768,
+          "num_predict": 8192,
+          "presence_penalty": 0.0,
+          "repeat_penalty": 1.0,
+          "temperature": 0.20000000298023224,
+          "top_k": 20,
+          "top_p": 0.8999999761581421
+        },
+        "request_bytes": 28727,
+        "response_bytes": 2343,
+        "started_at": "2026-11-01T17:03:53.938265300+03:00",
+        "status": "completed",
+        "stream": false,
+        "think": false
+      },
+      {
+        "ended_at": "2026-11-01T17:04:01.220101600+03:00",
+        "http_status": 200,
+        "http_wall_sec": 3.3824325,
+        "message_count": 1,
+        "ollama": {
+          "done": true,
+          "done_reason": "stop",
+          "eval_count": 348,
+          "generation_sec": 2.574625,
+          "load_sec": 0.0020112,
+          "prompt_eval_count": 5632,
+          "prompt_sec": 0.730789,
+          "total_sec": 3.3822348
+        },
+        "options": {
+          "frequency_penalty": 0.0,
+          "num_ctx": 32768,
+          "num_predict": 8192,
+          "presence_penalty": 0.0,
+          "repeat_penalty": 1.0,
+          "temperature": 0.20000000298023224,
+          "top_k": 20,
+          "top_p": 0.8999999761581421
+        },
+        "request_bytes": 28907,
+        "response_bytes": 2478,
+        "started_at": "2026-11-01T17:03:57.837659400+03:00",
+        "status": "completed",
+        "stream": false,
+        "think": false
+      },
+      {
+        "ended_at": "2026-11-01T17:04:05.614823500+03:00",
+        "http_status": 200,
+        "http_wall_sec": 3.9046226,
+        "message_count": 1,
+        "ollama": {
+          "done": true,
+          "done_reason": "stop",
+          "eval_count": 420,
+          "generation_sec": 3.099814,
+          "load_sec": 0.0020634,
+          "prompt_eval_count": 5654,
+          "prompt_sec": 0.73923,
+          "total_sec": 3.9041213
+        },
+        "options": {
+          "frequency_penalty": 0.0,
+          "num_ctx": 32768,
+          "num_predict": 8192,
+          "presence_penalty": 0.0,
+          "repeat_penalty": 1.0,
+          "temperature": 0.20000000298023224,
+          "top_k": 20,
+          "top_p": 0.8999999761581421
+        },
+        "request_bytes": 29164,
+        "response_bytes": 2829,
+        "started_at": "2026-11-01T17:04:01.710190700+03:00",
+        "status": "completed",
+        "stream": false,
+        "think": false
+      },
+      {
+        "ended_at": "2026-11-01T17:04:09.314857700+03:00",
+        "http_status": 200,
+        "http_wall_sec": 3.2310699,
+        "message_count": 3,
+        "ollama": {
+          "done": true,
+          "done_reason": "stop",
+          "eval_count": 420,
+          "generation_sec": 3.10907,
+          "load_sec": 0.0030764,
+          "prompt_eval_count": 6162,
+          "prompt_sec": 0.097612,
+          "total_sec": 3.2308656
+        },
+        "options": {
+          "frequency_penalty": 0.0,
+          "num_ctx": 32768,
+          "num_predict": 8192,
+          "presence_penalty": 0.0,
+          "repeat_penalty": 1.0,
+          "temperature": 0.20000000298023224,
+          "top_k": 20,
+          "top_p": 0.8999999761581421
+        },
+        "request_bytes": 32259,
+        "response_bytes": 2797,
+        "started_at": "2026-11-01T17:04:06.083776500+03:00",
+        "status": "completed",
+        "stream": false,
+        "think": false
+      },
+      {
+        "ended_at": "2026-11-01T17:04:13.098637800+03:00",
+        "http_status": 200,
+        "http_wall_sec": 3.300928,
+        "message_count": 1,
+        "ollama": {
+          "done": true,
+          "done_reason": "stop",
+          "eval_count": 338,
+          "generation_sec": 2.49366,
+          "load_sec": 0.0020269,
+          "prompt_eval_count": 5603,
+          "prompt_sec": 0.726662,
+          "total_sec": 3.3003631
+        },
+        "options": {
+          "frequency_penalty": 0.0,
+          "num_ctx": 32768,
+          "num_predict": 8192,
+          "presence_penalty": 0.0,
+          "repeat_penalty": 1.0,
+          "temperature": 0.20000000298023224,
+          "top_k": 20,
+          "top_p": 0.8999999761581421
+        },
+        "request_bytes": 28786,
+        "response_bytes": 2591,
+        "started_at": "2026-11-01T17:04:09.797687100+03:00",
+        "status": "completed",
+        "stream": false,
+        "think": false
+      },
+      {
+        "ended_at": "2026-11-01T17:04:18.063119200+03:00",
+        "http_status": 200,
+        "http_wall_sec": 4.5197247,
+        "message_count": 1,
+        "ollama": {
+          "done": true,
+          "done_reason": "stop",
+          "eval_count": 506,
+          "generation_sec": 3.737707,
+          "load_sec": 0.0020474,
+          "prompt_eval_count": 5466,
+          "prompt_sec": 0.709175,
+          "total_sec": 4.5195854
+        },
+        "options": {
+          "frequency_penalty": 0.0,
+          "num_ctx": 32768,
+          "num_predict": 8192,
+          "presence_penalty": 0.0,
+          "repeat_penalty": 1.0,
+          "temperature": 0.20000000298023224,
+          "top_k": 20,
+          "top_p": 0.8999999761581421
+        },
+        "request_bytes": 27909,
+        "response_bytes": 3203,
+        "started_at": "2026-11-01T17:04:13.543384300+03:00",
+        "status": "completed",
+        "stream": false,
+        "think": false
+      },
+      {
+        "ended_at": "2026-11-01T17:04:46.993760800+03:00",
+        "http_status": 200,
+        "http_wall_sec": 28.2879681,
+        "message_count": 1,
+        "ollama": {
+          "done": true,
+          "done_reason": "stop",
+          "eval_count": 3757,
+          "generation_sec": 27.726161,
+          "load_sec": 0.0020943,
+          "prompt_eval_count": 3663,
+          "prompt_sec": 0.483439,
+          "total_sec": 28.2878326
+        },
+        "options": {
+          "frequency_penalty": 0.0,
+          "num_ctx": 32768,
+          "num_predict": 8192,
+          "presence_penalty": 0.0,
+          "repeat_penalty": 1.0,
+          "temperature": 0.20000000298023224,
+          "top_k": 20,
+          "top_p": 0.8999999761581421
+        },
+        "request_bytes": 22400,
+        "response_bytes": 23390,
+        "started_at": "2026-11-01T17:04:18.705783+03:00",
+        "status": "completed",
+        "stream": false,
+        "think": false
+      },
+      {
+        "ended_at": "2026-11-01T17:05:01.424708500+03:00",
+        "http_status": 200,
+        "http_wall_sec": 2.624898,
+        "message_count": 1,
+        "ollama": {
+          "done": true,
+          "done_reason": "stop",
+          "eval_count": 305,
+          "generation_sec": 2.262868,
+          "load_sec": 0.0026814,
+          "prompt_eval_count": 5726,
+          "prompt_sec": 0.029117,
+          "total_sec": 2.6249643
+        },
+        "options": {
+          "frequency_penalty": 0.0,
+          "num_ctx": 32768,
+          "num_predict": 8192,
+          "presence_penalty": 0.0,
+          "repeat_penalty": 1.0,
+          "temperature": 0.20000000298023224,
+          "top_k": 20,
+          "top_p": 0.8999999761581421
+        },
+        "request_bytes": 29170,
+        "response_bytes": 2158,
+        "started_at": "2026-11-01T17:04:58.799801500+03:00",
+        "status": "completed",
+        "stream": false,
+        "think": false
+      },
+      {
+        "ended_at": "2026-11-01T17:06:01.120276300+03:00",
+        "http_status": 200,
+        "http_wall_sec": 2.2054264,
+        "message_count": 3,
+        "ollama": {
+          "done": true,
+          "done_reason": "stop",
+          "eval_count": 264,
+          "generation_sec": 1.959839,
+          "load_sec": 0.0020525,
+          "prompt_eval_count": 6121,
+          "prompt_sec": 0.221523,
+          "total_sec": 2.2052294
+        },
+        "options": {
+          "frequency_penalty": 0.0,
+          "num_ctx": 32768,
+          "num_predict": 8192,
+          "presence_penalty": 0.0,
+          "repeat_penalty": 1.0,
+          "temperature": 0.20000000298023224,
+          "top_k": 20,
+          "top_p": 0.8999999761581421
+        },
+        "request_bytes": 31592,
+        "response_bytes": 2008,
+        "started_at": "2026-11-01T17:05:58.914839900+03:00",
+        "status": "completed",
+        "stream": false,
+        "think": false
+      },
+      {
+        "ended_at": "2026-11-01T17:06:05.200937100+03:00",
+        "http_status": 200,
+        "http_wall_sec": 3.636351,
+        "message_count": 1,
+        "ollama": {
+          "done": true,
+          "done_reason": "stop",
+          "eval_count": 470,
+          "generation_sec": 3.488138,
+          "load_sec": 0.0026001,
+          "prompt_eval_count": 5527,
+          "prompt_sec": 0.029726,
+          "total_sec": 3.636645
+        },
+        "options": {
+          "frequency_penalty": 0.0,
+          "num_ctx": 32768,
+          "num_predict": 8192,
+          "presence_penalty": 0.0,
+          "repeat_penalty": 1.0,
+          "temperature": 0.20000000298023224,
+          "top_k": 20,
+          "top_p": 0.8999999761581421
+        },
+        "request_bytes": 28896,
+        "response_bytes": 3222,
+        "started_at": "2026-11-01T17:06:01.564574800+03:00",
+        "status": "completed",
+        "stream": false,
+        "think": false
+      },
+      {
+        "ended_at": "2026-11-01T17:06:08.301917700+03:00",
+        "http_status": 200,
+        "http_wall_sec": 2.4196949,
+        "message_count": 1,
+        "ollama": {
+          "done": true,
+          "done_reason": "stop",
+          "eval_count": 308,
+          "generation_sec": 2.282661,
+          "load_sec": 0.0025702,
+          "prompt_eval_count": 5472,
+          "prompt_sec": 0.026199,
+          "total_sec": 2.4201532
+        },
+        "options": {
+          "frequency_penalty": 0.0,
+          "num_ctx": 32768,
+          "num_predict": 8192,
+          "presence_penalty": 0.0,
+          "repeat_penalty": 1.0,
+          "temperature": 0.20000000298023224,
+          "top_k": 20,
+          "top_p": 0.8999999761581421
+        },
+        "request_bytes": 29138,
+        "response_bytes": 2297,
+        "started_at": "2026-11-01T17:06:05.882213200+03:00",
+        "status": "completed",
+        "stream": false,
+        "think": false
+      },
+      {
+        "ended_at": "2026-11-01T17:06:12.025086500+03:00",
+        "http_status": 200,
+        "http_wall_sec": 3.2709765,
+        "message_count": 1,
+        "ollama": {
+          "done": true,
+          "done_reason": "stop",
+          "eval_count": 425,
+          "generation_sec": 3.142278,
+          "load_sec": 0.0020488,
+          "prompt_eval_count": 5400,
+          "prompt_sec": 0.026342,
+          "total_sec": 3.2705172
+        },
+        "options": {
+          "frequency_penalty": 0.0,
+          "num_ctx": 32768,
+          "num_predict": 8192,
+          "presence_penalty": 0.0,
+          "repeat_penalty": 1.0,
+          "temperature": 0.20000000298023224,
+          "top_k": 20,
+          "top_p": 0.8999999761581421
+        },
+        "request_bytes": 28924,
+        "response_bytes": 2861,
+        "started_at": "2026-11-01T17:06:08.754100300+03:00",
+        "status": "completed",
+        "stream": false,
+        "think": false
+      },
+      {
+        "ended_at": "2026-11-01T17:06:15.920307700+03:00",
+        "http_status": 200,
+        "http_wall_sec": 3.3777196,
+        "message_count": 1,
+        "ollama": {
+          "done": true,
+          "done_reason": "stop",
+          "eval_count": 438,
+          "generation_sec": 3.242903,
+          "load_sec": 0.0020298,
+          "prompt_eval_count": 5366,
+          "prompt_sec": 0.026387,
+          "total_sec": 3.3777426
+        },
+        "options": {
+          "frequency_penalty": 0.0,
+          "num_ctx": 32768,
+          "num_predict": 8192,
+          "presence_penalty": 0.0,
+          "repeat_penalty": 1.0,
+          "temperature": 0.20000000298023224,
+          "top_k": 20,
+          "top_p": 0.8999999761581421
+        },
+        "request_bytes": 28727,
+        "response_bytes": 2958,
+        "started_at": "2026-11-01T17:06:12.542577100+03:00",
+        "status": "completed",
+        "stream": false,
+        "think": false
+      },
+      {
+        "ended_at": "2026-11-01T17:06:19.121384900+03:00",
+        "http_status": 200,
+        "http_wall_sec": 2.6962924,
+        "message_count": 1,
+        "ollama": {
+          "done": true,
+          "done_reason": "stop",
+          "eval_count": 347,
+          "generation_sec": 2.567227,
+          "load_sec": 0.0026034,
+          "prompt_eval_count": 5632,
+          "prompt_sec": 0.026748,
+          "total_sec": 2.696758
+        },
+        "options": {
+          "frequency_penalty": 0.0,
+          "num_ctx": 32768,
+          "num_predict": 8192,
+          "presence_penalty": 0.0,
+          "repeat_penalty": 1.0,
+          "temperature": 0.20000000298023224,
+          "top_k": 20,
+          "top_p": 0.8999999761581421
+        },
+        "request_bytes": 28907,
+        "response_bytes": 2398,
+        "started_at": "2026-11-01T17:06:16.425083200+03:00",
+        "status": "completed",
+        "stream": false,
+        "think": false
+      },
+      {
+        "ended_at": "2026-11-01T17:06:22.662868100+03:00",
+        "http_status": 200,
+        "http_wall_sec": 3.0826943,
+        "message_count": 1,
+        "ollama": {
+          "done": true,
+          "done_reason": "stop",
+          "eval_count": 400,
+          "generation_sec": 2.961175,
+          "load_sec": 0.0020729,
+          "prompt_eval_count": 5654,
+          "prompt_sec": 0.029194,
+          "total_sec": 3.0826075
+        },
+        "options": {
+          "frequency_penalty": 0.0,
+          "num_ctx": 32768,
+          "num_predict": 8192,
+          "presence_penalty": 0.0,
+          "repeat_penalty": 1.0,
+          "temperature": 0.20000000298023224,
+          "top_k": 20,
+          "top_p": 0.8999999761581421
+        },
+        "request_bytes": 29164,
+        "response_bytes": 2587,
+        "started_at": "2026-11-01T17:06:19.580163600+03:00",
+        "status": "completed",
+        "stream": false,
+        "think": false
+      },
+      {
+        "ended_at": "2026-11-01T17:06:26.590662600+03:00",
+        "http_status": 200,
+        "http_wall_sec": 3.4890099,
+        "message_count": 3,
+        "ollama": {
+          "done": true,
+          "done_reason": "stop",
+          "eval_count": 455,
+          "generation_sec": 3.368256,
+          "load_sec": 0.002552,
+          "prompt_eval_count": 6144,
+          "prompt_sec": 0.096886,
+          "total_sec": 3.4886829
+        },
+        "options": {
+          "frequency_penalty": 0.0,
+          "num_ctx": 32768,
+          "num_predict": 8192,
+          "presence_penalty": 0.0,
+          "repeat_penalty": 1.0,
+          "temperature": 0.20000000298023224,
+          "top_k": 20,
+          "top_p": 0.8999999761581421
+        },
+        "request_bytes": 32015,
+        "response_bytes": 2828,
+        "started_at": "2026-11-01T17:06:23.101640300+03:00",
+        "status": "completed",
+        "stream": false,
+        "think": false
+      },
+      {
+        "ended_at": "2026-11-01T17:06:29.839216700+03:00",
+        "http_status": 200,
+        "http_wall_sec": 2.7728997,
+        "message_count": 1,
+        "ollama": {
+          "done": true,
+          "done_reason": "stop",
+          "eval_count": 358,
+          "generation_sec": 2.654609,
+          "load_sec": 0.0020375,
+          "prompt_eval_count": 5603,
+          "prompt_sec": 0.025233,
+          "total_sec": 2.7726583
+        },
+        "options": {
+          "frequency_penalty": 0.0,
+          "num_ctx": 32768,
+          "num_predict": 8192,
+          "presence_penalty": 0.0,
+          "repeat_penalty": 1.0,
+          "temperature": 0.20000000298023224,
+          "top_k": 20,
+          "top_p": 0.8999999761581421
+        },
+        "request_bytes": 28786,
+        "response_bytes": 2638,
+        "started_at": "2026-11-01T17:06:27.066306100+03:00",
+        "status": "completed",
+        "stream": false,
+        "think": false
+      },
+      {
+        "ended_at": "2026-11-01T17:06:34.388570500+03:00",
+        "http_status": 200,
+        "http_wall_sec": 3.869314,
+        "message_count": 1,
+        "ollama": {
+          "done": true,
+          "done_reason": "stop",
+          "eval_count": 505,
+          "generation_sec": 3.74985,
+          "load_sec": 0.0030806,
+          "prompt_eval_count": 5466,
+          "prompt_sec": 0.029424,
+          "total_sec": 3.868816
+        },
+        "options": {
+          "frequency_penalty": 0.0,
+          "num_ctx": 32768,
+          "num_predict": 8192,
+          "presence_penalty": 0.0,
+          "repeat_penalty": 1.0,
+          "temperature": 0.20000000298023224,
+          "top_k": 20,
+          "top_p": 0.8999999761581421
+        },
+        "request_bytes": 27909,
+        "response_bytes": 3296,
+        "started_at": "2026-11-01T17:06:30.519244200+03:00",
+        "status": "completed",
+        "stream": false,
+        "think": false
+      },
+      {
+        "ended_at": "2026-11-01T17:06:38.842490+03:00",
+        "http_status": 200,
+        "http_wall_sec": 3.8395622,
+        "message_count": 3,
+        "ollama": {
+          "done": true,
+          "done_reason": "stop",
+          "eval_count": 500,
+          "generation_sec": 3.703256,
+          "load_sec": 0.0026197,
+          "prompt_eval_count": 6059,
+          "prompt_sec": 0.112309,
+          "total_sec": 3.8393381
+        },
+        "options": {
+          "frequency_penalty": 0.0,
+          "num_ctx": 32768,
+          "num_predict": 8192,
+          "presence_penalty": 0.0,
+          "repeat_penalty": 1.0,
+          "temperature": 0.20000000298023224,
+          "top_k": 20,
+          "top_p": 0.8999999761581421
+        },
+        "request_bytes": 31469,
+        "response_bytes": 3306,
+        "started_at": "2026-11-01T17:06:35.002918+03:00",
+        "status": "completed",
+        "stream": false,
+        "think": false
+      },
+      {
+        "ended_at": "2026-11-01T17:07:06.599569100+03:00",
+        "http_status": 200,
+        "http_wall_sec": 27.1284004,
+        "message_count": 1,
+        "ollama": {
+          "done": true,
+          "done_reason": "stop",
+          "eval_count": 3600,
+          "generation_sec": 26.57751,
+          "load_sec": 0.0015252,
+          "prompt_eval_count": 3657,
+          "prompt_sec": 0.486624,
+          "total_sec": 27.1276806
+        },
+        "options": {
+          "frequency_penalty": 0.0,
+          "num_ctx": 32768,
+          "num_predict": 8192,
+          "presence_penalty": 0.0,
+          "repeat_penalty": 1.0,
+          "temperature": 0.20000000298023224,
+          "top_k": 20,
+          "top_p": 0.8999999761581421
+        },
+        "request_bytes": 22360,
+        "response_bytes": 22082,
+        "started_at": "2026-11-01T17:06:39.471151+03:00",
+        "status": "completed",
+        "stream": false,
+        "think": false
+      }
+    ],
+    "source": "native_ollama_response"
+  },
+  "logical_cpus": 6,
+  "manifest_sha256": "91742aefc6538bd52ab21e7efe3b4fa96865630796424f068f75d97b8d74f99d",
+  "model_files": [
+    {
+      "file": "v3_e2e_ctc.int8.onnx",
+      "sha256": "2e3fcb7a7b66030336fd10c2fcfb033bd1dc7e1bf238fe5cfd83b1d0cfc9d28e"
+    },
+    {
+      "file": "v3_e2e_ctc.yaml",
+      "sha256": "e67eca3a311ad7c8813d36dff6b8eeba7ad3459fd811d6faea2a26535754a358"
+    },
+    {
+      "file": "v3_e2e_ctc_vocab.txt",
+      "sha256": "142de7570b3de5b3035ce111a89c228e80e6085273731d944093ddf24fa539cd"
+    }
+  ],
+  "ner_model_files": [
+    {
+      "file": "gliner_config.json",
+      "sha256": "1ef59c57fe6816a155697a5670ca8d0faf0babe13f199a2c2b5b65113399ed72"
+    },
+    {
+      "file": "model_fp16.onnx",
+      "sha256": "9cec3c771bfa7e886e029cd013326b13ad7d18f58fac33824f43c106fbdfe920"
+    },
+    {
+      "file": "model_q4f16.onnx",
+      "sha256": "11d5f4f5a720931d91429867fc1df22fc507f1878a321ada77a47afa424ff3dc"
+    },
+    {
+      "file": "tokenizer.json",
+      "sha256": "914bd3c8fb7b525af9e23b60d0ec7b1248ddb2b99014efd9c02ebeb022f8cab7"
+    }
+  ],
+  "os": "windows",
+  "preflight_sec": 2.8479657,
+  "process_policy": "production resource lanes; fresh worker per phase; auto discovery unchanged; disk cache uncontrolled",
+  "queue": {
+    "all_success": true,
+    "complete": true,
+    "coordinator_joined": true,
+    "elapsed_sec": 369.2255778,
+    "events": [
+      {
+        "after_has_error": false,
+        "attempt": 1,
+        "ended_at": null,
+        "execution_id": "01a19769-e586-7361-ad11-977bb74a667b",
+        "job_id": 0,
+        "kind": "claimed",
+        "phase": "prepare",
+        "phase_after": "prepare",
+        "phase_wall_sec": null,
+        "queue_wait_sec": 0.93,
+        "queued_at": "2026-11-01T17:01:01.155653300+03:00",
+        "session": "podlodka-109-r1",
+        "started_at": "2026-11-01T17:01:02.086139500+03:00",
+        "state_after": "Running"
+      },
+      {
+        "after_has_error": false,
+        "attempt": 1,
+        "ended_at": "2026-11-01T17:01:02.355879+03:00",
+        "execution_id": "01a19769-e586-7361-ad11-977bb74a667b",
+        "job_id": 0,
+        "kind": "accepted",
+        "phase": "prepare",
+        "phase_after": "transcribe",
+        "phase_wall_sec": 0.269,
+        "queue_wait_sec": 0.93,
+        "queued_at": "2026-11-01T17:01:01.155653300+03:00",
+        "session": "podlodka-109-r1",
+        "started_at": "2026-11-01T17:01:02.086139500+03:00",
+        "state_after": "Pending"
+      },
+      {
+        "after_has_error": false,
+        "attempt": 1,
+        "ended_at": null,
+        "execution_id": "01a19769-e699-72f0-b715-62c9a1588fea",
+        "job_id": 1,
+        "kind": "claimed",
+        "phase": "prepare",
+        "phase_after": "prepare",
+        "phase_wall_sec": null,
+        "queue_wait_sec": 0.459,
+        "queued_at": "2026-11-01T17:01:01.901493100+03:00",
+        "session": "podlodka-109-r2",
+        "started_at": "2026-11-01T17:01:02.361200600+03:00",
+        "state_after": "Running"
+      },
+      {
+        "after_has_error": false,
+        "attempt": 1,
+        "ended_at": "2026-11-01T17:01:02.627397+03:00",
+        "execution_id": "01a19769-e699-72f0-b715-62c9a1588fea",
+        "job_id": 1,
+        "kind": "accepted",
+        "phase": "prepare",
+        "phase_after": "transcribe",
+        "phase_wall_sec": 0.266,
+        "queue_wait_sec": 0.459,
+        "queued_at": "2026-11-01T17:01:01.901493100+03:00",
+        "session": "podlodka-109-r2",
+        "started_at": "2026-11-01T17:01:02.361200600+03:00",
+        "state_after": "Pending"
+      },
+      {
+        "after_has_error": false,
+        "attempt": 1,
+        "ended_at": null,
+        "execution_id": "01a19769-f921-7251-9dba-f3bd52e78043",
+        "job_id": 0,
+        "kind": "claimed",
+        "phase": "transcribe",
+        "phase_after": "transcribe",
+        "phase_wall_sec": null,
+        "queue_wait_sec": 4.749,
+        "queued_at": "2026-11-01T17:01:02.355879+03:00",
+        "session": "podlodka-109-r1",
+        "started_at": "2026-11-01T17:01:07.105417300+03:00",
+        "state_after": "Running"
+      },
+      {
+        "after_has_error": false,
+        "attempt": 1,
+        "ended_at": "2026-11-01T17:02:18.959053300+03:00",
+        "execution_id": "01a19769-f921-7251-9dba-f3bd52e78043",
+        "job_id": 0,
+        "kind": "accepted",
+        "phase": "transcribe",
+        "phase_after": "summary",
+        "phase_wall_sec": 71.853,
+        "queue_wait_sec": 4.749,
+        "queued_at": "2026-11-01T17:01:02.355879+03:00",
+        "session": "podlodka-109-r1",
+        "started_at": "2026-11-01T17:01:07.105417300+03:00",
+        "state_after": "Pending"
+      },
+      {
+        "after_has_error": false,
+        "attempt": 1,
+        "ended_at": null,
+        "execution_id": "01a1976b-11d4-7593-9fce-cfd78ace08ce",
+        "job_id": 1,
+        "kind": "claimed",
+        "phase": "transcribe",
+        "phase_after": "transcribe",
+        "phase_wall_sec": null,
+        "queue_wait_sec": 76.337,
+        "queued_at": "2026-11-01T17:01:02.627397+03:00",
+        "session": "podlodka-109-r2",
+        "started_at": "2026-11-01T17:02:18.964424+03:00",
+        "state_after": "Running"
+      },
+      {
+        "after_has_error": false,
+        "attempt": 1,
+        "ended_at": null,
+        "execution_id": "01a1976b-1ef7-70f0-8243-6f8f2ce499b8",
+        "job_id": 0,
+        "kind": "claimed",
+        "phase": "summary",
+        "phase_after": "summary",
+        "phase_wall_sec": null,
+        "queue_wait_sec": 3.368,
+        "queued_at": "2026-11-01T17:02:18.959053300+03:00",
+        "session": "podlodka-109-r1",
+        "started_at": "2026-11-01T17:02:22.327175400+03:00",
+        "state_after": "Running"
+      },
+      {
+        "after_has_error": false,
+        "attempt": 1,
+        "ended_at": "2026-11-01T17:04:00.028786100+03:00",
+        "execution_id": "01a1976b-11d4-7593-9fce-cfd78ace08ce",
+        "job_id": 1,
+        "kind": "accepted",
+        "phase": "transcribe",
+        "phase_after": "summary",
+        "phase_wall_sec": 101.064,
+        "queue_wait_sec": 76.337,
+        "queued_at": "2026-11-01T17:01:02.627397+03:00",
+        "session": "podlodka-109-r2",
+        "started_at": "2026-11-01T17:02:18.964424+03:00",
+        "state_after": "Pending"
+      },
+      {
+        "after_has_error": false,
+        "attempt": 1,
+        "ended_at": "2026-11-01T17:04:51.651791300+03:00",
+        "execution_id": "01a1976b-1ef7-70f0-8243-6f8f2ce499b8",
+        "job_id": 0,
+        "kind": "accepted",
+        "phase": "summary",
+        "phase_after": "summary",
+        "phase_wall_sec": 149.324,
+        "queue_wait_sec": 3.368,
+        "queued_at": "2026-11-01T17:02:18.959053300+03:00",
+        "session": "podlodka-109-r1",
+        "started_at": "2026-11-01T17:02:22.327175400+03:00",
+        "state_after": "Done"
+      },
+      {
+        "after_has_error": false,
+        "attempt": 1,
+        "ended_at": null,
+        "execution_id": "01a1976d-79de-7d71-9396-d17b5cab3c9e",
+        "job_id": 1,
+        "kind": "claimed",
+        "phase": "summary",
+        "phase_after": "summary",
+        "phase_wall_sec": null,
+        "queue_wait_sec": 56.641,
+        "queued_at": "2026-11-01T17:04:00.028786100+03:00",
+        "session": "podlodka-109-r2",
+        "started_at": "2026-11-01T17:04:56.670214400+03:00",
+        "state_after": "Running"
+      },
+      {
+        "after_has_error": false,
+        "attempt": 1,
+        "ended_at": "2026-11-01T17:07:11.100383400+03:00",
+        "execution_id": "01a1976d-79de-7d71-9396-d17b5cab3c9e",
+        "job_id": 1,
+        "kind": "accepted",
+        "phase": "summary",
+        "phase_after": "summary",
+        "phase_wall_sec": 134.43,
+        "queue_wait_sec": 56.641,
+        "queued_at": "2026-11-01T17:04:00.028786100+03:00",
+        "session": "podlodka-109-r2",
+        "started_at": "2026-11-01T17:04:56.670214400+03:00",
+        "state_after": "Done"
+      }
+    ],
+    "events_lost": 0,
+    "initial_jobs": [
+      {
+        "attempt": 0,
+        "created_at": "2026-11-01T17:01:01.155647700+03:00",
+        "enqueued_at": null,
+        "execution_id": null,
+        "finished_at": null,
+        "has_error": false,
+        "id": 0,
+        "kind": "cook",
+        "phase": "prepare",
+        "phase_started_at": null,
+        "queued_at": "2026-11-01T17:01:01.155653300+03:00",
+        "session": "podlodka-109-r1",
+        "started_at": null,
+        "state": "Pending"
+      },
+      {
+        "attempt": 0,
+        "created_at": "2026-11-01T17:01:01.901486900+03:00",
+        "enqueued_at": null,
+        "execution_id": null,
+        "finished_at": null,
+        "has_error": false,
+        "id": 1,
+        "kind": "cook",
+        "phase": "prepare",
+        "phase_started_at": null,
+        "queued_at": "2026-11-01T17:01:01.901493100+03:00",
+        "session": "podlodka-109-r2",
+        "started_at": null,
+        "state": "Pending"
+      }
+    ],
+    "jobs": [
+      {
+        "attempt": 1,
+        "created_at": "2026-11-01T17:01:01.155647700+03:00",
+        "enqueued_at": null,
+        "execution_id": "01a1976b-1ef7-70f0-8243-6f8f2ce499b8",
+        "finished_at": "2026-11-01T17:04:51.651791300+03:00",
+        "has_error": false,
+        "id": 0,
+        "kind": "cook",
+        "phase": "summary",
+        "phase_started_at": "2026-11-01T17:02:22.327175400+03:00",
+        "queued_at": "2026-11-01T17:02:18.959053300+03:00",
+        "session": "podlodka-109-r1",
+        "started_at": "2026-11-01T17:01:02.086191100+03:00",
+        "state": "Done"
+      },
+      {
+        "attempt": 1,
+        "created_at": "2026-11-01T17:01:01.901486900+03:00",
+        "enqueued_at": null,
+        "execution_id": "01a1976d-79de-7d71-9396-d17b5cab3c9e",
+        "finished_at": "2026-11-01T17:07:11.100383400+03:00",
+        "has_error": false,
+        "id": 1,
+        "kind": "cook",
+        "phase": "summary",
+        "phase_started_at": "2026-11-01T17:04:56.670214400+03:00",
+        "queued_at": "2026-11-01T17:04:00.028786100+03:00",
+        "session": "podlodka-109-r2",
+        "started_at": "2026-11-01T17:01:02.361209500+03:00",
+        "state": "Done"
+      }
+    ],
+    "reason": "terminal",
+    "scope": "isolated_production_coordinator",
+    "version": 1
+  },
+  "queue_runner_sha256": "a3b5a9b87077479d790cdb7a9da5827866d45045d11bfba406ac677bf8be63e7",
+  "queue_runner_sha256_after": "a3b5a9b87077479d790cdb7a9da5827866d45045d11bfba406ac677bf8be63e7",
+  "queue_wait_sec": null,
+  "repeats": 2,
+  "runner_debug_assertions": false,
+  "runner_sha256": "6d66dbf9dcd696a9b8032791ea5fe2e57e26a5a68300d5b51d41f1f40ebf60a6",
+  "runs": [
+    {
+      "audio_sec": 7146.527375,
+      "case": "podlodka-109",
+      "complete": true,
+      "content_unverified": true,
+      "repeat": 1,
+      "rtf": null,
+      "session": "podlodka-109-r1",
+      "setup_sec": 0.734482,
+      "success": true,
+      "summary_state": "ready",
+      "timeline": {
+        "generation_sec": null,
+        "history_status": "available",
+        "incomplete_tail": false,
+        "malformed_records": 0,
+        "model_load_sec": null,
+        "operation_durations_are_nested_not_additive": true,
+        "operations": [
+          {
+            "category": "asr_model_load",
+            "elapsed_sec": 0.6034217,
+            "operation": "01a19769-f94f-74d0-9ad2-6242a41bacd6",
+            "stage": "transcribe"
+          },
+          {
+            "category": "operation",
+            "elapsed_sec": 71.7800693,
+            "operation": "01a19769-f949-72a0-9dde-b4063b0f6983",
+            "stage": "transcribe"
+          },
+          {
+            "category": "operation",
+            "elapsed_sec": 71.8535567,
+            "operation": "01a19769-f923-7a30-bcee-301403ccdc85",
+            "stage": "transcribe"
+          },
+          {
+            "category": "ner_model_load",
+            "elapsed_sec": 1.4034664,
+            "operation": "01a1976b-1f2a-71c2-9d27-67f3497854d5",
+            "stage": "summary"
+          },
+          {
+            "category": "llm_request",
+            "elapsed_sec": 5.7666638,
+            "operation": "01a1976b-24b0-7e52-879e-1f055bed01c6",
+            "stage": "summary"
+          },
+          {
+            "category": "grounding_check",
+            "elapsed_sec": 66.7449286,
+            "operation": "01a1976b-3b3b-7021-aa6f-42b75996208e",
+            "stage": "summary"
+          },
+          {
+            "category": "llm_retry",
+            "elapsed_sec": 2.4996974,
+            "operation": "01a1976c-3ff9-7153-b17b-98f1d6a82d13",
+            "stage": "summary"
+          },
+          {
+            "category": "grounding_check",
+            "elapsed_sec": 0.5502407,
+            "operation": "01a1976c-49c8-7642-b0a1-4d28bef4b75f",
+            "stage": "summary"
+          },
+          {
+            "category": "llm_request",
+            "elapsed_sec": 4.3081878,
+            "operation": "01a1976c-4bf4-75b1-a3a8-14de5752792d",
+            "stage": "summary"
+          },
+          {
+            "category": "grounding_check",
+            "elapsed_sec": 0.886203,
+            "operation": "01a1976c-5ccd-7be0-b95b-005891c486fa",
+            "stage": "summary"
+          },
+          {
+            "category": "llm_request",
+            "elapsed_sec": 3.6026435,
+            "operation": "01a1976c-6048-7d10-aafd-17c82e00721b",
+            "stage": "summary"
+          },
+          {
+            "category": "grounding_check",
+            "elapsed_sec": 0.6126836,
+            "operation": "01a1976c-6e64-7e83-bed3-306e1b166e6c",
+            "stage": "summary"
+          },
+          {
+            "category": "llm_request",
+            "elapsed_sec": 4.2834761,
+            "operation": "01a1976c-70ce-75d3-ad3c-1c99b4842088",
+            "stage": "summary"
+          },
+          {
+            "category": "grounding_check",
+            "elapsed_sec": 0.8219007,
+            "operation": "01a1976c-818e-7850-bf80-bad0d34cccd0",
+            "stage": "summary"
+          },
+          {
+            "category": "llm_request",
+            "elapsed_sec": 3.3329996,
+            "operation": "01a1976c-84ca-7623-bfc6-8e4dba00eaa7",
+            "stage": "summary"
+          },
+          {
+            "category": "grounding_check",
+            "elapsed_sec": 0.5564773,
+            "operation": "01a1976c-91d4-7151-aed7-5cae1bcad9f8",
+            "stage": "summary"
+          },
+          {
+            "category": "llm_request",
+            "elapsed_sec": 3.3905473,
+            "operation": "01a1976c-9405-7780-8b35-3635a866af36",
+            "stage": "summary"
+          },
+          {
+            "category": "grounding_check",
+            "elapsed_sec": 0.4711593,
+            "operation": "01a1976c-a149-7880-8ad3-e8cebeadfc45",
+            "stage": "summary"
+          },
+          {
+            "category": "llm_request",
+            "elapsed_sec": 3.9132929,
+            "operation": "01a1976c-a325-70b3-9e2a-07c9127487c3",
+            "stage": "summary"
+          },
+          {
+            "category": "grounding_check",
+            "elapsed_sec": 0.4563953,
+            "operation": "01a1976c-b272-73b2-a7b6-ba96786137f6",
+            "stage": "summary"
+          },
+          {
+            "category": "llm_retry",
+            "elapsed_sec": 3.2352048,
+            "operation": "01a1976c-b43f-76b0-ac5d-af588ebcdf94",
+            "stage": "summary"
+          },
+          {
+            "category": "grounding_check",
+            "elapsed_sec": 0.4565856,
+            "operation": "01a1976c-c0ed-7ac0-a7b7-7bb6ae7f7732",
+            "stage": "summary"
+          },
+          {
+            "category": "llm_request",
+            "elapsed_sec": 3.308719,
+            "operation": "01a1976c-c2be-7340-85f0-5fa17fb399ac",
+            "stage": "summary"
+          },
+          {
+            "category": "grounding_check",
+            "elapsed_sec": 0.4266397,
+            "operation": "01a1976c-cfaf-7441-9a22-f813929475fe",
+            "stage": "summary"
+          },
+          {
+            "category": "llm_request",
+            "elapsed_sec": 4.5275727,
+            "operation": "01a1976c-d15f-7f51-8145-2dc623c86473",
+            "stage": "summary"
+          },
+          {
+            "category": "grounding_check",
+            "elapsed_sec": 0.6246176,
+            "operation": "01a1976c-e314-7d42-944d-52ead95d527c",
+            "stage": "summary"
+          },
+          {
+            "category": "summary_reduce",
+            "elapsed_sec": 28.295639,
+            "operation": "01a1976c-e58a-7510-bb63-e430a1e2c18d",
+            "stage": "summary"
+          },
+          {
+            "category": "operation",
+            "elapsed_sec": 4.3287227,
+            "operation": "01a1976d-5491-7301-9539-281dcb4dca53",
+            "stage": "summary"
+          },
+          {
+            "category": "operation",
+            "elapsed_sec": 149.3219122,
+            "operation": "01a1976b-1efb-7731-98c2-edabdb0013b5",
+            "stage": "summary"
+          }
+        ],
+        "stages": [
+          {
+            "artifact": null,
+            "done": 7147,
+            "elapsed_sec": 71.822,
+            "ended_at": "2026-11-01T17:02:18.928971200+03:00",
+            "stage": "transcribe",
+            "started_at": "2026-11-01T17:01:07.106926900+03:00",
+            "state": "done",
+            "total": 7147,
+            "updated_at": "2026-11-01T17:02:18.928971200+03:00"
+          },
+          {
+            "artifact": null,
+            "done": 11,
+            "elapsed_sec": 149.13,
+            "ended_at": "2026-11-01T17:04:51.461637200+03:00",
+            "stage": "summary",
+            "started_at": "2026-11-01T17:02:22.331183+03:00",
+            "state": "done",
+            "total": 11,
+            "updated_at": "2026-11-01T17:04:51.461637200+03:00"
+          }
+        ],
+        "verification_sec": null
+      },
+      "transcript_state": "ready"
+    },
+    {
+      "audio_sec": 7146.527375,
+      "case": "podlodka-109",
+      "complete": true,
+      "content_unverified": true,
+      "repeat": 2,
+      "rtf": null,
+      "session": "podlodka-109-r2",
+      "setup_sec": 0.7490251,
+      "success": true,
+      "summary_state": "ready",
+      "timeline": {
+        "generation_sec": null,
+        "history_status": "available",
+        "incomplete_tail": false,
+        "malformed_records": 0,
+        "model_load_sec": null,
+        "operation_durations_are_nested_not_additive": true,
+        "operations": [
+          {
+            "category": "asr_model_load",
+            "elapsed_sec": 1.0330185,
+            "operation": "01a1976b-120a-7380-ad69-c7370f691db6",
+            "stage": "transcribe"
+          },
+          {
+            "category": "operation",
+            "elapsed_sec": 100.986747,
+            "operation": "01a1976b-1204-7052-9cec-4f97b7343f0c",
+            "stage": "transcribe"
+          },
+          {
+            "category": "operation",
+            "elapsed_sec": 101.0643558,
+            "operation": "01a1976b-11d5-7152-9d01-1ed60d936f7d",
+            "stage": "transcribe"
+          },
+          {
+            "category": "ner_model_load",
+            "elapsed_sec": 2.0657373,
+            "operation": "01a1976d-7a0d-7450-a868-afad622d8b5b",
+            "stage": "summary"
+          },
+          {
+            "category": "llm_request",
+            "elapsed_sec": 2.6322937,
+            "operation": "01a1976d-8228-71b2-9bc0-e380e1e0b6ba",
+            "stage": "summary"
+          },
+          {
+            "category": "grounding_check",
+            "elapsed_sec": 57.4768451,
+            "operation": "01a1976d-8c75-74d2-a44b-ebac457de02c",
+            "stage": "summary"
+          },
+          {
+            "category": "llm_retry",
+            "elapsed_sec": 2.2092832,
+            "operation": "01a1976e-6cff-7862-bbac-f32add20e6c9",
+            "stage": "summary"
+          },
+          {
+            "category": "grounding_check",
+            "elapsed_sec": 0.4220338,
+            "operation": "01a1976e-75ab-7bb1-8f5a-48af6a730f79",
+            "stage": "summary"
+          },
+          {
+            "category": "llm_request",
+            "elapsed_sec": 3.6435031,
+            "operation": "01a1976e-7755-7c61-8a75-991aa1a4c201",
+            "stage": "summary"
+          },
+          {
+            "category": "grounding_check",
+            "elapsed_sec": 0.6661927,
+            "operation": "01a1976e-8594-73c3-aac2-06b7a3dee42a",
+            "stage": "summary"
+          },
+          {
+            "category": "llm_request",
+            "elapsed_sec": 2.4265702,
+            "operation": "01a1976e-8833-7963-aabd-c8dd534a8023",
+            "stage": "summary"
+          },
+          {
+            "category": "grounding_check",
+            "elapsed_sec": 0.4370022,
+            "operation": "01a1976e-91b1-7063-884c-0f1bc4f922bb",
+            "stage": "summary"
+          },
+          {
+            "category": "llm_request",
+            "elapsed_sec": 3.2778594,
+            "operation": "01a1976e-936b-7f81-ba56-f9f6fd6d6f32",
+            "stage": "summary"
+          },
+          {
+            "category": "grounding_check",
+            "elapsed_sec": 0.5007331,
+            "operation": "01a1976e-a03d-7f11-89bb-8888987fcea4",
+            "stage": "summary"
+          },
+          {
+            "category": "llm_request",
+            "elapsed_sec": 3.3848523,
+            "operation": "01a1976e-a237-73a3-8c8d-ebfdaed8c02a",
+            "stage": "summary"
+          },
+          {
+            "category": "grounding_check",
+            "elapsed_sec": 0.4880093,
+            "operation": "01a1976e-af74-7d83-89da-9ea272c911bc",
+            "stage": "summary"
+          },
+          {
+            "category": "llm_request",
+            "elapsed_sec": 2.7034898,
+            "operation": "01a1976e-b162-7402-bc7a-c2a584979370",
+            "stage": "summary"
+          },
+          {
+            "category": "grounding_check",
+            "elapsed_sec": 0.4428054,
+            "operation": "01a1976e-bbf6-7720-a15b-9030aff56939",
+            "stage": "summary"
+          },
+          {
+            "category": "llm_request",
+            "elapsed_sec": 3.0897827,
+            "operation": "01a1976e-bdb5-7331-a004-36b267a7f872",
+            "stage": "summary"
+          },
+          {
+            "category": "grounding_check",
+            "elapsed_sec": 0.4260461,
+            "operation": "01a1976e-c9cb-7bc3-8ee8-7e6171a9075b",
+            "stage": "summary"
+          },
+          {
+            "category": "llm_retry",
+            "elapsed_sec": 3.4926842,
+            "operation": "01a1976e-cb7a-7422-8677-49e3bc3cf432",
+            "stage": "summary"
+          },
+          {
+            "category": "grounding_check",
+            "elapsed_sec": 0.453192,
+            "operation": "01a1976e-d929-7091-ac49-410737572d70",
+            "stage": "summary"
+          },
+          {
+            "category": "llm_request",
+            "elapsed_sec": 2.7798508,
+            "operation": "01a1976e-daf3-72c2-91b8-fee928f0a590",
+            "stage": "summary"
+          },
+          {
+            "category": "grounding_check",
+            "elapsed_sec": 0.6627465,
+            "operation": "01a1976e-e5d4-7d31-9f6d-121fdc4202e1",
+            "stage": "summary"
+          },
+          {
+            "category": "llm_request",
+            "elapsed_sec": 3.8770224,
+            "operation": "01a1976e-e86f-7380-844c-ed93ef29930d",
+            "stage": "summary"
+          },
+          {
+            "category": "grounding_check",
+            "elapsed_sec": 0.6027079,
+            "operation": "01a1976e-f798-7a73-8d1e-62f9ab2b81b5",
+            "stage": "summary"
+          },
+          {
+            "category": "llm_retry",
+            "elapsed_sec": 3.8435222,
+            "operation": "01a1976e-f9f7-78a1-8fb9-5276c904d7bf",
+            "stage": "summary"
+          },
+          {
+            "category": "grounding_check",
+            "elapsed_sec": 0.6071968,
+            "operation": "01a1976f-0905-75b3-96e2-a94e5015fed1",
+            "stage": "summary"
+          },
+          {
+            "category": "summary_reduce",
+            "elapsed_sec": 27.1353584,
+            "operation": "01a1976f-0b68-78d0-b493-dd1e633ac37a",
+            "stage": "summary"
+          },
+          {
+            "category": "operation",
+            "elapsed_sec": 4.1603912,
+            "operation": "01a1976f-75e6-7ec0-9e4a-722fb8c7f17b",
+            "stage": "summary"
+          },
+          {
+            "category": "operation",
+            "elapsed_sec": 134.4276209,
+            "operation": "01a1976d-79e2-7953-8765-352e3dffa20e",
+            "stage": "summary"
+          }
+        ],
+        "stages": [
+          {
+            "artifact": null,
+            "done": 7147,
+            "elapsed_sec": 101.036,
+            "ended_at": "2026-11-01T17:04:00.002222800+03:00",
+            "stage": "transcribe",
+            "started_at": "2026-11-01T17:02:18.965757800+03:00",
+            "state": "done",
+            "total": 7147,
+            "updated_at": "2026-11-01T17:04:00.002222800+03:00"
+          },
+          {
+            "artifact": null,
+            "done": 11,
+            "elapsed_sec": 134.224,
+            "ended_at": "2026-11-01T17:07:10.898343400+03:00",
+            "stage": "summary",
+            "started_at": "2026-11-01T17:04:56.674077800+03:00",
+            "state": "done",
+            "total": 11,
+            "updated_at": "2026-11-01T17:07:10.898343400+03:00"
+          }
+        ],
+        "verification_sec": null
+      },
+      "transcript_state": "ready"
+    }
+  ],
+  "scope": "isolated_production_coordinator_batch",
+  "total_wall_sec": 373.7350242,
+  "version": 1,
+  "worker_sha256": "4edd4dcdc69fd3271fb9eb5538dad56e46d33524894b32bccfc055537a0640b2",
+  "worker_sha256_after": "4edd4dcdc69fd3271fb9eb5538dad56e46d33524894b32bccfc055537a0640b2",
+  "evidence_normalization": {
+    "source_report_sha256": "007eec0d5f5b1ee4e5ff69d6f4e388204152a4966d03820ae301bb59a43b9b3d",
+    "source_relative_path": "target/profile-queue-podcast-summary-20261101-a/report.json",
+    "method": "JSON formatting only; content-free queue report preserved; no numeric metrics changed"
+  }
+}

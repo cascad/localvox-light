@@ -1,0 +1,50 @@
+{
+  "title": "Podlodka #109 – Теория ограничений",
+  "duration": "01:59:07",
+  "link": "https://soundcloud.com/podlodka/podlodka-109-teoriya-ogranicheniy",
+  "enclosure": {
+    "type": "audio/mpeg",
+    "url": "http://dts.podtrac.com/redirect.mp3/feeds.soundcloud.com/stream/613032555-podlodka-podlodka-109-teoriya-ogranicheniy.mp3",
+    "length": "142934642"
+  },
+  "download_url": "https://dts.podtrac.com/redirect.mp3/feeds.soundcloud.com/stream/613032555-podlodka-podlodka-109-teoriya-ogranicheniy.mp3",
+  "bytes": 142934642,
+  "mp3_sha256": "9d6fd76dd36751ad008f68f520c681ab5ef4bbfa1fc533d7871eb7a6585658be",
+  "publisher_page": "https://podlodka.io/109",
+  "lookup": "https://itunes.apple.com/lookup?id=1209828744&entity=podcast",
+  "feed": "https://feeds.soundcloud.com/users/soundcloud:users:291337106/sounds.rss",
+  "pcm": {
+    "file": "target/public-profile-source-20261101/podlodka-109.wav",
+    "bytes": 228688954,
+    "sha256": "96e50ce45af3988b3b069c0ebd4363842eb06b3fe5b536490a8dc9d81f02cd46",
+    "sample_rate": 16000,
+    "channels": 1,
+    "sample_width_bytes": 2,
+    "samples": 114344438,
+    "audio_sec": 7146.527375
+  },
+  "conversion": "ffmpeg -v error -n -threads 2 -i podlodka-109.mp3 -vn -ac 1 -ar 16000 -c:a pcm_s16le podlodka-109.wav",
+  "stt_manifest": {
+    "version": 1,
+    "label": "Public natural conversation Podlodka 109; full 1h59m episode; STT only; no user archive",
+    "cases": [
+      {
+        "name": "podlodka-109",
+        "audio": "podlodka-109.wav",
+        "summary": false
+      }
+    ]
+  },
+  "summary_manifest": {
+    "version": 1,
+    "label": "Public natural conversation Podlodka 109; full 1h59m episode; optional summary; no user archive",
+    "cases": [
+      {
+        "name": "podlodka-109",
+        "audio": "podlodka-109.wav",
+        "summary": true
+      }
+    ]
+  },
+  "scope": "Public natural Russian conversation, not a user meeting or a semantic quality reference. Audio/text artifacts remain untracked in target on D:."
+}

@@ -105,6 +105,8 @@ impl Process {
                 / 10_000_000.0
         };
         json!({"scope": "worker_process_only", "availability": if memory && times { "available" } else { "partial_or_unavailable" },
+            "working_set_bytes": memory.then_some(counters.WorkingSetSize),
+            "commit_bytes": memory.then_some(counters.PrivateUsage),
             "peak_working_set_bytes": memory.then_some(counters.PeakWorkingSetSize),
             "peak_commit_bytes": memory.then_some(counters.PeakPagefileUsage),
             "cpu_sec": times.then(|| seconds(kernel) + seconds(user))})

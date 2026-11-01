@@ -17,7 +17,7 @@ fn wav(path: &Path, channels: u16, frames: usize) {
     writer.finalize().unwrap();
 }
 
-fn fixture(root: &Path) -> Args {
+pub(super) fn fixture(root: &Path) -> Args {
     wav(&root.join("source.wav"), 1, 1600);
     fs::write(
         root.join("manifest.json"),
@@ -35,6 +35,7 @@ fn fixture(root: &Path) -> Args {
         llm_model: "test".into(),
         trace_ollama: false,
         ner_model_dir: None,
+        queue_runner: None,
     }
 }
 
@@ -247,6 +248,14 @@ fn windows_reports_observed_peak_and_cpu_after_the_child_exits() {
 #[ignore = "subprocess fixture; launched explicitly by profiler tests"]
 fn profile_child() {
     match std::env::var("LOCALVOX_PROFILE_TEST_CHILD").as_deref() {
+        Ok("tree") => {
+            let status = Command::new(std::env::current_exe().unwrap())
+                .args(["--ignored", "--exact", "tests::profile_child"])
+                .env("LOCALVOX_PROFILE_TEST_CHILD", "memory")
+                .status()
+                .unwrap();
+            assert!(status.success());
+        }
         Ok("fail") => panic!("synthetic child failure"),
         Ok("sleep") => std::thread::sleep(Duration::from_secs(10)),
         Ok("memory") => {

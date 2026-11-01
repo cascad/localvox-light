@@ -1,0 +1,656 @@
+{
+  "version": 1,
+  "measurements": [
+    {
+      "version": 1,
+      "scope": "existing_local_Ollama_named_processes_and_global_GPU",
+      "server_listener_pid": [
+        12892
+      ],
+      "ollama_version": "0.40.13",
+      "cpu": {
+        "Name": "AMD Ryzen 9 9900X3D 12-Core Processor          ",
+        "NumberOfCores": 6,
+        "NumberOfLogicalProcessors": 6
+      },
+      "physical_ram_bytes": 66157793280,
+      "models_before": [],
+      "monitor_started_at": "2026-11-01T13:58:21.3254089Z",
+      "elapsed_sec": 154.9714,
+      "profile_exit_code": 0,
+      "arguments": [
+        "--manifest",
+        "target/public-profile-source-20261101/manifest-stt.json",
+        "--output",
+        "target/profile-queue-podcast-stt-20261101-b",
+        "--repeats",
+        "2",
+        "--timeout-sec",
+        "600",
+        "--worker",
+        "D:\\rust_repo\\localvox-light\\target\\release\\localvox-process.exe",
+        "--model-dir",
+        "D:\\rust_repo\\localvox-light\\models\\gigaam-v3-e2e-ctc",
+        "--queue-runner",
+        "D:\\rust_repo\\localvox-light\\target\\release\\localvox-queue-profile.exe"
+      ],
+      "cpu_counters": [
+        {
+          "pid": 12892,
+          "process_name": "ollama",
+          "baseline_cpu_sec": 6.3125,
+          "last_cpu_sec": 6.328125,
+          "started_before_monitor": true,
+          "observed_cpu_delta_sec": 0.015625
+        }
+      ],
+      "limits": "Shared external service; no forced unload or cancellation. Process CPU deltas are observed counters. Global GPU includes desktop and other applications; model size_vram is allocation, not utilization. Sample interval includes query overhead, approximately 2 s.",
+      "source_report_sha256": "d84abb4f0f1216c3c80cf23db8d03d43c5e02f8209c27a8154c70a5ad2792840",
+      "source_relative_path": "target/profile-queue-podcast-stt-20261101-b.external.json",
+      "sample_count": 85,
+      "first_sample": {
+        "at": "2026-11-01T13:58:22.8293134Z",
+        "elapsed_sec": 1.5052314,
+        "models": [],
+        "processes": [
+          {
+            "working_set_bytes": 40591360,
+            "pid": 12892,
+            "private_bytes": 72069120,
+            "cpu_sec": 6.3125
+          }
+        ],
+        "gpu_global": {
+          "utilization_percent": 22,
+          "memory_used_mib": 1719,
+          "memory_total_mib": 16303
+        }
+      },
+      "last_sample": {
+        "at": "2026-11-01T14:00:56.2866408Z",
+        "elapsed_sec": 154.9612353,
+        "models": [],
+        "processes": [
+          {
+            "working_set_bytes": 40751104,
+            "pid": 12892,
+            "private_bytes": 72224768,
+            "cpu_sec": 6.328125
+          }
+        ],
+        "gpu_global": {
+          "utilization_percent": 28,
+          "memory_used_mib": 1719,
+          "memory_total_mib": 16303
+        }
+      },
+      "peak_sampled_process_working_set_bytes": 40751104,
+      "peak_working_set_sample": {
+        "at": "2026-11-01T14:00:48.8602765Z",
+        "elapsed_sec": 147.534872,
+        "models": [],
+        "processes": [
+          {
+            "working_set_bytes": 40751104,
+            "pid": 12892,
+            "private_bytes": 72224768,
+            "cpu_sec": 6.328125
+          }
+        ],
+        "gpu_global": {
+          "utilization_percent": 13,
+          "memory_used_mib": 1719,
+          "memory_total_mib": 16303
+        }
+      },
+      "peak_sampled_process_private_bytes": 72224768,
+      "peak_private_sample": {
+        "at": "2026-11-01T14:00:47.0195588Z",
+        "elapsed_sec": 145.6941545,
+        "models": [],
+        "processes": [
+          {
+            "working_set_bytes": 40747008,
+            "pid": 12892,
+            "private_bytes": 72224768,
+            "cpu_sec": 6.328125
+          }
+        ],
+        "gpu_global": {
+          "utilization_percent": 13,
+          "memory_used_mib": 1719,
+          "memory_total_mib": 16303
+        }
+      },
+      "peak_global_gpu_memory_mib": 1719,
+      "peak_gpu_sample": {
+        "at": "2026-11-01T13:58:22.8293134Z",
+        "elapsed_sec": 1.5052314,
+        "models": [],
+        "processes": [
+          {
+            "working_set_bytes": 40591360,
+            "pid": 12892,
+            "private_bytes": 72069120,
+            "cpu_sec": 6.3125
+          }
+        ],
+        "gpu_global": {
+          "utilization_percent": 22,
+          "memory_used_mib": 1719,
+          "memory_total_mib": 16303
+        }
+      },
+      "normalization": "Retain configuration/CPU counters and actual first/last/peak samples; no claim of unsampled peaks; original named-process scope is unchanged for initial full run"
+    },
+    {
+      "version": 1,
+      "scope": "existing_local_Ollama_named_processes_and_global_GPU",
+      "server_listener_pid": [
+        12892
+      ],
+      "ollama_version": "0.40.13",
+      "cpu": {
+        "Name": "AMD Ryzen 9 9900X3D 12-Core Processor          ",
+        "NumberOfCores": 6,
+        "NumberOfLogicalProcessors": 6
+      },
+      "physical_ram_bytes": 66157793280,
+      "models_before": [],
+      "monitor_started_at": "2026-11-01T14:00:56.3117956Z",
+      "elapsed_sec": 375.0203683,
+      "profile_exit_code": 0,
+      "arguments": [
+        "--manifest",
+        "target/public-profile-source-20261101/manifest-summary.json",
+        "--output",
+        "target/profile-queue-podcast-summary-20261101-a",
+        "--repeats",
+        "2",
+        "--timeout-sec",
+        "1800",
+        "--worker",
+        "D:\\rust_repo\\localvox-light\\target\\release\\localvox-process.exe",
+        "--model-dir",
+        "D:\\rust_repo\\localvox-light\\models\\gigaam-v3-e2e-ctc",
+        "--queue-runner",
+        "D:\\rust_repo\\localvox-light\\target\\release\\localvox-queue-profile.exe",
+        "--trace-ollama"
+      ],
+      "cpu_counters": [
+        {
+          "pid": 12892,
+          "process_name": "ollama",
+          "baseline_cpu_sec": 6.328125,
+          "last_cpu_sec": 7.09375,
+          "started_before_monitor": true,
+          "observed_cpu_delta_sec": 0.765625
+        }
+      ],
+      "limits": "Shared external service; no forced unload or cancellation. Process CPU deltas are observed counters. Global GPU includes desktop and other applications; model size_vram is allocation, not utilization. Sample interval includes query overhead, approximately 2 s.",
+      "source_report_sha256": "c3496f1121f511fa85c4160e0e9d55251ed8b4164450043cdb00003dd17ae323",
+      "source_relative_path": "target/profile-queue-podcast-summary-20261101-a.external.json",
+      "sample_count": 204,
+      "first_sample": {
+        "at": "2026-11-01T14:00:57.5456740Z",
+        "elapsed_sec": 1.2338823,
+        "models": [],
+        "processes": [
+          {
+            "working_set_bytes": 40751104,
+            "pid": 12892,
+            "private_bytes": 72224768,
+            "cpu_sec": 6.328125
+          }
+        ],
+        "gpu_global": {
+          "utilization_percent": 16,
+          "memory_used_mib": 1719,
+          "memory_total_mib": 16303
+        }
+      },
+      "last_sample": {
+        "at": "2026-11-01T14:07:11.3317590Z",
+        "elapsed_sec": 375.0199669,
+        "models": [
+          {
+            "name": "qwen3.5:9b",
+            "digest": "6488c96fa5faab64bb65cbd30d4289e20e6130ef535a93ef9a49f42eda893ea7",
+            "size": 6618370538,
+            "size_vram": 6618370538,
+            "context_length": 32768,
+            "expires_at": "2026-11-01T17:12:06.5994524+03:00"
+          }
+        ],
+        "processes": [
+          {
+            "working_set_bytes": 44363776,
+            "pid": 12892,
+            "private_bytes": 75018240,
+            "cpu_sec": 7.09375
+          }
+        ],
+        "gpu_global": {
+          "utilization_percent": 1,
+          "memory_used_mib": 9334,
+          "memory_total_mib": 16303
+        }
+      },
+      "peak_sampled_process_working_set_bytes": 44363776,
+      "peak_working_set_sample": {
+        "at": "2026-11-01T14:06:56.5149792Z",
+        "elapsed_sec": 360.2031878,
+        "models": [
+          {
+            "name": "qwen3.5:9b",
+            "digest": "6488c96fa5faab64bb65cbd30d4289e20e6130ef535a93ef9a49f42eda893ea7",
+            "size": 6618370538,
+            "size_vram": 6618370538,
+            "context_length": 32768,
+            "expires_at": "2026-11-01T17:11:38.842401+03:00"
+          }
+        ],
+        "processes": [
+          {
+            "working_set_bytes": 44363776,
+            "pid": 12892,
+            "private_bytes": 75018240,
+            "cpu_sec": 7.046875
+          }
+        ],
+        "gpu_global": {
+          "utilization_percent": 96,
+          "memory_used_mib": 9334,
+          "memory_total_mib": 16303
+        }
+      },
+      "peak_sampled_process_private_bytes": 75292672,
+      "peak_private_sample": {
+        "at": "2026-11-01T14:02:24.4751863Z",
+        "elapsed_sec": 88.163395,
+        "models": [],
+        "processes": [
+          {
+            "working_set_bytes": 44281856,
+            "pid": 12892,
+            "private_bytes": 75292672,
+            "cpu_sec": 6.375
+          }
+        ],
+        "gpu_global": {
+          "utilization_percent": 1,
+          "memory_used_mib": 1946,
+          "memory_total_mib": 16303
+        }
+      },
+      "peak_global_gpu_memory_mib": 9334,
+      "peak_gpu_sample": {
+        "at": "2026-11-01T14:02:28.1784598Z",
+        "elapsed_sec": 91.8666685,
+        "models": [
+          {
+            "name": "qwen3.5:9b",
+            "digest": "6488c96fa5faab64bb65cbd30d4289e20e6130ef535a93ef9a49f42eda893ea7",
+            "size": 6618370538,
+            "size_vram": 6618370538,
+            "context_length": 32768,
+            "expires_at": "2026-11-01T17:07:28.134077+03:00"
+          }
+        ],
+        "processes": [
+          {
+            "working_set_bytes": 43798528,
+            "pid": 12892,
+            "private_bytes": 74768384,
+            "cpu_sec": 6.40625
+          }
+        ],
+        "gpu_global": {
+          "utilization_percent": 96,
+          "memory_used_mib": 9334,
+          "memory_total_mib": 16303
+        }
+      },
+      "normalization": "Retain configuration/CPU counters and actual first/last/peak samples; no claim of unsampled peaks; original named-process scope is unchanged for initial full run"
+    },
+    {
+      "version": 2,
+      "scope": "local_Ollama_listener_and_observed_descendants_and_global_GPU",
+      "server_listener_pid": [
+        12892
+      ],
+      "ollama_version": "0.40.13",
+      "cpu": {
+        "Name": "AMD Ryzen 9 9900X3D 12-Core Processor          ",
+        "NumberOfCores": 6,
+        "NumberOfLogicalProcessors": 6
+      },
+      "physical_ram_bytes": 66157793280,
+      "models_before": [
+        {
+          "name": "qwen3.5:9b",
+          "model": "qwen3.5:9b",
+          "size": 6618370538,
+          "digest": "6488c96fa5faab64bb65cbd30d4289e20e6130ef535a93ef9a49f42eda893ea7",
+          "details": {
+            "parent_model": "",
+            "format": "gguf",
+            "family": "qwen35",
+            "families": [
+              "qwen35"
+            ],
+            "parameter_size": "9.7B",
+            "quantization_level": "Q4_K_M"
+          },
+          "expires_at": "2026-11-01T17:12:06.5994524+03:00",
+          "size_vram": 6618370538,
+          "context_length": 32768,
+          "runner": "llamacpp"
+        }
+      ],
+      "monitor_started_at": "2026-11-01T14:09:41.7074355Z",
+      "elapsed_sec": 28.1770056,
+      "profile_exit_code": 0,
+      "arguments": [
+        "--manifest",
+        "target/public-profile-source-20261101/manifest-smoke.json",
+        "--output",
+        "target/profile-queue-external-warm-20261101-a",
+        "--repeats",
+        "1",
+        "--timeout-sec",
+        "180",
+        "--worker",
+        "D:\\rust_repo\\localvox-light\\target\\release\\localvox-process.exe",
+        "--model-dir",
+        "D:\\rust_repo\\localvox-light\\models\\gigaam-v3-e2e-ctc",
+        "--queue-runner",
+        "D:\\rust_repo\\localvox-light\\target\\release\\localvox-queue-profile.exe",
+        "--trace-ollama"
+      ],
+      "cpu_counters": [
+        {
+          "pid": 12892,
+          "process_name": "ollama",
+          "baseline_cpu_sec": 7.09375,
+          "last_cpu_sec": 7.09375,
+          "started_before_monitor": true,
+          "observed_cpu_delta_sec": 0.0
+        },
+        {
+          "pid": 12024,
+          "process_name": "conhost",
+          "baseline_cpu_sec": 0.015625,
+          "last_cpu_sec": 0.015625,
+          "started_before_monitor": true,
+          "observed_cpu_delta_sec": 0.0
+        },
+        {
+          "pid": 4644,
+          "process_name": "conhost",
+          "baseline_cpu_sec": 0.0,
+          "last_cpu_sec": 0.0,
+          "started_before_monitor": true,
+          "observed_cpu_delta_sec": 0.0
+        },
+        {
+          "pid": 22676,
+          "process_name": "llama-server",
+          "baseline_cpu_sec": 6.625,
+          "last_cpu_sec": 7.0,
+          "started_before_monitor": true,
+          "observed_cpu_delta_sec": 0.375
+        }
+      ],
+      "limits": "Shared external service; no forced unload or cancellation. Process CPU deltas are observed counters; short-lived descendants may be missed. Global GPU includes desktop and other applications; model size_vram is allocation, not utilization. Sample interval includes CIM/query overhead, approximately 2 s.",
+      "source_report_sha256": "7cde638436fda2736d9bc23bd54cd8aac771a0daae0512e3a5f98e75c58b3515",
+      "source_relative_path": "target/profile-queue-external-warm-20261101-a.external.json",
+      "sample_count": 16,
+      "first_sample": {
+        "at": "2026-11-01T14:09:43.2335712Z",
+        "models": [
+          {
+            "name": "qwen3.5:9b",
+            "digest": "6488c96fa5faab64bb65cbd30d4289e20e6130ef535a93ef9a49f42eda893ea7",
+            "size": 6618370538,
+            "size_vram": 6618370538,
+            "context_length": 32768,
+            "expires_at": "2026-11-01T17:12:06.5994524+03:00"
+          }
+        ],
+        "elapsed_sec": 1.5270475,
+        "gpu_global": {
+          "memory_used_mib": 9334,
+          "memory_total_mib": 16303,
+          "utilization_percent": 14
+        },
+        "processes": [
+          {
+            "private_bytes": 72724480,
+            "cpu_sec": 7.09375,
+            "pid": 12892,
+            "working_set_bytes": 42070016
+          },
+          {
+            "private_bytes": 6090752,
+            "cpu_sec": 0.015625,
+            "pid": 12024,
+            "working_set_bytes": 8499200
+          },
+          {
+            "private_bytes": 14334038016,
+            "cpu_sec": 6.625,
+            "pid": 22676,
+            "working_set_bytes": 5143318528
+          },
+          {
+            "private_bytes": 5554176,
+            "cpu_sec": 0.0,
+            "pid": 4644,
+            "working_set_bytes": 11472896
+          }
+        ]
+      },
+      "last_sample": {
+        "at": "2026-11-01T14:10:09.8743768Z",
+        "models": [
+          {
+            "name": "qwen3.5:9b",
+            "digest": "6488c96fa5faab64bb65cbd30d4289e20e6130ef535a93ef9a49f42eda893ea7",
+            "size": 6618370538,
+            "size_vram": 6618370538,
+            "context_length": 32768,
+            "expires_at": "2026-11-01T17:15:04.4829029+03:00"
+          }
+        ],
+        "elapsed_sec": 28.1669473,
+        "gpu_global": {
+          "memory_used_mib": 9334,
+          "memory_total_mib": 16303,
+          "utilization_percent": 8
+        },
+        "processes": [
+          {
+            "private_bytes": 73920512,
+            "cpu_sec": 7.09375,
+            "pid": 12892,
+            "working_set_bytes": 42790912
+          },
+          {
+            "private_bytes": 6090752,
+            "cpu_sec": 0.015625,
+            "pid": 12024,
+            "working_set_bytes": 8499200
+          },
+          {
+            "private_bytes": 14732849152,
+            "cpu_sec": 7.0,
+            "pid": 22676,
+            "working_set_bytes": 5541351424
+          },
+          {
+            "private_bytes": 5554176,
+            "cpu_sec": 0.0,
+            "pid": 4644,
+            "working_set_bytes": 11472896
+          }
+        ]
+      },
+      "peak_sampled_process_working_set_bytes": 5604114432,
+      "peak_working_set_sample": {
+        "at": "2026-11-01T14:10:09.8743768Z",
+        "models": [
+          {
+            "name": "qwen3.5:9b",
+            "digest": "6488c96fa5faab64bb65cbd30d4289e20e6130ef535a93ef9a49f42eda893ea7",
+            "size": 6618370538,
+            "size_vram": 6618370538,
+            "context_length": 32768,
+            "expires_at": "2026-11-01T17:15:04.4829029+03:00"
+          }
+        ],
+        "elapsed_sec": 28.1669473,
+        "gpu_global": {
+          "memory_used_mib": 9334,
+          "memory_total_mib": 16303,
+          "utilization_percent": 8
+        },
+        "processes": [
+          {
+            "private_bytes": 73920512,
+            "cpu_sec": 7.09375,
+            "pid": 12892,
+            "working_set_bytes": 42790912
+          },
+          {
+            "private_bytes": 6090752,
+            "cpu_sec": 0.015625,
+            "pid": 12024,
+            "working_set_bytes": 8499200
+          },
+          {
+            "private_bytes": 14732849152,
+            "cpu_sec": 7.0,
+            "pid": 22676,
+            "working_set_bytes": 5541351424
+          },
+          {
+            "private_bytes": 5554176,
+            "cpu_sec": 0.0,
+            "pid": 4644,
+            "working_set_bytes": 11472896
+          }
+        ]
+      },
+      "peak_sampled_process_private_bytes": 14818414592,
+      "peak_private_sample": {
+        "at": "2026-11-01T14:10:09.8743768Z",
+        "models": [
+          {
+            "name": "qwen3.5:9b",
+            "digest": "6488c96fa5faab64bb65cbd30d4289e20e6130ef535a93ef9a49f42eda893ea7",
+            "size": 6618370538,
+            "size_vram": 6618370538,
+            "context_length": 32768,
+            "expires_at": "2026-11-01T17:15:04.4829029+03:00"
+          }
+        ],
+        "elapsed_sec": 28.1669473,
+        "gpu_global": {
+          "memory_used_mib": 9334,
+          "memory_total_mib": 16303,
+          "utilization_percent": 8
+        },
+        "processes": [
+          {
+            "private_bytes": 73920512,
+            "cpu_sec": 7.09375,
+            "pid": 12892,
+            "working_set_bytes": 42790912
+          },
+          {
+            "private_bytes": 6090752,
+            "cpu_sec": 0.015625,
+            "pid": 12024,
+            "working_set_bytes": 8499200
+          },
+          {
+            "private_bytes": 14732849152,
+            "cpu_sec": 7.0,
+            "pid": 22676,
+            "working_set_bytes": 5541351424
+          },
+          {
+            "private_bytes": 5554176,
+            "cpu_sec": 0.0,
+            "pid": 4644,
+            "working_set_bytes": 11472896
+          }
+        ]
+      },
+      "peak_global_gpu_memory_mib": 9334,
+      "peak_gpu_sample": {
+        "at": "2026-11-01T14:09:43.2335712Z",
+        "models": [
+          {
+            "name": "qwen3.5:9b",
+            "digest": "6488c96fa5faab64bb65cbd30d4289e20e6130ef535a93ef9a49f42eda893ea7",
+            "size": 6618370538,
+            "size_vram": 6618370538,
+            "context_length": 32768,
+            "expires_at": "2026-11-01T17:12:06.5994524+03:00"
+          }
+        ],
+        "elapsed_sec": 1.5270475,
+        "gpu_global": {
+          "memory_used_mib": 9334,
+          "memory_total_mib": 16303,
+          "utilization_percent": 14
+        },
+        "processes": [
+          {
+            "private_bytes": 72724480,
+            "cpu_sec": 7.09375,
+            "pid": 12892,
+            "working_set_bytes": 42070016
+          },
+          {
+            "private_bytes": 6090752,
+            "cpu_sec": 0.015625,
+            "pid": 12024,
+            "working_set_bytes": 8499200
+          },
+          {
+            "private_bytes": 14334038016,
+            "cpu_sec": 6.625,
+            "pid": 22676,
+            "working_set_bytes": 5143318528
+          },
+          {
+            "private_bytes": 5554176,
+            "cpu_sec": 0.0,
+            "pid": 4644,
+            "working_set_bytes": 11472896
+          }
+        ]
+      },
+      "normalization": "Retain configuration/CPU counters and actual first/last/peak samples; no claim of unsampled peaks; original named-process scope is unchanged for initial full run"
+    }
+  ],
+  "separate_backend_lifetime_query": {
+    "scope": "post_run_retained_backend_process_counters",
+    "sampled_at": "2026-11-01T14:09:12.3457063Z",
+    "pid": 22676,
+    "process_name": "llama-server",
+    "started_at": "2026-11-01T14:02:24.3013218Z",
+    "cpu_sec_since_process_start": 6.625,
+    "current_working_set_bytes": 5143318528,
+    "peak_working_set_bytes": 5197979648,
+    "current_private_bytes": 14334038016,
+    "peak_paged_memory_bytes": 14388908032,
+    "parent_pid": 12892,
+    "source_full_report_sha256": "007eec0d5f5b1ee4e5ff69d6f4e388204152a4966d03820ae301bb59a43b9b3d",
+    "limits": "Backend was born within the full benchmark interval. This is a later lifetime-counter query, including the idle time after benchmark; not a sampled simultaneous server+backend total. The original external monitor sampled only ollama.exe and missed llama-server.exe; original report is retained unchanged.",
+    "raw_counter_report_sha256": "f8f3763d0f93e077efe197bf4ae9739f8bb7b146eee3266c2397ec15622d68af"
+  }
+}

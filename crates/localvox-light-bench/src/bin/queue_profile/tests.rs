@@ -21,7 +21,7 @@ fn command(binary: &Path, root: &Path, worker: &Path) -> std::process::Command {
         .env("TEMP", root)
         .env("TMP", root)
         .env("LOCALVOX_LIGHT_AUTOCOOK", "1")
-        .env("LOCALVOX_LIGHT_SUMMARY", "0")
+        .env("LOCALVOX_LIGHT_AUTOCOOK_SUMMARY", "0")
         .env("LOCALVOX_LIGHT_AUTOCOOK_INTERVAL_SEC", "1")
         .env("LOCALVOX_LIGHT_AUTOCOOK_QUIESCENT_SEC", "3600")
         .env("LOCALVOX_ASR_MODEL_DIR", root.join("missing-model"))
@@ -52,10 +52,10 @@ fn real_coordinator_empty_timeout_and_preflight_failure_are_bounded() {
         runner.is_file() && worker.is_file(),
         "build queue runner and worker first"
     );
-    for mode in ["empty", "timeout", "incompatible"] {
+    for mode in ["empty", "timeout", "failed", "incompatible"] {
         let root = tempfile::tempdir().unwrap();
         fs::write(root.path().join(MARKER), "localvox-profile/v1\n").unwrap();
-        if mode == "timeout" {
+        if matches!(mode, "timeout" | "failed") {
             fs::create_dir_all(root.path().join("sessions/fixture")).unwrap();
             JobQueue::mutate(root.path(), |q| {
                 q.enqueue_cook("fixture", false, false, false)
@@ -92,11 +92,16 @@ fn real_coordinator_empty_timeout_and_preflight_failure_are_bounded() {
         let report: Value =
             serde_json::from_slice(&fs::read(root.path().join(REPORT)).unwrap()).unwrap();
         assert_eq!(report["coordinator_joined"], true, "{mode}");
-        assert_eq!(report["complete"], mode == "empty", "{mode}");
+        assert_eq!(
+            report["complete"],
+            matches!(mode, "empty" | "failed"),
+            "{mode}"
+        );
+        assert_eq!(report["all_success"], mode == "empty", "{mode}");
         assert_eq!(
             report["reason"],
             match mode {
-                "empty" => "terminal",
+                "empty" | "failed" => "terminal",
                 "timeout" => "timeout",
                 _ => "coordinator_stopped",
             }
@@ -107,6 +112,12 @@ fn real_coordinator_empty_timeout_and_preflight_failure_are_bounded() {
             assert!(!report["events"].as_array().unwrap().is_empty());
             assert_eq!(report["jobs"].as_array().unwrap().len(), 1);
             assert_ne!(report["jobs"][0]["state"], "Done");
+        }
+        if mode == "failed" {
+            assert_eq!(report["jobs"][0]["state"], "Failed");
+            assert_eq!(report["jobs"][0]["attempt"], 3);
+            assert_eq!(report["jobs"][0]["has_error"], true);
+            assert!(report["jobs"][0].get("last_error").is_none());
         }
     }
 }

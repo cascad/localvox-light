@@ -43,3 +43,28 @@ NER явно выбирается --ner-model-dir либо рядом с ASR mod
 окружении worker; fallback к постороннему окружению/CWD запрещён. Сохранять
 fingerprint доступной NER модели и её отдельные операции журнала, не объявлять
 наличие файла доказательством успешной загрузки. Прямые summary-прогоны не закрывают 2.2/2.3.
+
+## Продолжение: очередь
+
+Опциональный --queue-runner использует библиотечный headless стенд из
+extract-headless-processing-coordinator. До старта подготовить все case/repeat в
+новом output с PCM, source metadata, verified preparation receipts и настоящими
+cook jobs; download/conversion не входят в замер. Одна пачка имеет одинаковый
+summary policy, иначе отказ: это snapshot общего автоматического переключателя.
+Передать очищенное окружение с явными model/provider/endpoint и phase deadlines,
+сохранить обычный interval=5 s и resource lanes. Worker и queue runner обязаны
+принадлежать одному комплекту. После запуска сохранить exact queue transitions,
+проверенные артефакты, sanitized timelines, общий Ollama trace без ложной привязки
+HTTP к сессии при параллельных фазах. Неизвестные интервалы остаются null.
+
+Windows sampler наблюдает root и доступных потомков: текущая суммарная память
+выборки отдельно от индивидуальных OS peaks, CPU из retained handles. Snapshot
+может пропустить короткий процесс; это observed tree, не абсолютный максимум.
+Внешний Ollama не является потомком: его process/model/GPU замеры сохранять
+отдельно с областью и условиями. Fingerprints worker/runner проверить и после
+выхода, чтобы пересборка во время запуска не стала тихой сменой исполняемого кода.
+
+Только изолированный worker получает LOCALVOX_PROFILE_TIMINGS=1: вокруг создания
+ASR adapter/vocabulary/inference session записывается journal operation. В обычном
+capture/cook дополнительной операции нет. Профиль сохраняет категорию
+asr_model_load без произвольных labels; это часть STT wall, а не добавка к нему.

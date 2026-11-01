@@ -20,8 +20,12 @@ use std::{
 
 #[path = "profile/ollama.rs"]
 mod ollama;
+#[path = "profile/queue.rs"]
+mod queue;
 #[path = "profile/resources.rs"]
 mod resources;
+#[path = "profile/tree_resources.rs"]
+mod tree_resources;
 
 #[derive(Parser)]
 #[command(about = "Measure fresh-process worker phases on copied PCM WAV fixtures")]
@@ -50,6 +54,9 @@ struct Args {
     /// Explicit NER directory; otherwise only the sibling of --model-dir is used.
     #[arg(long)]
     ner_model_dir: Option<PathBuf>,
+    /// Use the real coordinator on the entire staged batch instead of direct worker phases.
+    #[arg(long)]
+    queue_runner: Option<PathBuf>,
 }
 
 #[derive(Deserialize)]
@@ -206,6 +213,7 @@ fn worker_command(args: &Args, root: &Path, session: &Path, phase: JobPhase) -> 
         .env("TEMP", root.join("temp"))
         .env("TMP", root.join("temp"))
         .env("LOCALVOX_DIARIZE", "off")
+        .env("LOCALVOX_PROFILE_TIMINGS", "1")
         .env(
             "LOCALVOX_NER_MODEL_DIR",
             args.ner_model_dir
@@ -230,7 +238,16 @@ fn worker_command(args: &Args, root: &Path, session: &Path, phase: JobPhase) -> 
     command
 }
 
-fn measure(mut command: Command, timeout: Duration, cancelled: &AtomicBool) -> Result<Value> {
+fn measure(command: Command, timeout: Duration, cancelled: &AtomicBool) -> Result<Value> {
+    measure_with_scope(command, timeout, cancelled, false)
+}
+
+fn measure_with_scope(
+    mut command: Command,
+    timeout: Duration,
+    cancelled: &AtomicBool,
+    tree: bool,
+) -> Result<Value> {
     // Explicit even before run: the command's environment is part of our isolation contract.
     command.env(localvox_light_process::CONTAINED_ENV, "1");
     let stopped = AtomicBool::new(false);
@@ -244,7 +261,13 @@ fn measure(mut command: Command, timeout: Duration, cancelled: &AtomicBool) -> R
             || cancelled.load(Ordering::Relaxed),
             |pid, _| {
                 if sampler.is_none() {
-                    sampler = Some(scope.spawn(move || resources::observe(pid, stopped)));
+                    sampler = Some(scope.spawn(move || {
+                        if tree {
+                            tree_resources::observe(pid, stopped)
+                        } else {
+                            resources::observe(pid, stopped)
+                        }
+                    }));
                 }
             },
         );
@@ -362,6 +385,7 @@ fn run(mut args: Args, cancelled: &AtomicBool) -> Result<PathBuf> {
     args.worker = args.worker.canonicalize().context("worker path")?;
     args.model_dir = args.model_dir.canonicalize().context("model directory")?;
     let manifest = read_manifest(&args.manifest)?;
+    queue::validate(&mut args, &manifest)?;
     let fingerprints: Vec<_> = manifest
         .cases
         .iter()
@@ -401,7 +425,7 @@ fn run(mut args: Args, cancelled: &AtomicBool) -> Result<PathBuf> {
         "repeats": args.repeats, "process_policy": "fresh process for each phase; cache state uncontrolled",
         "configuration": {"diarization": false, "cleanup": false, "refine": false,
             "summary_provider": "ollama", "llm_base_url": args.llm_base_url, "llm_model": args.llm_model,
-            "timeout_sec": args.timeout_sec, "trace_ollama": args.trace_ollama}, "inputs": fingerprints,
+            "timeout_sec": args.timeout_sec, "trace_ollama": args.trace_ollama, "profile_asr_loading": true}, "inputs": fingerprints,
         "queue_wait_sec": null, "external_llm_resources": null,
         "runs": [], "complete": false});
     let root = new_output(&args.output)?;
@@ -415,6 +439,17 @@ fn run(mut args: Args, cancelled: &AtomicBool) -> Result<PathBuf> {
     report["preflight_sec"] = json!(started.elapsed().as_secs_f64());
     checkpoint(&root, &report)?;
     let batch = Instant::now();
+    if args.queue_runner.is_some() {
+        return queue::run(
+            &args,
+            &manifest,
+            &root,
+            &mut report,
+            trace.as_ref(),
+            started,
+            cancelled,
+        );
+    }
     for repeat in 1..=args.repeats {
         for (case, input) in manifest
             .cases

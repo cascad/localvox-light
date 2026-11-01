@@ -22,7 +22,15 @@
 [общий координатор и изолированный headless стенд](../changes/extract-headless-processing-coordinator/evidence/implementation.md).
 Прежние coordinator tests выполняются в library, launcher — в binary; дополнительно
 проверены bounded observer принятых переходов и настоящий model-free queue lifecycle.
-Форматы и политика продукта сохранены; BL-003 и аппаратная приёмка остаются открытыми.
+Форматы и политика продукта сохранены; этот срез сам не измеряет throughput.
+Аппаратная приёмка остаётся открытой.
+
+Продолжение BL-003 для PIPE-004/007/009/011 от 2026-11-01:
+[полная release-очередь на 1 ч 59 мин публичной речи](../changes/benchmark-processing-batch/evidence/queue-benchmark.md).
+Две fresh sessions: STT-only batch 149.803 s; с настоящей summary — 369.350 s,
+все receipts/исходы проверены. Отдельно measured ASR/NER/Ollama load, generation,
+grounding и внешние ресурсы с documented scope/gap первого monitor. Reference-бюджет
+и следующий proposal сохранены; ready не означает принятие содержания/качества.
 
 ## ad-hoc-asks
 
@@ -120,7 +128,7 @@
 | [PIPE-006](../specs/processing-pipeline/spec.md#requirement-pipe-006-textcleanup--читаемый-текст) | [src/pipeline.rs](../../crates/localvox-light-llm/src/pipeline.rs), [src/readable.rs](../../crates/localvox-light-core/src/readable.rs) | test-run (частично): `test:cleanup_must_reference_the_correct_version_and_lines` | Отдельный runtime всех сценариев не выполнен. |
 | [PIPE-007](../specs/processing-pipeline/spec.md#requirement-pipe-007-summary--сводка-и-её-проверка) | [src/pipeline.rs](../../crates/localvox-light-llm/src/pipeline.rs) | code-reviewed | Реальная скорость/качество не приняты; известный старый Summary 242.248 с не общий benchmark. |
 | [PIPE-008](../specs/processing-pipeline/spec.md#requirement-pipe-008-принятие-результата-и-переход) | [src/jobs.rs](../../crates/localvox-light-core/src/jobs.rs), [src/artifacts.rs](../../crates/localvox-light-core/src/artifacts.rs) | test-run (частично): `test:process_exit_cannot_finish_a_phase_without_verified_artifacts`, `test:failed_queue_commit_keeps_the_current_phase`, `test:hashes_detect_same_length_output_and_input_changes` | Отдельный runtime всех сценариев не выполнен. |
-| [PIPE-009](../specs/processing-pipeline/spec.md#requirement-pipe-009-параллелизм-и-владение-ресурсами) | [src/autocook.rs](../../crates/localvox-light/src/autocook.rs), [src/jobs.rs](../../crates/localvox-light-core/src/jobs.rs) | code-reviewed | BL-003/008: CPU/GPU throughput и память пачки не измерены. |
+| [PIPE-009](../specs/processing-pipeline/spec.md#requirement-pipe-009-параллелизм-и-владение-ресурсами) | [src/autocook.rs](../../crates/localvox-light/src/autocook.rs), [src/jobs.rs](../../crates/localvox-light-core/src/jobs.rs) | test-run (native release reference): [BL-003 queue benchmark](../changes/benchmark-processing-batch/evidence/queue-benchmark.md), off/on summary, preserved transition clocks and observed resources | Один публичный длинный fixture/repeats; условный reference-бюджет, не SLA. BL-008 и аппаратная приёмка открыты; качество не принято. |
 | [PIPE-010](../specs/processing-pipeline/spec.md#requirement-pipe-010-ошибки-таймауты-отмена-и-повтор) | [src/lib.rs](../../crates/localvox-light-process/src/lib.rs), [src/jobs.rs](../../crates/localvox-light-core/src/jobs.rs) | test-run (частично): `test:cancellation_stops_the_entire_tree`, `test:timeout_stops_the_entire_tree`; test-run: lifecycle/supervised media decode ([journal/TUI 2026-10-31](../changes/add-technical-journal-workspace/evidence/implementation.md)) | GAP BL-002/004: нет пользовательской отмены без рестарта и автоматического ремонта Done; OS cancel проверен отдельно. |
 | [PIPE-011](../specs/processing-pipeline/spec.md#requirement-pipe-011-честные-время-и-наблюдаемость) | [src/workflow.rs](../../crates/localvox-light-core/src/workflow.rs), [src/progress.rs](../../crates/localvox-light-core/src/progress.rs), [src/Progress.tsx](../../ui/src/Progress.tsx) | test-run (частично): `test:heartbeats_preserve_start_and_retry_drops_old_progress`; runtime-mock ([журнал](implementation-review-2026-09-27.md)); test-run: journal cursor/quota/concurrency, heartbeat UI/TUI ([journal/TUI 2026-10-31](../changes/add-technical-journal-workspace/evidence/implementation.md)) | Исторические missing boundaries остаются неизвестными; не выводить cleanup=0. Mock не задаёт SLA. |
 | [PIPE-012](../specs/processing-pipeline/spec.md#requirement-pipe-012-повторная-обработка-и-сохранение-первичных-данных) | [src/archive.rs](../../crates/localvox-light-api/src/archive.rs) | test-run (частично): `test:recook_does_not_invalidate_artifacts_owned_by_a_live_worker` | BL-002: lease есть, controlled cancel и общая crash-транзакция отсутствуют. |

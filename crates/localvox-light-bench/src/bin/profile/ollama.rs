@@ -101,6 +101,7 @@ impl Trace {
                     });
                     row["http_status"] = json!(status);
                     row["http_wall_sec"] = json!(started.elapsed().as_secs_f64());
+                    row["ended_at"] = json!(localvox_light_core::versions::now_rfc3339());
                     row["response_bytes"] = json!(bytes.len());
                     row["ollama"] = parsed.as_ref().map(response_metrics).unwrap_or(Value::Null);
                 }
@@ -166,6 +167,7 @@ fn request_metadata(body: &Value, bytes: usize) -> Value {
         }
     }
     json!({"status": "pending", "http_wall_sec": null, "http_status": null,
+        "started_at": localvox_light_core::versions::now_rfc3339(),
         "request_bytes": bytes, "message_count": body["messages"].as_array().map(Vec::len),
         "stream": body["stream"].as_bool(), "think": body["think"].as_bool(),
         "options": options, "ollama": null})
@@ -222,6 +224,8 @@ pub fn redact_timeline(timeline: &mut Value) {
             let label = operation["label"].as_str().unwrap_or("");
             let category = if label == "Загрузка модели проверки имён" {
                 "ner_model_load"
+            } else if label == "Загрузка ASR-модели и адаптера" {
+                "asr_model_load"
             } else if label.contains("повторный запрос после проверки")
             {
                 "llm_retry"

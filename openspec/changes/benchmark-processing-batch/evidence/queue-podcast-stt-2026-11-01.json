@@ -1,0 +1,447 @@
+{
+  "all_success": true,
+  "arch": "x86_64",
+  "batch_wall_sec": 149.8032078,
+  "complete": true,
+  "configuration": {
+    "cleanup": false,
+    "coordinator_interval_sec": 5,
+    "diarization": false,
+    "llm_base_url": "http://127.0.0.1:11434/v1",
+    "llm_model": "qwen3.5:9b",
+    "prepare_input": "preconverted_pcm_with_verified_receipt; download_conversion_excluded",
+    "refine": false,
+    "summary_provider": "ollama",
+    "timeout_sec": 600,
+    "trace_ollama": false
+  },
+  "coordinator_process": {
+    "diagnostic_content_omitted": true,
+    "exit_code": 0,
+    "ner_loaded_worker_diagnostic": null,
+    "resources": {
+      "availability": "observed",
+      "cpu_sec_observed": 53.765625,
+      "limits": "short-lived descendants may be missed; simultaneous sampled totals are not sums of individual peaks; external Ollama excluded",
+      "partial_memory_samples": 0,
+      "peak_sampled_commit_bytes": 618917888,
+      "peak_sampled_working_set_bytes": 610050048,
+      "processes": [
+        {
+          "cpu_sec": 0.0,
+          "peak_commit_bytes": 5672960,
+          "peak_working_set_bytes": 11911168,
+          "pid": 21000
+        },
+        {
+          "cpu_sec": 0.0,
+          "peak_commit_bytes": 5648384,
+          "peak_working_set_bytes": 11784192,
+          "pid": 21788
+        },
+        {
+          "cpu_sec": 26.078125,
+          "peak_commit_bytes": 668807168,
+          "peak_working_set_bytes": 575365120,
+          "pid": 21828
+        },
+        {
+          "cpu_sec": 0.0,
+          "peak_commit_bytes": 5660672,
+          "peak_working_set_bytes": 11788288,
+          "pid": 24204
+        },
+        {
+          "cpu_sec": 0.09375,
+          "peak_commit_bytes": 232689664,
+          "peak_working_set_bytes": 239398912,
+          "pid": 27460
+        },
+        {
+          "cpu_sec": 27.59375,
+          "peak_commit_bytes": 669999104,
+          "peak_working_set_bytes": 575717376,
+          "pid": 27884
+        }
+      ],
+      "processes_discovered": 6,
+      "processes_queried": 6,
+      "samples": 1435,
+      "sampling_interval_ms": 100,
+      "scope": "coordinator_and_observed_descendants"
+    },
+    "status": "success",
+    "stderr_bytes": 0,
+    "stdout_bytes": 94,
+    "wall_sec": 149.7887145
+  },
+  "executables_unchanged": true,
+  "external_llm_resources": null,
+  "fingerprints_pre_read_inputs_and_models": true,
+  "inputs": [
+    {
+      "audio_sec": 7146.527375,
+      "audio_sha256": "96e50ce45af3988b3b069c0ebd4363842eb06b3fe5b536490a8dc9d81f02cd46",
+      "name": "podlodka-109",
+      "summary": false
+    }
+  ],
+  "label": "Public natural conversation Podlodka 109; full 1h59m episode; STT only; no user archive",
+  "llm_trace": null,
+  "logical_cpus": 6,
+  "manifest_sha256": "da4ed963ec07b5a86d8db12132cb380888c5e98df9d262ff754ef9a7a23c3eff",
+  "model_files": [
+    {
+      "file": "v3_e2e_ctc.int8.onnx",
+      "sha256": "2e3fcb7a7b66030336fd10c2fcfb033bd1dc7e1bf238fe5cfd83b1d0cfc9d28e"
+    },
+    {
+      "file": "v3_e2e_ctc.yaml",
+      "sha256": "e67eca3a311ad7c8813d36dff6b8eeba7ad3459fd811d6faea2a26535754a358"
+    },
+    {
+      "file": "v3_e2e_ctc_vocab.txt",
+      "sha256": "142de7570b3de5b3035ce111a89c228e80e6085273731d944093ddf24fa539cd"
+    }
+  ],
+  "ner_model_files": null,
+  "os": "windows",
+  "preflight_sec": 1.3168859,
+  "process_policy": "production resource lanes; fresh worker per phase; auto discovery unchanged; disk cache uncontrolled",
+  "queue": {
+    "all_success": true,
+    "complete": true,
+    "coordinator_joined": true,
+    "elapsed_sec": 149.6215021,
+    "events": [
+      {
+        "after_has_error": false,
+        "attempt": 1,
+        "ended_at": null,
+        "execution_id": "01a19767-83be-7631-be7f-578c867bb9aa",
+        "job_id": 0,
+        "kind": "claimed",
+        "phase": "prepare",
+        "phase_after": "prepare",
+        "phase_wall_sec": null,
+        "queue_wait_sec": 0.921,
+        "queued_at": "2026-11-01T16:58:25.060543800+03:00",
+        "session": "podlodka-109-r1",
+        "started_at": "2026-11-01T16:58:25.982443800+03:00",
+        "state_after": "Running"
+      },
+      {
+        "after_has_error": false,
+        "attempt": 1,
+        "ended_at": "2026-11-01T16:58:26.237018500+03:00",
+        "execution_id": "01a19767-83be-7631-be7f-578c867bb9aa",
+        "job_id": 0,
+        "kind": "accepted",
+        "phase": "prepare",
+        "phase_after": "transcribe",
+        "phase_wall_sec": 0.254,
+        "queue_wait_sec": 0.921,
+        "queued_at": "2026-11-01T16:58:25.060543800+03:00",
+        "session": "podlodka-109-r1",
+        "started_at": "2026-11-01T16:58:25.982443800+03:00",
+        "state_after": "Pending"
+      },
+      {
+        "after_has_error": false,
+        "attempt": 1,
+        "ended_at": null,
+        "execution_id": "01a19767-84c4-7710-9367-65d7ef2822b3",
+        "job_id": 1,
+        "kind": "claimed",
+        "phase": "prepare",
+        "phase_after": "prepare",
+        "phase_wall_sec": null,
+        "queue_wait_sec": 0.463,
+        "queued_at": "2026-11-01T16:58:25.781218100+03:00",
+        "session": "podlodka-109-r2",
+        "started_at": "2026-11-01T16:58:26.244360800+03:00",
+        "state_after": "Running"
+      },
+      {
+        "after_has_error": false,
+        "attempt": 1,
+        "ended_at": "2026-11-01T16:58:26.501649100+03:00",
+        "execution_id": "01a19767-84c4-7710-9367-65d7ef2822b3",
+        "job_id": 1,
+        "kind": "accepted",
+        "phase": "prepare",
+        "phase_after": "transcribe",
+        "phase_wall_sec": 0.257,
+        "queue_wait_sec": 0.463,
+        "queued_at": "2026-11-01T16:58:25.781218100+03:00",
+        "session": "podlodka-109-r2",
+        "started_at": "2026-11-01T16:58:26.244360800+03:00",
+        "state_after": "Pending"
+      },
+      {
+        "after_has_error": false,
+        "attempt": 1,
+        "ended_at": null,
+        "execution_id": "01a19767-9753-78e2-a404-b88c6b5bdcc4",
+        "job_id": 0,
+        "kind": "claimed",
+        "phase": "transcribe",
+        "phase_after": "transcribe",
+        "phase_wall_sec": null,
+        "queue_wait_sec": 4.758,
+        "queued_at": "2026-11-01T16:58:26.237018500+03:00",
+        "session": "podlodka-109-r1",
+        "started_at": "2026-11-01T16:58:30.995171600+03:00",
+        "state_after": "Running"
+      },
+      {
+        "after_has_error": false,
+        "attempt": 1,
+        "ended_at": "2026-11-01T16:59:43.138916500+03:00",
+        "execution_id": "01a19767-9753-78e2-a404-b88c6b5bdcc4",
+        "job_id": 0,
+        "kind": "accepted",
+        "phase": "transcribe",
+        "phase_after": "transcribe",
+        "phase_wall_sec": 72.143,
+        "queue_wait_sec": 4.758,
+        "queued_at": "2026-11-01T16:58:26.237018500+03:00",
+        "session": "podlodka-109-r1",
+        "started_at": "2026-11-01T16:58:30.995171600+03:00",
+        "state_after": "Done"
+      },
+      {
+        "after_has_error": false,
+        "attempt": 1,
+        "ended_at": null,
+        "execution_id": "01a19768-b12a-75d0-9ec7-3ee836d647c5",
+        "job_id": 1,
+        "kind": "claimed",
+        "phase": "transcribe",
+        "phase_after": "transcribe",
+        "phase_wall_sec": null,
+        "queue_wait_sec": 76.645,
+        "queued_at": "2026-11-01T16:58:26.501649100+03:00",
+        "session": "podlodka-109-r2",
+        "started_at": "2026-11-01T16:59:43.146986400+03:00",
+        "state_after": "Running"
+      },
+      {
+        "after_has_error": false,
+        "attempt": 1,
+        "ended_at": "2026-11-01T17:00:55.408575800+03:00",
+        "execution_id": "01a19768-b12a-75d0-9ec7-3ee836d647c5",
+        "job_id": 1,
+        "kind": "accepted",
+        "phase": "transcribe",
+        "phase_after": "transcribe",
+        "phase_wall_sec": 72.261,
+        "queue_wait_sec": 76.645,
+        "queued_at": "2026-11-01T16:58:26.501649100+03:00",
+        "session": "podlodka-109-r2",
+        "started_at": "2026-11-01T16:59:43.146986400+03:00",
+        "state_after": "Done"
+      }
+    ],
+    "events_lost": 0,
+    "initial_jobs": [
+      {
+        "attempt": 0,
+        "created_at": "2026-11-01T16:58:25.060538300+03:00",
+        "enqueued_at": null,
+        "execution_id": null,
+        "finished_at": null,
+        "has_error": false,
+        "id": 0,
+        "kind": "cook",
+        "phase": "prepare",
+        "phase_started_at": null,
+        "queued_at": "2026-11-01T16:58:25.060543800+03:00",
+        "session": "podlodka-109-r1",
+        "started_at": null,
+        "state": "Pending"
+      },
+      {
+        "attempt": 0,
+        "created_at": "2026-11-01T16:58:25.781213400+03:00",
+        "enqueued_at": null,
+        "execution_id": null,
+        "finished_at": null,
+        "has_error": false,
+        "id": 1,
+        "kind": "cook",
+        "phase": "prepare",
+        "phase_started_at": null,
+        "queued_at": "2026-11-01T16:58:25.781218100+03:00",
+        "session": "podlodka-109-r2",
+        "started_at": null,
+        "state": "Pending"
+      }
+    ],
+    "jobs": [
+      {
+        "attempt": 1,
+        "created_at": "2026-11-01T16:58:25.060538300+03:00",
+        "enqueued_at": null,
+        "execution_id": "01a19767-9753-78e2-a404-b88c6b5bdcc4",
+        "finished_at": "2026-11-01T16:59:43.138916500+03:00",
+        "has_error": false,
+        "id": 0,
+        "kind": "cook",
+        "phase": "transcribe",
+        "phase_started_at": "2026-11-01T16:58:30.995171600+03:00",
+        "queued_at": "2026-11-01T16:58:26.237018500+03:00",
+        "session": "podlodka-109-r1",
+        "started_at": "2026-11-01T16:58:25.982486700+03:00",
+        "state": "Done"
+      },
+      {
+        "attempt": 1,
+        "created_at": "2026-11-01T16:58:25.781213400+03:00",
+        "enqueued_at": null,
+        "execution_id": "01a19768-b12a-75d0-9ec7-3ee836d647c5",
+        "finished_at": "2026-11-01T17:00:55.408575800+03:00",
+        "has_error": false,
+        "id": 1,
+        "kind": "cook",
+        "phase": "transcribe",
+        "phase_started_at": "2026-11-01T16:59:43.146986400+03:00",
+        "queued_at": "2026-11-01T16:58:26.501649100+03:00",
+        "session": "podlodka-109-r2",
+        "started_at": "2026-11-01T16:58:26.244369100+03:00",
+        "state": "Done"
+      }
+    ],
+    "reason": "terminal",
+    "scope": "isolated_production_coordinator",
+    "version": 1
+  },
+  "queue_runner_sha256": "a3b5a9b87077479d790cdb7a9da5827866d45045d11bfba406ac677bf8be63e7",
+  "queue_runner_sha256_after": "a3b5a9b87077479d790cdb7a9da5827866d45045d11bfba406ac677bf8be63e7",
+  "queue_wait_sec": null,
+  "repeats": 2,
+  "runner_debug_assertions": false,
+  "runner_sha256": "6d66dbf9dcd696a9b8032791ea5fe2e57e26a5a68300d5b51d41f1f40ebf60a6",
+  "runs": [
+    {
+      "audio_sec": 7146.527375,
+      "case": "podlodka-109",
+      "complete": true,
+      "content_unverified": false,
+      "repeat": 1,
+      "rtf": null,
+      "session": "podlodka-109-r1",
+      "setup_sec": 0.7127025,
+      "success": true,
+      "summary_state": "missing",
+      "timeline": {
+        "generation_sec": null,
+        "history_status": "available",
+        "incomplete_tail": false,
+        "malformed_records": 0,
+        "model_load_sec": null,
+        "operation_durations_are_nested_not_additive": true,
+        "operations": [
+          {
+            "category": "asr_model_load",
+            "elapsed_sec": 0.573512,
+            "operation": "01a19767-9781-7a91-befb-c9d5a1783ae0",
+            "stage": "transcribe"
+          },
+          {
+            "category": "operation",
+            "elapsed_sec": 72.0015166,
+            "operation": "01a19767-977b-7cb0-b25d-950dbfb00dc4",
+            "stage": "transcribe"
+          },
+          {
+            "category": "operation",
+            "elapsed_sec": 72.143551,
+            "operation": "01a19767-9754-7fc3-bab8-2db23a8cfc9e",
+            "stage": "transcribe"
+          }
+        ],
+        "stages": [
+          {
+            "artifact": null,
+            "done": 7147,
+            "elapsed_sec": 72.043,
+            "ended_at": "2026-11-01T16:59:43.040527900+03:00",
+            "stage": "transcribe",
+            "started_at": "2026-11-01T16:58:30.996559100+03:00",
+            "state": "done",
+            "total": 7147,
+            "updated_at": "2026-11-01T16:59:43.040527900+03:00"
+          }
+        ],
+        "verification_sec": null
+      },
+      "transcript_state": "ready"
+    },
+    {
+      "audio_sec": 7146.527375,
+      "case": "podlodka-109",
+      "complete": true,
+      "content_unverified": false,
+      "repeat": 2,
+      "rtf": null,
+      "session": "podlodka-109-r2",
+      "setup_sec": 0.7195716,
+      "success": true,
+      "summary_state": "missing",
+      "timeline": {
+        "generation_sec": null,
+        "history_status": "available",
+        "incomplete_tail": false,
+        "malformed_records": 0,
+        "model_load_sec": null,
+        "operation_durations_are_nested_not_additive": true,
+        "operations": [
+          {
+            "category": "asr_model_load",
+            "elapsed_sec": 1.0522943,
+            "operation": "01a19768-b15a-7c51-9ea0-45d1caeadfac",
+            "stage": "transcribe"
+          },
+          {
+            "category": "operation",
+            "elapsed_sec": 72.2000679,
+            "operation": "01a19768-b153-76a0-a161-f04936c39bf7",
+            "stage": "transcribe"
+          },
+          {
+            "category": "operation",
+            "elapsed_sec": 72.2614869,
+            "operation": "01a19768-b12c-7983-b2bc-52a5e4605750",
+            "stage": "transcribe"
+          }
+        ],
+        "stages": [
+          {
+            "artifact": null,
+            "done": 7147,
+            "elapsed_sec": 72.243,
+            "ended_at": "2026-11-01T17:00:55.391652400+03:00",
+            "stage": "transcribe",
+            "started_at": "2026-11-01T16:59:43.148315300+03:00",
+            "state": "done",
+            "total": 7147,
+            "updated_at": "2026-11-01T17:00:55.391652400+03:00"
+          }
+        ],
+        "verification_sec": null
+      },
+      "transcript_state": "ready"
+    }
+  ],
+  "scope": "isolated_production_coordinator_batch",
+  "total_wall_sec": 152.6003339,
+  "version": 1,
+  "worker_sha256": "4edd4dcdc69fd3271fb9eb5538dad56e46d33524894b32bccfc055537a0640b2",
+  "worker_sha256_after": "4edd4dcdc69fd3271fb9eb5538dad56e46d33524894b32bccfc055537a0640b2",
+  "evidence_normalization": {
+    "source_report_sha256": "611227f5cf2e108fecf9a4477943f5abde2a4c76fd23ec44a8f9036e96d4e002",
+    "source_relative_path": "target/profile-queue-podcast-stt-20261101-b/report.json",
+    "method": "JSON formatting only; content-free queue report preserved; no numeric metrics changed"
+  }
+}

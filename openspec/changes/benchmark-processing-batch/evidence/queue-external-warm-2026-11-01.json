@@ -1,0 +1,428 @@
+{
+  "all_success": true,
+  "arch": "x86_64",
+  "batch_wall_sec": 23.4530449,
+  "complete": true,
+  "configuration": {
+    "cleanup": false,
+    "coordinator_interval_sec": 5,
+    "diarization": false,
+    "llm_base_url": "http://127.0.0.1:11434/v1",
+    "llm_model": "qwen3.5:9b",
+    "prepare_input": "preconverted_pcm_with_verified_receipt; download_conversion_excluded",
+    "refine": false,
+    "summary_provider": "ollama",
+    "timeout_sec": 180,
+    "trace_ollama": true
+  },
+  "coordinator_process": {
+    "diagnostic_content_omitted": true,
+    "exit_code": 0,
+    "ner_loaded_worker_diagnostic": null,
+    "resources": {
+      "availability": "observed",
+      "cpu_sec_observed": 4.875,
+      "limits": "short-lived descendants may be missed; simultaneous sampled totals are not sums of individual peaks; external Ollama excluded",
+      "partial_memory_samples": 0,
+      "peak_sampled_commit_bytes": 1938345984,
+      "peak_sampled_working_set_bytes": 1549611008,
+      "processes": [
+        {
+          "cpu_sec": 0.0,
+          "peak_commit_bytes": 5668864,
+          "peak_working_set_bytes": 11845632,
+          "pid": 560
+        },
+        {
+          "cpu_sec": 0.015625,
+          "peak_commit_bytes": 22896640,
+          "peak_working_set_bytes": 29970432,
+          "pid": 1344
+        },
+        {
+          "cpu_sec": 2.078125,
+          "peak_commit_bytes": 336048128,
+          "peak_working_set_bytes": 329703424,
+          "pid": 4576
+        },
+        {
+          "cpu_sec": 0.0,
+          "peak_commit_bytes": 5660672,
+          "peak_working_set_bytes": 11956224,
+          "pid": 16240
+        },
+        {
+          "cpu_sec": 2.765625,
+          "peak_commit_bytes": 1923211264,
+          "peak_working_set_bytes": 1515388928,
+          "pid": 28192
+        },
+        {
+          "cpu_sec": 0.015625,
+          "peak_commit_bytes": 5652480,
+          "peak_working_set_bytes": 11845632,
+          "pid": 29788
+        }
+      ],
+      "processes_discovered": 6,
+      "processes_queried": 6,
+      "samples": 226,
+      "sampling_interval_ms": 100,
+      "scope": "coordinator_and_observed_descendants"
+    },
+    "status": "success",
+    "stderr_bytes": 0,
+    "stdout_bytes": 96,
+    "wall_sec": 23.4449496
+  },
+  "executables_unchanged": true,
+  "external_llm_resources": null,
+  "fingerprints_pre_read_inputs_and_models": true,
+  "inputs": [
+    {
+      "audio_sec": 602.1295,
+      "audio_sha256": "f268fc25294f9c6bb50c32b95a8d3db5d2df54965b115536495b202d970c51cf",
+      "name": "dense-smoke",
+      "summary": true
+    }
+  ],
+  "label": "Warm external monitor validation; public synthetic dense ten-minute fixture; not a full meeting benchmark",
+  "llm_trace": {
+    "generation_sec": 1.82461,
+    "http_wall_sec": 2.5828607999999997,
+    "model_load_sec": 0.0021212,
+    "non_http_worker_wall_sec": null,
+    "prompt_sec": 0.56049,
+    "request_count": 1,
+    "requests": [
+      {
+        "ended_at": "2026-11-01T17:10:04.483391+03:00",
+        "http_status": 200,
+        "http_wall_sec": 2.5828607999999997,
+        "message_count": 1,
+        "ollama": {
+          "done": true,
+          "done_reason": "stop",
+          "eval_count": 249,
+          "generation_sec": 1.82461,
+          "load_sec": 0.0021212,
+          "prompt_eval_count": 4262,
+          "prompt_sec": 0.56049,
+          "total_sec": 2.5824983
+        },
+        "options": {
+          "frequency_penalty": 0.0,
+          "num_ctx": 32768,
+          "num_predict": 8192,
+          "presence_penalty": 0.0,
+          "repeat_penalty": 1.0,
+          "temperature": 0.20000000298023224,
+          "top_k": 20,
+          "top_p": 0.8999999761581421
+        },
+        "request_bytes": 19600,
+        "response_bytes": 1609,
+        "started_at": "2026-11-01T17:10:01.900486200+03:00",
+        "status": "completed",
+        "stream": false,
+        "think": false
+      }
+    ],
+    "source": "native_ollama_response"
+  },
+  "logical_cpus": 6,
+  "manifest_sha256": "969f3780b521584f216a29828ab06fa4a26014d856cf4b73de27aaa599cf7bf0",
+  "model_files": [
+    {
+      "file": "v3_e2e_ctc.int8.onnx",
+      "sha256": "2e3fcb7a7b66030336fd10c2fcfb033bd1dc7e1bf238fe5cfd83b1d0cfc9d28e"
+    },
+    {
+      "file": "v3_e2e_ctc.yaml",
+      "sha256": "e67eca3a311ad7c8813d36dff6b8eeba7ad3459fd811d6faea2a26535754a358"
+    },
+    {
+      "file": "v3_e2e_ctc_vocab.txt",
+      "sha256": "142de7570b3de5b3035ce111a89c228e80e6085273731d944093ddf24fa539cd"
+    }
+  ],
+  "ner_model_files": [
+    {
+      "file": "gliner_config.json",
+      "sha256": "1ef59c57fe6816a155697a5670ca8d0faf0babe13f199a2c2b5b65113399ed72"
+    },
+    {
+      "file": "model_fp16.onnx",
+      "sha256": "9cec3c771bfa7e886e029cd013326b13ad7d18f58fac33824f43c106fbdfe920"
+    },
+    {
+      "file": "model_q4f16.onnx",
+      "sha256": "11d5f4f5a720931d91429867fc1df22fc507f1878a321ada77a47afa424ff3dc"
+    },
+    {
+      "file": "tokenizer.json",
+      "sha256": "914bd3c8fb7b525af9e23b60d0ec7b1248ddb2b99014efd9c02ebeb022f8cab7"
+    }
+  ],
+  "os": "windows",
+  "preflight_sec": 2.1841469,
+  "process_policy": "production resource lanes; fresh worker per phase; auto discovery unchanged; disk cache uncontrolled",
+  "queue": {
+    "all_success": true,
+    "complete": true,
+    "coordinator_joined": true,
+    "elapsed_sec": 23.3587345,
+    "events": [
+      {
+        "after_has_error": false,
+        "attempt": 1,
+        "ended_at": null,
+        "execution_id": "01a19771-e2eb-7c22-afbb-9ed332374ba5",
+        "job_id": 0,
+        "kind": "claimed",
+        "phase": "prepare",
+        "phase_after": "prepare",
+        "phase_wall_sec": null,
+        "queue_wait_sec": 0.168,
+        "queued_at": "2026-11-01T17:09:45.539233800+03:00",
+        "session": "dense-smoke-r1",
+        "started_at": "2026-11-01T17:09:45.707675200+03:00",
+        "state_after": "Running"
+      },
+      {
+        "after_has_error": false,
+        "attempt": 1,
+        "ended_at": "2026-11-01T17:09:45.733941900+03:00",
+        "execution_id": "01a19771-e2eb-7c22-afbb-9ed332374ba5",
+        "job_id": 0,
+        "kind": "accepted",
+        "phase": "prepare",
+        "phase_after": "transcribe",
+        "phase_wall_sec": 0.026,
+        "queue_wait_sec": 0.168,
+        "queued_at": "2026-11-01T17:09:45.539233800+03:00",
+        "session": "dense-smoke-r1",
+        "started_at": "2026-11-01T17:09:45.707675200+03:00",
+        "state_after": "Pending"
+      },
+      {
+        "after_has_error": false,
+        "attempt": 1,
+        "ended_at": null,
+        "execution_id": "01a19771-f688-7db2-a842-269797c9ea6f",
+        "job_id": 0,
+        "kind": "claimed",
+        "phase": "transcribe",
+        "phase_after": "transcribe",
+        "phase_wall_sec": null,
+        "queue_wait_sec": 4.994,
+        "queued_at": "2026-11-01T17:09:45.733941900+03:00",
+        "session": "dense-smoke-r1",
+        "started_at": "2026-11-01T17:09:50.728886100+03:00",
+        "state_after": "Running"
+      },
+      {
+        "after_has_error": false,
+        "attempt": 1,
+        "ended_at": "2026-11-01T17:09:57.488229400+03:00",
+        "execution_id": "01a19771-f688-7db2-a842-269797c9ea6f",
+        "job_id": 0,
+        "kind": "accepted",
+        "phase": "transcribe",
+        "phase_after": "summary",
+        "phase_wall_sec": 6.759,
+        "queue_wait_sec": 4.994,
+        "queued_at": "2026-11-01T17:09:45.733941900+03:00",
+        "session": "dense-smoke-r1",
+        "started_at": "2026-11-01T17:09:50.728886100+03:00",
+        "state_after": "Pending"
+      },
+      {
+        "after_has_error": false,
+        "attempt": 1,
+        "ended_at": null,
+        "execution_id": "01a19772-1dc0-7310-b40c-9360f0df9a12",
+        "job_id": 0,
+        "kind": "claimed",
+        "phase": "summary",
+        "phase_after": "summary",
+        "phase_wall_sec": null,
+        "queue_wait_sec": 3.279,
+        "queued_at": "2026-11-01T17:09:57.488229400+03:00",
+        "session": "dense-smoke-r1",
+        "started_at": "2026-11-01T17:10:00.768161800+03:00",
+        "state_after": "Running"
+      },
+      {
+        "after_has_error": false,
+        "attempt": 1,
+        "ended_at": "2026-11-01T17:10:08.833689300+03:00",
+        "execution_id": "01a19772-1dc0-7310-b40c-9360f0df9a12",
+        "job_id": 0,
+        "kind": "accepted",
+        "phase": "summary",
+        "phase_after": "summary",
+        "phase_wall_sec": 8.065,
+        "queue_wait_sec": 3.279,
+        "queued_at": "2026-11-01T17:09:57.488229400+03:00",
+        "session": "dense-smoke-r1",
+        "started_at": "2026-11-01T17:10:00.768161800+03:00",
+        "state_after": "Done"
+      }
+    ],
+    "events_lost": 0,
+    "initial_jobs": [
+      {
+        "attempt": 0,
+        "created_at": "2026-11-01T17:09:45.539226600+03:00",
+        "enqueued_at": null,
+        "execution_id": null,
+        "finished_at": null,
+        "has_error": false,
+        "id": 0,
+        "kind": "cook",
+        "phase": "prepare",
+        "phase_started_at": null,
+        "queued_at": "2026-11-01T17:09:45.539233800+03:00",
+        "session": "dense-smoke-r1",
+        "started_at": null,
+        "state": "Pending"
+      }
+    ],
+    "jobs": [
+      {
+        "attempt": 1,
+        "created_at": "2026-11-01T17:09:45.539226600+03:00",
+        "enqueued_at": null,
+        "execution_id": "01a19772-1dc0-7310-b40c-9360f0df9a12",
+        "finished_at": "2026-11-01T17:10:08.833689300+03:00",
+        "has_error": false,
+        "id": 0,
+        "kind": "cook",
+        "phase": "summary",
+        "phase_started_at": "2026-11-01T17:10:00.768161800+03:00",
+        "queued_at": "2026-11-01T17:09:57.488229400+03:00",
+        "session": "dense-smoke-r1",
+        "started_at": "2026-11-01T17:09:45.707719200+03:00",
+        "state": "Done"
+      }
+    ],
+    "reason": "terminal",
+    "scope": "isolated_production_coordinator",
+    "version": 1
+  },
+  "queue_runner_sha256": "a3b5a9b87077479d790cdb7a9da5827866d45045d11bfba406ac677bf8be63e7",
+  "queue_runner_sha256_after": "a3b5a9b87077479d790cdb7a9da5827866d45045d11bfba406ac677bf8be63e7",
+  "queue_wait_sec": null,
+  "repeats": 1,
+  "runner_debug_assertions": false,
+  "runner_sha256": "6d66dbf9dcd696a9b8032791ea5fe2e57e26a5a68300d5b51d41f1f40ebf60a6",
+  "runs": [
+    {
+      "audio_sec": 602.1295,
+      "case": "dense-smoke",
+      "complete": true,
+      "content_unverified": false,
+      "repeat": 1,
+      "rtf": null,
+      "session": "dense-smoke-r1",
+      "setup_sec": 0.0789646,
+      "success": true,
+      "summary_state": "ready",
+      "timeline": {
+        "generation_sec": null,
+        "history_status": "available",
+        "incomplete_tail": false,
+        "malformed_records": 0,
+        "model_load_sec": null,
+        "operation_durations_are_nested_not_additive": true,
+        "operations": [
+          {
+            "category": "asr_model_load",
+            "elapsed_sec": 0.5787462,
+            "operation": "01a19771-f6bd-7f22-8c90-d2bca245b06f",
+            "stage": "transcribe"
+          },
+          {
+            "category": "operation",
+            "elapsed_sec": 6.6498292,
+            "operation": "01a19771-f6b6-7b63-89e3-2c42ce51cba2",
+            "stage": "transcribe"
+          },
+          {
+            "category": "operation",
+            "elapsed_sec": 6.7568707,
+            "operation": "01a19771-f68d-7712-b9ac-42150148d2a8",
+            "stage": "transcribe"
+          },
+          {
+            "category": "ner_model_load",
+            "elapsed_sec": 1.069942,
+            "operation": "01a19772-1dec-7983-b30f-656239d4178e",
+            "stage": "summary"
+          },
+          {
+            "category": "llm_request",
+            "elapsed_sec": 2.5946593,
+            "operation": "01a19772-2220-7d83-85f0-3fc55fbda6c2",
+            "stage": "summary"
+          },
+          {
+            "category": "grounding_check",
+            "elapsed_sec": 3.8124867,
+            "operation": "01a19772-2c48-7fb1-a472-039851b8f199",
+            "stage": "summary"
+          },
+          {
+            "category": "operation",
+            "elapsed_sec": 0.3575456,
+            "operation": "01a19772-3b37-7041-b577-2330df8cb0e3",
+            "stage": "summary"
+          },
+          {
+            "category": "operation",
+            "elapsed_sec": 8.0620445,
+            "operation": "01a19772-1dc5-7930-9b87-e33e09d95866",
+            "stage": "summary"
+          }
+        ],
+        "stages": [
+          {
+            "artifact": null,
+            "done": 602,
+            "elapsed_sec": 6.694,
+            "ended_at": "2026-11-01T17:09:57.427856200+03:00",
+            "stage": "transcribe",
+            "started_at": "2026-11-01T17:09:50.733171400+03:00",
+            "state": "done",
+            "total": 602,
+            "updated_at": "2026-11-01T17:09:57.427856200+03:00"
+          },
+          {
+            "artifact": null,
+            "done": 2,
+            "elapsed_sec": 7.907,
+            "ended_at": "2026-11-01T17:10:08.680002900+03:00",
+            "stage": "summary",
+            "started_at": "2026-11-01T17:10:00.772975900+03:00",
+            "state": "done",
+            "total": 2,
+            "updated_at": "2026-11-01T17:10:08.680002900+03:00"
+          }
+        ],
+        "verification_sec": null
+      },
+      "transcript_state": "ready"
+    }
+  ],
+  "scope": "isolated_production_coordinator_batch",
+  "total_wall_sec": 25.7622846,
+  "version": 1,
+  "worker_sha256": "4edd4dcdc69fd3271fb9eb5538dad56e46d33524894b32bccfc055537a0640b2",
+  "worker_sha256_after": "4edd4dcdc69fd3271fb9eb5538dad56e46d33524894b32bccfc055537a0640b2",
+  "evidence_normalization": {
+    "source_report_sha256": "00c6622447276ded3e87a09c1b3f32819c4b2f2253eac1c61493cda5f271433a",
+    "source_relative_path": "target/profile-queue-external-warm-20261101-a/report.json",
+    "method": "JSON formatting only; content-free queue report preserved; no numeric metrics changed"
+  }
+}

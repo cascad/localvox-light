@@ -45,6 +45,14 @@ fn forwards_exact_native_json_and_records_only_numeric_telemetry() {
     assert_eq!(data["model_load_sec"], 1.0);
     assert_eq!(data["generation_sec"], 3.0);
     assert_eq!(data["requests"][0]["ollama"]["eval_count"], 12);
+    assert!(chrono::DateTime::parse_from_rfc3339(
+        data["requests"][0]["started_at"].as_str().unwrap()
+    )
+    .is_ok());
+    assert!(chrono::DateTime::parse_from_rfc3339(
+        data["requests"][0]["ended_at"].as_str().unwrap()
+    )
+    .is_ok());
     assert_eq!(
         data["requests"][0]["options"],
         json!({"num_ctx":4096,"num_predict":50})
