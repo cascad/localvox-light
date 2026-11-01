@@ -19,6 +19,9 @@ use localvox_light_process::{Limits, Termination};
 
 const MAX_ATTEMPTS: u32 = 3;
 
+mod observer;
+pub use observer::{Observer, Transition};
+
 struct CoordinatorExit<'a>(&'a AtomicBool);
 impl Drop for CoordinatorExit<'_> {
     fn drop(&mut self) {
@@ -44,6 +47,7 @@ struct Config {
     timeouts: [Duration; 4],
     index_timeout: Duration,
     child_env: Vec<(std::ffi::OsString, std::ffi::OsString)>,
+    observer: Option<Observer>,
 }
 
 fn seconds(name: &str, default: u64) -> Result<u64> {
@@ -111,6 +115,7 @@ impl Config {
             ],
             index_timeout: Duration::from_secs(seconds("LOCALVOX_INDEX_TIMEOUT_SEC", 300)?),
             child_env: std::env::vars_os().collect(),
+            observer: None,
         })
     }
 
@@ -170,6 +175,23 @@ impl Config {
 }
 
 pub fn spawn(work_dir: String, running: Arc<AtomicBool>) -> Option<std::thread::JoinHandle<()>> {
+    spawn_inner(work_dir, running, None)
+}
+
+/// Measurement-only observer. The ordinary daemon uses `spawn` without one.
+pub fn spawn_observed(
+    work_dir: String,
+    running: Arc<AtomicBool>,
+    observer: Observer,
+) -> Option<std::thread::JoinHandle<()>> {
+    spawn_inner(work_dir, running, Some(observer))
+}
+
+fn spawn_inner(
+    work_dir: String,
+    running: Arc<AtomicBool>,
+    observer: Option<Observer>,
+) -> Option<std::thread::JoinHandle<()>> {
     if matches!(
         std::env::var("LOCALVOX_LIGHT_AUTOCOOK")
             .unwrap_or_default()
@@ -184,7 +206,7 @@ pub fn spawn(work_dir: String, running: Arc<AtomicBool>) -> Option<std::thread::
         return None;
     }
     jobs::report_coordinator("starting", "Проверка обработчика");
-    let cfg = match Config::from_env(work_dir) {
+    let mut cfg = match Config::from_env(work_dir) {
         Ok(cfg) => cfg,
         Err(e) => {
             jobs::report_coordinator(
@@ -195,6 +217,7 @@ pub fn spawn(work_dir: String, running: Arc<AtomicBool>) -> Option<std::thread::
             return None;
         }
     };
+    cfg.observer = observer;
     match std::thread::Builder::new()
         .name("autocook".into())
         .spawn(move || {
@@ -272,7 +295,10 @@ fn coordinate(cfg: &Config, running: &AtomicBool) {
                             }
                             let name = q.jobs().iter().find(|j| j.id == id)?.session.clone();
                             match jobs::try_execution_lock(&wd.join("sessions").join(&name)) {
-                                Ok(Some(lock)) => q.start_phase(id, phases).map(|job| (job, lock)),
+                                Ok(Some(lock)) => q.start_phase(id, phases).map(|job| {
+                                    if let Some(observer) = &cfg.observer { observer.emit("claimed", &job, &job); }
+                                    (job, lock)
+                                }),
                                 Ok(None) => None,
                                 Err(e) => {
                                     tracing::warn!(session = name, "worker ownership: {e}");
@@ -284,7 +310,7 @@ fn coordinate(cfg: &Config, running: &AtomicBool) {
                             let changed = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run_phase(cfg, running, &job))) {
                                 Ok(changed) => changed,
                                 Err(_) => {
-                                    fail_phase(wd, running, &job, "Сбой координатора при выполнении задания; сохранённые результаты остаются доступны");
+                                    fail_phase_observed(wd, running, &job, "Сбой координатора при выполнении задания; сохранённые результаты остаются доступны", cfg.observer.as_ref());
                                     true
                                 }
                             };
@@ -407,7 +433,7 @@ fn run_step(
         && jobs::verify_phase(&session, job).is_ok()
     {
         return if finish {
-            accept_phase(&cfg.work_dir, running, job)
+            accept_phase_observed(&cfg.work_dir, running, job, cfg.observer.as_ref())
         } else {
             true
         };
@@ -533,16 +559,22 @@ fn run_step(
             match out.termination {
                 Termination::Exited(status) if status.success() => {
                     if finish {
-                        return accept_phase(&cfg.work_dir, running, job);
+                        return accept_phase_observed(
+                            &cfg.work_dir,
+                            running,
+                            job,
+                            cfg.observer.as_ref(),
+                        );
                     }
                     return match jobs::verify_phase(&session, job) {
                         Ok(()) => true,
                         Err(error) => {
-                            fail_phase(
+                            fail_phase_observed(
                                 &cfg.work_dir,
                                 running,
                                 job,
                                 &format!("Результат этапа Text не подтверждён: {error:#}"),
+                                cfg.observer.as_ref(),
                             );
                             false
                         }
@@ -568,7 +600,7 @@ fn run_step(
         }
         Err(e) => format!("Фаза {}: {e:#}", job.phase.as_str()),
     };
-    fail_phase(&cfg.work_dir, running, job, &reason);
+    fail_phase_observed(&cfg.work_dir, running, job, &reason, cfg.observer.as_ref());
     false
 }
 
@@ -611,10 +643,31 @@ fn retry_queue_commit(
     Ok(false)
 }
 
+#[cfg(test)]
 fn accept_phase(wd: &Path, running: &AtomicBool, job: &Job) -> bool {
+    accept_phase_observed(wd, running, job, None)
+}
+
+fn accept_phase_observed(
+    wd: &Path,
+    running: &AtomicBool,
+    job: &Job,
+    observer: Option<&Observer>,
+) -> bool {
     let result = retry_queue_commit(wd, running, job, || {
         JobQueue::mutate(wd, |q| {
-            q.finish_phase_with_policy(job.id, job.phase, Some(jobs::post_processing_from_env()))
+            q.finish_phase_with_policy(job.id, job.phase, Some(jobs::post_processing_from_env()))?;
+            if let Some(observer) = observer {
+                observer.emit(
+                    "accepted",
+                    job,
+                    q.jobs()
+                        .iter()
+                        .find(|current| current.id == job.id)
+                        .unwrap(),
+                );
+            }
+            Ok(())
         })
     });
     match result {
@@ -624,21 +677,46 @@ fn accept_phase(wd: &Path, running: &AtomicBool, job: &Job) -> bool {
         }
         Ok(false) => false,
         Err(e) => {
-            fail_phase(
+            fail_phase_observed(
                 wd,
                 running,
                 job,
                 &format!("Результат фазы не подтверждён: {e:#}"),
+                observer,
             );
             false
         }
     }
 }
 
+#[cfg(test)]
 fn fail_phase(wd: &Path, running: &AtomicBool, job: &Job, reason: &str) -> bool {
+    fail_phase_observed(wd, running, job, reason, None)
+}
+
+fn fail_phase_observed(
+    wd: &Path,
+    running: &AtomicBool,
+    job: &Job,
+    reason: &str,
+    observer: Option<&Observer>,
+) -> bool {
     use progress::{Stage, StageState};
     match retry_queue_commit(wd, running, job, || {
-        JobQueue::mutate(wd, |q| q.try_mark_failed(job.id, reason, MAX_ATTEMPTS))
+        JobQueue::mutate(wd, |q| {
+            q.try_mark_failed(job.id, reason, MAX_ATTEMPTS)?;
+            if let Some(observer) = observer {
+                observer.emit(
+                    "failed",
+                    job,
+                    q.jobs()
+                        .iter()
+                        .find(|current| current.id == job.id)
+                        .unwrap(),
+                );
+            }
+            Ok(())
+        })
     }) {
         Ok(true) => {}
         Ok(false) => return false,
@@ -746,6 +824,113 @@ fn warm_indexes(cfg: &Config, running: &AtomicBool) -> bool {
 mod tests {
     use super::*;
     static POST_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    fn observer_uses_saved_job_clocks_without_error_or_document_content() {
+        let _guard = POST_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        for valid in [true, false] {
+            let (root, job) = outcome_fixture(valid);
+            let (observer, events) = Observer::channel(4);
+            let running = AtomicBool::new(true);
+            assert!(if valid {
+                accept_phase_observed(root.path(), &running, &job, Some(&observer))
+            } else {
+                fail_phase_observed(
+                    root.path(),
+                    &running,
+                    &job,
+                    "PRIVATE ERROR CONTENT",
+                    Some(&observer),
+                )
+            });
+            let event = events.try_recv().unwrap();
+            let saved = JobQueue::load(root.path()).jobs()[0].clone();
+            assert_eq!(event.kind, if valid { "accepted" } else { "failed" });
+            assert_eq!(event.queued_at, job.phase_queued_at);
+            assert_eq!(event.started_at, job.phase_started_at);
+            assert_eq!(event.ended_at, saved.phase_queued_at);
+            assert_eq!(event.execution_id, job.execution_id);
+            assert_eq!(event.attempt, job.attempts);
+            assert_eq!(event.phase, job.phase);
+            assert_eq!(event.phase_after, saved.phase);
+            assert_eq!(event.state_after, saved.state);
+            assert_eq!(event.after_has_error, !valid);
+            assert!(!event.as_json().to_string().contains("PRIVATE"));
+            assert_eq!(observer.lost_count(), 0);
+            assert!(events.try_recv().is_err());
+        }
+    }
+
+    #[test]
+    fn observer_overflow_does_not_wait_for_a_consumer_or_change_acceptance() {
+        let _guard = POST_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let (root, job) = outcome_fixture(true);
+        let (observer, events) = Observer::channel(1);
+        observer.emit("claimed", &job, &job);
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        std::thread::scope(|scope| {
+            let helper = scope.spawn(|| {
+                let accepted = accept_phase_observed(
+                    root.path(),
+                    &AtomicBool::new(true),
+                    &job,
+                    Some(&observer),
+                );
+                done_tx.send(accepted).unwrap();
+            });
+            let accepted_without_consumer = done_rx.recv_timeout(Duration::from_secs(2));
+            // Release a mistakenly blocking implementation before failing this test.
+            let _ = events.try_recv();
+            helper.join().unwrap();
+            assert_eq!(accepted_without_consumer.unwrap(), true);
+        });
+        assert_eq!(observer.lost_count(), 1);
+        let saved = JobQueue::load(root.path()).jobs()[0].clone();
+        assert_eq!(
+            (saved.state, saved.phase),
+            (JobState::Pending, JobPhase::Transcribe)
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn observer_reports_no_outcome_until_its_queue_write_is_accepted() {
+        let _guard = POST_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        for valid in [true, false] {
+            let (root, job) = outcome_fixture(valid);
+            let session = root.path().join("sessions/result");
+            let (observer, events) = Observer::channel(4);
+            let denied = deny_outcome_queue(root.path());
+            let running = AtomicBool::new(true);
+            std::thread::scope(|scope| {
+                let _stop = StopRecovery(&running);
+                let helper = scope.spawn(|| {
+                    if valid {
+                        accept_phase_observed(root.path(), &running, &job, Some(&observer))
+                    } else {
+                        fail_phase_observed(
+                            root.path(),
+                            &running,
+                            &job,
+                            "PRIVATE ERROR",
+                            Some(&observer),
+                        )
+                    }
+                });
+                wait_for_outcome_journal(&session);
+                assert!(matches!(
+                    events.try_recv(),
+                    Err(std::sync::mpsc::TryRecvError::Empty)
+                ));
+                drop(denied);
+                assert!(helper.join().unwrap());
+            });
+            let event = events.try_recv().unwrap();
+            assert_eq!(event.kind, if valid { "accepted" } else { "failed" });
+            assert_eq!(observer.lost_count(), 0);
+            assert!(events.try_recv().is_err());
+        }
+    }
 
     fn outcome_fixture(valid: bool) -> (tempfile::TempDir, Job) {
         use localvox_light_core::versions::{VersionEntry, VersionStore};

@@ -9,6 +9,7 @@ name = "localvox-bench"
 path = "src/main.rs"
 
 [dependencies]
+localvox-light = { path = "../localvox-light", default-features = false }
 localvox-light-core = { workspace = true, features = ["onnx"] }
 localvox-light-llm.workspace = true
 localvox-light-process.workspace = true

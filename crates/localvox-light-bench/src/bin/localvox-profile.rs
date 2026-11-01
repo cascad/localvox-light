@@ -174,6 +174,10 @@ fn new_output(path: &Path) -> Result<PathBuf> {
     }
     fs::create_dir(path).context("output must be a new directory")?;
     let path = path.canonicalize()?;
+    fs::write(
+        path.join(".localvox-profile-workspace"),
+        "localvox-profile/v1\n",
+    )?;
     fs::create_dir(path.join("temp"))?;
     fs::create_dir(path.join("glossary"))?;
     Ok(path)

@@ -2972,6 +2972,7 @@ dependencies = [
  "ctrlc",
  "dotenvy",
  "hound",
+ "localvox-light",
  "localvox-light-core",
  "localvox-light-llm",
  "localvox-light-process",

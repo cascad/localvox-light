@@ -1,6 +1,6 @@
 //! Entry point of the `localvox-light` binary. The core is the `localvox_light_core` crate.
 
-mod autocook;
+use localvox_light::autocook;
 
 use std::io::{self, IsTerminal};
 use std::path::Path;

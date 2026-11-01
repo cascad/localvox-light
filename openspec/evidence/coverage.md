@@ -18,6 +18,12 @@
 и историческая копия; новый mock заметок описан в конце журнала.
 Проверка полноты и ссылок: `python scripts/check-openspec.py`.
 
+Продолжение PIPE-002/008/009/010/011 от 2026-11-01:
+[общий координатор и изолированный headless стенд](../changes/extract-headless-processing-coordinator/evidence/implementation.md).
+Прежние coordinator tests выполняются в library, launcher — в binary; дополнительно
+проверены bounded observer принятых переходов и настоящий model-free queue lifecycle.
+Форматы и политика продукта сохранены; BL-003 и аппаратная приёмка остаются открытыми.
+
 ## ad-hoc-asks
 
 | Требование | Реализация / вход | Свидетельство | Разрыв или граница проверки |

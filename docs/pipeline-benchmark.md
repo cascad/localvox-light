@@ -105,3 +105,50 @@ Proxy не владеет внешним Ollama: отмена local worker не 
 ```powershell
 cargo test --locked -j 2 -p localvox-light-bench --bin localvox-profile -- --test-threads=2
 ```
+
+## Настоящий координатор без захвата звука
+
+`localvox-queue-profile` запускает библиотечный `autocook` приложения без main,
+микрофона, HTTP API и UI. Политика фаз, линии ресурсов, retries, проверка артефактов
+и сохранение очереди общие с daemon. Сам импорт библиотеки ничего не запускает.
+
+```powershell
+cargo build --locked -j 2 -p localvox-light-asr --bin localvox-process -p localvox-light-bench --bin localvox-queue-profile
+target/debug/localvox-queue-profile.exe --work-dir target/profile-new --worker target/debug/localvox-process.exe --timeout-sec 900
+```
+
+Это вход для изолированного стенда: внешний runner заранее копирует fixtures,
+создаёт `sessions`/`jobs.json` и передаёт явное окружение. `.env` не читается.
+Обязателен маркер `.localvox-profile-workspace` с содержимым `localvox-profile/v1`
+и переводом строки; `localvox-profile` создаёт его только в новом output.
+Нельзя запускать инструмент на пользовательском архиве. Активная запись,
+нечитаемая очередь, небезопасный путь сессии, Running job, повторный отчёт и занятый
+профиль отклоняются. Worker должен совпасть с sibling, который найдёт координатор.
+Профили разных сборок не смешиваются.
+
+`queue-report.pending.json` — неполный checkpoint раз в секунду;
+`queue-report.json` публикуется после кооперативной остановки и join. Пустая очередь
+успешна только после настоящего protocol preflight и ready координатора. Failed,
+таймаут, Ctrl+C, ошибка очереди/координатора и потеря событий не становятся успешным
+замером. Отчёт хранит metadata jobs и события `claimed`/`accepted`/`failed`; текст
+встреч и `last_error` в него не входят. `complete` означает терминальный исход без
+потерь, `all_success` — все задания Done. Никаких выводов о качестве текста.
+
+Observer отправляет события `try_send` после сохранённого перехода под mutex очереди.
+Он не ждёт потребителя; overflow фиксируется `events_lost`. Часы взяты из Job,
+`queue_wait_sec` и `phase_wall_sec` — их разности. Неизвестные, повреждённые и
+обратные границы дают null. Время фазы включает проверку и принятие артефакта;
+это не отдельное время модели. Память/GPU и внешняя LLM здесь ещё не измеряются.
+
+Model-free runtime проверяет пустую очередь, timeout/stop с сохранённым заданием и
+несовместимый worker. Сначала нужна сборка двух binaries из команды выше:
+
+```powershell
+cargo test --locked -j 2 -p localvox-light --lib --bin localvox-light -- --test-threads=2
+cargo test --locked -j 2 -p localvox-light-bench --bin localvox-queue-profile -- --test-threads=2
+cargo test --locked -j 2 -p localvox-light-bench --bin localvox-queue-profile -- --ignored --exact tests::real_coordinator_empty_timeout_and_preflight_failure_are_bounded
+```
+
+Coordinator tests перенесены из binary в lib без копии реализации; launcher tests
+остались в binary. CI запускает оба. Создание стенда не закрывает полный BL-003
+или аппаратную приёмку записи/плеера.

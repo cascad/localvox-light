@@ -43,8 +43,9 @@ jobs:
           npm run setup:mpv
       - name: Rust client, styles, ConPTY and process ownership
         run: cargo test --locked -p localvox-light-client -p localvox-light-terminal -p localvox-light-process
-      - name: Main launcher delegation and snapshot settings
+      - name: Shared coordinator, main launcher delegation and snapshot settings
         run: |
+          cargo test --locked -p localvox-light --lib
           cargo test --locked -p localvox-light --bin localvox-light
           cargo test --locked -p localvox-light --test launcher_modes -- --ignored
           cargo check --locked -p localvox-light --no-default-features
@@ -66,7 +67,11 @@ jobs:
       - name: Worker profiling fixture contracts (no speech models)
         run: |
           rustfmt --edition 2021 --check crates/localvox-light-bench/src/bin/localvox-profile.rs
+          rustfmt --edition 2021 --check crates/localvox-light-bench/src/bin/localvox-queue-profile.rs
           cargo test --locked -p localvox-light-bench --bin localvox-profile
+          cargo test --locked -p localvox-light-bench --bin localvox-queue-profile
+          cargo build --locked -p localvox-light-asr --bin localvox-process -p localvox-light-bench --bin localvox-queue-profile
+          cargo test --locked -p localvox-light-bench --bin localvox-queue-profile -- --ignored --exact tests::real_coordinator_empty_timeout_and_preflight_failure_are_bounded
       - name: Both clients against one actual temporary API/archive
         run: cargo test --locked -p localvox-light-api --lib -- --ignored --exact http::tests::cross_clients::shared_workspace --nocapture
       - name: Real media backend (generated PCM, null audio output)
@@ -93,6 +98,7 @@ jobs:
           npx --yes @fission-ai/openspec@1.13.2 validate commit-queue-execution-transitions --type change --strict --no-interactive
           npx --yes @fission-ai/openspec@1.13.2 validate persist-worker-outcomes --type change --strict --no-interactive
           npx --yes @fission-ai/openspec@1.13.2 validate benchmark-processing-batch --type change --strict --no-interactive
+          npx --yes @fission-ai/openspec@1.13.2 validate extract-headless-processing-coordinator --type change --strict --no-interactive
           python scripts/check-openspec.py
           git diff --check
       - name: Upload browser diffs, traces and terminal snapshot proposals
