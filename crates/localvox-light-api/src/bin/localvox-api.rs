@@ -11,7 +11,10 @@ use localvox_light_api::archive::Archive;
 use localvox_light_api::http::{run_http, HttpConfig};
 
 #[derive(Parser)]
-#[command(name = "localvox-api", about = "Local HTTP API of the localvox archive")]
+#[command(
+    name = "localvox-api",
+    about = "Local HTTP API of the localvox archive"
+)]
 struct Cli {
     /// The localvox work directory
     #[arg(

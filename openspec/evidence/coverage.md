@@ -224,3 +224,11 @@
 |---|---|---|---|
 | API-006 | [API delta](../changes/fix-workspace-status-polling/specs/api-access/spec.md), [App](../../ui/src/App.tsx), [usePolling](../../ui/src/usePolling.ts), [API client](../../ui/src/api.ts) | [test-run](../changes/fix-workspace-status-polling/evidence/implementation.md): до исправления перекрывались sessions/jobs/record; после — независимые последовательные циклы, свежий снимок после start/stop/import, отмена старого GET, сохранение выбора и backoff/recovery; полный browser и общий API/UI/TUI | Mock задержки и команды записи, без физического захвата; REC-001/003 и аппаратная приёмка этим полностью не закрываются |
 
+## Сопровождение исходников · 2026-11-01
+
+[Штатное форматирование API](../changes/format-api-rust-sources/evidence/implementation.md):
+сверены изменения оформления build/CLI, archive, chat и HTTP; выполнены существующие
+тесты API после форматирования. Требования и значения не менялись. Это дополнительная
+проверка сохранения реализации API/ARCH/CHAT/CFG/PIPE, без закрытия известных RV/BL
+или заявления о выполнении всех сценариев этих capability.
+

@@ -958,15 +958,28 @@ impl Archive {
         }
 
         let (version_id, lines) = localvox_light_core::readable::transcript_lines(&dir)?;
-        let version = store.load().versions.into_iter().find(|v| v.id == version_id);
+        let version = store
+            .load()
+            .versions
+            .into_iter()
+            .find(|v| v.id == version_id);
         Ok(TranscriptDoc {
             session: session.to_string(),
-            label: version.as_ref().map(|v| v.label.clone()).unwrap_or_default(),
+            label: version
+                .as_ref()
+                .map(|v| v.label.clone())
+                .unwrap_or_default(),
             model: version.map(|v| v.model).unwrap_or_default(),
-            lines: lines.into_iter().map(|l| TranscriptLineOut {
-                who: l.who, source_id: l.source_id, start_sec: l.start_sec,
-                end_sec: l.end_sec, text: l.text,
-            }).collect(),
+            lines: lines
+                .into_iter()
+                .map(|l| TranscriptLineOut {
+                    who: l.who,
+                    source_id: l.source_id,
+                    start_sec: l.start_sec,
+                    end_sec: l.end_sec,
+                    text: l.text,
+                })
+                .collect(),
         })
     }
 
@@ -1895,9 +1908,12 @@ impl Archive {
             value["execution"]["state"] = json!("unavailable");
             value["execution"]["message"] = json!(format!("Очередь недоступна: {error}"));
             value["execution"]["current"] = Value::Null;
-        } else if localvox_light_core::jobs::recording_session(&self.work_dir).as_deref() == Some(name) {
+        } else if localvox_light_core::jobs::recording_session(&self.work_dir).as_deref()
+            == Some(name)
+        {
             value["execution"]["state"] = json!("recording");
-            value["execution"]["message"] = json!("Идёт запись; обработка начнётся после её завершения");
+            value["execution"]["message"] =
+                json!("Идёт запись; обработка начнётся после её завершения");
         }
         // Backwards-compatible field; the UI now names queue, processing and total separately.
         value["elapsed_sec"] = if view.running {

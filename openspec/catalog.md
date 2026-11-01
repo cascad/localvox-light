@@ -59,6 +59,7 @@ BL-001/007/020 реализованы и проверены в исходник�
 | [refactor-terminal-command-dispatch](changes/refactor-terminal-command-dispatch/proposal.md) | Продолжение рефакторинга 2026-11-01 | Именованные действия и статическая палитра TUI без изменения поведения; [проверки](changes/refactor-terminal-command-dispatch/evidence/implementation.md) |
 | [fix-browser-artifact-refresh](changes/fix-browser-artifact-refresh/proposal.md) | Проверка медленных ответов и рефакторинг UI 2026-11-01 | Последовательное обновление артефактов, объединение refresh и отмена старого чтения; [проверки](changes/fix-browser-artifact-refresh/evidence/implementation.md) |
 | [fix-workspace-status-polling](changes/fix-workspace-status-polling/proposal.md) | Продолжение проверки фоновых обновлений 2026-11-01 | Независимые sessions/jobs/record, отмена старого снимка после действия; [проверки](changes/fix-workspace-status-polling/evidence/implementation.md) |
+| [format-api-rust-sources](changes/format-api-rust-sources/proposal.md) | Очистка проекта 2026-11-01 | Штатное форматирование API и постоянная проверка CI без изменения контрактов; [проверки](changes/format-api-rust-sources/evidence/implementation.md) |
 
 Группы сырых идей BL-011–017 остаются во [входящем списке](backlog.md).
 Их ещё нужно разделить на конкретные изменения; наличие там записи не запускает разработку.

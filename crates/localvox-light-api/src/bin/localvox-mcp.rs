@@ -12,7 +12,10 @@ use clap::Parser;
 use localvox_light_api::McpServer;
 
 #[derive(Parser)]
-#[command(name = "localvox-mcp", about = "MCP server of the localvox archive (stdio)")]
+#[command(
+    name = "localvox-mcp",
+    about = "MCP server of the localvox archive (stdio)"
+)]
 struct Cli {
     /// The localvox work directory (the same one the recording uses)
     #[arg(

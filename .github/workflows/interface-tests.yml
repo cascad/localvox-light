@@ -25,6 +25,10 @@ jobs:
           cache: npm
           cache-dependency-path: ui/package-lock.json
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Check API Rust formatting
+        run: cargo fmt -p localvox-light-api -- --check
       - name: Install native link dependency (no speech models)
         shell: pwsh
         run: ./scripts/setup-vosk.ps1
@@ -77,6 +81,7 @@ jobs:
           npx --yes @fission-ai/openspec@1.13.2 validate refactor-terminal-command-dispatch --type change --strict --no-interactive
           npx --yes @fission-ai/openspec@1.13.2 validate fix-browser-artifact-refresh --type change --strict --no-interactive
           npx --yes @fission-ai/openspec@1.13.2 validate fix-workspace-status-polling --type change --strict --no-interactive
+          npx --yes @fission-ai/openspec@1.13.2 validate format-api-rust-sources --type change --strict --no-interactive
           python scripts/check-openspec.py
           git diff --check
       - name: Upload browser diffs, traces and terminal snapshot proposals

@@ -29,7 +29,9 @@ fn main() {
     if root.join("index.html").exists() {
         return;
     }
-    if let Err(e) = fs::create_dir_all(&root).and_then(|()| fs::write(root.join("index.html"), PLACEHOLDER)) {
+    if let Err(e) =
+        fs::create_dir_all(&root).and_then(|()| fs::write(root.join("index.html"), PLACEHOLDER))
+    {
         println!("cargo:warning=ui/dist placeholder: {e}");
     }
     println!("cargo:warning=ui/dist is empty — run `npm --prefix ui run build`");

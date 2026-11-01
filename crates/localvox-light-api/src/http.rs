@@ -810,7 +810,11 @@ pub fn respond(
                         .collect();
                 let extra: Vec<Value> = in_file
                     .iter()
-                    .filter(|(k, _)| !known.contains(k.as_str()) && !localvox_light_core::settings::RETIRED_AUTOCLEAN_KEYS.contains(&k.as_str()))
+                    .filter(|(k, _)| {
+                        !known.contains(k.as_str())
+                            && !localvox_light_core::settings::RETIRED_AUTOCLEAN_KEYS
+                                .contains(&k.as_str())
+                    })
                     .map(|(k, _)| json!({ "key": k, "set": true }))
                     .collect();
                 Ok(json!({

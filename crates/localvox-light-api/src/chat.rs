@@ -200,17 +200,22 @@ const NOTHING_FOUND: &str = "В записях этого нет: поиск н�
 /// are right there, in front of it. If the fragments arrived only through the semantic
 /// channel («по смыслу»), a refusal is plausible — there may indeed be nothing there.
 fn lexically_matched(fragments: &[Fragment], hits: &[crate::archive::Hit]) -> bool {
-    hits.iter().any(|h| {
-        !h.matched.is_empty() && fragments.iter().any(|f| f.session == h.session)
-    })
+    hits.iter()
+        .any(|h| !h.matched.is_empty() && fragments.iter().any(|f| f.session == h.session))
 }
 
 /// The model honestly said "not found". Then there must be no citations either.
 fn is_refusal(text: &str) -> bool {
     let t = text.to_lowercase();
-    ["в записях", "не нашёл", "нет ответа", "not in the record", "no answer"]
-        .iter()
-        .any(|m| t.contains(m))
+    [
+        "в записях",
+        "не нашёл",
+        "нет ответа",
+        "not in the record",
+        "no answer",
+    ]
+    .iter()
+    .any(|m| t.contains(m))
         && t.len() < 300
 }
 
@@ -452,7 +457,10 @@ mod tests {
     /// invention.
     #[test]
     fn citations_are_parsed_and_invented_ones_are_rejected() {
-        let got = cited("Иван взял миграцию [2], срок — пятница [1, 3]. Ещё [9] и [abc].", 3);
+        let got = cited(
+            "Иван взял миграцию [2], срок — пятница [1, 3]. Ещё [9] и [abc].",
+            3,
+        );
         assert_eq!(got.into_iter().collect::<Vec<_>>(), vec![1, 2, 3]);
         assert!(cited("без единой ссылки", 3).is_empty());
     }
@@ -488,7 +496,10 @@ mod tests {
         }];
         let out = render(&f);
         assert!(out.starts_with("[1] (02:05)"), "{out}");
-        assert!(!out.contains("20260713"), "the directory name leaked to the model: {out}");
+        assert!(
+            !out.contains("20260713"),
+            "the directory name leaked to the model: {out}"
+        );
         assert!(out.contains("миграцию беру я"));
     }
 
@@ -505,11 +516,17 @@ mod tests {
              В записях нет информации о том, есть ли тесты для кода.";
         let out = cut_where_it_starts_looping(looped);
 
-        assert!(out.contains("есть упоминание кода"), "the real answer was lost: {out}");
+        assert!(
+            out.contains("есть упоминание кода"),
+            "the real answer was lost: {out}"
+        );
         // Two openings alike are tolerated — a real answer may parallel itself. The third is a
         // loop, and it ends there.
         assert_eq!(out.lines().count(), 3, "the loop was not cut: {out}");
-        assert!(!out.contains("тесты"), "the tail of the loop survived: {out}");
+        assert!(
+            !out.contains("тесты"),
+            "the tail of the loop survived: {out}"
+        );
     }
 
     /// The mechanism knows nothing about WHAT is repeated — no phrases, no dictionaries. An
