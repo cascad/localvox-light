@@ -41,7 +41,7 @@
 | Требование | Реализация / вход | Свидетельство | Разрыв или граница проверки |
 |---|---|---|---|
 | [ARCH-001](../specs/archive-playback/spec.md#requirement-arch-001-адресация-и-чтение) | [src/archive.rs](../../crates/localvox-light-api/src/archive.rs) | test-run (частично): `test:session_dir_rejects_everything_but_plain_names`, `test:verified_transcript_remains_readable_when_summary_fails` | Отдельный runtime всех сценариев не выполнен. |
-| [ARCH-002](../specs/archive-playback/spec.md#requirement-arch-002-один-плеер-и-граница-реплики) | [src/Player.tsx](../../ui/src/Player.tsx) | code-reviewed | Живой browser seek/длинный FLAC не прогонялись. |
+| [ARCH-002](../specs/archive-playback/spec.md#requirement-arch-002-один-плеер-и-граница-реплики) | [src/Player.tsx](../../ui/src/Player.tsx) | test-run (частично): [browser 2026-11-01](../changes/fix-browser-player-lifecycle/evidence/implementation.md), один native audio, pause/keyboard seek, повтор фрагмента и until при обновлении метаданных | Синтетический PCM/HTTP Range; реальный длинный FLAC и аппаратный звук этим не проверены. |
 | [ARCH-003](../specs/archive-playback/spec.md#requirement-arch-003-аудио-через-чанки) | [src/archive.rs](../../crates/localvox-light-api/src/archive.rs), [src/http.rs](../../crates/localvox-light-api/src/http.rs), [media.rs](../../crates/localvox-light-api/src/archive/media.rs) | test-run (частично): `test:audio_clip_extracts_sample_accurate_range`, `test:audio_clip_errors_when_overlapping_chunk_unreadable`, `test:mixing_two_loud_tracks_does_not_wrap_into_noise`; test-run: потоковый WAV, byte Range, real API→mpv, точные FLAC-сэмплы ([journal/TUI 2026-10-31](../changes/add-technical-journal-workspace/evidence/implementation.md)) | Synthetic WAV/FLAC, null audio; аппаратный звук и LAN не проверялись. |
 | [ARCH-004](../specs/archive-playback/spec.md#requirement-arch-004-экспорт-best) | [src/export.rs](../../crates/localvox-light-core/src/export.rs) | code-reviewed | Отдельный runtime всех сценариев не выполнен. |
 | [ARCH-005](../specs/archive-playback/spec.md#requirement-arch-005-явное-удаление) | [src/archive.rs](../../crates/localvox-light-api/src/archive.rs) | test-run (частично): `test:delete_needs_the_session_name_and_is_final` | GAP BL-002: занятый worker пока получает отказ, controlled stop до удаления не реализован. |
@@ -223,6 +223,12 @@
 | ID | Delta / код | Свидетельство | Граница |
 |---|---|---|---|
 | API-006 | [API delta](../changes/fix-workspace-status-polling/specs/api-access/spec.md), [App](../../ui/src/App.tsx), [usePolling](../../ui/src/usePolling.ts), [API client](../../ui/src/api.ts) | [test-run](../changes/fix-workspace-status-polling/evidence/implementation.md): до исправления перекрывались sessions/jobs/record; после — независимые последовательные циклы, свежий снимок после start/stop/import, отмена старого GET, сохранение выбора и backoff/recovery; полный browser и общий API/UI/TUI | Mock задержки и команды записи, без физического захвата; REC-001/003 и аппаратная приёмка этим полностью не закрываются |
+
+## Delta · жизненный цикл браузерного плеера · 2026-11-01
+
+| ID | Delta / код | Свидетельство | Граница |
+|---|---|---|---|
+| ARCH-009 | [archive delta](../changes/fix-browser-player-lifecycle/specs/archive-playback/spec.md), [Player](../../ui/src/Player.tsx), [API client](../../ui/src/api.ts), [useArtifact](../../ui/src/useArtifact.ts) | [test-run](../changes/fix-browser-player-lifecycle/evidence/implementation.md): воспроизведён сброс 20 → 0; сохранены pause/playing/until при обновлении duration, остановка/сброс при смене источника/уходе/исчезновении аудио, без старого autoplay; последовательные/coalesced peaks, отмена/поздний ответ и восстановление после 503 | Реальный HTMLAudioElement с синтетическим PCM; длинный пользовательский FLAC, устройства и рост открытого WAV не проверялись |
 
 ## Сопровождение исходников · 2026-11-01
 

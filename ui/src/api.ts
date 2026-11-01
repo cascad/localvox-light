@@ -485,10 +485,10 @@ export const api = {
   /** The shape of the recording: peak loudness per bucket, 0…1. REAL — people aim at the loud
    *  stretch by it, and a drawn wave would send them to the wrong place while looking just as
    *  trustworthy as a true one. */
-  peaks: (s: string, buckets: number) =>
+  peaks: (s: string, buckets: number, signal?: AbortSignal) =>
     call<{ duration_sec: number; peaks: number[] }>(
       `/api/sessions/${enc(s)}/peaks?buckets=${buckets}`,
-      { timeoutMs: 120_000 },
+      { timeoutMs: 120_000, signal },
     ),
   /** A link → a session. It appears in the archive at once, empty, carrying the stages of
    *  its own arrival: a link that vanishes for ten minutes is indistinguishable from a link

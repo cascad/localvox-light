@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, token, type Session } from "./api";
 import { mmss } from "./lib";
+import { useArtifact } from "./useArtifact";
 
 /** A request to move the ONE player to a second on the timeline. `n` is a nonce so that clicking
  *  the same line twice replays it — the value alone would not change.
@@ -39,51 +40,50 @@ export function Player({ session, seek, onPos }: Props) {
   /** Stop playback at this second (a segment click). null — play straight on. */
   const stopAt = useRef<number | null>(null);
   const lastSeek = useRef(0);
+  const reportPos = useRef(onPos);
 
   const [pos, setPos] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [note, setNote] = useState("");
-  const [peaks, setPeaks] = useState<number[] | null>(null);
   const [seg, setSeg] = useState<{ start: number; end: number } | null>(null);
 
   const total = session?.duration_sec ?? 0;
   const name = session?.name ?? null;
+  const available = name != null && total > 0;
+  const auth = available ? token.get() : "";
+  const source = available ? `/api/sessions/${encodeURIComponent(name)}/audio.wav${auth ? `?token=${encodeURIComponent(auth)}` : ""}` : null;
 
-  // The shape of the recording (the wave). One pass on the daemon side, cached — asked once per
-  // session, never on every render.
-  useEffect(() => {
-    setPeaks(null);
-    if (!name || total <= 0) return;
-    let alive = true;
-    api
-      .peaks(name, BARS)
-      .then((p) => alive && setPeaks(p.peaks ?? []))
-      .catch(() => alive && setPeaks([]));
-    return () => {
-      alive = false;
-    };
-  }, [name, total]);
+  // A duration refresh can update the wave without interrupting the native audio. Slow reads
+  // coalesce; useArtifact retains the last successful shape even if the refresh fails.
+  const waveform = useArtifact(
+    `${name ?? ""}/peaks/${available}`,
+    signal => available ? api.peaks(name, BARS, signal) : Promise.resolve({ duration_sec: 0, peaks: [] as number[] }),
+    total,
+  );
+  const peaks = waveform.data?.peaks ?? (waveform.err ? [] : null);
+
+  useEffect(() => { reportPos.current = onPos; }, [onPos]);
 
   // The audio source: one URL for the whole recording. Set when the session changes; the browser
   // fetches ranges of it on demand. The token (if any) rides in the query — an <audio> element
   // cannot send an Authorization header, and this stream is same-origin and local.
   useEffect(() => {
-    const el = audio.current;
-    if (!el) return;
     stopAt.current = null;
     setSeg(null);
     setPos(0);
+    reportPos.current(0);
     setPlaying(false);
     setNote("");
-    if (name && total > 0) {
-      const t = token.get();
-      el.src = `/api/sessions/${encodeURIComponent(name)}/audio.wav${t ? `?token=${encodeURIComponent(t)}` : ""}`;
-      el.load();
-    } else {
+    const el = audio.current;
+    if (!el || !source) return;
+    el.src = source;
+    el.load();
+    return () => {
+      el.pause();
       el.removeAttribute("src");
       el.load();
-    }
-  }, [name, total]);
+    };
+  }, [source]);
 
   const goTo = (sec: number, autoplay: boolean, until?: number) => {
     const el = audio.current;

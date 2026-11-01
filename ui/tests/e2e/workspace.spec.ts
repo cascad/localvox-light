@@ -743,9 +743,8 @@ test("artifact confirmation exposes integrity errors and provenance is excluded 
   await expect.poll(() => copied).toContain("Разделить клиент"); expect(copied).not.toMatch(/synthetic-model|synthetic-template|Проверить утверждение/);
 });
 
-test("native browser audio supports pause, bounded keyboard seek and repeated fragments", async ({ page }) => {
-  await workspace(page);
-  const bytes = Buffer.alloc(44 + 120 * 16000 * 2);
+async function realAudio(page: Page, seconds = 120) {
+  const bytes = Buffer.alloc(44 + seconds * 16000 * 2);
   bytes.write("RIFF", 0); bytes.writeUInt32LE(bytes.length - 8, 4); bytes.write("WAVEfmt ", 8);
   bytes.writeUInt32LE(16, 16); bytes.writeUInt16LE(1, 20); bytes.writeUInt16LE(1, 22);
   bytes.writeUInt32LE(16000, 24); bytes.writeUInt32LE(32000, 28); bytes.writeUInt16LE(2, 32); bytes.writeUInt16LE(16, 34);
@@ -759,6 +758,12 @@ test("native browser audio supports pause, bounded keyboard seek and repeated fr
   // installing real PCM; browser decoding is real, the HTTP is intercepted.
   const audio = page.locator("audio"); await audio.evaluate((node: HTMLAudioElement) => node.load());
   await expect.poll(() => audio.evaluate((node: HTMLAudioElement) => node.readyState)).toBeGreaterThan(0);
+  return audio;
+}
+
+test("native browser audio supports pause, bounded keyboard seek and repeated fragments", async ({ page }) => {
+  await workspace(page);
+  const audio = await realAudio(page);
   await page.getByTitle("Слушать", { exact: true }).click(); await expect(page.getByTitle("Пауза", { exact: true })).toBeVisible();
   await page.getByTitle("Пауза", { exact: true }).click();
   const slider = page.getByRole("slider", { name: "Перемотка", exact: true }); await slider.focus(); await slider.press("End");
@@ -773,6 +778,136 @@ test("native browser audio supports pause, bounded keyboard seek and repeated fr
     await audio.evaluate((node: HTMLAudioElement) => { node.currentTime = 10.1; node.dispatchEvent(new Event("timeupdate")); });
     await expect.poll(() => audio.evaluate((node: HTMLAudioElement) => node.paused)).toBe(true);
   }
+});
+
+test("archive metadata refresh preserves the paused audio position without reloading", async ({ page }) => {
+  await workspace(page);
+  const audio = await realAudio(page);
+  await audio.evaluate((node: HTMLAudioElement) => {
+    node.currentTime = 20; node.dispatchEvent(new Event("timeupdate"));
+    const load = node.load.bind(node);
+    node.load = () => { node.dataset.reloads = String(Number(node.dataset.reloads ?? 0) + 1); load(); };
+  });
+  await page.route("**/api/sessions?**", route => route.fulfill({ json: fixture.sessions.map((s: object) => ({ ...s, duration_sec: 180 })) }));
+  await page.clock.runFor(5100);
+  await expect(page.getByRole("slider", { name: "Перемотка", exact: true })).toHaveAttribute("aria-valuemax", "180");
+  await expect(audio).toHaveCount(1);
+  expect(await audio.evaluate((node: HTMLAudioElement) => ({ time: node.currentTime, paused: node.paused, reloads: Number(node.dataset.reloads ?? 0) }))).toEqual({ time: 20, paused: true, reloads: 0 });
+});
+
+test("archive metadata refresh preserves playing audio and its fragment boundary", async ({ page }) => {
+  await workspace(page);
+  const audio = await realAudio(page);
+  await page.route("**/transcript**", route => route.fulfill({ json: { lines: [{ ...fixture.transcript.lines[0], start_sec: 30, end_sec: 110 }] } }));
+  await page.getByRole("button", { name: "Реплики", exact: true }).click();
+  await page.getByTitle("Послушать этот фрагмент (00:30–01:50)", { exact: true }).click();
+  await expect.poll(() => audio.evaluate((node: HTMLAudioElement) => node.paused)).toBe(false);
+  await page.route("**/api/sessions?**", route => route.fulfill({ json: fixture.sessions.map((s: object) => ({ ...s, duration_sec: 180 })) }));
+  await page.clock.runFor(5100);
+  await expect(page.getByRole("slider", { name: "Перемотка", exact: true })).toHaveAttribute("aria-valuemax", "180");
+  expect(await audio.evaluate((node: HTMLAudioElement) => node.paused)).toBe(false);
+  expect(await audio.evaluate((node: HTMLAudioElement) => node.currentTime)).toBeGreaterThanOrEqual(30);
+  expect(await page.locator(".wave i.seg").count()).toBeGreaterThan(0);
+  await audio.evaluate((node: HTMLAudioElement) => { node.currentTime = 110.1; node.dispatchEvent(new Event("timeupdate")); });
+  await expect.poll(() => audio.evaluate((node: HTMLAudioElement) => node.paused)).toBe(true);
+  expect(await page.locator(".wave i.seg-on").count()).toBeGreaterThan(0);
+});
+
+for (const change of ["session", "view", "availability"] as const) {
+  test(`audio ${change} change stops the previous source and never replays its old fragment`, async ({ page }) => {
+    await workspace(page);
+    const audio = await realAudio(page);
+    const previous = await audio.elementHandle();
+    let duration = 120;
+    await page.route("**/api/sessions?**", route => route.fulfill({ json: [
+      { ...fixture.sessions[0], duration_sec: duration },
+      { ...fixture.sessions[0], name: "session-b", title: "Другая запись" },
+    ] }));
+    await page.clock.runFor(5100);
+    await page.route("**/transcript**", route => route.fulfill({ json: { lines: [{ ...fixture.transcript.lines[0], start_sec: 30, end_sec: 110 }] } }));
+    await page.getByRole("button", { name: "Реплики", exact: true }).click();
+    await page.getByTitle("Послушать этот фрагмент (00:30–01:50)", { exact: true }).click();
+    await expect.poll(() => audio.evaluate((node: HTMLAudioElement) => node.paused)).toBe(false);
+    if (change === "session") {
+      await page.locator(".side .item").filter({ hasText: "Другая запись" }).click();
+      await expect(audio).toHaveAttribute("src", /session-b\/audio\.wav/);
+    } else {
+      if (change === "view") await page.locator(".nav").getByRole("button", { name: /Заметки/ }).click();
+      else { duration = 0; await page.clock.runFor(5100); }
+      await expect(audio).toHaveCount(0);
+      expect(await previous!.evaluate(node => ({ paused: node.paused, src: node.getAttribute("src") }))).toEqual({ paused: true, src: null });
+      if (change === "view") await page.locator(".nav").getByRole("button", { name: /Записи/ }).click();
+      else { duration = 120; await page.clock.runFor(5100); }
+    }
+    await expect(audio).toHaveCount(1);
+    await expect.poll(() => audio.evaluate((node: HTMLAudioElement) => node.readyState)).toBeGreaterThan(0);
+    expect(await audio.evaluate((node: HTMLAudioElement) => ({ paused: node.paused, time: node.currentTime }))).toEqual({ paused: true, time: 0 });
+    await expect(page.locator(".wave i.seg, .wave i.seg-on")).toHaveCount(0);
+    await expect(page.getByRole("slider", { name: "Перемотка", exact: true })).toHaveAttribute("aria-valuenow", "0");
+    await previous?.dispose();
+  });
+}
+
+test("waveform refresh coalesces slow reads, keeps its shape and cancels a superseded session", async ({ page }) => {
+  await workspace(page);
+  await expect(page.locator(".wave i").first()).toHaveCSS("height", "3px");
+  const aborted = await watchReadAborts(page, ["peaks"]);
+  let duration = 180, calls = 0, served = 0;
+  let release!: () => void; const gate = new Promise<void>(resolve => { release = resolve; });
+  await page.route("**/api/sessions?**", route => route.fulfill({ json: [
+    { ...fixture.sessions[0], duration_sec: duration },
+    { ...fixture.sessions[0], name: "session-b", title: "Другая волна" },
+  ] }));
+  await page.route("**/20261031_demo/peaks?**", async route => {
+    calls++; await gate;
+    await route.fulfill({ json: { duration_sec: duration, peaks: Array(320).fill(0.9) } }).catch(() => {}); served++;
+  });
+  await page.route("**/session-b/peaks?**", route => route.fulfill({ json: { duration_sec: 120, peaks: Array(320).fill(0.5) } }));
+  await page.clock.runFor(5100); await expect.poll(() => calls).toBe(1);
+  duration = 210; await page.clock.runFor(5100);
+  await expect(page.getByRole("slider", { name: "Перемотка", exact: true })).toHaveAttribute("aria-valuemax", "210");
+  duration = 240; await page.clock.runFor(5100);
+  await expect(page.getByRole("slider", { name: "Перемотка", exact: true })).toHaveAttribute("aria-valuemax", "240");
+  expect(calls).toBe(1);
+  await expect(page.locator(".wave i").first()).toHaveCSS("height", "3px");
+  release(); await expect.poll(() => calls).toBe(2); await expect.poll(() => served).toBe(2);
+  await expect(page.locator(".wave i").first()).toHaveCSS("height", "31px");
+  const nextGate = new Promise<void>(resolve => { release = resolve; });
+  await page.route("**/20261031_demo/peaks?**", async route => {
+    calls++; await nextGate;
+    await route.fulfill({ json: { duration_sec: 270, peaks: Array(320).fill(0.9) } }).catch(() => {}); served++;
+  });
+  duration = 270; await page.clock.runFor(5100); await expect.poll(() => calls).toBe(3);
+  await page.locator(".side .item").filter({ hasText: "Другая волна" }).click();
+  await expect.poll(() => aborted.includes("/api/sessions/20261031_demo/peaks")).toBe(true);
+  await expect(page.locator(".wave i").first()).toHaveCSS("height", "17px");
+  release(); await expect.poll(() => served).toBe(3);
+  await expect(page.locator(".wave i").first()).toHaveCSS("height", "17px");
+  expect(calls).toBe(3);
+});
+
+test("failed waveform refresh retains the last shape and playback and can recover", async ({ page }) => {
+  await workspace(page);
+  const audio = await realAudio(page);
+  await expect(page.locator(".wave i").first()).toHaveCSS("height", "3px");
+  await audio.evaluate((node: HTMLAudioElement) => { node.currentTime = 20; node.dispatchEvent(new Event("timeupdate")); });
+  let duration = 180, calls = 0;
+  let release!: () => void; const gate = new Promise<void>(resolve => { release = resolve; });
+  await page.route("**/api/sessions?**", route => route.fulfill({ json: [{ ...fixture.sessions[0], duration_sec: duration }] }));
+  await page.route("**/peaks?**", async route => {
+    calls++;
+    if (calls === 1) return route.fulfill({ status: 503, json: { error: "synthetic waveform failure" } });
+    await gate;
+    return route.fulfill({ json: { duration_sec: duration, peaks: Array(320).fill(0.5) } });
+  });
+  await page.clock.runFor(5100); await expect.poll(() => calls).toBe(1);
+  duration = 210; await page.clock.runFor(5100); await expect.poll(() => calls).toBe(2);
+  // The second sequential read can start only after the first error has been handled.
+  await expect(page.locator(".wave i").first()).toHaveCSS("height", "3px");
+  expect(await audio.evaluate((node: HTMLAudioElement) => node.currentTime)).toBe(20);
+  release();
+  await expect(page.locator(".wave i").first()).toHaveCSS("height", "17px");
+  expect(await audio.evaluate((node: HTMLAudioElement) => ({ time: node.currentTime, paused: node.paused }))).toEqual({ time: 20, paused: true });
 });
 
 test("archive keeps its last rows on failure and ignores a late document from another session", async ({ page }) => {
