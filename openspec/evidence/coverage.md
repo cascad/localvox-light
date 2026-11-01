@@ -218,3 +218,9 @@
 |---|---|---|---|
 | ARCH-008 | [archive delta](../changes/fix-browser-artifact-refresh/specs/archive-playback/spec.md), [useArtifact](../../ui/src/useArtifact.ts), [DocumentPane](../../ui/src/DocumentPane.tsx), [API client](../../ui/src/api.ts) | [test-run](../changes/fix-browser-artifact-refresh/evidence/implementation.md): до исправления 4 GET вместо 1 при удерживаемом ответе; после — последовательное/coalesced чтение, финальный refresh, отмена пяти GET при уходе, смене сессии/версии, восстановление после 503; полный browser и совместный API/UI/TUI | Медленные ответы искусственные; отмена клиента не доказывает остановку HTTP-сервера. Модели/аппаратная приёмка не запускались |
 
+## Delta · опрос состояния UI · 2026-11-01
+
+| ID | Delta / код | Свидетельство | Граница |
+|---|---|---|---|
+| API-006 | [API delta](../changes/fix-workspace-status-polling/specs/api-access/spec.md), [App](../../ui/src/App.tsx), [usePolling](../../ui/src/usePolling.ts), [API client](../../ui/src/api.ts) | [test-run](../changes/fix-workspace-status-polling/evidence/implementation.md): до исправления перекрывались sessions/jobs/record; после — независимые последовательные циклы, свежий снимок после start/stop/import, отмена старого GET, сохранение выбора и backoff/recovery; полный browser и общий API/UI/TUI | Mock задержки и команды записи, без физического захвата; REC-001/003 и аппаратная приёмка этим полностью не закрываются |
+

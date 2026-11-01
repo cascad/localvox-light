@@ -1,7 +1,7 @@
 // Real embedded frontend/API/archive. The owned Rust fixture supplies synthetic
 // processing artifacts explicitly; this is not a speech/model benchmark.
 import { chromium, expect } from "@playwright/test";
-import { readFile, writeFile } from "node:fs/promises";
+import { appendFile, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 const root = process.env.LOCALVOX_CROSS_ROOT;
 const output = process.env.LOCALVOX_CROSS_OUTPUT;
@@ -12,8 +12,15 @@ await context.tracing.start({ screenshots: true, snapshots: true });
 const page = await context.newPage();
 let passed = false;
 const waitFile = async (name) => {
+  await appendFile(join(output, "browser-timeline.txt"), `${Date.now()} waiting ${name}\n`);
   const deadline = Date.now() + 15000;
-  while (Date.now() < deadline) { try { return await readFile(join(root, name), "utf8"); } catch { await new Promise((resolve) => setTimeout(resolve, 30)); } }
+  while (Date.now() < deadline) {
+    let value;
+    try { value = await readFile(join(root, name), "utf8"); }
+    catch { await new Promise((resolve) => setTimeout(resolve, 30)); continue; }
+    await appendFile(join(output, "browser-timeline.txt"), `${Date.now()} found ${name}\n`);
+    return value;
+  }
   throw new Error(`fixture did not produce ${name}`);
 };
 try {
@@ -59,7 +66,10 @@ try {
   expect(await readFile(join(root, ".env"), "utf8")).toContain("LOCALVOX_LLM_MODEL=synthetic-after");
   const summary = page.locator('.set-row').filter({ has: page.getByText('LOCALVOX_LIGHT_AUTOCOOK_SUMMARY', { exact: true }) }).locator('select');
   await summary.selectOption('off');
+  const summarySaved = page.waitForResponse(response => new URL(response.url()).pathname === '/api/settings' && response.request().method() === 'POST');
   await page.getByRole('button', { name: /\(1\)/ }).click();
+  expect((await summarySaved).ok()).toBe(true);
+  await expect(page.getByRole('button', { name: 'Сохранено', exact: true })).toBeVisible();
   await expect(summary).toHaveValue('off');
   expect(await readFile(join(root, '.env'), 'utf8')).toContain('LOCALVOX_LIGHT_AUTOCOOK_SUMMARY=off');
   await page.getByRole("button", { name: /Остальное в файле/ }).click();

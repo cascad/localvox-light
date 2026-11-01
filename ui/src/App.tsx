@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { api, type Answer, type Hit, type Jobs, type RecordState, type Session } from "./api";
+import { api, type Answer, type Hit, type Session } from "./api";
 import { DocumentPane, type Tab } from "./DocumentPane";
 import { Player, type SeekRequest } from "./Player";
 import { NotesPane } from "./Notes";
@@ -9,8 +9,10 @@ import { RecordBar } from "./RecordBar";
 import { SettingsPane } from "./Settings";
 import { AskHistory, AskPane } from "./Ask";
 import { dayLabel, mmss, shortTitle, stateOf } from "./lib";
+import { usePolling } from "./usePolling";
 
 type View = "archive" | "note" | "queue" | "settings" | "ask";
+const EMPTY_SESSIONS: Session[] = [];
 
 /** Cheap and deliberately dumb: only http(s), no spaces. A `file://` from the clipboard would
  *  be an invitation to read any file on the machine through an interface that is open on the
@@ -18,10 +20,11 @@ type View = "archive" | "note" | "queue" | "settings" | "ask";
 const isLink = (s: string) => /^https?:\/\/\S+$/.test(s.trim());
 
 export default function App() {
-  const [sessions, setSessions] = useState<Session[]>([]);
-  const [record, setRecord] = useState<RecordState | null>(null);
-  const [jobs, setJobs] = useState<Jobs | null>(null);
-  const [err, setErr] = useState<string | null>(null);
+  const { data: sessionData, error: err, refresh: refreshSessions } = usePolling("workspace/sessions", signal => api.sessions(50, signal), 5000);
+  const { data: jobs, refresh: refreshJobs } = usePolling("workspace/jobs", signal => api.jobs(signal), 5000);
+  // Dictation may last only a few seconds; record status has its own faster cadence.
+  const { data: record, refresh: refreshRecord } = usePolling("workspace/record", signal => api.record(signal), 1000);
+  const sessions = sessionData ?? EMPTY_SESSIONS;
   const [current, setCurrent] = useState<string | null>(null);
   const [view, setView] = useState<View>("archive");
   const [tab, setTab] = useState<Tab>("summary");
@@ -48,44 +51,13 @@ export default function App() {
     setTimeout(() => setToast((t) => (t === m ? null : t)), 2600);
   }, []);
 
-  const reload = useCallback(async () => {
-    try {
-      const [list, r, j] = await Promise.all([
-        api.sessions(50),
-        api.record().catch(() => null),
-        api.jobs().catch(() => null),
-      ]);
-      setSessions(list);
-      if (r) setRecord(r);
-      if (j) setJobs(j);
-      setErr(null);
-      setCurrent((c) => c ?? list.find((s) => !s.recording)?.name ?? list[0]?.name ?? null);
-    } catch (e) {
-      setErr((e as Error).message);
-    }
-  }, []);
+  const reload = useCallback(() => {
+    refreshSessions(); refreshJobs(); refreshRecord();
+  }, [refreshSessions, refreshJobs, refreshRecord]);
 
-  // The archive is alive: a recording grows, the queue cooks. Five seconds is often
-  // enough to see that and rare enough not to hammer the daemon.
   useEffect(() => {
-    void reload();
-    const t = setInterval(() => void reload(), 5000);
-    return () => clearInterval(t);
-  }, [reload]);
-
-  // The recorder has its OWN rhythm, and it is faster. A dictated note lives for seconds — it
-  // closes after 3.5 s of silence — so at the archive's five-second beat the indicator would miss
-  // most notes outright, and an indicator that is usually absent is worse than none: it teaches
-  // you that it is broken. This costs one small file read; the list above walks fifty directories.
-  // Different facts, different rhythms.
-  useEffect(() => {
-    const t = setInterval(() => {
-      api.record().then(setRecord).catch(() => {
-        /* the daemon may be busy — the next tick is a second away */
-      });
-    }, 1000);
-    return () => clearInterval(t);
-  }, []);
+    if (sessionData) setCurrent(c => c ?? sessionData.find(s => !s.recording)?.name ?? sessionData[0]?.name ?? null);
+  }, [sessionData]);
 
   const live = useMemo(() => sessions.find((s) => s.recording) ?? null, [sessions]);
   const session = useMemo(
@@ -132,7 +104,7 @@ export default function App() {
         setCurrent(r.session);
         setTab("progress");
         say("Взяли ссылку — качаю");
-        await reload();
+        reload();
       } catch (e) {
         say((e as Error).message);
       }

@@ -436,8 +436,8 @@ export interface AskRequest {
 }
 
 export const api = {
-  sessions: (limit = 50) => call<Session[]>(`/api/sessions?limit=${limit}`),
-  jobs: () => call<Jobs>("/api/jobs"),
+  sessions: (limit = 50, signal?: AbortSignal) => call<Session[]>(`/api/sessions?limit=${limit}`, { signal }),
+  jobs: (signal?: AbortSignal) => call<Jobs>("/api/jobs", { signal }),
   langs: () => call<{ langs: string[] }>("/api/langs"),
   slots: () => call<{ slots: string[] }>("/api/slots"),
 
@@ -534,7 +534,7 @@ export const api = {
       set,
     }),
 
-  record: () => call<RecordState>("/api/record"),
+  record: (signal?: AbortSignal) => call<RecordState>("/api/record", { signal }),
   startRecording: (title: string) => post<{ msg: string }>("/api/record/start", { title }),
   stopRecording: () => post<{ session: string }>("/api/record/stop"),
   // Granular re-cook: the scope follows the tab the person is on. `summary` — only the summary;

@@ -39,20 +39,20 @@ async function workspace(page: Page, options: { journalError?: boolean; record?:
   await expect(page.getByRole("heading", { name: /Обсуждение архитектуры/ })).toBeVisible();
 }
 
-async function watchArtifactAborts(page: Page) {
+async function watchReadAborts(page: Page, resources = ["summary", "processed", "transcript", "versions", "speakers"]) {
   const aborted: string[] = [];
-  await page.exposeFunction("reportArtifactAbort", (path: string) => { aborted.push(path); });
-  await page.evaluate(() => {
+  await page.exposeFunction("reportReadAbort", (path: string) => { aborted.push(path); });
+  await page.evaluate((resources) => {
     const original = window.fetch.bind(window);
-    const report = (window as unknown as { reportArtifactAbort: (path: string) => Promise<void> }).reportArtifactAbort;
+    const report = (window as unknown as { reportReadAbort: (path: string) => Promise<void> }).reportReadAbort;
     window.fetch = (input, init) => {
       const path = new URL(input instanceof Request ? input.url : String(input), location.href).pathname;
-      if (!/\/(summary|processed|transcript|versions|speakers)$/.test(path)) return original(input, init);
+      if (!resources.includes(path.split("/").at(-1) ?? "")) return original(input, init);
       const onAbort = () => { void report(path); };
       init?.signal?.addEventListener("abort", onAbort, { once: true });
       return original(input, init).finally(() => init?.signal?.removeEventListener("abort", onAbort));
     };
-  });
+  }, resources);
   return aborted;
 }
 
@@ -139,6 +139,133 @@ test("raw Text is a single body and the copy shortcut includes offscreen text wi
   expect(copied[2]).toBe(full);
 });
 
+for (const endpoint of ["sessions", "jobs", "record"]) {
+  test(`workspace ${endpoint} polling never overlaps a slow background GET`, async ({ page }) => {
+    await workspace(page);
+    let calls = 0; let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    await page.route(endpoint === "sessions" ? "**/api/sessions?**" : `**/api/${endpoint}`, async route => {
+      calls++;
+      await gate;
+      await route.fulfill({ json: endpoint === "sessions" ? fixture.sessions : endpoint === "jobs" ? fixture.jobs : fixture.record }).catch(() => {});
+    });
+    await page.clock.runFor(5100);
+    await expect.poll(() => calls).toBeGreaterThan(0);
+    await page.clock.runFor(5100);
+    expect(calls).toBe(1);
+    release();
+  });
+}
+
+test("a slow archive read does not delay jobs or recording status", async ({ page }) => {
+  await workspace(page);
+  let pending = false; let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  await page.route("**/api/sessions?**", async route => { pending = true; await gate; await route.fulfill({ json: fixture.sessions }); });
+  await page.route("**/api/jobs", route => route.fulfill({ json: { running: 0, pending: 6, failed: 0 } }));
+  await page.route("**/api/record", route => route.fulfill({ json: { ...fixture.record, recording: true, session: "20261031_demo" } }));
+  await page.clock.runFor(5100);
+  await expect.poll(() => pending).toBe(true);
+  await expect(page.locator(".nav").getByRole("button", { name: /Очередь/ })).toContainText("6");
+  await expect(page.getByRole("button", { name: "Остановить", exact: true })).toBeVisible();
+  release();
+});
+
+for (const endpoint of ["jobs", "record"]) {
+  test(`a slow ${endpoint} read does not delay the archive`, async ({ page }) => {
+    await workspace(page);
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    await page.route(`**/api/${endpoint}`, async route => { await gate; await route.fulfill({ json: endpoint === "jobs" ? fixture.jobs : fixture.record }); });
+    await page.route("**/api/sessions?**", route => route.fulfill({ json: fixture.sessions.map((session: object) => ({ ...session, title: "Обновлённый архив" })) }));
+    await page.clock.runFor(5100);
+    await expect(page.getByRole("heading", { name: /^Обновлённый архив ·/ })).toBeVisible();
+    release();
+  });
+}
+
+for (const want of [true, false]) {
+  test(`confirmed ${want ? "start" : "stop"} cannot be rolled back by an older background status`, async ({ page }) => {
+    await workspace(page, { record: !want });
+    const aborted = await watchReadAborts(page, ["record"]);
+    let active = !want; let reads = 0; let served = false; let release!: () => void;
+    const controls: string[] = [];
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    await page.route("**/api/record**", async route => {
+      const path = new URL(route.request().url()).pathname;
+      if (route.request().method() === "POST") {
+        controls.push(path); active = path.endsWith("/start");
+        return route.fulfill({ json: { msg: "Принято", session: "20261031_demo" } });
+      }
+      if (++reads === 1) {
+        await gate;
+        await route.fulfill({ json: { ...fixture.record, recording: !want, session: want ? null : "20261031_demo" } }).catch(() => {});
+        served = true;
+        return;
+      }
+      return route.fulfill({ json: { ...fixture.record, recording: active, session: active ? "20261031_demo" : null } });
+    });
+    await page.clock.runFor(1100);
+    await expect.poll(() => reads).toBeGreaterThan(0);
+    await page.clock.pauseAt(new Date(await page.evaluate(() => Date.now() + 1000)));
+    await page.getByRole("button", { name: want ? "Запись" : "Остановить", exact: true }).click();
+    await expect(page.getByRole("button", { name: want ? "Остановить" : "Запись", exact: true })).toBeVisible();
+    await expect.poll(() => aborted.includes("/api/record")).toBe(true);
+    if (want) await expect(page.locator(".bar .recpill:not(.waiting)")).toBeVisible();
+    release();
+    await expect.poll(() => served).toBe(true);
+    await page.clock.runFor(50);
+    await expect(page.getByRole("button", { name: want ? "Остановить" : "Запись", exact: true })).toBeVisible();
+    expect(aborted).toContain("/api/record");
+    expect(controls).toEqual([`/api/record/${want ? "start" : "stop"}`]);
+  });
+}
+
+test("accepted import refresh cancels the old archive without losing its new selection", async ({ page }) => {
+  await workspace(page);
+  const aborted = await watchReadAborts(page, ["sessions"]);
+  let imported = false; let pending = false; let served = false; let posts = 0; let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  await page.route("**/api/sessions?**", async route => {
+    if (!imported) {
+      pending = true; await gate;
+      await route.fulfill({ json: fixture.sessions }).catch(() => {});
+      served = true; return;
+    }
+    return route.fulfill({ json: [...fixture.sessions, { ...fixture.sessions[0], name: "accepted-fresh", title: "Новая принятая запись" }] });
+  });
+  await page.route("**/api/ingest", route => { posts++; imported = true; return route.fulfill({ json: { session: "accepted-fresh" } }); });
+  await page.clock.runFor(5100);
+  await expect.poll(() => pending).toBe(true);
+  await page.getByPlaceholder("Поиск по архиву…").fill("https://example.org/fresh");
+  await page.getByRole("button", { name: "↓ Расшифровать по ссылке", exact: true }).click();
+  await expect(page.getByRole("heading", { name: /^Новая принятая запись ·/ })).toBeVisible();
+  await expect.poll(() => aborted.includes("/api/sessions")).toBe(true);
+  release();
+  await expect.poll(() => served).toBe(true);
+  await page.clock.runFor(50);
+  await expect(page.getByRole("heading", { name: /^Новая принятая запись ·/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Ход", exact: true })).toHaveAttribute("aria-selected", "true");
+  expect(posts).toBe(1);
+});
+
+test("archive status polling preserves rows during an error and recovers after backoff", async ({ page }) => {
+  await workspace(page);
+  let failed = true;
+  await page.route("**/api/sessions?**", route => failed
+    ? route.fulfill({ status: 503, json: { error: "workspace archive offline" } })
+    : route.fulfill({ json: fixture.sessions.map((session: object) => ({ ...session, title: "Архив снова доступен" })) }));
+  await page.clock.runFor(5100);
+  await expect(page.getByText("workspace archive offline", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Обсуждение архитектуры/ })).toBeVisible();
+  failed = false;
+  await page.clock.runFor(5100);
+  await expect(page.getByText("workspace archive offline", { exact: true })).toBeVisible();
+  await page.clock.runFor(5100);
+  await expect(page.getByRole("heading", { name: /^Архив снова доступен ·/ })).toBeVisible();
+  await expect(page.getByText("workspace archive offline", { exact: true })).toHaveCount(0);
+});
+
 test("slow document refresh is serialized and coalesced without hiding the first usable answer", async ({ page }) => {
   await workspace(page);
   let calls = 0;
@@ -207,7 +334,7 @@ for (const [tab, endpoints] of [
   test(`leaving ${tab} cancels every pending artifact GET`, async ({ page }) => {
     await workspace(page);
     if (tab === "Сводка") await page.getByRole("button", { name: "Текст", exact: true }).click();
-    const aborted = await watchArtifactAborts(page);
+    const aborted = await watchReadAborts(page);
     const requested = new Set<string>();
     let release!: () => void;
     const gate = new Promise<void>(resolve => { release = resolve; });
@@ -235,7 +362,7 @@ for (const [tab, endpoints] of [
 
 test("changing the transcript version cancels its pending refresh and loads the selected version", async ({ page }) => {
   await workspace(page);
-  const aborted = await watchArtifactAborts(page);
+  const aborted = await watchReadAborts(page);
   let calls = 0; let release!: () => void;
   const gate = new Promise<void>(resolve => { release = resolve; });
   await page.route("**/versions", route => route.fulfill({ json: { versions: [...fixture.versions, { ...fixture.versions[0], id: 7, best: false }] } }));
@@ -650,7 +777,7 @@ test("native browser audio supports pause, bounded keyboard seek and repeated fr
 
 test("archive keeps its last rows on failure and ignores a late document from another session", async ({ page }) => {
   await workspace(page); let failed = false;
-  const aborted = await watchArtifactAborts(page);
+  const aborted = await watchReadAborts(page);
   await page.route("**/api/sessions?**", (route) => failed ? route.fulfill({ status: 503, json: { error: "synthetic archive error" } }) : route.fulfill({ json: [...fixture.sessions, { ...fixture.sessions[0], name: "session-b", title: "Другая встреча 🦀" }] }));
   let requested = 0; let release!: () => void; const gate = new Promise<void>((resolve) => { release = resolve; });
   await page.route("**/api/sessions/20261031_demo/summary", async (route) => { requested++; await gate; return route.fulfill({ json: { blocks: [{ kind: "paragraph", text: "Устаревший ответ A", sources: [] }] } }).catch(() => {}); });

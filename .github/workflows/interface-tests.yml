@@ -76,6 +76,7 @@ jobs:
           npx --yes @fission-ai/openspec@1.13.2 validate control-postprocessing-and-terminal-player --type change --strict --no-interactive
           npx --yes @fission-ai/openspec@1.13.2 validate refactor-terminal-command-dispatch --type change --strict --no-interactive
           npx --yes @fission-ai/openspec@1.13.2 validate fix-browser-artifact-refresh --type change --strict --no-interactive
+          npx --yes @fission-ai/openspec@1.13.2 validate fix-workspace-status-polling --type change --strict --no-interactive
           python scripts/check-openspec.py
           git diff --check
       - name: Upload browser diffs, traces and terminal snapshot proposals

@@ -4,6 +4,7 @@ use super::*;
 use localvox_light_client::Client;
 use localvox_light_core::{asks, jobs, journal, processing, progress};
 use localvox_light_process::ManagedProcess;
+use localvox_light_terminal::app::{Action, COMMANDS};
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use std::{
     fs,
@@ -40,6 +41,8 @@ fn shared_workspace() {
         "terminal-notes.txt",
         "terminal.ansi.txt",
         "trace.zip",
+        "terminal-timeline.txt",
+        "browser-timeline.txt",
     ] {
         match fs::remove_file(output.join(name)) {
             Ok(()) => {}
@@ -203,17 +206,31 @@ fn shared_workspace_fixture() {
         )
         .env("LOCALVOX_CROSS_URL", &server.address);
     let mut browser = ManagedProcess::spawn(browser_command).unwrap();
+    let trace_step = |stage: &str| {
+        let mut trace = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(output.join("terminal-timeline.txt"))
+            .unwrap();
+        writeln!(trace, "{} {stage}", chrono::Utc::now().timestamp_millis()).unwrap();
+    };
+    trace_step("browser spawned");
     let mut bytes = Vec::new();
     let mut queries = 0;
     let mut screen = vt100::Parser::new(36, 120, 0);
     let mut produced = false;
     let mut reading = false;
     let mut reconnecting = false;
+    let mut reconnect_submitted = false;
     let mut opening = false;
     let mut quitting = false;
     let deadline = Instant::now() + Duration::from_secs(45);
     while !quitting || !String::from_utf8_lossy(&bytes).contains("\x1b[?1049l") {
-        assert!(Instant::now() < deadline, "shared clients did not finish");
+        if Instant::now() >= deadline {
+            fs::write(output.join("terminal.txt"), screen.screen().contents()).unwrap();
+            fs::write(output.join("terminal.ansi.txt"), &bytes).unwrap();
+            panic!("shared clients did not finish: produced={produced}, reading={reading}, reconnecting={reconnecting}, submitted={reconnect_submitted}, opening={opening}, quitting={quitting}");
+        }
         if let Ok(next) = rx.recv_timeout(Duration::from_millis(20)) {
             screen.process(&next);
             bytes.extend(next);
@@ -234,6 +251,7 @@ fn shared_workspace_fixture() {
                     .trim(),
             );
             produced = true;
+            trace_step("artifacts produced");
         }
         let asks_root = root.join("archive/asks");
         for row in asks::list(&asks_root) {
@@ -252,6 +270,7 @@ fn shared_workspace_fixture() {
                 .contains("Архитектура клиента согласована")
         {
             reading = true;
+            trace_step("terminal read summary");
             pair.master
                 .resize(PtySize {
                     rows: 24,
@@ -275,21 +294,45 @@ fn shared_workspace_fixture() {
             )
             .unwrap();
             writer.write_all(b":").unwrap();
-            writer.write_all(&[b'j'; 31]).unwrap();
-            writer.write_all(b"\r\x13").unwrap();
+            let connection = COMMANDS
+                .iter()
+                .position(|(action, _)| *action == Action::Connection)
+                .unwrap();
+            let backwards = COMMANDS.len() - connection;
+            let (key, steps) = if connection <= backwards {
+                (b'j', connection)
+            } else {
+                (b'k', backwards)
+            };
+            writer.write_all(&vec![key; steps]).unwrap();
+            writer.write_all(b"\r").unwrap();
             writer.flush().unwrap();
             reconnecting = true;
+            trace_step("terminal note seen; requested connection form");
         }
         if reconnecting
+            && !reconnect_submitted
+            && screen.screen().contents().contains("Подключение к демону")
+            && screen.screen().contents().contains("HTTP(S)")
+        {
+            writer.write_all(b"\x13").unwrap();
+            writer.flush().unwrap();
+            reconnect_submitted = true;
+            trace_step("connection form seen; submitted");
+        }
+        if reconnect_submitted
             && !opening
+            && !screen.screen().contents().contains("Подключение к демону")
             && screen.screen().contents().contains("Список")
             && screen.screen().contents().contains("Общий архив UI TUI")
         {
             writer.write_all(b"\t").unwrap();
             writer.flush().unwrap();
             opening = true;
+            trace_step("archive list seen; sent Tab");
         }
         if opening
+            && !root.join("terminal-reconnected").exists()
             && screen
                 .screen()
                 .contents()
@@ -300,8 +343,10 @@ fn shared_workspace_fixture() {
                 "same private API verified again",
             )
             .unwrap();
+            trace_step("reconnected summary seen; marker saved");
         }
         if browser.has_exited().unwrap() && !quitting {
+            trace_step("browser exited");
             fs::write(output.join("terminal.txt"), screen.screen().contents()).unwrap();
             fs::write(output.join("terminal.ansi.txt"), &bytes).unwrap();
             assert!(
