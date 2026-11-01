@@ -212,3 +212,9 @@
 выключение summary и битая очередь. Замер задержки claim относится к temp данным
 и dev-сборке; полный throughput моделей BL-003 не заявляется.
 
+## Delta · чтение документов браузером · 2026-11-01
+
+| ID | Delta / код | Свидетельство | Граница |
+|---|---|---|---|
+| ARCH-008 | [archive delta](../changes/fix-browser-artifact-refresh/specs/archive-playback/spec.md), [useArtifact](../../ui/src/useArtifact.ts), [DocumentPane](../../ui/src/DocumentPane.tsx), [API client](../../ui/src/api.ts) | [test-run](../changes/fix-browser-artifact-refresh/evidence/implementation.md): до исправления 4 GET вместо 1 при удерживаемом ответе; после — последовательное/coalesced чтение, финальный refresh, отмена пяти GET при уходе, смене сессии/версии, восстановление после 503; полный browser и совместный API/UI/TUI | Медленные ответы искусственные; отмена клиента не доказывает остановку HTTP-сервера. Модели/аппаратная приёмка не запускались |
+

@@ -441,21 +441,22 @@ export const api = {
   langs: () => call<{ langs: string[] }>("/api/langs"),
   slots: () => call<{ slots: string[] }>("/api/slots"),
 
-  transcript: (s: string) => call<{ lines: Line[] }>(`/api/sessions/${enc(s)}/transcript`),
+  transcript: (s: string, signal?: AbortSignal) => call<{ lines: Line[] }>(`/api/sessions/${enc(s)}/transcript`, { signal }),
   markdown: (s: string, kind: "summary" | "processed") =>
     call<{ markdown: string; provenance?: Provenance | null }>(
       `/api/sessions/${enc(s)}/${kind}?format=md`,
     ),
   /** The summary as blocks, each claim carrying the seconds it was drawn from. */
-  summary: (s: string) =>
+  summary: (s: string, signal?: AbortSignal) =>
     call<{ blocks: SummaryBlock[]; provenance?: Provenance | null }>(
       `/api/sessions/${enc(s)}/summary`,
+      { signal },
     ),
   /** The readable text as DATA — lines, not a page. The speaker names are joined in by the daemon
    *  on every read, which is why renaming one needs no re-cooking. */
-  readable: (s: string) => call<ReadableDoc>(`/api/sessions/${enc(s)}/processed`),
-  versions: (s: string) => call<{ versions: Version[] }>(`/api/sessions/${enc(s)}/versions`),
-  speakers: (s: string) => call<{ speakers: Participant[] }>(`/api/sessions/${enc(s)}/speakers`),
+  readable: (s: string, signal?: AbortSignal) => call<ReadableDoc>(`/api/sessions/${enc(s)}/processed`, { signal }),
+  versions: (s: string, signal?: AbortSignal) => call<{ versions: Version[] }>(`/api/sessions/${enc(s)}/versions`, { signal }),
+  speakers: (s: string, signal?: AbortSignal) => call<{ speakers: Participant[] }>(`/api/sessions/${enc(s)}/speakers`, { signal }),
 
   search: (q: string, mode: string, limit = 25) =>
     call<Hit[]>(`/api/search?q=${enc(q)}&limit=${limit}${mode ? `&mode=${mode}` : ""}`),

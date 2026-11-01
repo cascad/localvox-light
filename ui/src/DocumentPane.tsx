@@ -11,6 +11,7 @@ import {
 } from "./api";
 import { ProgressChain } from "./Progress";
 import { mmss, sessionTitle, stateOf } from "./lib";
+import { useArtifact } from "./useArtifact";
 
 export type Tab = "summary" | "transcript" | "processed" | "speakers" | "progress";
 
@@ -187,42 +188,6 @@ function SessionLanguage({ session, onChanged, say }: { session: Session; onChan
   </div>;
 }
 
-/** Loading an artifact. A stale answer must never touch the screen: clicking another
- *  session while a transcript loads used to hand the player one session's timecodes
- *  and another one's audio. */
-function useArtifact<T>(key: string, load: () => Promise<T>, refresh = 0) {
-  const [data, setData] = useState<T | null>(null);
-  const [err, setErr] = useState<string | null>(null);
-  const seq = useRef(0);
-  const shownKey = useRef<string | null>(null);
-
-  useEffect(() => {
-    const my = ++seq.current;
-    // Blank ONLY when the identity changed (a new session/tab/version): there we must not show one
-    // recording's text over another's. A refresh tick — same `key`, new `refresh` — reloads IN
-    // PLACE, keeping the current content on screen until the fresh one arrives, so live-updating
-    // during a cook never flickers to «загрузка…».
-    if (shownKey.current !== key) {
-      setData(null);
-      setErr(null);
-      shownKey.current = key;
-    }
-    load()
-      .then((d) => {
-        if (my === seq.current) {
-          setData(d);
-          setErr(null);
-        }
-      })
-      .catch((e: Error) => {
-        if (my === seq.current) setErr(e.message);
-      });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, refresh]);
-
-  return { data, err };
-}
-
 function Transcript({
   session,
   pos,
@@ -243,12 +208,12 @@ function Transcript({
   const [gen, setGen] = useState(0);
   const { data, err } = useArtifact(
     `${session.name}/tr/${gen}`,
-    () => api.transcript(session.name),
+    signal => api.transcript(session.name, signal),
     refresh,
   );
   const vers = useArtifact(
     `${session.name}/vr/${gen}`,
-    () => api.versions(session.name),
+    signal => api.versions(session.name, signal),
     refresh,
   );
   const versions: Version[] = vers.data?.versions ?? [];
@@ -354,7 +319,7 @@ function Article({
 }) {
   const { data, err } = useArtifact(
     `${session.name}/summary`,
-    () => api.summary(session.name),
+    signal => api.summary(session.name, signal),
     refresh,
   );
   const kind = "summary" as const;
@@ -584,7 +549,7 @@ function Readable({
 }) {
   const { data, err } = useArtifact(
     `${session.name}/readable`,
-    () => api.readable(session.name),
+    signal => api.readable(session.name, signal),
     refresh,
   );
 
@@ -750,7 +715,7 @@ function Speakers({
   const [gen, setGen] = useState(0);
   const { data, err } = useArtifact(
     `${session.name}/speakers/${gen}`,
-    () => api.speakers(session.name),
+    signal => api.speakers(session.name, signal),
     refresh,
   );
 

@@ -39,6 +39,23 @@ async function workspace(page: Page, options: { journalError?: boolean; record?:
   await expect(page.getByRole("heading", { name: /Обсуждение архитектуры/ })).toBeVisible();
 }
 
+async function watchArtifactAborts(page: Page) {
+  const aborted: string[] = [];
+  await page.exposeFunction("reportArtifactAbort", (path: string) => { aborted.push(path); });
+  await page.evaluate(() => {
+    const original = window.fetch.bind(window);
+    const report = (window as unknown as { reportArtifactAbort: (path: string) => Promise<void> }).reportArtifactAbort;
+    window.fetch = (input, init) => {
+      const path = new URL(input instanceof Request ? input.url : String(input), location.href).pathname;
+      if (!/\/(summary|processed|transcript|versions|speakers)$/.test(path)) return original(input, init);
+      const onAbort = () => { void report(path); };
+      init?.signal?.addEventListener("abort", onAbort, { once: true });
+      return original(input, init).finally(() => init?.signal?.removeEventListener("abort", onAbort));
+    };
+  });
+  return aborted;
+}
+
 test("journal folds exactly 35 lines and command arguments have separate styles", async ({ page }) => {
   await workspace(page);
   await page.getByRole("button", { name: "Ход", exact: true }).click();
@@ -120,6 +137,122 @@ test("raw Text is a single body and the copy shortcut includes offscreen text wi
   await page.locator(".doc-head").getByRole("button", { name: /Копировать/ }).click();
   await expect.poll(() => copied.length).toBe(3);
   expect(copied[2]).toBe(full);
+});
+
+test("slow document refresh is serialized and coalesced without hiding the first usable answer", async ({ page }) => {
+  await workspace(page);
+  let calls = 0;
+  let first!: () => void; let next!: () => void;
+  const firstGate = new Promise<void>(resolve => { first = resolve; });
+  const nextGate = new Promise<void>(resolve => { next = resolve; });
+  await page.route("**/processed", async route => {
+    const call = ++calls;
+    if (call === 1) await firstGate;
+    if (call === 2) await nextGate;
+    await route.fulfill({ json: { ...fixture.readable, from_transcript: true, lines: [{ who: "Голос", text: call === 1 ? "Текущий медленный ответ" : "Свежий ответ", start_sec: 0, end_sec: 1 }] } });
+  });
+  await page.getByRole("button", { name: "Текст", exact: true }).click();
+  await expect.poll(() => calls).toBeGreaterThan(0);
+  await page.clock.runFor(7100);
+  expect(calls).toBe(1);
+  first();
+  await expect(page.getByText("Текущий медленный ответ", { exact: true })).toBeVisible();
+  await expect.poll(() => calls).toBe(2);
+  await expect(page.getByText("загрузка…", { exact: true })).toHaveCount(0);
+  next();
+  await expect(page.getByText("Свежий ответ", { exact: true })).toBeVisible();
+  await page.clock.runFor(1000);
+  expect(calls).toBe(2);
+});
+
+test("the final document refresh survives processing finishing during a slow read", async ({ page }) => {
+  await workspace(page);
+  let calls = 0; let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  await page.route("**/processed", async route => {
+    const call = ++calls;
+    if (call === 1) await gate;
+    await route.fulfill({ json: { ...fixture.readable, from_transcript: true, lines: [{ text: call === 1 ? "Первый снимок" : "Итоговый документ", who: "Голос", start_sec: 0, end_sec: 1 }] } });
+  });
+  await page.getByRole("button", { name: "Текст", exact: true }).click();
+  await expect.poll(() => calls).toBe(1);
+  await page.route("**/api/sessions?**", route => route.fulfill({ json: fixture.sessions.map((session: object) => ({ ...session, job: null })) }));
+  await page.clock.runFor(5100);
+  await expect(page.locator(".doc-head .st")).toHaveText("расшифрована");
+  expect(calls).toBe(1);
+  release();
+  await expect(page.getByText("Итоговый документ", { exact: true })).toBeVisible();
+  await page.clock.runFor(6100);
+  expect(calls).toBe(2);
+});
+
+test("document errors recover on the next refresh without switching tabs", async ({ page }) => {
+  await workspace(page);
+  let failed = true;
+  await page.route("**/processed", route => failed
+    ? route.fulfill({ status: 503, json: { error: "artifact temporarily offline" } })
+    : route.fulfill({ json: fixture.readable }));
+  await page.getByRole("button", { name: "Текст", exact: true }).click();
+  await expect(page.getByText("artifact temporarily offline", { exact: true })).toBeVisible();
+  failed = false;
+  await page.clock.runFor(3100);
+  await expect(page.getByText("Отделим интерфейс от движка.", { exact: true })).toBeVisible();
+  await expect(page.getByText("artifact temporarily offline", { exact: true })).toHaveCount(0);
+});
+
+for (const [tab, endpoints] of [
+  ["Сводка", ["summary"]], ["Текст", ["processed"]],
+  ["Реплики", ["transcript", "versions"]], ["Участники", ["speakers"]],
+] as const) {
+  test(`leaving ${tab} cancels every pending artifact GET`, async ({ page }) => {
+    await workspace(page);
+    if (tab === "Сводка") await page.getByRole("button", { name: "Текст", exact: true }).click();
+    const aborted = await watchArtifactAborts(page);
+    const requested = new Set<string>();
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    await page.route(/\/api\/sessions\/[^/]+\/(summary|processed|transcript|versions|speakers)$/, async route => {
+      const endpoint = new URL(route.request().url()).pathname.split("/").at(-1)!;
+      if (!(endpoints as readonly string[]).includes(endpoint)) return route.fallback();
+      requested.add(endpoint);
+      await gate;
+      await route.fulfill({ json: {
+        ...fixture.readable, from_transcript: true,
+        lines: [{ who: "Голос", text: "Поздний закрытый документ", start_sec: 0, end_sec: 1 }],
+        blocks: [{ kind: "paragraph", text: "Поздний закрытый документ", sources: [] }],
+        versions: fixture.versions,
+        speakers: [{ ...fixture.speakers[0], name: "Поздний закрытый документ" }],
+      } }).catch(() => {}); // the browser has already cancelled this request
+    });
+    await page.getByRole("button", { name: tab, exact: true }).click();
+    await expect.poll(() => requested.size).toBe(endpoints.length);
+    await page.getByRole("button", { name: tab === "Сводка" ? "Текст" : "Сводка", exact: true }).click();
+    await expect.poll(() => endpoints.every(endpoint => aborted.some(path => path.endsWith(`/${endpoint}`)))).toBe(true);
+    release();
+    await expect(page.getByText("Поздний закрытый документ", { exact: true })).toHaveCount(0);
+  });
+}
+
+test("changing the transcript version cancels its pending refresh and loads the selected version", async ({ page }) => {
+  await workspace(page);
+  const aborted = await watchArtifactAborts(page);
+  let calls = 0; let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  await page.route("**/versions", route => route.fulfill({ json: { versions: [...fixture.versions, { ...fixture.versions[0], id: 7, best: false }] } }));
+  await page.route("**/transcript", async route => {
+    const call = ++calls;
+    if (call === 2) await gate;
+    await route.fulfill({ json: { lines: [{ ...fixture.transcript.lines[0], text: call === 1 ? "Исходная версия" : call === 2 ? "Устаревшее обновление версии" : "Выбранная версия семь" }] } }).catch(() => {});
+  });
+  await page.getByRole("button", { name: "Реплики", exact: true }).click();
+  await expect(page.getByText("Исходная версия", { exact: true })).toBeVisible();
+  await page.clock.runFor(3100);
+  await expect.poll(() => calls).toBe(2);
+  await page.locator(".ver-switch select").last().selectOption("7");
+  await expect.poll(() => aborted.some(path => path.endsWith("/transcript"))).toBe(true);
+  await expect(page.getByText("Выбранная версия семь", { exact: true })).toBeVisible();
+  release();
+  await expect(page.getByText("Устаревшее обновление версии", { exact: true })).toHaveCount(0);
 });
 
 test("pipeline keeps elapsed time, the next step and an explicit reason between workers and retries", async ({ page }) => {
@@ -517,14 +650,18 @@ test("native browser audio supports pause, bounded keyboard seek and repeated fr
 
 test("archive keeps its last rows on failure and ignores a late document from another session", async ({ page }) => {
   await workspace(page); let failed = false;
+  const aborted = await watchArtifactAborts(page);
   await page.route("**/api/sessions?**", (route) => failed ? route.fulfill({ status: 503, json: { error: "synthetic archive error" } }) : route.fulfill({ json: [...fixture.sessions, { ...fixture.sessions[0], name: "session-b", title: "Другая встреча 🦀" }] }));
-  let requested = false; let release!: () => void; const gate = new Promise<void>((resolve) => { release = resolve; });
-  await page.route("**/api/sessions/20261031_demo/summary", async (route) => { requested = true; await gate; return route.fulfill({ json: { blocks: [{ kind: "paragraph", text: "Устаревший ответ A", sources: [] }] } }); });
+  let requested = 0; let release!: () => void; const gate = new Promise<void>((resolve) => { release = resolve; });
+  await page.route("**/api/sessions/20261031_demo/summary", async (route) => { requested++; await gate; return route.fulfill({ json: { blocks: [{ kind: "paragraph", text: "Устаревший ответ A", sources: [] }] } }).catch(() => {}); });
   await page.route("**/api/sessions/session-b/summary", (route) => route.fulfill({ json: { blocks: [{ kind: "paragraph", text: "Актуальный документ B", sources: [] }] } }));
   await page.clock.runFor(5100);
+  const beforeReopening = requested;
   await page.getByRole("button", { name: "Текст", exact: true }).click(); await page.getByRole("button", { name: "Сводка", exact: true }).click();
-  await expect.poll(() => requested).toBe(true);
+  await expect.poll(() => requested).toBeGreaterThan(beforeReopening);
+  aborted.length = 0;
   await page.locator(".side .item").filter({ hasText: "Другая встреча 🦀" }).click();
+  await expect.poll(() => aborted.some(path => path === "/api/sessions/20261031_demo/summary")).toBe(true);
   await expect(page.getByText("Актуальный документ B", { exact: true })).toBeVisible(); release();
   await expect(page.getByText("Устаревший ответ A", { exact: true })).not.toBeVisible();
   failed = true; await page.clock.runFor(5100);
