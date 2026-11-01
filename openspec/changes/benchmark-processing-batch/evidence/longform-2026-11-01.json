@@ -1,0 +1,117 @@
+{
+  "all_success": true,
+  "arch": "x86_64",
+  "batch_wall_sec": 7.8511083,
+  "complete": true,
+  "configuration": {
+    "cleanup": false,
+    "diarization": false,
+    "llm_base_url": "http://127.0.0.1:11434/v1",
+    "llm_model": "qwen3.5:9b",
+    "refine": false,
+    "summary_provider": "ollama",
+    "timeout_sec": 120
+  },
+  "external_llm_resources": null,
+  "fingerprints_pre_read_inputs_and_models": true,
+  "inputs": [
+    {
+      "audio_sec": 602.1295,
+      "audio_sha256": "f268fc25294f9c6bb50c32b95a8d3db5d2df54965b115536495b202d970c51cf",
+      "name": "lf-dense-001",
+      "summary": false
+    }
+  ],
+  "label": "Public lf-dense 10-minute direct-worker probe; no summary; no cold-cache claim",
+  "logical_cpus": 6,
+  "manifest_sha256": "0e4156b2e0ca03b4557dce70c3df7b34efad21e34ae1ba36e6dcd486bfbba2c2",
+  "model_files": [
+    {
+      "file": "v3_e2e_ctc.int8.onnx",
+      "sha256": "2e3fcb7a7b66030336fd10c2fcfb033bd1dc7e1bf238fe5cfd83b1d0cfc9d28e"
+    },
+    {
+      "file": "v3_e2e_ctc.yaml",
+      "sha256": "e67eca3a311ad7c8813d36dff6b8eeba7ad3459fd811d6faea2a26535754a358"
+    },
+    {
+      "file": "v3_e2e_ctc_vocab.txt",
+      "sha256": "142de7570b3de5b3035ce111a89c228e80e6085273731d944093ddf24fa539cd"
+    }
+  ],
+  "os": "windows",
+  "preflight_sec": 0.4139572,
+  "process_policy": "fresh process for each phase; cache state uncontrolled",
+  "queue_wait_sec": null,
+  "repeats": 1,
+  "runner_debug_assertions": false,
+  "runner_sha256": "7961bb51e0be46abc4874dc565a942a1660caf5f9305a0eabdfd99f050e1b43b",
+  "runs": [
+    {
+      "audio_sec": 602.1295,
+      "case": "lf-dense-001",
+      "phases": [
+        {
+          "acceptance_verification_sec": 0.0002332,
+          "artifact_state": "ready",
+          "diagnostic_tail": null,
+          "exit_code": 0,
+          "phase": "transcribe",
+          "resources": {
+            "availability": "observed",
+            "cpu_sec": 2.8125,
+            "peak_commit_bytes": 336007168,
+            "peak_method": "maximum observed OS high-water mark; final retained-handle query",
+            "peak_working_set_bytes": 329428992,
+            "samples": 386,
+            "sampling_interval_ms": 20,
+            "scope": "worker_process_only"
+          },
+          "status": "success",
+          "stderr_bytes": 444,
+          "stdout_bytes": 282,
+          "wall_sec": 7.8270509
+        }
+      ],
+      "repeat": 1,
+      "rtf": 0.01299894939543736,
+      "setup_sec": 0.0045399,
+      "success": true,
+      "timeline": {
+        "generation_sec": null,
+        "history_status": "available",
+        "incomplete_tail": false,
+        "malformed_records": 0,
+        "model_load_sec": null,
+        "operation_durations_are_nested_not_additive": true,
+        "operations": [
+          {
+            "elapsed_sec": 7.7263568,
+            "label": "Распознавание и разметка говорящих",
+            "operation": "01a196f7-3973-76b1-9c45-39a6818a66b8",
+            "stage": "transcribe"
+          }
+        ],
+        "stages": [
+          {
+            "done": 602,
+            "elapsed_sec": 7.729,
+            "ended_at": "2026-11-01T14:55:54.660961+03:00",
+            "note": "59 строк",
+            "stage": "transcribe",
+            "started_at": "2026-11-01T14:55:46.931191+03:00",
+            "state": "done",
+            "total": 602,
+            "updated_at": "2026-11-01T14:55:54.660961+03:00"
+          }
+        ],
+        "verification_sec": null
+      },
+      "worker_wall_sec": 7.8270509
+    }
+  ],
+  "scope": "isolated_sequential_worker_phases",
+  "total_wall_sec": 8.2686905,
+  "version": 1,
+  "worker_sha256": "9ad460f6922ff9e86c69a129fbd844885840519fa5637626b880c0ad1e0699d2"
+}

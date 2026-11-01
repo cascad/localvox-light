@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "label": "Golos public short-clip calibration; fresh process; pre-read fingerprints; no cold-cache claim",
+  "cases": [
+    { "name": "golos-00", "audio": "../../bench/golos-crowd/audio/00000.wav" },
+    { "name": "golos-01", "audio": "../../bench/golos-crowd/audio/00001.wav" },
+    { "name": "golos-02", "audio": "../../bench/golos-crowd/audio/00002.wav" },
+    { "name": "golos-03", "audio": "../../bench/golos-crowd/audio/00003.wav" },
+    { "name": "golos-04", "audio": "../../bench/golos-crowd/audio/00004.wav" }
+  ]
+}

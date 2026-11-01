@@ -63,6 +63,10 @@ jobs:
           cargo test --locked -p localvox-light-core jobs:: --lib
           cargo test --locked -p localvox-light-core workflow:: --lib
           cargo test --locked -p localvox-light-core readable:: --lib
+      - name: Worker profiling fixture contracts (no speech models)
+        run: |
+          rustfmt --edition 2021 --check crates/localvox-light-bench/src/bin/localvox-profile.rs
+          cargo test --locked -p localvox-light-bench --bin localvox-profile
       - name: Both clients against one actual temporary API/archive
         run: cargo test --locked -p localvox-light-api --lib -- --ignored --exact http::tests::cross_clients::shared_workspace --nocapture
       - name: Real media backend (generated PCM, null audio output)
@@ -88,6 +92,7 @@ jobs:
           npx --yes @fission-ai/openspec@1.13.2 validate explain-automatic-retry-state --type change --strict --no-interactive
           npx --yes @fission-ai/openspec@1.13.2 validate commit-queue-execution-transitions --type change --strict --no-interactive
           npx --yes @fission-ai/openspec@1.13.2 validate persist-worker-outcomes --type change --strict --no-interactive
+          npx --yes @fission-ai/openspec@1.13.2 validate benchmark-processing-batch --type change --strict --no-interactive
           python scripts/check-openspec.py
           git diff --check
       - name: Upload browser diffs, traces and terminal snapshot proposals

@@ -42,7 +42,7 @@ BL-001/007/020 реализованы и проверены в исходник�
 |---|---|---|
 | [fix-ingest-ack](changes/fix-ingest-ack/proposal.md) | [BL-001](backlog.md#bl-001) | Подтверждать приём ссылки сохранением meta и очереди |
 | [serialize-session-mutations](changes/serialize-session-mutations/proposal.md) | [BL-002](backlog.md#bl-002) | Согласовать владение сессией для изменяющих операций |
-| [benchmark-processing-batch](changes/benchmark-processing-batch/proposal.md) | [BL-003](backlog.md#bl-003) | Измерить release-обработку пачки и предложить бюджет |
+| [benchmark-processing-batch](changes/benchmark-processing-batch/proposal.md) | [BL-003](backlog.md#bl-003) | Инструмент изолированных worker-замеров и [контрольные результаты](changes/benchmark-processing-batch/evidence/calibration.md); полный координатор/длинная речь/summary и бюджет остаются открытыми |
 | [recover-corrupt-processing-artifacts](changes/recover-corrupt-processing-artifacts/proposal.md) | [BL-004](backlog.md#bl-004) | Восстанавливать повреждённые готовые артефакты |
 | [verify-background-indexing](changes/verify-background-indexing/proposal.md) | [BL-005](backlog.md#bl-005) | Проверить индексатор вместе с очередью и поиском |
 | [unify-manual-and-queued-import](changes/unify-manual-and-queued-import/proposal.md) | [BL-006](backlog.md#bl-006) | Объединить ручной импорт и фоновый Prepare |

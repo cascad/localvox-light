@@ -224,6 +224,16 @@
 |---|---|---|---|
 | API-006 | [API delta](../changes/fix-workspace-status-polling/specs/api-access/spec.md), [App](../../ui/src/App.tsx), [usePolling](../../ui/src/usePolling.ts), [API client](../../ui/src/api.ts) | [test-run](../changes/fix-workspace-status-polling/evidence/implementation.md): до исправления перекрывались sessions/jobs/record; после — независимые последовательные циклы, свежий снимок после start/stop/import, отмена старого GET, сохранение выбора и backoff/recovery; полный browser и общий API/UI/TUI | Mock задержки и команды записи, без физического захвата; REC-001/003 и аппаратная приёмка этим полностью не закрываются |
 
+## Контрольные измерения worker · 2026-11-01
+
+Дополнение к PIPE-004/008/009/011 и BL-003/008:
+[инструмент и release-результаты](../changes/benchmark-processing-batch/evidence/calibration.md).
+В изолированных сессиях выполнены пять публичных коротких WAV × 2 и отдельный
+602-секундный WAV с настоящим GigaAM, подтверждены непустые транскрипты и receipts.
+Есть fingerprint, времена и наблюдаемые Windows worker peak/CPU. Полная очередь,
+двухчасовая встреча, настоящая summary и численный бюджет ещё не измерены;
+BL-003/008 и аппаратная приёмка остаются открытыми.
+
 ## Сохранение исхода worker · 2026-11-01
 
 Дополнение к PIPE-008/010/011:

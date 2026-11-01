@@ -2967,17 +2967,23 @@ name = "localvox-light-bench"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "clap",
+ "ctrlc",
  "dotenvy",
  "hound",
  "localvox-light-core",
  "localvox-light-llm",
+ "localvox-light-process",
  "ort",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
  "toml 0.8.2",
  "ureq 2.12.1",
  "webrtc-vad",
+ "windows 0.62.2",
 ]
 
 [[package]]

@@ -1,0 +1,699 @@
+{
+  "all_success": true,
+  "arch": "x86_64",
+  "batch_wall_sec": 17.741017,
+  "complete": true,
+  "configuration": {
+    "cleanup": false,
+    "diarization": false,
+    "llm_base_url": "http://127.0.0.1:11434/v1",
+    "llm_model": "qwen3.5:9b",
+    "refine": false,
+    "summary_provider": "ollama",
+    "timeout_sec": 120
+  },
+  "external_llm_resources": null,
+  "fingerprints_pre_read_inputs_and_models": true,
+  "inputs": [
+    {
+      "audio_sec": 4.0,
+      "audio_sha256": "500d2e88a1634ee766fec46f83cb903f3a1c276b2cedb36f11db800a1c4c14d0",
+      "name": "golos-00",
+      "summary": false
+    },
+    {
+      "audio_sec": 3.43,
+      "audio_sha256": "63666d51b938f5c9acf4d92e9984251fff122d9425232c75ec45ee81cf7aab1c",
+      "name": "golos-01",
+      "summary": false
+    },
+    {
+      "audio_sec": 3.06,
+      "audio_sha256": "101105b34eb3dbad83eb27849218c1b56756b2265f85d1922f32983876462e1f",
+      "name": "golos-02",
+      "summary": false
+    },
+    {
+      "audio_sec": 5.44,
+      "audio_sha256": "d5e5002ab533245a61757ef267c75c298dfc7a22904fdb5385374ade2276a240",
+      "name": "golos-03",
+      "summary": false
+    },
+    {
+      "audio_sec": 5.22,
+      "audio_sha256": "606918e23e0894f7c330441d3e8e4eacb37374722f95fc0a73cf91515a4cc758",
+      "name": "golos-04",
+      "summary": false
+    }
+  ],
+  "label": "Golos public short-clip calibration; fresh process; pre-read fingerprints; no cold-cache claim",
+  "logical_cpus": 6,
+  "manifest_sha256": "1d5180b106b92b969edc9b906c1c8d6b423e9c832466873f0318cad559a80765",
+  "model_files": [
+    {
+      "file": "v3_e2e_ctc.int8.onnx",
+      "sha256": "2e3fcb7a7b66030336fd10c2fcfb033bd1dc7e1bf238fe5cfd83b1d0cfc9d28e"
+    },
+    {
+      "file": "v3_e2e_ctc.yaml",
+      "sha256": "e67eca3a311ad7c8813d36dff6b8eeba7ad3459fd811d6faea2a26535754a358"
+    },
+    {
+      "file": "v3_e2e_ctc_vocab.txt",
+      "sha256": "142de7570b3de5b3035ce111a89c228e80e6085273731d944093ddf24fa539cd"
+    }
+  ],
+  "os": "windows",
+  "preflight_sec": 0.4916268,
+  "process_policy": "fresh process for each phase; cache state uncontrolled",
+  "queue_wait_sec": null,
+  "repeats": 2,
+  "runner_debug_assertions": false,
+  "runner_sha256": "7961bb51e0be46abc4874dc565a942a1660caf5f9305a0eabdfd99f050e1b43b",
+  "runs": [
+    {
+      "audio_sec": 4.0,
+      "case": "golos-00",
+      "phases": [
+        {
+          "acceptance_verification_sec": 0.0014542,
+          "artifact_state": "ready",
+          "diagnostic_tail": null,
+          "exit_code": 0,
+          "phase": "transcribe",
+          "resources": {
+            "availability": "observed",
+            "cpu_sec": 1.09375,
+            "peak_commit_bytes": 275423232,
+            "peak_method": "maximum observed OS high-water mark; final retained-handle query",
+            "peak_working_set_bytes": 286863360,
+            "samples": 186,
+            "sampling_interval_ms": 20,
+            "scope": "worker_process_only"
+          },
+          "status": "success",
+          "stderr_bytes": 442,
+          "stdout_bytes": 275,
+          "wall_sec": 4.1671623
+        }
+      ],
+      "repeat": 1,
+      "rtf": 1.041790575,
+      "setup_sec": 0.0009589,
+      "success": true,
+      "timeline": {
+        "generation_sec": null,
+        "history_status": "available",
+        "incomplete_tail": false,
+        "malformed_records": 0,
+        "model_load_sec": null,
+        "operation_durations_are_nested_not_additive": true,
+        "operations": [
+          {
+            "elapsed_sec": 4.0668397,
+            "label": "Распознавание и разметка говорящих",
+            "operation": "01a196f5-ffb4-7d92-a089-385a904f589f",
+            "stage": "transcribe"
+          }
+        ],
+        "stages": [
+          {
+            "done": 4,
+            "elapsed_sec": 4.074,
+            "ended_at": "2026-11-01T14:54:30.683832900+03:00",
+            "note": "1 строк",
+            "stage": "transcribe",
+            "started_at": "2026-11-01T14:54:26.609552600+03:00",
+            "state": "done",
+            "total": 4,
+            "updated_at": "2026-11-01T14:54:30.683832900+03:00"
+          }
+        ],
+        "verification_sec": null
+      },
+      "worker_wall_sec": 4.1671623
+    },
+    {
+      "audio_sec": 3.43,
+      "case": "golos-01",
+      "phases": [
+        {
+          "acceptance_verification_sec": 0.0001405,
+          "artifact_state": "ready",
+          "diagnostic_tail": null,
+          "exit_code": 0,
+          "phase": "transcribe",
+          "resources": {
+            "availability": "observed",
+            "cpu_sec": 0.078125,
+            "peak_commit_bytes": 275038208,
+            "peak_method": "maximum observed OS high-water mark; final retained-handle query",
+            "peak_working_set_bytes": 285368320,
+            "samples": 50,
+            "sampling_interval_ms": 20,
+            "scope": "worker_process_only"
+          },
+          "status": "success",
+          "stderr_bytes": 442,
+          "stdout_bytes": 275,
+          "wall_sec": 1.0163624
+        }
+      ],
+      "repeat": 1,
+      "rtf": 0.2963155685131195,
+      "setup_sec": 0.0004918,
+      "success": true,
+      "timeline": {
+        "generation_sec": null,
+        "history_status": "available",
+        "incomplete_tail": false,
+        "malformed_records": 0,
+        "model_load_sec": null,
+        "operation_durations_are_nested_not_additive": true,
+        "operations": [
+          {
+            "elapsed_sec": 0.9127833,
+            "label": "Распознавание и разметка говорящих",
+            "operation": "01a196f6-100a-7431-98a6-44acfbef0256",
+            "stage": "transcribe"
+          }
+        ],
+        "stages": [
+          {
+            "done": 3,
+            "elapsed_sec": 0.918,
+            "ended_at": "2026-11-01T14:54:31.711008200+03:00",
+            "note": "1 строк",
+            "stage": "transcribe",
+            "started_at": "2026-11-01T14:54:30.792847200+03:00",
+            "state": "done",
+            "total": 3,
+            "updated_at": "2026-11-01T14:54:31.711008200+03:00"
+          }
+        ],
+        "verification_sec": null
+      },
+      "worker_wall_sec": 1.0163624
+    },
+    {
+      "audio_sec": 3.06,
+      "case": "golos-02",
+      "phases": [
+        {
+          "acceptance_verification_sec": 0.0001689,
+          "artifact_state": "ready",
+          "diagnostic_tail": null,
+          "exit_code": 0,
+          "phase": "transcribe",
+          "resources": {
+            "availability": "observed",
+            "cpu_sec": 0.359375,
+            "peak_commit_bytes": 274112512,
+            "peak_method": "maximum observed OS high-water mark; final retained-handle query",
+            "peak_working_set_bytes": 285376512,
+            "samples": 64,
+            "sampling_interval_ms": 20,
+            "scope": "worker_process_only"
+          },
+          "status": "success",
+          "stderr_bytes": 442,
+          "stdout_bytes": 275,
+          "wall_sec": 1.3430647
+        }
+      ],
+      "repeat": 1,
+      "rtf": 0.43891003267973855,
+      "setup_sec": 0.0004937,
+      "success": true,
+      "timeline": {
+        "generation_sec": null,
+        "history_status": "available",
+        "incomplete_tail": false,
+        "malformed_records": 0,
+        "model_load_sec": null,
+        "operation_durations_are_nested_not_additive": true,
+        "operations": [
+          {
+            "elapsed_sec": 1.1918687,
+            "label": "Распознавание и разметка говорящих",
+            "operation": "01a196f6-1400-71b0-bc26-9a2570492652",
+            "stage": "transcribe"
+          }
+        ],
+        "stages": [
+          {
+            "done": 3,
+            "elapsed_sec": 1.196,
+            "ended_at": "2026-11-01T14:54:33.003624400+03:00",
+            "note": "1 строк",
+            "stage": "transcribe",
+            "started_at": "2026-11-01T14:54:31.807300+03:00",
+            "state": "done",
+            "total": 3,
+            "updated_at": "2026-11-01T14:54:33.003624400+03:00"
+          }
+        ],
+        "verification_sec": null
+      },
+      "worker_wall_sec": 1.3430647
+    },
+    {
+      "audio_sec": 5.44,
+      "case": "golos-03",
+      "phases": [
+        {
+          "acceptance_verification_sec": 0.0001444,
+          "artifact_state": "ready",
+          "diagnostic_tail": null,
+          "exit_code": 0,
+          "phase": "transcribe",
+          "resources": {
+            "availability": "observed",
+            "cpu_sec": 0.078125,
+            "peak_commit_bytes": 273940480,
+            "peak_method": "maximum observed OS high-water mark; final retained-handle query",
+            "peak_working_set_bytes": 287535104,
+            "samples": 92,
+            "sampling_interval_ms": 20,
+            "scope": "worker_process_only"
+          },
+          "status": "success",
+          "stderr_bytes": 442,
+          "stdout_bytes": 275,
+          "wall_sec": 1.8702463
+        }
+      ],
+      "repeat": 1,
+      "rtf": 0.3437952757352941,
+      "setup_sec": 0.0004174,
+      "success": true,
+      "timeline": {
+        "generation_sec": null,
+        "history_status": "available",
+        "incomplete_tail": false,
+        "malformed_records": 0,
+        "model_load_sec": null,
+        "operation_durations_are_nested_not_additive": true,
+        "operations": [
+          {
+            "elapsed_sec": 1.5418482,
+            "label": "Распознавание и разметка говорящих",
+            "operation": "01a196f6-1a44-7ef2-b430-0b7afc5466b8",
+            "stage": "transcribe"
+          }
+        ],
+        "stages": [
+          {
+            "done": 5,
+            "elapsed_sec": 1.545,
+            "ended_at": "2026-11-01T14:54:34.957777400+03:00",
+            "note": "1 строк",
+            "stage": "transcribe",
+            "started_at": "2026-11-01T14:54:33.411806100+03:00",
+            "state": "done",
+            "total": 5,
+            "updated_at": "2026-11-01T14:54:34.957777400+03:00"
+          }
+        ],
+        "verification_sec": null
+      },
+      "worker_wall_sec": 1.8702463
+    },
+    {
+      "audio_sec": 5.22,
+      "case": "golos-04",
+      "phases": [
+        {
+          "acceptance_verification_sec": 0.0002257,
+          "artifact_state": "ready",
+          "diagnostic_tail": null,
+          "exit_code": 0,
+          "phase": "transcribe",
+          "resources": {
+            "availability": "observed",
+            "cpu_sec": 0.203125,
+            "peak_commit_bytes": 273903616,
+            "peak_method": "maximum observed OS high-water mark; final retained-handle query",
+            "peak_working_set_bytes": 287551488,
+            "samples": 102,
+            "sampling_interval_ms": 20,
+            "scope": "worker_process_only"
+          },
+          "status": "success",
+          "stderr_bytes": 442,
+          "stdout_bytes": 275,
+          "wall_sec": 2.0873762
+        }
+      ],
+      "repeat": 1,
+      "rtf": 0.3998804980842912,
+      "setup_sec": 0.0005188,
+      "success": true,
+      "timeline": {
+        "generation_sec": null,
+        "history_status": "available",
+        "incomplete_tail": false,
+        "malformed_records": 0,
+        "model_load_sec": null,
+        "operation_durations_are_nested_not_additive": true,
+        "operations": [
+          {
+            "elapsed_sec": 1.6557523,
+            "label": "Распознавание и разметка говорящих",
+            "operation": "01a196f6-21a4-7d72-a979-d0b542ba5371",
+            "stage": "transcribe"
+          }
+        ],
+        "stages": [
+          {
+            "done": 5,
+            "elapsed_sec": 1.667,
+            "ended_at": "2026-11-01T14:54:36.967569500+03:00",
+            "note": "1 строк",
+            "stage": "transcribe",
+            "started_at": "2026-11-01T14:54:35.300559100+03:00",
+            "state": "done",
+            "total": 5,
+            "updated_at": "2026-11-01T14:54:36.967569500+03:00"
+          }
+        ],
+        "verification_sec": null
+      },
+      "worker_wall_sec": 2.0873762
+    },
+    {
+      "audio_sec": 4.0,
+      "case": "golos-00",
+      "phases": [
+        {
+          "acceptance_verification_sec": 0.000262,
+          "artifact_state": "ready",
+          "diagnostic_tail": null,
+          "exit_code": 0,
+          "phase": "transcribe",
+          "resources": {
+            "availability": "observed",
+            "cpu_sec": 0.203125,
+            "peak_commit_bytes": 273801216,
+            "peak_method": "maximum observed OS high-water mark; final retained-handle query",
+            "peak_working_set_bytes": 285253632,
+            "samples": 121,
+            "sampling_interval_ms": 20,
+            "scope": "worker_process_only"
+          },
+          "status": "success",
+          "stderr_bytes": 442,
+          "stdout_bytes": 275,
+          "wall_sec": 2.7082164
+        }
+      ],
+      "repeat": 2,
+      "rtf": 0.6770541,
+      "setup_sec": 0.0009915,
+      "success": true,
+      "timeline": {
+        "generation_sec": null,
+        "history_status": "available",
+        "incomplete_tail": false,
+        "malformed_records": 0,
+        "model_load_sec": null,
+        "operation_durations_are_nested_not_additive": true,
+        "operations": [
+          {
+            "elapsed_sec": 2.0965343,
+            "label": "Распознавание и разметка говорящих",
+            "operation": "01a196f6-2aa2-7d53-ade9-f91b9faf4aeb",
+            "stage": "transcribe"
+          }
+        ],
+        "stages": [
+          {
+            "done": 4,
+            "elapsed_sec": 2.102,
+            "ended_at": "2026-11-01T14:54:39.702867900+03:00",
+            "note": "1 строк",
+            "stage": "transcribe",
+            "started_at": "2026-11-01T14:54:37.600730100+03:00",
+            "state": "done",
+            "total": 4,
+            "updated_at": "2026-11-01T14:54:39.702867900+03:00"
+          }
+        ],
+        "verification_sec": null
+      },
+      "worker_wall_sec": 2.7082164
+    },
+    {
+      "audio_sec": 3.43,
+      "case": "golos-01",
+      "phases": [
+        {
+          "acceptance_verification_sec": 0.0001304,
+          "artifact_state": "ready",
+          "diagnostic_tail": null,
+          "exit_code": 0,
+          "phase": "transcribe",
+          "resources": {
+            "availability": "observed",
+            "cpu_sec": 0.140625,
+            "peak_commit_bytes": 274575360,
+            "peak_method": "maximum observed OS high-water mark; final retained-handle query",
+            "peak_working_set_bytes": 285036544,
+            "samples": 49,
+            "sampling_interval_ms": 20,
+            "scope": "worker_process_only"
+          },
+          "status": "success",
+          "stderr_bytes": 441,
+          "stdout_bytes": 275,
+          "wall_sec": 0.9969584
+        }
+      ],
+      "repeat": 2,
+      "rtf": 0.29065842565597666,
+      "setup_sec": 0.0011004,
+      "success": true,
+      "timeline": {
+        "generation_sec": null,
+        "history_status": "available",
+        "incomplete_tail": false,
+        "malformed_records": 0,
+        "model_load_sec": null,
+        "operation_durations_are_nested_not_additive": true,
+        "operations": [
+          {
+            "elapsed_sec": 0.847272,
+            "label": "Распознавание и разметка говорящих",
+            "operation": "01a196f6-3399-7010-8d84-6c09a8fc6cb5",
+            "stage": "transcribe"
+          }
+        ],
+        "stages": [
+          {
+            "done": 3,
+            "elapsed_sec": 0.851,
+            "ended_at": "2026-11-01T14:54:40.748923900+03:00",
+            "note": "1 строк",
+            "stage": "transcribe",
+            "started_at": "2026-11-01T14:54:39.897702300+03:00",
+            "state": "done",
+            "total": 3,
+            "updated_at": "2026-11-01T14:54:40.748923900+03:00"
+          }
+        ],
+        "verification_sec": null
+      },
+      "worker_wall_sec": 0.9969584
+    },
+    {
+      "audio_sec": 3.06,
+      "case": "golos-02",
+      "phases": [
+        {
+          "acceptance_verification_sec": 0.0002185,
+          "artifact_state": "ready",
+          "diagnostic_tail": null,
+          "exit_code": 0,
+          "phase": "transcribe",
+          "resources": {
+            "availability": "observed",
+            "cpu_sec": 0.078125,
+            "peak_commit_bytes": 274731008,
+            "peak_method": "maximum observed OS high-water mark; final retained-handle query",
+            "peak_working_set_bytes": 285974528,
+            "samples": 44,
+            "sampling_interval_ms": 20,
+            "scope": "worker_process_only"
+          },
+          "status": "success",
+          "stderr_bytes": 442,
+          "stdout_bytes": 275,
+          "wall_sec": 0.8841876
+        }
+      ],
+      "repeat": 2,
+      "rtf": 0.28895019607843136,
+      "setup_sec": 0.0004897,
+      "success": true,
+      "timeline": {
+        "generation_sec": null,
+        "history_status": "available",
+        "incomplete_tail": false,
+        "malformed_records": 0,
+        "model_load_sec": null,
+        "operation_durations_are_nested_not_additive": true,
+        "operations": [
+          {
+            "elapsed_sec": 0.7439369,
+            "label": "Распознавание и разметка говорящих",
+            "operation": "01a196f6-3779-7490-8725-02248218e495",
+            "stage": "transcribe"
+          }
+        ],
+        "stages": [
+          {
+            "done": 3,
+            "elapsed_sec": 0.747,
+            "ended_at": "2026-11-01T14:54:41.636904400+03:00",
+            "note": "1 строк",
+            "stage": "transcribe",
+            "started_at": "2026-11-01T14:54:40.889263500+03:00",
+            "state": "done",
+            "total": 3,
+            "updated_at": "2026-11-01T14:54:41.636904400+03:00"
+          }
+        ],
+        "verification_sec": null
+      },
+      "worker_wall_sec": 0.8841876
+    },
+    {
+      "audio_sec": 5.44,
+      "case": "golos-03",
+      "phases": [
+        {
+          "acceptance_verification_sec": 0.0001399,
+          "artifact_state": "ready",
+          "diagnostic_tail": null,
+          "exit_code": 0,
+          "phase": "transcribe",
+          "resources": {
+            "availability": "observed",
+            "cpu_sec": 0.171875,
+            "peak_commit_bytes": 274468864,
+            "peak_method": "maximum observed OS high-water mark; final retained-handle query",
+            "peak_working_set_bytes": 288227328,
+            "samples": 54,
+            "sampling_interval_ms": 20,
+            "scope": "worker_process_only"
+          },
+          "status": "success",
+          "stderr_bytes": 441,
+          "stdout_bytes": 275,
+          "wall_sec": 1.0992329
+        }
+      ],
+      "repeat": 2,
+      "rtf": 0.2020648713235294,
+      "setup_sec": 0.0004681,
+      "success": true,
+      "timeline": {
+        "generation_sec": null,
+        "history_status": "available",
+        "incomplete_tail": false,
+        "malformed_records": 0,
+        "model_load_sec": null,
+        "operation_durations_are_nested_not_additive": true,
+        "operations": [
+          {
+            "elapsed_sec": 1.0128414,
+            "label": "Распознавание и разметка говорящих",
+            "operation": "01a196f6-3afe-7053-9d6f-e848a3c9f7fb",
+            "stage": "transcribe"
+          }
+        ],
+        "stages": [
+          {
+            "done": 5,
+            "elapsed_sec": 1.016,
+            "ended_at": "2026-11-01T14:54:42.806088+03:00",
+            "note": "1 строк",
+            "stage": "transcribe",
+            "started_at": "2026-11-01T14:54:41.789617600+03:00",
+            "state": "done",
+            "total": 5,
+            "updated_at": "2026-11-01T14:54:42.806088+03:00"
+          }
+        ],
+        "verification_sec": null
+      },
+      "worker_wall_sec": 1.0992329
+    },
+    {
+      "audio_sec": 5.22,
+      "case": "golos-04",
+      "phases": [
+        {
+          "acceptance_verification_sec": 0.000311,
+          "artifact_state": "ready",
+          "diagnostic_tail": null,
+          "exit_code": 0,
+          "phase": "transcribe",
+          "resources": {
+            "availability": "observed",
+            "cpu_sec": 0.171875,
+            "peak_commit_bytes": 275570688,
+            "peak_method": "maximum observed OS high-water mark; final retained-handle query",
+            "peak_working_set_bytes": 289136640,
+            "samples": 71,
+            "sampling_interval_ms": 20,
+            "scope": "worker_process_only"
+          },
+          "status": "success",
+          "stderr_bytes": 441,
+          "stdout_bytes": 275,
+          "wall_sec": 1.4353915
+        }
+      ],
+      "repeat": 2,
+      "rtf": 0.27497921455938695,
+      "setup_sec": 0.0005295,
+      "success": true,
+      "timeline": {
+        "generation_sec": null,
+        "history_status": "available",
+        "incomplete_tail": false,
+        "malformed_records": 0,
+        "model_load_sec": null,
+        "operation_durations_are_nested_not_additive": true,
+        "operations": [
+          {
+            "elapsed_sec": 1.3307452,
+            "label": "Распознавание и разметка говорящих",
+            "operation": "01a196f6-3f50-7ff1-bb0a-c623177b5f79",
+            "stage": "transcribe"
+          }
+        ],
+        "stages": [
+          {
+            "done": 5,
+            "elapsed_sec": 1.338,
+            "ended_at": "2026-11-01T14:54:44.234746800+03:00",
+            "note": "1 строк",
+            "stage": "transcribe",
+            "started_at": "2026-11-01T14:54:42.896169800+03:00",
+            "state": "done",
+            "total": 5,
+            "updated_at": "2026-11-01T14:54:44.234746800+03:00"
+          }
+        ],
+        "verification_sec": null
+      },
+      "worker_wall_sec": 1.4353915
+    }
+  ],
+  "scope": "isolated_sequential_worker_phases",
+  "total_wall_sec": 18.235625,
+  "version": 1,
+  "worker_sha256": "9ad460f6922ff9e86c69a129fbd844885840519fa5637626b880c0ad1e0699d2"
+}
