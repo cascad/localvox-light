@@ -140,7 +140,7 @@ impl App {
                         q.title,
                         q.session,
                         q.state,
-                        q.last_error.as_deref().unwrap_or(""),
+                        if q.last_error.is_some() {"Причина отказа · ~ консоль"} else {""},
                         if q.stuck { "Попытки исчерпаны. Выберите явный повтор через палитру.".into() } else { q.position.map(|n|format!("Место в очереди: {n}")).unwrap_or_default() }
                     );
                     text.push_str(&format!("\nЭтап: {} · попыток: {}", q.phase.as_deref().unwrap_or("неизвестен"), q.attempts));
@@ -158,7 +158,7 @@ impl App {
                 .map(|a| {
                     let mut parts = vec![format!("{} · {} · {}\n{} · {} символов · {}\n{}", a.provider, a.model.as_deref().unwrap_or("модель не указана"), a.status, a.input_name.as_deref().unwrap_or(&a.id), a.input_chars, a.created_at, a.prompt)];
                     if let Some(answer) = a.answer.as_deref().filter(|s| !s.is_empty()) { parts.push(answer.into()); }
-                    if let Some(error) = a.error.as_deref().filter(|s| !s.is_empty()) { parts.push(format!("Ошибка: {error}")); }
+                    if a.error.as_deref().is_some_and(|s| !s.is_empty()) { parts.push("Ответ не получен · ~ консоль".into()); }
                     if matches!(a.status.as_str(), "pending" | "running") { parts.push("Ожидаем ответ…".into()); }
                     if let Some(cost) = a.cost_usd { parts.push(format!("Стоимость: ${cost:.4}")); }
                     if self.expanded { parts.push(format!("Исходный материал:\n{}", a.input.as_deref().unwrap_or("Материал недоступен"))); }
@@ -197,7 +197,7 @@ impl App {
                 if !self.search_results_query.is_empty() { parts.push(format!("Последние результаты: {}",self.search_results_query)); }
                 if let Some(hit) = self.hits.get(self.selected) {
                     parts.push(format!("{} · {} · {}\n{}{}\n\n{}",hit.session,hit.kind,hit.start_sec.map(timecode).unwrap_or_default(),hit.why.as_deref().unwrap_or(""),hit.score.map(|score|format!(" · близость {score:.3}")).unwrap_or_default(),hit.snippet));
-                } else if self.errors.contains_key(&Resource::Search) { parts.push("Поиск недоступен. Причина показана в строке состояния.".into()); }
+                } else if self.errors.contains_key(&Resource::Search) { parts.push("Поиск недоступен. Причина — в консоли (~).".into()); }
                 else if !self.search_results_query.is_empty() { parts.push("Совпадений не найдено.".into()); }
                 else if parts.is_empty() { parts.push("/ — поиск по архиву".into()); }
                 parts.join("\n\n")

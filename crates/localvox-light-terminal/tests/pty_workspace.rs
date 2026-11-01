@@ -225,6 +225,28 @@ fn real_terminal_accepts_paste_resize_and_restores_screen_on_quit() {
         &mut queries,
         deadline,
     );
+    writer.write_all(b"`").unwrap();
+    writer.flush().unwrap();
+    wait_for(
+        "Консоль ошибок",
+        &mut all,
+        &mut screen,
+        &rx,
+        &mut writer,
+        &mut queries,
+        deadline,
+    );
+    writer.write_all(b"`").unwrap();
+    writer.flush().unwrap();
+    wait_for(
+        "F8 stop",
+        &mut all,
+        &mut screen,
+        &rx,
+        &mut writer,
+        &mut queries,
+        deadline,
+    );
     pair.master
         .resize(PtySize {
             rows: 24,
@@ -237,7 +259,7 @@ fn real_terminal_accepts_paste_resize_and_restores_screen_on_quit() {
     writer.write_all(b"i").unwrap();
     writer.flush().unwrap();
     wait_for(
-        "URL",
+        "Импорт",
         &mut all,
         &mut screen,
         &rx,
@@ -368,7 +390,21 @@ fn unauthorized_start_can_reconnect_through_the_masked_form_without_replaying_st
             )
         };
     }
+    see!("Нет подключения");
+    assert!(!screen.screen().contents().contains("HTTP 401"));
+    writer.write_all(b"`").unwrap();
+    writer.flush().unwrap();
     see!("HTTP 401");
+    assert!(!screen
+        .screen()
+        .contents()
+        .lines()
+        .next()
+        .unwrap_or("")
+        .contains("! 1"));
+    writer.write_all(b"`").unwrap();
+    writer.flush().unwrap();
+    see!("F8 stop");
     // This control action is rejected locally while disconnected, never queued
     // for automatic replay after the token is entered.
     writer.write_all(b"\x1b[19~:").unwrap();

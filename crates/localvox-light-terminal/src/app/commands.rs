@@ -43,6 +43,9 @@ pub enum Action {
     DiscardSettings,
     RetryFailed,
     CancelProcessing,
+    DocumentInfo,
+    ToggleAdvancedSettings,
+    ErrorConsole,
 }
 
 /// Only this list defines palette order; shortcuts dispatch by Action.
@@ -87,6 +90,9 @@ pub const COMMANDS: &[(Action, &str)] = &[
     (Action::DiscardSettings, "Отменить черновик настроек"),
     (Action::RetryFailed, "Повторить или продолжить этап"),
     (Action::CancelProcessing, "Отменить обработку"),
+    (Action::DocumentInfo, "Сведения о записи"),
+    (Action::ToggleAdvancedSettings, "Основные / все настройки"),
+    (Action::ErrorConsole, "Консоль ошибок"),
 ];
 
 impl App {
@@ -94,6 +100,21 @@ impl App {
         self.palette = false;
         let s = self.current.clone().unwrap_or_default();
         match action {
+            Action::DocumentInfo => {
+                if self.view != View::Archive {
+                    self.switch(View::Archive);
+                }
+                self.tab = Tab::Progress;
+                self.metadata_open = !self.metadata_open;
+                self.scroll = 0;
+                self.refresh_view();
+            }
+            Action::ToggleAdvancedSettings => {
+                self.settings_advanced = !self.settings_advanced;
+                self.selected = 0;
+                self.scroll = 0;
+            }
+            Action::ErrorConsole => self.console.toggle(),
             Action::CancelProcessing => {
                 let target = if self.view == View::Queue {
                     self.queue
@@ -338,6 +359,54 @@ impl App {
             }
             Action::EditSetting => {
                 if let Some(s) = self.selected_setting() {
+                    if s.kind == "bool"
+                        || s.options
+                            .as_ref()
+                            .is_some_and(|options| !options.is_empty())
+                    {
+                        let mut options = vec![("По умолчанию".to_owned(), None)];
+                        if s.kind == "bool" {
+                            options.extend([
+                                ("Включено".into(), Some("on".into())),
+                                ("Выключено".into(), Some("off".into())),
+                            ]);
+                        } else if let Some(choices) = &s.options {
+                            options.extend(
+                                choices.iter().map(|choice| {
+                                    (choice.label.clone(), Some(choice.value.clone()))
+                                }),
+                            );
+                        }
+                        let value = self
+                            .settings_edits
+                            .get(&s.key)
+                            .cloned()
+                            .unwrap_or_else(|| s.value.clone());
+                        let selected = options
+                            .iter()
+                            .position(|(_, v)| v == &value)
+                            .unwrap_or_else(|| {
+                                // Preserve legacy bool spellings and unavailable device/provider
+                                // values until the user explicitly selects a replacement.
+                                options.push((
+                                    format!("Текущее: {}", self.setting_value(s, true)),
+                                    value.clone(),
+                                ));
+                                options.len() - 1
+                            });
+                        let title = s.label.clone();
+                        let key = s.key.clone();
+                        self.open(
+                            &title,
+                            FormKind::SettingChoice {
+                                key,
+                                options,
+                                selected,
+                            },
+                            &[],
+                        );
+                        return;
+                    }
                     let key = s.key.clone();
                     let value = if s.kind == "secret" {
                         self.settings_edits
@@ -352,21 +421,8 @@ impl App {
                             .unwrap_or_else(|| s.value.clone())
                             .unwrap_or_default()
                     };
-                    let title = format!("{} · {}", s.label, s.key);
-                    let hint = format!(
-                        "Новое значение · {}{}",
-                        s.hint,
-                        s.options
-                            .as_ref()
-                            .map(|o| format!(
-                                " · {}",
-                                o.iter()
-                                    .map(|v| format!("{}={}", v.value, v.label))
-                                    .collect::<Vec<_>>()
-                                    .join("; ")
-                            ))
-                            .unwrap_or_default()
-                    );
+                    let title = s.label.clone();
+                    let hint = "Новое значение";
                     self.open(&title, FormKind::Setting(key.clone()), &[(&hint, &value)]);
                     if let Some(f) = &mut self.form {
                         f.fields[0].secret = self
@@ -451,11 +507,21 @@ impl App {
                         "Выберите реплику, утверждение сводки или источник поиска/чата".into();
                 }
             }
-            Action::Seek => self.open(
-                "Перейти ко времени",
-                FormKind::Seek,
-                &[("Секунды или mm:ss", &timecode(self.playback.position))],
-            ),
+            Action::Seek => {
+                let seconds = self.playback.position.max(0.0) as u64;
+                self.open(
+                    "Перейти ко времени",
+                    FormKind::Seek,
+                    &[
+                        ("Часы · 0–999", &(seconds / 3600).to_string()),
+                        ("Минуты · 0–59", &((seconds / 60) % 60).to_string()),
+                        ("Секунды · 0–59", &(seconds % 60).to_string()),
+                    ],
+                );
+                if let Some(form) = &mut self.form {
+                    form.active = 1;
+                }
+            }
             Action::ToggleTheme => self.light = !self.light,
             Action::ToggleAscii => self.ascii = !self.ascii,
             Action::ToggleMonochrome => self.monochrome = !self.monochrome,

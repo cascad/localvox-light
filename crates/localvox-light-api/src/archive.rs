@@ -1013,7 +1013,13 @@ impl Archive {
     /// make it false — only unlocatable.
     pub fn summary_blocks(&self, session: &str) -> Result<serde_json::Value> {
         let dir = self.session_dir(session)?;
-        let text = self.artifact(session, "summary.md")?;
+        let text = match fs::read_to_string(dir.join("summary.md")) {
+            Ok(text) => text,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(json!({"blocks":[],"provenance":null,"available":false}))
+            }
+            Err(error) => return Err(error).context("не удалось прочитать сводку"),
+        };
         let (prov, body) = localvox_light_core::provenance::split(&text);
         let blocks = localvox_light_core::citations::parse(body);
 
@@ -1037,7 +1043,7 @@ impl Archive {
                 json!({"kind": b.kind, "text": b.text, "sources": sources})
             })
             .collect();
-        Ok(json!({"blocks": out, "provenance": prov}))
+        Ok(json!({"blocks": out, "provenance": prov,"available":true}))
     }
 
     /// Audio clip of a fragment (F6 player): sample-accurately glues the needed range

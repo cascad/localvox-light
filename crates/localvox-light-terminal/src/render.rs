@@ -1,7 +1,11 @@
 //! Stateless terminal presentation. All user/server text is inert display data.
+mod console;
 mod documents;
+#[cfg(test)]
+mod ux_tests;
 use crate::app::{state_symbol, timecode, App, Tab, View, COMMANDS, TABS, VIEWS};
 use crate::io::Resource;
+use console::render_console;
 use localvox_light_client::{safe_label, safe_text};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
@@ -180,7 +184,22 @@ pub fn draw(f: &mut Frame, a: &App) {
                     " localvox ",
                     Style::default().fg(t.ink).add_modifier(Modifier::BOLD),
                 ),
-                Span::styled(" / технический журнал   ", Style::default().fg(t.dim)),
+                Span::styled(
+                    if a.console.unread() > 0 {
+                        format!("   ! {} · ~", a.console.unread())
+                    } else {
+                        String::new()
+                    },
+                    Style::default().fg(t.error),
+                ),
+                Span::styled(
+                    if area.width < 95 {
+                        " "
+                    } else {
+                        " / технический журнал   "
+                    },
+                    Style::default().fg(t.dim),
+                ),
                 Span::styled(
                     format!("{} {record}", if a.ascii { "*" } else { "●" }),
                     Style::default().fg(rec_color),
@@ -190,7 +209,7 @@ pub fn draw(f: &mut Frame, a: &App) {
                         "   очередь недоступна".into()
                     } else {
                         format!(
-                            "   очередь {} · ошибки {}{}{}",
+                            "   очередь {} · сбои этапов {}{}{}",
                             a.jobs.pending,
                             a.jobs.failed,
                             if a.jobs.cancelling > 0 {
@@ -214,8 +233,7 @@ pub fn draw(f: &mut Frame, a: &App) {
             ]),
             Line::from(Span::styled(
                 format!(
-                    " pre-roll {}   {}",
-                    timecode(a.record.preroll_sec),
+                    " i добавить YouTube / URL   {}",
                     a.record
                         .voice
                         .as_ref()
@@ -223,8 +241,8 @@ pub fn draw(f: &mut Frame, a: &App) {
                             let detail = if let Some(capturing) = &v.capturing {
                                 format!("диктую → {}: {}", capturing.slot, capturing.text)
                             } else if let Some(last) = &v.last {
-                                if let Some(error) = &last.error {
-                                    format!("ошибка заметки → {}: {error}", last.slot)
+                                if last.error.is_some() {
+                                    format!("сбой заметки → {} · ~ консоль", last.slot)
                                 } else {
                                     format!("сохранено → {}: {}", last.slot, last.text)
                                 }
@@ -274,12 +292,9 @@ pub fn draw(f: &mut Frame, a: &App) {
             context(f, a, cols[2], t);
         }
     }
-    let error = a.errors.values().next();
-    let status = error
-        .map(|e| format!("Данные не обновляются: {e}"))
-        .unwrap_or_else(|| a.status.clone());
+    let status = a.status.clone();
     let keys = if area.width < 95 {
-        Line::from(" F8 stop  q/F10 выход  y копия  Tab фокус  : действия  ?")
+        Line::from(" F8 stop  q/F10 выход  y весь текст  : действия  ~ ошибки")
     } else {
         Line::from(vec![
             Span::styled(" Tab", Style::default().fg(t.command)),
@@ -287,14 +302,14 @@ pub fn draw(f: &mut Frame, a: &App) {
             Span::styled("1–5", Style::default().fg(t.argument)),
             Span::raw(" вкладка   "),
             Span::styled(":", Style::default().fg(t.command)),
-            Span::raw(" действия   y копия   F8 stop   F9 rec   ?   q / F10 выход"),
+            Span::raw(" действия   y/Ctrl+Y копия   F8 stop   F9 rec   ~ ошибки   q/F10 выход"),
         ])
     };
     f.render_widget(
         Paragraph::new(vec![
             Line::from(Span::styled(
                 format!(" {}", safe_label(&status)),
-                Style::default().fg(if error.is_some() { t.error } else { t.dim }),
+                Style::default().fg(t.dim),
             )),
             keys,
         ]),
@@ -336,16 +351,116 @@ pub fn draw(f: &mut Frame, a: &App) {
     if a.help {
         let rect = modal(area, 78, 26);
         f.render_widget(Clear, rect);
-        f.render_widget(Paragraph::new("НОВОЕ ТЕРМИНАЛЬНОЕ ПРОСТРАНСТВО\nSpace play/pause; p fragment; g time; Alt+Left/Right +/-15s\nF6 player focus: Left/Right +/-5s, Home/End\n\nTab / Shift+Tab — фокус панели\n↑↓ / j k — выбрать строку; Enter — открыть\n1–5 — вкладка документа; y — копировать всё\n/ — поиск; : — все действия; n — создать; i — импорт URL\nF8 — остановить запись; F9 — начать запись\nX — отменить обработку; R — продолжить этап\nPgUp / PgDn, Home / End — чтение документа\n← / → — свернуть / раскрыть подробности\n\nВ форме: Tab — поле; Enter — новая строка\nCtrl+Enter — отправить; Esc — отменить\nВставка остаётся текстом, команды не исполняются.\n\nq / F10 / Ctrl+Q закрывают только клиент.\nДемон и запись продолжают работать.\n\nЛюбая клавиша — закрыть справку").block(borders(a.ascii).title(" Помощь ").style(Style::default().bg(t.bg).fg(t.ink))).wrap(Wrap{trim:false}),rect);
+        f.render_widget(Paragraph::new("НОВОЕ ТЕРМИНАЛЬНОЕ ПРОСТРАНСТВО\nSpace play/pause; p fragment; g time; Alt+Left/Right +/-15s\nF6 player focus: Left/Right +/-5s, Home/End\n\nTab / Shift+Tab — фокус панели\n↑↓ / j k — выбрать строку; Enter — открыть\n1–5 — вкладка документа; y / Ctrl+Y — копировать всё\n/ — поиск; : — все действия; n — создать; i — URL → Enter\nF8 — остановить запись; F9 — начать запись\nX — отменить обработку; R — продолжить этап\nPgUp / PgDn, Home / End — чтение документа\n← / → — свернуть / раскрыть подробности\n\nВ форме: Tab — поле; Enter — новая строка\nCtrl+Enter — отправить; Esc — отменить\nURL, настройка, время: Enter — подтвердить\nВставка остаётся текстом, команды не исполняются.\nI — сведения в «Ход»; A / S — все настройки / сохранить\n~ / ё — консоль ошибок; F12 — также из формы\n\nq / F10 / Ctrl+Q закрывают только клиент.\nДемон и запись продолжают работать.\n\nЛюбая клавиша — закрыть справку").block(borders(a.ascii).title(" Помощь ").style(Style::default().bg(t.bg).fg(t.ink))).wrap(Wrap{trim:false}),rect);
     }
     if let Some(form) = &a.form {
-        let rect = modal(area, 88, area.height.saturating_sub(4).min(30));
+        let desired = match &form.kind {
+            crate::app::FormKind::SettingChoice { options, .. } => {
+                (options.len() as u16 + 5).clamp(7, 24)
+            }
+            crate::app::FormKind::Seek
+            | crate::app::FormKind::Import
+            | crate::app::FormKind::Setting(_) => 9,
+            _ => 30,
+        };
+        let rect = modal(
+            area,
+            if matches!(form.kind, crate::app::FormKind::Seek) {
+                54
+            } else {
+                88
+            },
+            area.height.saturating_sub(4).min(desired),
+        );
         f.render_widget(Clear, rect);
         let block = borders(a.ascii)
             .title(format!(" {} ", safe_label(&form.title)))
             .style(Style::default().bg(t.bg).fg(t.ink));
         let inner = block.inner(rect);
         f.render_widget(block, rect);
+        if let crate::app::FormKind::SettingChoice {
+            options, selected, ..
+        } = &form.kind
+        {
+            let choices = options
+                .iter()
+                .map(|(label, _)| ListItem::new(label.clone()))
+                .collect::<Vec<_>>();
+            let mut state = ListState::default().with_selected(Some(*selected));
+            f.render_stateful_widget(
+                List::new(choices)
+                    .highlight_style(selection_style(t))
+                    .highlight_symbol("> "),
+                inner,
+                &mut state,
+            );
+            if inner.height > 2 {
+                f.render_widget(
+                    Paragraph::new("↑↓ выбрать · Enter в черновик · Esc отменить")
+                        .style(Style::default().fg(t.dim)),
+                    Rect::new(inner.x, inner.bottom() - 1, inner.width, 1),
+                );
+            }
+            render_console(f, a, t);
+            return;
+        }
+        if matches!(form.kind, crate::app::FormKind::Seek) {
+            let mut values = vec![];
+            for (i, field) in form.fields.iter().enumerate() {
+                if i > 0 {
+                    values.push(Span::styled(" : ", Style::default().fg(t.dim)));
+                }
+                values.push(Span::styled(
+                    format!(
+                        "[ {} ]",
+                        if field.value.is_empty() {
+                            "__".into()
+                        } else {
+                            format!("{:0>2}", field.value)
+                        }
+                    ),
+                    if i == form.active {
+                        Style::default()
+                            .fg(t.value)
+                            .bg(t.selection)
+                            .add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(t.dim)
+                    },
+                ));
+            }
+            let range = a
+                .media_duration()
+                .map(|duration| format!("Длина записи {}", timecode(duration)))
+                .unwrap_or_else(|| "Длительность пока неизвестна".into());
+            let lines = vec![
+                Line::from(Span::styled(
+                    " Часы      Минуты   Секунды",
+                    Style::default().fg(t.dim),
+                )),
+                Line::from(values),
+                Line::from(Span::styled(
+                    " 0–999     0–59     0–59",
+                    Style::default().fg(t.dim),
+                )),
+                Line::from(""),
+                Line::from(Span::styled(
+                    form.error.as_deref().unwrap_or(&range),
+                    Style::default().fg(if form.error.is_some() { t.error } else { t.dim }),
+                )),
+                Line::from(Span::styled(
+                    "Цифры / ↑↓ изменить · Tab поле",
+                    Style::default().fg(t.command),
+                )),
+                Line::from(Span::styled(
+                    "Enter перейти · Esc отменить",
+                    Style::default().fg(t.dim),
+                )),
+            ];
+            f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
+            render_console(f, a, t);
+            return;
+        }
         let mut constraints = form
             .fields
             .iter()
@@ -374,7 +489,11 @@ pub fn draw(f: &mut Frame, a: &App) {
                         .style(Style::default().fg(t.command)),
                     rows[0],
                 );
-                f.render_widget(&field.editor, rows[1]);
+                let mut editor = field.editor.clone();
+                editor.set_style(Style::default().fg(t.value).bg(t.bg));
+                editor.set_cursor_line_style(Style::default().fg(t.value).bg(t.bg));
+                editor.set_cursor_style(Style::default().fg(t.bg).bg(t.value));
+                f.render_widget(&editor, rows[1]);
             } else {
                 let value = if field.secret {
                     "••••".into()
@@ -403,7 +522,15 @@ pub fn draw(f: &mut Frame, a: &App) {
                 Style::default().fg(if form.error.is_some() { t.error } else { t.dim }),
             )),
             Line::from(Span::styled(
-                "Tab поле · Ctrl+Enter / Ctrl+S отправить · Esc отменить",
+                if matches!(form.kind, crate::app::FormKind::Seek) {
+                    "↑↓ число · Tab поле · Enter перейти · Esc отменить"
+                } else if matches!(form.kind, crate::app::FormKind::Import) {
+                    "Enter импортировать · Esc отменить"
+                } else if matches!(form.kind, crate::app::FormKind::Setting(_)) {
+                    "Enter в черновик · Esc отменить"
+                } else {
+                    "Tab поле · Ctrl+Enter / Ctrl+S отправить · Esc отменить"
+                },
                 Style::default().fg(t.dim),
             )),
         ];
@@ -412,6 +539,7 @@ pub fn draw(f: &mut Frame, a: &App) {
             fields[fields.len() - 1],
         );
     }
+    render_console(f, a, t);
 }
 fn player_bar(f: &mut Frame, a: &App, area: Rect, t: Theme) {
     let block = panel("Аудио · F6 фокус", a.focus == 3, t).borders(Borders::ALL);
@@ -433,19 +561,12 @@ fn player_bar(f: &mut Frame, a: &App, area: Rect, t: Theme) {
     );
 }
 fn player_line(a: &App, t: Theme, width: u16) -> Line<'static> {
-    if let Some(error) = &a.playback.error {
-        return Line::from(Span::styled(
-            format!(" player ! {}", safe_label(error)),
-            Style::default().fg(t.error),
-        ));
-    }
-    let duration = a
-        .playback
-        .duration
-        .or_else(|| (a.peaks.duration_sec > 0.0).then_some(a.peaks.duration_sec));
+    let duration = a.media_duration();
     let label = format!(
         " {} {} / {}  ",
-        if a.playback.idle {
+        if a.playback.error.is_some() {
+            "! ~ ошибки"
+        } else if a.playback.idle {
             "готов"
         } else if a.playback.paused {
             "пауза"
@@ -484,7 +605,30 @@ fn player_line(a: &App, t: Theme, width: u16) -> Line<'static> {
         }
     }
     if a.peaks.peaks.is_empty() {
-        spans.push(Span::styled("волна недоступна", Style::default().fg(t.dim)));
+        if let Some(duration) = duration {
+            let cells = width.saturating_sub(56).min(36) as usize;
+            if cells > 3 {
+                let position = ((a.playback.position / duration).clamp(0.0, 1.0)
+                    * (cells - 1) as f64) as usize;
+                spans.push(Span::styled(
+                    format!(
+                        "[{}] ",
+                        (0..cells)
+                            .map(|i| if i == position { '|' } else { '-' })
+                            .collect::<String>()
+                    ),
+                    Style::default().fg(t.dim),
+                ));
+            }
+        }
+        let message = if a.errors.contains_key(&Resource::Peaks) {
+            "волна: ошибка · ~ консоль"
+        } else if !a.last_request.contains_key(&Resource::Peaks) {
+            "волна загружается…"
+        } else {
+            "волны пока нет"
+        };
+        spans.push(Span::styled(message, Style::default().fg(t.dim)));
     }
     Line::from(spans)
 }
@@ -618,8 +762,8 @@ fn items(f: &mut Frame, a: &App, area: Rect, t: Theme) {
         "Список · Enter открыть"
     };
     if entries.is_empty() {
-        let message = if let Some(error) = error {
-            format!("Ошибка: {}\nr — повторить", safe_text(error))
+        let message: String = if error.is_some() {
+            "Список недоступен · ~ консоль · r повторить".into()
         } else if resource.is_some_and(|resource| !a.last_request.contains_key(&resource)) {
             "Загрузка…".into()
         } else {
@@ -694,7 +838,29 @@ fn document(f: &mut Frame, a: &App, area: Rect, t: Theme, title: &str) {
     } else {
         Line::from(Span::styled(VIEWS[a.nav].1, Style::default().fg(t.command)))
     };
-    f.render_widget(Paragraph::new(tabs), rows[0]);
+    let resource = if a.view == View::Archive {
+        Some(match a.tab {
+            Tab::Summary => Resource::Summary,
+            Tab::Transcript => Resource::Transcript,
+            Tab::Readable => Resource::Readable,
+            Tab::Speakers => Resource::Speakers,
+            Tab::Progress => Resource::Progress,
+        })
+    } else {
+        None
+    };
+    let availability = if resource.is_some_and(|resource| a.errors.contains_key(&resource)) {
+        "Последние полученные данные · ~ консоль"
+    } else {
+        ""
+    };
+    f.render_widget(
+        Paragraph::new(vec![
+            tabs,
+            Line::from(Span::styled(availability, Style::default().fg(t.dim))),
+        ]),
+        rows[0],
+    );
     if a.view == View::Archive && a.tab == Tab::Progress {
         let lines = journal_lines(a, t);
         let paragraph = Paragraph::new(lines).wrap(Wrap { trim: false });
@@ -793,12 +959,38 @@ fn journal_projection(a: &App, t: Theme) -> JournalProjection {
     let branch = if a.ascii { "+" } else { "├" };
     let end = if a.ascii { "+" } else { "└" };
     let mut lines = vec![Line::from(Span::styled(
+        format!(
+            "{} Сведения о записи · I",
+            if a.ascii {
+                if a.metadata_open {
+                    "[-]"
+                } else {
+                    "[+]"
+                }
+            } else if a.metadata_open {
+                "▾"
+            } else {
+                "▸"
+            }
+        ),
+        Style::default().fg(t.command),
+    ))];
+    if a.metadata_open {
+        for line in a.metadata_text().lines() {
+            lines.push(Line::from(Span::styled(
+                format!("  {} {}", if a.ascii { "+" } else { "└" }, safe_text(line)),
+                Style::default().fg(t.dim),
+            )));
+        }
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
         "Этапы / проверенные результаты",
         Style::default().fg(t.dim),
-    ))];
-    if let Some(error) = &a.progress.queue_error {
+    )));
+    if a.progress.queue_error.is_some() {
         lines.push(Line::from(Span::styled(
-            format!("Очередь недоступна: {}", safe_label(error)),
+            "Очередь недоступна · ~ консоль",
             Style::default().fg(t.error),
         )));
     }
@@ -831,6 +1023,8 @@ fn journal_projection(a: &App, t: Theme) -> JournalProjection {
                 "{}{}",
                 if uncertain {
                     "Текущее выполнение не подтверждено; последний полученный статус".into()
+                } else if a.progress.queue_error.is_some() {
+                    "Статус очереди недоступен · ~ консоль".into()
                 } else {
                     safe_label(&execution.message)
                 },
@@ -967,7 +1161,16 @@ fn journal_projection(a: &App, t: Theme) -> JournalProjection {
         ]));
         if let Some(note) = &stage.note {
             lines.push(Line::from(Span::styled(
-                format!("    {}", safe_label(note)),
+                format!(
+                    "    {}",
+                    if matches!(stage.state.as_str(), "failed" | "invalid")
+                        || note.starts_with("Повтор после ошибки:")
+                    {
+                        "Причина отказа · ~ консоль".into()
+                    } else {
+                        safe_label(note)
+                    }
+                ),
                 Style::default().fg(if matches!(stage.state.as_str(), "failed" | "invalid") {
                     t.error
                 } else {
@@ -1149,7 +1352,7 @@ fn journal_projection(a: &App, t: Theme) -> JournalProjection {
         for e in &g.details {
             if matches!(e.status.as_deref(), Some("failed" | "invalid")) {
                 lines.push(Line::from(Span::styled(
-                    format!("      ! {}", safe_label(e.text.as_deref().unwrap_or(""))),
+                    "      ! Причина отказа · ~ консоль",
                     Style::default().fg(t.error),
                 )));
             }
@@ -1286,6 +1489,39 @@ pub fn restore_journal_anchor(a: &mut App, anchor: Option<JournalAnchor>) {
     }
 }
 fn context(f: &mut Frame, a: &App, area: Rect, t: Theme) {
+    if a.view != View::Archive || a.tab != Tab::Progress || !a.metadata_open {
+        let hints = if a.view == View::Settings {
+            "Enter изменить\nS сохранить\nA основные / все\n/ найти настройку\n\n~ консоль ошибок"
+        } else {
+            "I сведения о записи\n3 текст · y / Ctrl+Y копия\n5 ход обработки\ni добавить YouTube / URL\n\nSpace play / pause\np слушать фрагмент\ng перейти ко времени\nF6 фокус плеера\n\n~ консоль ошибок\n: все действия"
+        };
+        let mut lines = hints
+            .lines()
+            .map(|line| Line::from(Span::styled(line.to_owned(), Style::default().fg(t.dim))))
+            .collect::<Vec<_>>();
+        if a.view == View::Archive {
+            if let Some(provenance) = if a.tab == Tab::Summary {
+                a.summary.provenance.as_ref()
+            } else {
+                a.readable.provenance.as_ref()
+            } {
+                if let Some(doubts) = &provenance.doubts {
+                    lines.push(Line::from(""));
+                    lines.push(Line::from(Span::styled(
+                        safe_text(doubts),
+                        Style::default().fg(t.busy),
+                    )));
+                }
+            }
+        }
+        f.render_widget(
+            Paragraph::new(lines)
+                .wrap(Wrap { trim: false })
+                .block(panel("Действия", false, t)),
+            area,
+        );
+        return;
+    }
     let mut lines = vec![Line::from(Span::styled(
         "Рабочая версия",
         Style::default().fg(t.dim),
@@ -1374,9 +1610,7 @@ mod tests {
             let theme = Theme::for_app(&app);
             let projection = documents::project(&app, theme, false);
             let plain = app.document_text();
-            assert!(
-                plain.contains("Этап: summary · попыток: 3") && plain.contains("model offline")
-            );
+            assert!(plain.contains("Этап: summary · попыток: 3") && plain.contains("~ консоль"));
             assert!(plain.contains("Повтор не раньше:") == (state != "failed"));
             let reason = projection
                 .lines
@@ -1452,7 +1686,7 @@ mod tests {
             if populated {
                 assert!(rows.join("\n").contains("Сохранённая запись"));
             } else {
-                assert!(rows.join("\n").contains("Ошибка: Очередь недоступна"));
+                assert!(rows.join("\n").contains("Список недоступен"));
             }
             assert!(!rows.join("\n").contains("Пока пусто"));
             app.errors.clear();
@@ -1460,7 +1694,7 @@ mod tests {
             let header: String = (0..120)
                 .map(|x| terminal.backend().buffer()[(x, 0)].symbol())
                 .collect();
-            assert!(header.contains("очередь 0 · ошибки 0"));
+            assert!(header.contains("очередь 0 · сбои этапов 0"));
             assert!(!header.contains("недоступна"));
         }
     }
@@ -2097,7 +2331,7 @@ mod tests {
                 .iter()
                 .map(|c| c.symbol())
                 .collect::<String>();
-            assert!(text.contains("ошибка заметки → идеи"));
+            assert!(text.contains("сбой заметки → идеи"));
             app.command(crate::app::Action::NewNote);
             app.paste("Черновик при изменении размера");
             terminal.draw(|f| draw(f, &app)).unwrap();
@@ -2139,7 +2373,7 @@ mod tests {
             app.last_request.insert(Resource::Sessions, 1);
             assert!(list_text(&app).contains("Пока пусто"));
             app.errors.insert(Resource::Sessions, "HTTP 503".into());
-            assert!(list_text(&app).contains("Ошибка: HTTP 503"));
+            assert!(list_text(&app).contains("Список недоступен"));
             app.sessions.push(Session {
                 name: "stable-id".into(),
                 title: Some("Встреча 🦀 ".repeat(80)),
@@ -2185,7 +2419,7 @@ mod tests {
         assert!(later.contains("2/10") && later.contains("00:01 назад"));
         app.progress.stages[0].state = "failed".into();
         app.progress.stages[0].note = Some("Ошибка сводки".into());
-        assert!(text(&app).contains("Ошибка сводки"));
+        assert!(text(&app).contains("Причина отказа"));
         app.tab = Tab::Transcript;
         assert!(app.copy_text().contains("Готовый STT"));
     }
@@ -2213,7 +2447,7 @@ mod tests {
                     error: Some("назначение недоступно".into()),
                     ..Default::default()
                 },
-                "Не прочитать слот",
+                "Слот недоступен",
             ),
         ] {
             let mut app = App::default();

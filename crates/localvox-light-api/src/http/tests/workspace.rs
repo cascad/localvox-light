@@ -6,6 +6,27 @@ use localvox_light_core::{
     versions::{VersionEntry, VersionStore},
 };
 
+#[test]
+fn missing_summary_is_an_empty_document_but_missing_sessions_and_read_failures_still_fail() {
+    let root = tempfile::tempdir().unwrap();
+    session(root.path(), "no-summary");
+    let file = root.path().join("sessions/no-summary/summary.md");
+    fs::remove_file(&file).unwrap();
+    let server = journal_http_fixture(root.path(), Some("synthetic-token"));
+    let client = Client::new(&server.address, "synthetic-token".into()).unwrap();
+    let summary = client.summary("no-summary").unwrap();
+    assert_eq!(summary.available, Some(false));
+    assert!(summary.blocks.is_empty());
+    assert!(client.summary("missing-session").is_err());
+    fs::create_dir(&file).unwrap();
+    assert!(client.summary("no-summary").is_err());
+    fs::remove_dir(&file).unwrap();
+    fs::write(file, "## Сводка\nГотовый результат").unwrap();
+    let summary = client.summary("no-summary").unwrap();
+    assert_eq!(summary.available, Some(true));
+    assert!(!summary.blocks.is_empty());
+}
+
 pub(super) fn session(root: &Path, name: &str) -> Vec<std::path::PathBuf> {
     let dir = root.join("sessions").join(name);
     fs::create_dir_all(&dir).unwrap();

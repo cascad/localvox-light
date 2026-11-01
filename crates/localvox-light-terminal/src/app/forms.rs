@@ -37,6 +37,8 @@ impl App {
     pub(super) fn action(&mut self, t: Task) {
         let resource = crate::io::action_resource(&t);
         if self.pending_actions.insert(resource) {
+            self.action_diagnostics
+                .insert(resource, self.action_diagnostic(&t));
             if matches!(
                 t,
                 Task::Best(..)
@@ -71,6 +73,7 @@ impl App {
         }
     }
     pub fn submission_rejected(&mut self, resource: Resource) {
+        self.action_diagnostics.remove(&resource);
         if self.pending_actions.remove(&resource) || self.pending_forms.contains_key(&resource) {
             self.pending_context.remove(&resource);
             if resource == Resource::Action {
@@ -307,8 +310,54 @@ impl App {
                 self.status = "Несохранённые изменения отменены".into();
                 return Ok(());
             }
+            FormKind::SettingChoice {
+                key,
+                options,
+                selected,
+            } => {
+                let value = options.get(selected).ok_or("Выберите значение")?.1.clone();
+                let saved = self
+                    .settings
+                    .settings
+                    .iter()
+                    .find(|setting| setting.key == key)
+                    .and_then(|setting| setting.value.clone());
+                if value != saved {
+                    self.settings_edits.insert(key.clone(), value);
+                } else {
+                    self.settings_edits.remove(&key);
+                }
+                self.status = if self.settings_edits.contains_key(&key) {
+                    "Изменение в черновике · S сохранить настройки"
+                } else {
+                    "Значение не изменено"
+                }
+                .into();
+                self.form = None;
+                return Ok(());
+            }
             FormKind::Seek => {
-                let time = parse_timecode(&get(0)).ok_or("Нужны секунды или mm:ss")?;
+                let mut parts = [0u32; 3];
+                for (i, part) in parts.iter_mut().enumerate() {
+                    let raw = get(i);
+                    if raw.is_empty() || !raw.bytes().all(|c| c.is_ascii_digit()) {
+                        return Err("Введите часы, минуты и секунды цифрами".into());
+                    }
+                    *part = raw.parse::<u32>().map_err(|_| "Слишком большое значение")?;
+                    if *part > if i == 0 { 999 } else { 59 } {
+                        return Err("Минуты и секунды: 0–59, часы: 0–999".into());
+                    }
+                }
+                let time = f64::from(parts[0] * 3600 + parts[1] * 60 + parts[2]);
+                if self
+                    .media_duration()
+                    .is_some_and(|duration| time > duration)
+                {
+                    return Err(format!(
+                        "Позиция должна быть не позже {}",
+                        timecode(self.media_duration().unwrap())
+                    ));
+                }
                 if f.session != self.current || self.current.is_none() {
                     return Err("Выберите запись заново".into());
                 }

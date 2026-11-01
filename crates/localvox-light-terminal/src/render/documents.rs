@@ -52,7 +52,7 @@ fn block(
     }
     projection.lines.push(Line::from(""));
 }
-pub(super) fn project(a: &App, t: Theme, metadata: bool) -> Projection {
+pub(super) fn project(a: &App, t: Theme, _metadata: bool) -> Projection {
     let mut projection = Projection {
         lines: vec![],
         selected: None,
@@ -77,6 +77,69 @@ pub(super) fn project(a: &App, t: Theme, metadata: bool) -> Projection {
                     safe_text(line),
                     Style::default().fg(color),
                 )));
+            }
+        }
+        View::Settings => {
+            if let Some(setting) = a.selected_setting() {
+                projection.lines.push(Line::from(Span::styled(
+                    setting.group.clone(),
+                    Style::default().fg(t.dim),
+                )));
+                projection.lines.push(Line::from(Span::styled(
+                    setting.label.clone(),
+                    Style::default().fg(t.ink).add_modifier(Modifier::BOLD),
+                )));
+                projection.lines.push(Line::from(""));
+                projection.lines.push(Line::from(vec![
+                    Span::styled("Значение  ", Style::default().fg(t.dim)),
+                    Span::styled(
+                        a.setting_value(setting, true),
+                        Style::default().fg(t.value).add_modifier(Modifier::BOLD),
+                    ),
+                ]));
+                if a.settings_edits.contains_key(&setting.key) {
+                    projection.lines.push(Line::from(Span::styled(
+                        format!("* Не сохранено · было: {}", a.setting_value(setting, false)),
+                        Style::default().fg(t.busy),
+                    )));
+                }
+                let applies = match setting.applies.as_str() {
+                    "live" => "Со следующего этапа",
+                    "capture" => "Переоткрытие устройств",
+                    _ => "После перезапуска демона",
+                };
+                projection.lines.push(Line::from(Span::styled(
+                    applies,
+                    Style::default().fg(t.dim),
+                )));
+                projection.lines.push(Line::from(""));
+                projection.lines.push(Line::from(Span::styled(
+                    "Подсказка",
+                    Style::default().fg(t.dim),
+                )));
+                projection.lines.push(Line::from(Span::styled(
+                    safe_text(&setting.hint),
+                    Style::default().fg(t.dim),
+                )));
+                projection.lines.push(Line::from(""));
+                projection.lines.push(Line::from(Span::styled(
+                    "Enter изменить · S сохранить",
+                    Style::default().fg(t.command),
+                )));
+                projection.lines.push(Line::from(Span::styled(
+                    if a.settings_advanced {
+                        "A основные настройки"
+                    } else {
+                        "A все настройки"
+                    },
+                    Style::default().fg(t.command),
+                )));
+                if a.settings_advanced {
+                    projection.lines.push(Line::from(Span::styled(
+                        setting.key.clone(),
+                        Style::default().fg(t.dim),
+                    )));
+                }
             }
         }
         View::Archive => match a.tab {
@@ -132,6 +195,15 @@ pub(super) fn project(a: &App, t: Theme, metadata: bool) -> Projection {
                 }
             }
             Tab::Summary => {
+                if a.summary.blocks.is_empty() && a.summary.available == Some(false) {
+                    projection.lines.push(Line::from(Span::styled(
+                        "Сводка ещё не создана",
+                        Style::default().fg(t.dim),
+                    )));
+                    projection.lines.push(Line::from(
+                        "Текст и реплики доступны отдельно · 5 Ход обработки",
+                    ));
+                }
                 for (index, value) in a.summary.blocks.iter().enumerate() {
                     let text = if value.kind == "heading" {
                         format!("# {}", value.text)
@@ -188,9 +260,9 @@ pub(super) fn project(a: &App, t: Theme, metadata: bool) -> Projection {
         },
         View::Notes => {
             if let Some(slot) = a.notes.get(a.selected) {
-                if let Some(error) = &slot.error {
+                if slot.error.is_some() {
                     projection.lines.push(Line::from(Span::styled(
-                        format!("Не прочитать слот: {}", label(error)),
+                        "Слот недоступен · ~ консоль",
                         Style::default().fg(t.error),
                     )));
                 } else if !slot.readable {
@@ -235,24 +307,6 @@ pub(super) fn project(a: &App, t: Theme, metadata: bool) -> Projection {
                     } else {
                         t.ink
                     }),
-                )));
-            }
-        }
-    }
-    if metadata
-        && !projection.lines.is_empty()
-        && !(a.view == View::Archive && a.tab == Tab::Readable && a.readable.from_transcript)
-    {
-        let text = a.metadata_text();
-        if !text.is_empty() {
-            projection.lines.push(Line::from(Span::styled(
-                "Сведения о документе",
-                Style::default().fg(t.dim),
-            )));
-            for line in text.replace('\t', "    ").lines() {
-                projection.lines.push(Line::from(Span::styled(
-                    line.to_owned(),
-                    Style::default().fg(t.dim),
                 )));
             }
         }

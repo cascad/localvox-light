@@ -74,7 +74,10 @@ pub fn run(mut client: Client, mut app: App) -> Result<()> {
                             app.player_effects.clear();
                             app.status = "Проверка нового адреса и авторизации…".into();
                         }
-                        Err(e) => app.status = e.to_string(),
+                        Err(e) => {
+                            app.client_error("Подключение", &format!("{e:#}"));
+                            app.status = "Не удалось подключиться · ~ консоль ошибок".into();
+                        }
                     }
                 }
                 dirty = true;
@@ -93,7 +96,14 @@ pub fn run(mut client: Client, mut app: App) -> Result<()> {
                         let light = app.light;
                         let monochrome = app.monochrome;
                         let color16 = app.color16;
+                        app.console.recover_operation(&crate::diagnostics::Context {
+                            source: "Клиент".into(),
+                            operation: "Подключение".into(),
+                            ..Default::default()
+                        });
+                        let console = std::mem::take(&mut app.console);
                         app = App {
+                            console,
                             ascii,
                             light,
                             monochrome,
@@ -105,7 +115,8 @@ pub fn run(mut client: Client, mut app: App) -> Result<()> {
                         app.refresh();
                     }
                     Err(e) => {
-                        app.status = format!("{e:#}. Палитра → Подключение и токен");
+                        app.client_error("Подключение", &format!("{e:#}"));
+                        app.status = "Нет подключения · ~ консоль · : Подключение и токен".into();
                     }
                 }
                 dirty = true;
@@ -116,7 +127,7 @@ pub fn run(mut client: Client, mut app: App) -> Result<()> {
             app.wall_ms = chrono::Utc::now().timestamp_millis();
             for state in player.rx.try_iter() {
                 if state.session.is_none() || state.session == app.current {
-                    app.playback = state;
+                    app.apply_playback(state);
                     dirty = true;
                 }
             }
@@ -140,6 +151,7 @@ pub fn run(mut client: Client, mut app: App) -> Result<()> {
                         Resource::Sessions
                             | Resource::Record
                             | Resource::Jobs
+                            | Resource::Queue
                             | Resource::Action
                             | Resource::Control
                             | Resource::Route

@@ -5,6 +5,17 @@ import { fileURLToPath } from "node:url";
 const fixture = JSON.parse(readFileSync(fileURLToPath(new URL("../../../tests/fixtures/workspace.json", import.meta.url)), "utf8"));
 const journalFixture = JSON.parse(readFileSync(fileURLToPath(new URL("../../../tests/fixtures/journal.json", import.meta.url)), "utf8"));
 
+test("missing summary is a neutral document instead of a service error", async ({ page }) => {
+  await workspace(page);
+  await page.route("**/summary", route => route.fulfill({ json: { available: false, blocks: [], provenance: null } }));
+  await page.clock.runFor(3100);
+  await expect(page.locator(".doc")).toContainText("Сводка ещё не создана");
+  await expect(page.locator(".doc .err")).toHaveCount(0);
+  await expect(page.locator(".doc")).not.toContainText("localvox-process");
+  await page.getByRole("button", {name:"Текст",exact:true}).click();
+  await expect(page.locator(".book")).toContainText(fixture.readable.lines[0].text);
+});
+
 test("queue cancellation waits for acknowledgement and resumes without a full recook", async ({ page }) => {
   await workspace(page);
   let state = "running"; const posts: string[] = [];

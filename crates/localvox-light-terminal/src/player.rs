@@ -63,30 +63,59 @@ impl Player {
         let stopping = stop.clone();
         let revision = Arc::new(AtomicU64::new(0));
         let current = revision.clone();
-        let thread = std::thread::Builder::new().name("terminal-player".into()).spawn(move || {
-            let mut backend = Backend { mpv: None, state: PlaybackState { paused: true, idle: true, ..Default::default() }, client, executable, null_audio };
-            let mut sent = None;
-            while !stopping.load(Ordering::Relaxed) {
-                let command = match commands.recv_timeout(Duration::from_millis(200)) {
-                    Ok(Queued { revision, command }) if revision == current.load(Ordering::Relaxed) => Some((revision, command)),
-                    Ok(_) => continue,
-                    Err(crossbeam_channel::RecvTimeoutError::Timeout) => None,
-                    Err(_) => break,
+        let thread = std::thread::Builder::new()
+            .name("terminal-player".into())
+            .spawn(move || {
+                let mut backend = Backend {
+                    mpv: None,
+                    state: PlaybackState {
+                        paused: true,
+                        idle: true,
+                        ..Default::default()
+                    },
+                    client,
+                    executable,
+                    null_audio,
                 };
-                if stopping.load(Ordering::Relaxed) || matches!(command, Some((_, PlaybackCommand::Shutdown))) { break; }
-                if let Some((revision, command)) = command {
-                    if backend.apply(command, &|| stopping.load(Ordering::Relaxed) || revision != current.load(Ordering::Relaxed)).is_err() {
-                        backend.fail("Плеер недоступен: нужен mpv ≥ 0.38 с JSON IPC. Проверьте LOCALVOX_MPV и доступ к аудио.");
+                let mut sent = None;
+                while !stopping.load(Ordering::Relaxed) {
+                    let command = match commands.recv_timeout(Duration::from_millis(200)) {
+                        Ok(Queued { revision, command })
+                            if revision == current.load(Ordering::Relaxed) =>
+                        {
+                            Some((revision, command))
+                        }
+                        Ok(_) => continue,
+                        Err(crossbeam_channel::RecvTimeoutError::Timeout) => None,
+                        Err(_) => break,
+                    };
+                    if stopping.load(Ordering::Relaxed)
+                        || matches!(command, Some((_, PlaybackCommand::Shutdown)))
+                    {
+                        break;
                     }
-                    if revision != current.load(Ordering::Relaxed) { continue; }
+                    if let Some((revision, command)) = command {
+                        if let Err(error) = backend.apply(command, &|| {
+                            stopping.load(Ordering::Relaxed)
+                                || revision != current.load(Ordering::Relaxed)
+                        }) {
+                            backend.fail(&crate::diagnostics::message(&format!("{error:#}")));
+                        }
+                        if revision != current.load(Ordering::Relaxed) {
+                            continue;
+                        }
+                    }
+                    backend.poll();
+                    if sent.as_ref() != Some(&backend.state) {
+                        if states.is_full() {
+                            let _ = obsolete.try_recv();
+                        }
+                        let _ = states.try_send(backend.state.clone());
+                        sent = Some(backend.state.clone());
+                    }
                 }
-                backend.poll();
-                if sent.as_ref() != Some(&backend.state) {
-                    if states.is_full() { let _ = obsolete.try_recv(); }
-                    let _ = states.try_send(backend.state.clone()); sent = Some(backend.state.clone());
-                }
-            }
-        }).context("Не удалось создать поток плеера")?;
+            })
+            .context("Не удалось создать поток плеера")?;
         Ok(Self {
             tx,
             rx,
@@ -146,11 +175,22 @@ impl Backend {
             _ => {}
         }
         if self.mpv.is_none() {
-            self.mpv = Some(Mpv::start_cancellable(
-                &self.executable,
-                self.null_audio,
-                cancelled,
-            )?);
+            let backend = Mpv::start_cancellable(&self.executable, self.null_audio, cancelled)
+                .map_err(|error| {
+                let spawning = error.chain().any(|cause| cause.to_string().starts_with("spawning "));
+                let missing = error.chain().any(|cause| {
+                    cause.downcast_ref::<std::io::Error>()
+                        .is_some_and(|error| error.kind() == std::io::ErrorKind::NotFound)
+                });
+                if spawning && missing {
+                    anyhow::anyhow!("Файл mpv или его зависимости не найдены. Установите: npm --prefix ui run setup:mpv; либо укажите LOCALVOX_MPV")
+                } else if error.to_string().contains("0.38") {
+                    anyhow::anyhow!("Нужен mpv версии 0.38 или новее; обновите выбранный mpv")
+                } else {
+                    error.context("Не удалось запустить mpv или открыть его IPC")
+                }
+            })?;
+            self.mpv = Some(backend);
         }
         anyhow::ensure!(!cancelled(), "obsolete playback command");
         let player = self.mpv.as_mut().unwrap();
@@ -161,19 +201,27 @@ impl Backend {
                 end,
             } => {
                 let media = self.client.media(&session);
-                player.load(&media.url, &media.headers, start, end)?;
+                player
+                    .load(&media.url, &media.headers, start, end)
+                    .context("Не удалось открыть аудио")?;
             }
             PlaybackCommand::Toggle => {
-                player.command(json!(["set_property", "file-local-options/end", "none"]))?;
+                player
+                    .command(json!(["set_property", "file-local-options/end", "none"]))
+                    .context("Не удалось снять границу фрагмента")?;
                 player.command(json!(["cycle", "pause"]))?;
                 self.state.fragment_end = None;
             }
             PlaybackCommand::Seek { session, position } => {
                 if self.state.session.as_ref() == Some(&session) && !self.state.idle {
-                    player.seek(position)?;
+                    player
+                        .seek(position)
+                        .context("Не удалось перемотать аудио")?;
                 } else {
                     let media = self.client.media(&session);
-                    player.load(&media.url, &media.headers, position, None)?;
+                    player
+                        .load(&media.url, &media.headers, position, None)
+                        .context("Не удалось открыть аудио для перехода")?;
                     player.command(json!(["set_property", "pause", true]))?;
                     self.state.session = Some(session);
                 }
@@ -298,10 +346,17 @@ impl Connection {
                 self.media_error = true;
             }
             if reply["request_id"].as_u64() == Some(id) {
-                anyhow::ensure!(
-                    reply["error"].as_str() == Some("success"),
-                    "IPC rejected command"
-                );
+                let code = reply["error"].as_str().unwrap_or("unknown");
+                let code = if code.len() <= 80
+                    && code
+                        .bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || matches!(b, b' ' | b'_' | b'-'))
+                {
+                    code
+                } else {
+                    "unknown"
+                };
+                anyhow::ensure!(code == "success", "mpv IPC: {code}");
                 return Ok(reply.get("data").cloned().unwrap_or(Value::Null));
             }
         }
@@ -551,7 +606,9 @@ mod tests {
             if state.error.is_some() {
                 assert_eq!(state.session.as_deref(), Some("B"));
                 assert!(state.idle && state.paused);
-                assert!(!state.error.unwrap().contains("synthetic-token"));
+                let error = state.error.unwrap();
+                assert!(error.contains("mpv") && error.contains("не найдены"));
+                assert!(!error.contains("synthetic-token"));
                 break;
             }
         }

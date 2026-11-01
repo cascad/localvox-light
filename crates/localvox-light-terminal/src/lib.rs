@@ -1,4 +1,5 @@
 pub mod app;
+pub mod diagnostics;
 pub mod io;
 pub mod journal;
 pub mod launcher;

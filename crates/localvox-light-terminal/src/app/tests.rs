@@ -138,7 +138,17 @@ fn contextual_shortcuts_and_visible_palette_labels_open_the_same_editors() {
                 app.key(KeyEvent::new(KeyCode::Char(letter), KeyModifiers::NONE));
             }
             assert!(app.effects.is_empty() && !app.quit && !app.palette);
-            assert!(app.form.as_ref().unwrap().fields[0].value.contains("qyni/"));
+            if matches!(app.form.as_ref().unwrap().kind, FormKind::Seek) {
+                assert!(app
+                    .form
+                    .as_ref()
+                    .unwrap()
+                    .fields
+                    .iter()
+                    .all(|field| field.value.bytes().all(|b| b.is_ascii_digit())));
+            } else {
+                assert!(app.form.as_ref().unwrap().fields[0].value.contains("qyni/"));
+            }
         }
     }
 }
@@ -466,9 +476,19 @@ fn catalogue_field_types_validate_without_exposing_secrets_or_saving_untouched_d
         app.selected = index;
         app.command(Action::EditSetting);
         app.paste(bad);
-        assert!(app.submit_form().is_err());
-        let field = &mut app.form.as_mut().unwrap().fields[0];
-        field.value = good.into();
+        if let FormKind::SettingChoice {
+            options, selected, ..
+        } = &mut app.form.as_mut().unwrap().kind
+        {
+            assert_eq!(*selected, 0, "invalid pasted text must not change a choice");
+            *selected = options
+                .iter()
+                .position(|(_, value)| value.as_deref() == Some(good))
+                .unwrap();
+        } else {
+            assert!(app.submit_form().is_err());
+            app.form.as_mut().unwrap().fields[0].value = good.into();
+        }
         app.submit_form().unwrap();
     }
     app.selected = 3;
@@ -959,7 +979,7 @@ fn a_failed_answer_with_an_empty_answer_field_still_shows_its_error_and_input() 
     });
     let document = a.document_text();
     assert!(
-        document.contains("provider failed")
+        document.contains("Ответ не получен")
             && document.contains("исходный материал")
             && document.contains("meeting.txt")
     );
@@ -1044,7 +1064,8 @@ fn clipboard_failure_preserves_the_clean_document_and_has_a_visible_reason() {
         result: Err("Буфер обмена недоступен".into()),
     });
     assert_eq!(a.copy_text(), "Текст документа");
-    assert!(a.status.contains("Буфер обмена недоступен"));
+    assert!(a.console.text().contains("Буфер обмена недоступен"));
+    assert!(!a.status.contains("Буфер обмена недоступен"));
 }
 #[test]
 fn search_pending_empty_and_error_are_distinct_and_enter_selects_the_timecoded_line() {
@@ -1227,7 +1248,8 @@ fn queue_read_errors_retain_snapshots_and_clear_only_on_their_own_recovery() {
         app.status, command_status,
         "background recovery must not erase a command result"
     );
-    assert!(app.status.contains("команда отклонена"));
+    assert!(app.console.text().contains("команда отклонена"));
+    assert!(!app.status.contains("команда отклонена"));
     assert!(!app
         .effects
         .iter()

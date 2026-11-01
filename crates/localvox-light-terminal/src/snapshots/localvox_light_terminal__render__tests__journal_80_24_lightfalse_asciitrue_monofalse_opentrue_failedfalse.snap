@@ -1,15 +1,14 @@
 ---
 source: crates/localvox-light-terminal/src/render.rs
-assertion_line: 1645
 expression: terminal.backend().buffer()
 ---
 Buffer {
     area: Rect { x: 0, y: 0, width: 80, height: 24 },
     content: [
-        " localvox  / технический журнал   * готов к записи   очередь 0 · ошибки 0       ",
-        " pre-roll 05:00   голос: Голосовые заметки готовы                               ",
+        " localvox  * готов к записи   очередь 0 · сбои этапов 0                         ",
+        " i добавить YouTube / URL   голос: Голосовые заметки готовы                     ",
         "+ Аудио · F6 фокус ------------------------------------------------------------+",
-        "| готов 00:00 / —  волна недоступна                                            |",
+        "| готов 00:00 / —  волна загружается…                                          |",
         "|Space play/pause · p фрагмент · g время · Alt+←/→ ±15с                        |",
         "+------------------------------------------------------------------------------+",
         "+ Архив · Tab переключить панель -----------------------------------------------",
@@ -29,18 +28,18 @@ Buffer {
         "|      07:00:20 Диагностическая строка 9                                        ",
         "|      07:00:20 Диагностическая строка 10                                       ",
         " Подключение…                                                                   ",
-        " F8 stop  q/F10 выход  y копия  Tab фокус  : действия  ?                        ",
+        " F8 stop  q/F10 выход  y весь текст  : действия  ~ ошибки                       ",
     ],
     styles: [
         x: 0, y: 0, fg: Reset, bg: Reset, underline: Reset, modifier: BOLD,
         x: 10, y: 0, fg: DarkGray, bg: Reset, underline: Reset, modifier: NONE,
-        x: 73, y: 0, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
+        x: 55, y: 0, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
         x: 0, y: 1, fg: DarkGray, bg: Reset, underline: Reset, modifier: NONE,
-        x: 49, y: 1, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
+        x: 59, y: 1, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
         x: 0, y: 2, fg: DarkGray, bg: Reset, underline: Reset, modifier: NONE,
         x: 1, y: 3, fg: Cyan, bg: Reset, underline: Reset, modifier: NONE,
         x: 19, y: 3, fg: DarkGray, bg: Reset, underline: Reset, modifier: NONE,
-        x: 35, y: 3, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
+        x: 37, y: 3, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
         x: 79, y: 3, fg: DarkGray, bg: Reset, underline: Reset, modifier: NONE,
         x: 55, y: 4, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
         x: 79, y: 4, fg: DarkGray, bg: Reset, underline: Reset, modifier: NONE,

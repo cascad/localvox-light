@@ -776,8 +776,8 @@ pub fn respond(
                             // The summary provider is a real choice, so a dropdown — like «Спросить».
                             // Empty selects the default (the local model in the hint).
                             "LOCALVOX_SUMMARY_PROVIDER" => Some(json!([
-                                {"value": "claude", "label": "Claude (подписка)"},
                                 {"value": "ollama", "label": "Локальная (Ollama)"},
+                                {"value": "claude", "label": "Claude (подписка)"},
                             ])),
                             _ => None,
                         };

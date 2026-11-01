@@ -452,7 +452,7 @@ export const api = {
     ),
   /** The summary as blocks, each claim carrying the seconds it was drawn from. */
   summary: (s: string, signal?: AbortSignal) =>
-    call<{ blocks: SummaryBlock[]; provenance?: Provenance | null }>(
+    call<{ blocks: SummaryBlock[]; provenance?: Provenance | null; available?: boolean }>(
       `/api/sessions/${enc(s)}/summary`,
       { signal },
     ),

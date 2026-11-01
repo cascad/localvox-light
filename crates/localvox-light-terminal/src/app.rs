@@ -1,7 +1,9 @@
 //! Deterministic workspace state. I/O results carry the selection epoch.
 mod commands;
+mod diagnostics;
 mod documents;
 mod forms;
+mod input;
 use crate::io::{Data, Resource, Response, Task};
 pub use commands::{Action, COMMANDS};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -75,6 +77,11 @@ pub enum FormKind {
     Export(String),
     Confirm(Task),
     Setting(String),
+    SettingChoice {
+        key: String,
+        options: Vec<(String, Option<String>)>,
+        selected: usize,
+    },
     Connection,
     JournalFilter,
     SettingsFilter,
@@ -104,6 +111,10 @@ pub struct App {
     pub languages: Vec<String>,
     pub progress: Progress,
     pub journal: crate::journal::Journal,
+    pub console: crate::diagnostics::Console,
+    pub metadata_open: bool,
+    pub settings_advanced: bool,
+    pub action_diagnostics: HashMap<Resource, crate::diagnostics::Context>,
     pub notes: Vec<SlotNotes>,
     pub asks: Vec<AskRecord>,
     pub ask: Option<AskRecord>,
@@ -181,6 +192,10 @@ impl Default for App {
             languages: vec![],
             progress: Progress::default(),
             journal: crate::journal::Journal::new(),
+            console: crate::diagnostics::Console::default(),
+            metadata_open: false,
+            settings_advanced: false,
+            action_diagnostics: HashMap::new(),
             notes: vec![],
             asks: vec![],
             ask: None,
@@ -246,6 +261,7 @@ impl App {
         self.read(Resource::Sessions, String::new());
         self.read(Resource::Record, String::new());
         self.read(Resource::Jobs, String::new());
+        self.read(Resource::Queue, String::new());
         self.refresh_view();
     }
     fn read(&mut self, r: Resource, s: String) {
@@ -317,6 +333,7 @@ impl App {
             self.peaks_retry_at = 0;
             self.epoch += 1;
             self.current = Some(name.clone());
+            self.metadata_open = false;
             self.document_target = None;
             self.summary = Summary::default();
             self.transcript.clear();
@@ -345,6 +362,7 @@ impl App {
             Resource::Sessions
                 | Resource::Record
                 | Resource::Jobs
+                | Resource::Queue
                 | Resource::Action
                 | Resource::Control
                 | Resource::Route
@@ -362,10 +380,27 @@ impl App {
         self.last_request.insert(r.resource, r.id);
         let data = match r.result {
             Ok(d) => {
+                let context = self
+                    .action_diagnostics
+                    .remove(&r.resource)
+                    .unwrap_or_else(|| self.read_diagnostic(r.resource));
+                self.console.recover_operation(&context);
                 self.errors.remove(&r.resource);
                 d
             }
             Err(e) => {
+                let context = self
+                    .action_diagnostics
+                    .remove(&r.resource)
+                    .unwrap_or_else(|| self.read_diagnostic(r.resource));
+                if matches!(
+                    r.resource,
+                    Resource::Action | Resource::Control | Resource::Route
+                ) {
+                    self.console.record_attempt(context, &e, self.wall_ms);
+                } else {
+                    self.console.record(context, &e, self.wall_ms);
+                }
                 if r.resource == Resource::Peaks {
                     self.peaks_retry_at = self.now_ms.saturating_add(30_000);
                 }
@@ -392,7 +427,7 @@ impl App {
                     r.resource,
                     Resource::Action | Resource::Control | Resource::Route
                 ) {
-                    self.status = format!("Ошибка: {}", safe_text(&e));
+                    self.status = "Действие не выполнено · ~ консоль ошибок".into();
                 }
                 return;
             }
@@ -407,6 +442,21 @@ impl App {
         let response_resource = r.resource;
         match data {
             Data::Sessions(s) => {
+                if let Some(current) = &self.current {
+                    if let Some(updated) = s.iter().find(|session| &session.name == current) {
+                        if self
+                            .sessions
+                            .iter()
+                            .find(|session| &session.name == current)
+                            .is_some_and(|previous| {
+                                (previous.duration_sec - updated.duration_sec).abs() > 0.5
+                            })
+                        {
+                            self.peaks_loaded = false;
+                            self.peaks_retry_at = 0;
+                        }
+                    }
+                }
                 let selected = self.sessions.get(self.selected).map(|s| s.name.clone());
                 self.sessions = s;
                 if self.view == View::Archive {
@@ -423,6 +473,19 @@ impl App {
                 }
             }
             Data::Record(r) => {
+                if let Some(last) = r.voice.as_ref().and_then(|voice| voice.last.as_ref()) {
+                    let context = crate::diagnostics::Context {
+                        source: "Голосовой модуль".into(),
+                        operation: format!("Обработка заметки в слот {}", last.slot),
+                        session: None,
+                        phase: Some("voice".into()),
+                    };
+                    if let Some(error) = &last.error {
+                        self.console.record(context, error, self.wall_ms);
+                    } else {
+                        self.console.recover_operation(&context);
+                    }
+                }
                 if self.pending_record == Some(r.recording) {
                     self.pending_record = None;
                 }
@@ -430,6 +493,37 @@ impl App {
             }
             Data::Jobs(j) => self.jobs = j,
             Data::Queue(q) => {
+                for old in &self.queue {
+                    if old.state == "failed"
+                        && !q.iter().any(|job| {
+                            job.session == old.session
+                                && job.state == "failed"
+                                && job.attempts == old.attempts
+                                && job.last_error == old.last_error
+                        })
+                    {
+                        self.console.recover(&crate::diagnostics::Context {
+                            source: "Пайплайн".into(),
+                            operation: "Выполнение этапа".into(),
+                            session: Some(old.session.clone()),
+                            phase: old.phase.clone(),
+                        });
+                    }
+                }
+                for job in q.iter().filter(|job| job.state == "failed") {
+                    if let Some(error) = &job.last_error {
+                        self.console.record(
+                            crate::diagnostics::Context {
+                                source: "Пайплайн".into(),
+                                operation: "Выполнение этапа".into(),
+                                session: Some(job.session.clone()),
+                                phase: job.phase.clone(),
+                            },
+                            error,
+                            self.wall_ms,
+                        );
+                    }
+                }
                 let selected = self.queue.get(self.selected).map(|q| q.session.clone());
                 self.queue = q;
                 if self.view == View::Queue {
@@ -467,15 +561,68 @@ impl App {
                 }
             }
             Data::Progress(p) => {
+                let queue_context = crate::diagnostics::Context {
+                    source: "Пайплайн".into(),
+                    operation: "Чтение очереди".into(),
+                    session: self.current.clone(),
+                    phase: None,
+                };
+                if let Some(error) = &p.queue_error {
+                    self.console.record(queue_context, error, self.wall_ms);
+                } else {
+                    self.console.recover(&queue_context);
+                }
+                for stage in &p.stages {
+                    let context = crate::diagnostics::Context {
+                        source: "Пайплайн".into(),
+                        operation: "Выполнение этапа".into(),
+                        session: self.current.clone(),
+                        phase: Some(stage.stage.clone()),
+                    };
+                    if matches!(stage.state.as_str(), "failed" | "invalid") {
+                        if let Some(note) = &stage.note {
+                            self.console.record(context, note, self.wall_ms);
+                        }
+                    } else {
+                        self.console.recover(&context);
+                    }
+                }
                 let anchor = crate::render::journal_anchor(self);
                 self.progress = p;
                 crate::render::restore_journal_anchor(self, anchor);
             }
             Data::Peaks(p) => {
                 self.peaks = p;
-                self.peaks_loaded = true;
+                self.peaks_loaded = !self.peaks.peaks.is_empty();
+                if !self.peaks_loaded {
+                    self.peaks_retry_at = self.now_ms.saturating_add(5000);
+                }
             }
             Data::Journal(page, prepend) => {
+                for event in page
+                    .events
+                    .iter()
+                    .filter(|event| matches!(event.status.as_deref(), Some("failed" | "invalid")))
+                {
+                    if let Some(text) = &event.text {
+                        self.console.record(
+                            crate::diagnostics::Context {
+                                source: "Журнал".into(),
+                                operation: if event.label.is_empty() {
+                                    "Ошибка операции".into()
+                                } else {
+                                    event.label.clone()
+                                },
+                                session: self.current.clone(),
+                                phase: Some(event.stage.clone()),
+                            },
+                            text,
+                            chrono::DateTime::parse_from_rfc3339(&event.at)
+                                .map(|at| at.timestamp_millis())
+                                .unwrap_or(self.wall_ms),
+                        );
+                    }
+                }
                 let selected = self
                     .journal
                     .visible_groups()
@@ -496,6 +643,19 @@ impl App {
                 crate::render::restore_journal_anchor(self, anchor);
             }
             Data::Notes(n) => {
+                for slot in &n {
+                    let context = crate::diagnostics::Context {
+                        source: "API".into(),
+                        operation: format!("Чтение слота {}", slot.name),
+                        session: None,
+                        phase: None,
+                    };
+                    if let Some(error) = &slot.error {
+                        self.console.record(context, error, self.wall_ms);
+                    } else {
+                        self.console.recover_operation(&context);
+                    }
+                }
                 let selected = self.notes.get(self.selected).map(|s| s.name.clone());
                 let note = self
                     .notes
@@ -528,6 +688,17 @@ impl App {
                 }
             }
             Data::Ask(a) => {
+                let context = crate::diagnostics::Context {
+                    source: "LLM".into(),
+                    operation: format!("Ответ на вопрос {}", a.id),
+                    session: None,
+                    phase: Some("ask".into()),
+                };
+                if let Some(error) = a.error.as_deref().filter(|error| !error.is_empty()) {
+                    self.console.record(context, error, self.wall_ms);
+                } else {
+                    self.console.recover_operation(&context);
+                }
                 if r.resource == Resource::Action {
                     if action_context == Some(self.epoch) {
                         self.ask_id = Some(a.id.clone());
@@ -700,6 +871,12 @@ impl App {
             })
     }
     pub fn paste(&mut self, text: &str) {
+        if self.console.open {
+            return;
+        }
+        if self.constrained_paste(text) {
+            return;
+        }
         if let Some(f) = &mut self.form {
             let field = &mut f.fields[f.active];
             let remaining = 400_000usize.saturating_sub(field.value.chars().count());
@@ -722,12 +899,44 @@ impl App {
         }
     }
     pub fn key(&mut self, key: KeyEvent) {
-        if (key.modifiers.contains(KeyModifiers::CONTROL)
-            && matches!(key.code, KeyCode::Char('q' | 'Q' | 'й' | 'Й')))
+        if (self.form.is_none()
+            && matches!(key.code, KeyCode::Char('q' | 'Q' | 'й' | 'Й'))
+            && !key
+                .modifiers
+                .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT))
+            || (key.modifiers.contains(KeyModifiers::CONTROL)
+                && matches!(key.code, KeyCode::Char('q' | 'Q' | 'й' | 'Й')))
             || key.code == KeyCode::Char('\u{11}')
             || (key.code == KeyCode::F(10) && key.modifiers.is_empty())
         {
             self.quit = true;
+            return;
+        }
+        if self.console_key(key) {
+            return;
+        }
+        if self.constrained_form_key(key) {
+            return;
+        }
+        if self.form.is_none() && self.view == View::Settings {
+            if key.code == KeyCode::Char('A') {
+                self.command(Action::ToggleAdvancedSettings);
+                return;
+            }
+            if key.code == KeyCode::Char('S') {
+                self.command(Action::SaveSettings);
+                return;
+            }
+        }
+        if self.form.is_none() && self.view == View::Archive && key.code == KeyCode::Char('I') {
+            self.command(Action::DocumentInfo);
+            return;
+        }
+        if self.form.is_none()
+            && key.modifiers.contains(KeyModifiers::CONTROL)
+            && matches!(key.code, KeyCode::Char('y' | 'Y' | 'н' | 'Н'))
+        {
+            self.command(Action::CopyDocument);
             return;
         }
         if self.form.is_some() {
@@ -1018,10 +1227,18 @@ impl App {
             .settings
             .iter()
             .filter(|s| {
-                filter.is_empty()
-                    || format!("{} {} {} {}", s.key, s.group, s.label, s.hint)
-                        .to_lowercase()
-                        .contains(&filter)
+                (self.settings_advanced
+                    || !filter.is_empty()
+                    || self
+                        .settings
+                        .settings
+                        .iter()
+                        .all(|s| !basic_setting(&s.key))
+                    || basic_setting(&s.key))
+                    && (filter.is_empty()
+                        || format!("{} {} {} {}", s.key, s.group, s.label, s.hint)
+                            .to_lowercase()
+                            .contains(&filter))
             })
             .collect()
     }
@@ -1043,7 +1260,7 @@ impl App {
         };
         self.seek_to(position + delta);
     }
-    fn media_duration(&self) -> Option<f64> {
+    pub(crate) fn media_duration(&self) -> Option<f64> {
         let duration = if self.playback.session == self.current {
             self.playback.duration
         } else {
@@ -1051,6 +1268,12 @@ impl App {
         };
         duration
             .or_else(|| (self.peaks.duration_sec > 0.0).then_some(self.peaks.duration_sec))
+            .or_else(|| {
+                self.sessions
+                    .iter()
+                    .find(|session| Some(&session.name) == self.current.as_ref())
+                    .map(|session| session.duration_sec)
+            })
             .filter(|d| d.is_finite() && *d > 0.0)
     }
     fn seek_to(&mut self, position: f64) {
@@ -1158,6 +1381,18 @@ impl App {
     }
 }
 
+fn basic_setting(key: &str) -> bool {
+    matches!(
+        key,
+        "LOCALVOX_LIGHT_MIC"
+            | "LOCALVOX_LIGHT_LOOPBACK_DEVICE"
+            | "LOCALVOX_LIGHT_AUTOCOOK_SUMMARY"
+            | "LOCALVOX_LLM_BASE_URL"
+            | "LOCALVOX_LLM_MODEL"
+            | "LOCALVOX_SUMMARY_PROVIDER"
+    )
+}
+
 pub fn parse_timecode(value: &str) -> Option<f64> {
     let fields = value.trim().split(':').collect::<Vec<_>>();
     if fields.is_empty() || fields.len() > 3 {
@@ -1225,3 +1460,5 @@ pub fn state_symbol(state: &str, ascii: bool) -> &'static str {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod ux_tests;

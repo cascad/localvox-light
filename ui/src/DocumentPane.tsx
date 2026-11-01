@@ -365,6 +365,7 @@ function Article({
 
   if (err) return <p className="err">{err}</p>;
   if (!data) return <p className="hint">загрузка…</p>;
+  if (data.available === false) return <p className="hint">Сводка ещё не создана. Текст и реплики доступны отдельно; ход обработки — во вкладке «Ход».</p>;
 
   return (
     <>

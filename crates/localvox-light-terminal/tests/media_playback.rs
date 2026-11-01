@@ -287,6 +287,31 @@ fn real_player_auth_range_pause_and_repeated_fragment() {
     assert!(finished.duration.is_some());
     assert!(worker.submit(PlaybackCommand::Stop));
     wait_worker(&worker, |s| s.session.is_none() && s.idle);
+    assert!(worker.submit(PlaybackCommand::Load {
+        session: "missing".into(),
+        start: 0.0,
+        end: None
+    }));
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let unavailable = loop {
+        let state = worker
+            .rx
+            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+            .unwrap();
+        if state.session.as_deref() == Some("missing") && state.error.is_some() {
+            break state;
+        }
+    };
+    let error = unavailable.error.unwrap();
+    assert!(!error.contains("нужен mpv") && !error.contains("synthetic-media-secret"));
+    assert!(worker.submit(PlaybackCommand::Load {
+        session: "demo".into(),
+        start: 1.0,
+        end: Some(1.3)
+    }));
+    wait_worker(&worker, |state| {
+        state.session.as_deref() == Some("demo") && !state.idle && state.error.is_none()
+    });
     drop(worker);
     drop(server_guard);
     assert!(

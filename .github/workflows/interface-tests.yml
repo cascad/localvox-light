@@ -116,3 +116,4 @@ jobs:
             ui/test-results/
             ui/playwright-report/
             crates/localvox-light-terminal/src/snapshots/*.snap.new
+            crates/localvox-light-terminal/src/render/snapshots/*.snap.new
