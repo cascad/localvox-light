@@ -5,14 +5,17 @@ import { fileURLToPath } from "node:url";
 const fixture = JSON.parse(readFileSync(fileURLToPath(new URL("../../../tests/fixtures/workspace.json", import.meta.url)), "utf8"));
 const journalFixture = JSON.parse(readFileSync(fileURLToPath(new URL("../../../tests/fixtures/journal.json", import.meta.url)), "utf8"));
 
-async function workspace(page: Page, options: { journalError?: boolean; record?: boolean } = {}) {
+async function workspace(page: Page, options: { journalError?: boolean; record?: boolean; jobsError?: boolean } = {}) {
   await page.clock.install({ time: new Date("2026-10-31T07:00:25Z") });
   await page.route("**/api/**", async (route) => {
     const url = new URL(route.request().url()); const path = url.pathname;
     let body: unknown = {};
     if (path === "/api/sessions") body = fixture.sessions;
     else if (path === "/api/record") body = { ...fixture.record, recording: !!options.record, session: options.record ? "20261031_demo" : null };
-    else if (path === "/api/jobs") body = fixture.jobs;
+    else if (path === "/api/jobs") {
+      if (options.jobsError) return route.fulfill({ status: 503, json: { error: "synthetic queue unavailable" } });
+      body = fixture.jobs;
+    }
     else if (path === "/api/queue") body = { queue: fixture.queue };
     else if (path.endsWith("/progress")) body = fixture.progress;
     else if (path.endsWith("/journal")) {
@@ -766,6 +769,8 @@ test("native browser audio supports pause, bounded keyboard seek and repeated fr
   const audio = await realAudio(page);
   await page.getByTitle("Слушать", { exact: true }).click(); await expect(page.getByTitle("Пауза", { exact: true })).toBeVisible();
   await page.getByTitle("Пауза", { exact: true }).click();
+  await expect.poll(() => audio.evaluate((node: HTMLAudioElement) => node.paused)).toBe(true);
+  await expect(page.getByTitle("Слушать", { exact: true })).toBeVisible();
   const slider = page.getByRole("slider", { name: "Перемотка", exact: true }); await slider.focus(); await slider.press("End");
   await expect.poll(() => audio.evaluate((node: HTMLAudioElement) => node.currentTime)).toBeGreaterThan(119);
   await slider.press("Home"); await expect.poll(() => audio.evaluate((node: HTMLAudioElement) => node.currentTime)).toBe(0);
@@ -1037,6 +1042,62 @@ test("slow status requests do not overlap and a queue error keeps its last rows"
   fail = true; await page.clock.runFor(3100);
   await expect(page.getByText(/Очередь не обновляется/)).toBeVisible();
   await expect(page.locator(".qrow")).toHaveCount(1);
+  fail = false; await page.clock.runFor(6100);
+  await expect(page.getByText(/Очередь не обновляется/)).toHaveCount(0);
+  await expect(page.locator(".qrow")).toHaveCount(1);
+});
+
+test("an initial queue read failure is visible and never claims all work is done", async ({ page }) => {
+  await workspace(page);
+  let failed = true;
+  const mutations: string[] = [];
+  await page.route("**/api/queue", route => {
+    if (route.request().method() !== "GET") mutations.push(route.request().method());
+    return failed ? route.fulfill({ status: 503, json: { error: "Очередь недоступна: synthetic broken jobs.json" } })
+      : route.fulfill({ json: { queue: [] } });
+  });
+  await page.locator(".nav").getByRole("button", { name: /Очередь/ }).click();
+  await expect(page.getByText("Очередь недоступна: synthetic broken jobs.json", { exact: true })).toBeVisible();
+  await expect(page.getByText(/Пусто — всё обработано/)).toHaveCount(0);
+  failed = false; await page.clock.runFor(6100);
+  await expect(page.getByText(/Пусто — всё обработано/)).toBeVisible();
+  await expect(page.getByText("Очередь недоступна: synthetic broken jobs.json", { exact: true })).toHaveCount(0);
+  expect(mutations).toEqual([]);
+});
+
+test("an initial jobs read failure shows unavailable status without invented counters", async ({ page }) => {
+  await workspace(page, { jobsError: true, record: true });
+  const badge = page.locator(".bar > .queue.failed");
+  await expect(badge).toHaveText("очередь недоступна");
+  await expect(badge).toHaveAttribute("title", /synthetic queue unavailable/);
+  const nav = page.locator(".nav").getByRole("button", { name: /Очередь/ });
+  await expect(nav.locator(".k.err")).toHaveText("!");
+  await page.setViewportSize({ width: 480, height: 1000 });
+  await expect(nav.locator(".k.err")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Остановить", exact: true })).toBeVisible();
+  await nav.click(); await expect(page.getByRole("heading", { name: "Очередь обработки", exact: true })).toBeVisible();
+  await page.route("**/api/jobs", route => route.fulfill({ json: { running: 0, pending: 0, failed: 0 } }));
+  await page.clock.runFor(10_100);
+  await expect(badge).toHaveCount(0);
+  await expect(nav.locator(".k.err")).toHaveCount(0);
+});
+
+test("jobs read failures label last counters and recovery publishes fresh status", async ({ page }) => {
+  await workspace(page);
+  let failed = true;
+  await page.route("**/api/jobs", route => failed
+    ? route.fulfill({ status: 503, json: { error: "synthetic jobs read failure" } })
+    : route.fulfill({ json: { running: 0, pending: 4, failed: 2 } }));
+  await page.clock.runFor(5100);
+  const badge = page.locator(".bar > .queue.failed");
+  await expect(badge).toContainText("очередь недоступна");
+  await expect(badge).toContainText("последние данные: 1 в работе · 2 ждут · 0 ошибок");
+  await expect(page.locator(".bar > .queue .qdot.busy")).toHaveCount(0);
+  await expect(page.locator(".bar")).toHaveScreenshot("queue-unavailable-dark.png");
+  failed = false; await page.clock.runFor(10_100);
+  await expect(page.locator(".bar > .queue")).toContainText("сорвалось: 2");
+  await expect(page.locator(".nav .k.err")).toHaveCount(0);
+  await expect(page.locator(".nav").getByRole("button", { name: /Очередь/ })).toContainText("6");
 });
 
 test("current activity opens the real queue order and its selected session journal", async ({ page }) => {
@@ -1119,6 +1180,8 @@ test("light theme and keyboard navigation keep stop and archive usable", async (
   await page.getByRole("button", { name: "Ход", exact: true }).focus();
   await page.keyboard.press("Enter");
   await expect(page.getByRole("button", { name: "+ 35 lines", exact: true })).toBeVisible();
+  // Flush the initial follow-to-tail frame while the journal is still folded.
+  await page.clock.runFor(50);
   await page.getByRole("button", { name: "+ 35 lines", exact: true }).focus();
   await page.keyboard.press("Enter");
   await expect(page.getByRole("button", { name: "− свернуть", exact: true })).toHaveAttribute("aria-expanded", "true");

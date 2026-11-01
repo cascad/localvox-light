@@ -6,6 +6,7 @@ interface Props {
   state: RecordState | null;
   live: Session | null;
   jobs: Jobs | null;
+  jobsError: string | null;
   /** The name of what is being cooked, as a person would call it — not the directory. */
   cooking: string | null;
   openCooking: () => void;
@@ -37,6 +38,7 @@ export function RecordBar({
   state,
   live,
   jobs,
+  jobsError,
   cooking,
   openCooking,
   openVoice,
@@ -217,7 +219,7 @@ export function RecordBar({
           different question: is the module alive, and did the last note land. Those are facts about
           the past and about readiness; «что пишется прямо сейчас» is the pill's job alone. */}
       <VoiceStatusChip voice={voice} open={openVoice} />
-      <Queue jobs={jobs} cooking={cooking} open={openCooking} />
+      <Queue jobs={jobs} error={jobsError} cooking={cooking} open={openCooking} />
       <Theme />
     </header>
   );
@@ -320,13 +322,24 @@ function VoiceStatusChip({ voice, open }: { voice: VoiceStatus | null; open: () 
  *  is the very next question after "is it working". */
 function Queue({
   jobs,
+  error,
   cooking,
   open,
 }: {
   jobs: Jobs | null;
+  error: string | null;
   cooking: string | null;
   open: () => void;
 }) {
+  if (error) return (
+    <button className="queue failed" onClick={open} title={`${error}${jobs ? ` · Последние данные: ${jobs.running} в работе · ${jobs.pending} ждут · ${jobs.failed} ошибок` : ""}`}>
+      <span className="qdot err" />
+      <span className="queue-status">
+        <span>очередь недоступна</span>
+        {jobs && <span className="mut">последние данные: {jobs.running} в работе · {jobs.pending} ждут · {jobs.failed} ошибок</span>}
+      </span>
+    </button>
+  );
   if (!jobs) return null;
   const { running, pending, failed } = jobs;
   if (!running && !pending && !failed) return null;

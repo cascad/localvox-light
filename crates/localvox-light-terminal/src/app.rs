@@ -383,7 +383,14 @@ impl App {
                 }
                 self.restore_failed_form(r.resource);
                 self.errors.insert(r.resource, safe_text(&e));
-                self.status = format!("Ошибка: {}", safe_text(&e));
+                // Read errors live with their resource and disappear on recovery. A background
+                // poll must neither persist an old read failure nor erase a command outcome.
+                if matches!(
+                    r.resource,
+                    Resource::Action | Resource::Control | Resource::Route
+                ) {
+                    self.status = format!("Ошибка: {}", safe_text(&e));
+                }
                 return;
             }
         };

@@ -509,10 +509,10 @@ pub fn respond(
                 "capabilities": ["technical-journal-v1", "terminal-workspace-v1"]
             })),
             // Visibility of the autopilot: what is cooking / how many are queued (WP-C13)
-            (Method::Get, "/api/jobs") => Ok(serde_json::to_value(archive.jobs_status())?),
+            (Method::Get, "/api/jobs") => Ok(serde_json::to_value(archive.jobs_status()?)?),
             // The queue itself: what is cooking now and what comes after it, in order. Counts
             // answer «is it working»; only a list answers «on what, and what is next».
-            (Method::Get, "/api/queue") => Ok(json!({"queue": archive.queue()})),
+            (Method::Get, "/api/queue") => Ok(json!({"queue": archive.queue()?})),
             (Method::Get, "/api/sessions") => {
                 let limit = query_param(query, "limit")
                     .and_then(|v| v.parse().ok())
@@ -1022,8 +1022,12 @@ pub fn respond(
         Ok(v) => (200, v),
         Err(e) => {
             let msg = format!("{e:#}");
-            let code = if msg.contains("не найдено") || msg.contains("не найдена")
+            let code = if e
+                .downcast_ref::<crate::archive::QueueUnavailable>()
+                .is_some()
             {
+                503
+            } else if msg.contains("не найдено") || msg.contains("не найдена") {
                 404
             } else if msg.contains("конфиг слотов") {
                 500 // a server misconfiguration (no slots.toml) — not the client's fault

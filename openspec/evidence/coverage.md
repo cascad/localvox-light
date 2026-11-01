@@ -224,6 +224,16 @@
 |---|---|---|---|
 | API-006 | [API delta](../changes/fix-workspace-status-polling/specs/api-access/spec.md), [App](../../ui/src/App.tsx), [usePolling](../../ui/src/usePolling.ts), [API client](../../ui/src/api.ts) | [test-run](../changes/fix-workspace-status-polling/evidence/implementation.md): до исправления перекрывались sessions/jobs/record; после — независимые последовательные циклы, свежий снимок после start/stop/import, отмена старого GET, сохранение выбора и backoff/recovery; полный browser и общий API/UI/TUI | Mock задержки и команды записи, без физического захвата; REC-001/003 и аппаратная приёмка этим полностью не закрываются |
 
+## Проверка отказа чтения очереди · 2026-11-01
+
+Дополнение к PIPE-002/011: [исправление и проверки](../changes/fix-queue-read-failures/evidence/implementation.md),
+[уточнённые сценарии PIPE-011](../changes/fix-queue-read-failures/specs/processing-pipeline/spec.md).
+Настоящий HTTP воспроизвёл успешную пустую queue/jobs при повреждении; после
+исправления invalid JSON и I/O-отказ дают 503 без мутации хранилища, исправленный
+файл возвращает правильные задания/счётчики. UI/TUI сохраняют последние данные с
+отметкой недоступности, отличают начальную ошибку от пустоты и снимают её при
+восстановлении. Модели, аппаратная приёмка и известные BL-002/003/004 не закрываются.
+
 ## Delta · жизненный цикл браузерного плеера · 2026-11-01
 
 | ID | Delta / код | Свидетельство | Граница |

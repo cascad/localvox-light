@@ -17,6 +17,17 @@ use localvox_light_core::versions::{read_transcript_lines, VersionStore};
 use localvox_light_integrations::SlotRegistry;
 use localvox_light_search::SearchIndex;
 
+#[derive(Debug)]
+pub(crate) struct QueueUnavailable(String);
+
+impl std::fmt::Display for QueueUnavailable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Очередь недоступна: {}", self.0)
+    }
+}
+
+impl std::error::Error for QueueUnavailable {}
+
 /// A request to «спросить у LLM»: the material plus how to treat it. Deserialized from the POST
 /// body; every field but `text` is optional (a bare paste with the default prompt is valid).
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -2058,6 +2069,14 @@ impl Archive {
         Ok(())
     }
 
+    fn readable_queue(&self) -> Result<localvox_light_core::jobs::JobQueue> {
+        let queue = localvox_light_core::jobs::JobQueue::load(&self.work_dir);
+        if let Some(error) = queue.error() {
+            return Err(QueueUnavailable(error.to_owned()).into());
+        }
+        Ok(queue)
+    }
+
     /// State of the background cook queue (WP-C7) — visibility of the autopilot:
     /// "N cooking, M queued, K failed". Reads `jobs.json` (P5: files only).
     /// THE QUEUE: what is being cooked now, and what comes after it, in order.
@@ -2068,11 +2087,11 @@ impl Archive {
     ///
     /// `Done` is deliberately absent. A queue is what is left to do; what is finished lives in the
     /// archive, with its own card and its own stages.
-    pub fn queue(&self) -> Vec<QueueItem> {
+    pub fn queue(&self) -> Result<Vec<QueueItem>> {
         use localvox_light_core::jobs::{JobKind, JobState as S, MAX_REVIVALS};
-        let q = localvox_light_core::jobs::JobQueue::load(&self.work_dir);
+        let q = self.readable_queue()?;
         let mut place = 0usize;
-        q.jobs()
+        Ok(q.jobs()
             .iter()
             .filter(|j| !matches!(j.state, S::Done))
             .map(|j| {
@@ -2117,11 +2136,11 @@ impl Archive {
                     stuck: j.state == S::Failed && j.revivals >= MAX_REVIVALS,
                 }
             })
-            .collect()
+            .collect())
     }
 
-    pub fn jobs_status(&self) -> JobsStatus {
-        let q = localvox_light_core::jobs::JobQueue::load(&self.work_dir);
+    pub fn jobs_status(&self) -> Result<JobsStatus> {
+        let q = self.readable_queue()?;
         let mut st = JobsStatus::default();
         for j in q.jobs() {
             use localvox_light_core::jobs::JobState as S;
@@ -2140,7 +2159,7 @@ impl Archive {
                 }
             }
         }
-        st
+        Ok(st)
     }
 
     /// F5 routing: suggest which slots to file the text into (via the LLM). The list

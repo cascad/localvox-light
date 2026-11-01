@@ -21,7 +21,7 @@ const isLink = (s: string) => /^https?:\/\/\S+$/.test(s.trim());
 
 export default function App() {
   const { data: sessionData, error: err, refresh: refreshSessions } = usePolling("workspace/sessions", signal => api.sessions(50, signal), 5000);
-  const { data: jobs, refresh: refreshJobs } = usePolling("workspace/jobs", signal => api.jobs(signal), 5000);
+  const { data: jobs, error: jobsError, refresh: refreshJobs } = usePolling("workspace/jobs", signal => api.jobs(signal), 5000);
   // Dictation may last only a few seconds; record status has its own faster cadence.
   const { data: record, refresh: refreshRecord } = usePolling("workspace/record", signal => api.record(signal), 1000);
   const sessions = sessionData ?? EMPTY_SESSIONS;
@@ -136,6 +136,7 @@ export default function App() {
         state={record}
         live={live}
         jobs={jobs}
+        jobsError={jobsError}
         cooking={
           jobs?.current ? (sessions.find((s) => s.name === jobs.current)?.title ?? null) : null
         }
@@ -181,11 +182,11 @@ export default function App() {
             </button>
             {/* The queue is a place, not a chip. The count says the machine is alive; only a list
                 says what it is chewing and what is behind it. */}
-            <button aria-selected={view === "queue"} onClick={() => setView("queue")}>
+            <button aria-selected={view === "queue"} onClick={() => setView("queue")} title={jobsError ?? undefined}>
               ⚙ Очередь
               {/* The badge is the length of the list behind it — anything else makes the person
                   count rows to find out which number lied. */}
-              {queued > 0 && <span className="k">{queued}</span>}
+              {jobsError ? <span className="k err">!</span> : queued > 0 && <span className="k">{queued}</span>}
             </button>
             {/* Not just a form any more: this is the notebook. It used to only WRITE — a note
                 left for a file on another disk and the app never mentioned it again. */}

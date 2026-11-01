@@ -1123,6 +1123,89 @@ fn failed_note_delivery_preserves_its_text_and_explicit_slot() {
 }
 
 #[test]
+fn queue_read_errors_retain_snapshots_and_clear_only_on_their_own_recovery() {
+    let mut app = App::default();
+    app.view = View::Queue;
+    let jobs = Jobs {
+        pending: 2,
+        failed: 1,
+        ..Default::default()
+    };
+    let queue = vec![QueueItem {
+        session: "waiting".into(),
+        title: "Последняя запись".into(),
+        ..Default::default()
+    }];
+    for (resource, data) in [
+        (Resource::Jobs, Data::Jobs(jobs)),
+        (Resource::Queue, Data::Queue(queue)),
+    ] {
+        app.apply(Response {
+            id: 1,
+            epoch: app.epoch,
+            resource,
+            result: Ok(data),
+        });
+        app.apply(Response {
+            id: 2,
+            epoch: app.epoch,
+            resource,
+            result: Err("Очередь недоступна".into()),
+        });
+    }
+    assert_eq!((app.jobs.pending, app.jobs.failed), (2, 1));
+    assert_eq!(app.queue[0].session, "waiting");
+    assert!(app.errors.contains_key(&Resource::Jobs));
+    assert!(app.errors.contains_key(&Resource::Queue));
+    assert!(
+        !app.status.starts_with("Ошибка:"),
+        "read errors belong to their resource, not permanent status"
+    );
+    app.apply(Response {
+        id: 3,
+        epoch: app.epoch,
+        resource: Resource::Jobs,
+        result: Ok(Data::Jobs(Jobs {
+            pending: 4,
+            ..Default::default()
+        })),
+    });
+    assert_eq!(app.jobs.pending, 4);
+    assert!(!app.errors.contains_key(&Resource::Jobs));
+    assert!(app.errors.contains_key(&Resource::Queue));
+    app.apply(Response {
+        id: 3,
+        epoch: app.epoch,
+        resource: Resource::Queue,
+        result: Ok(Data::Queue(vec![])),
+    });
+    assert!(app.queue.is_empty());
+    assert!(!app.errors.contains_key(&Resource::Queue));
+    app.apply(Response {
+        id: 4,
+        epoch: app.epoch,
+        resource: Resource::Action,
+        result: Err("команда отклонена".into()),
+    });
+    let command_status = app.status.clone();
+    app.apply(Response {
+        id: 5,
+        epoch: app.epoch,
+        resource: Resource::Jobs,
+        result: Ok(Data::Jobs(Jobs::default())),
+    });
+    assert_eq!(
+        app.status, command_status,
+        "background recovery must not erase a command result"
+    );
+    assert!(app.status.contains("команда отклонена"));
+    assert!(!app
+        .effects
+        .iter()
+        .any(|(_, task)| matches!(task, Task::Recook(..))));
+}
+
+#[test]
 fn queue_keeps_server_order_and_retries_the_selected_session_with_explicit_scope() {
     let mut a = App::default();
     a.view = View::Queue;

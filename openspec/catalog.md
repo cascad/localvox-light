@@ -61,6 +61,7 @@ BL-001/007/020 реализованы и проверены в исходник�
 | [fix-workspace-status-polling](changes/fix-workspace-status-polling/proposal.md) | Продолжение проверки фоновых обновлений 2026-11-01 | Независимые sessions/jobs/record, отмена старого снимка после действия; [проверки](changes/fix-workspace-status-polling/evidence/implementation.md) |
 | [format-api-rust-sources](changes/format-api-rust-sources/proposal.md) | Очистка проекта 2026-11-01 | Штатное форматирование API и постоянная проверка CI без изменения контрактов; [проверки](changes/format-api-rust-sources/evidence/implementation.md) |
 | [fix-browser-player-lifecycle](changes/fix-browser-player-lifecycle/proposal.md) | Продолжение проверки плеера 2026-11-01 | Сохранение позиции/паузы/фрагмента при обновлении метаданных, последовательная waveform и cleanup источника; [проверки](changes/fix-browser-player-lifecycle/evidence/implementation.md) |
+| [fix-queue-read-failures](changes/fix-queue-read-failures/proposal.md) | Продолжение проверки фоновой обработки 2026-11-01 | Нечитаемая очередь даёт 503 и явный статус UI/TUI с сохранением последних данных; [проверки](changes/fix-queue-read-failures/evidence/implementation.md) |
 
 Группы сырых идей BL-011–017 остаются во [входящем списке](backlog.md).
 Их ещё нужно разделить на конкретные изменения; наличие там записи не запускает разработку.

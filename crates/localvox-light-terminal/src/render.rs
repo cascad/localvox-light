@@ -186,8 +186,16 @@ pub fn draw(f: &mut Frame, a: &App) {
                     Style::default().fg(rec_color),
                 ),
                 Span::styled(
-                    format!("   очередь {} · ошибки {}", a.jobs.pending, a.jobs.failed),
-                    Style::default().fg(t.dim),
+                    if a.errors.contains_key(&Resource::Jobs) {
+                        "   очередь недоступна".into()
+                    } else {
+                        format!("   очередь {} · ошибки {}", a.jobs.pending, a.jobs.failed)
+                    },
+                    Style::default().fg(if a.errors.contains_key(&Resource::Jobs) {
+                        t.error
+                    } else {
+                        t.dim
+                    }),
                 ),
             ]),
             Line::from(Span::styled(
@@ -1306,6 +1314,50 @@ fn context(f: &mut Frame, a: &App, area: Rect, t: Theme) {
 mod tests {
     use super::*;
     use ratatui::{backend::TestBackend, Terminal};
+
+    #[test]
+    fn queue_read_failure_is_visible_in_header_and_list_without_false_empty_state() {
+        for populated in [false, true] {
+            let mut app = App::default();
+            app.view = View::Queue;
+            if populated {
+                app.queue.push(localvox_light_client::QueueItem {
+                    title: "Сохранённая запись".into(),
+                    state: "pending".into(),
+                    ..Default::default()
+                });
+            }
+            app.errors
+                .insert(Resource::Jobs, "Очередь недоступна".into());
+            app.errors
+                .insert(Resource::Queue, "Очередь недоступна".into());
+            let mut terminal = Terminal::new(TestBackend::new(120, 36)).unwrap();
+            terminal.draw(|frame| draw(frame, &app)).unwrap();
+            let buffer = terminal.backend().buffer();
+            let rows: Vec<String> = (0..36)
+                .map(|y| (0..120).map(|x| buffer[(x, y)].symbol()).collect())
+                .collect();
+            assert!(rows[0].contains("очередь недоступна"));
+            assert!(!rows[0].contains("очередь 0"));
+            let byte = rows[0].find("очередь недоступна").unwrap();
+            let column = rows[0][..byte].chars().count() as u16;
+            assert_eq!(buffer[(column, 0)].fg, Theme::for_app(&app).error);
+            assert!(rows.join("\n").contains("Список · ошибка"));
+            if populated {
+                assert!(rows.join("\n").contains("Сохранённая запись"));
+            } else {
+                assert!(rows.join("\n").contains("Ошибка: Очередь недоступна"));
+            }
+            assert!(!rows.join("\n").contains("Пока пусто"));
+            app.errors.clear();
+            terminal.draw(|frame| draw(frame, &app)).unwrap();
+            let header: String = (0..120)
+                .map(|x| terminal.backend().buffer()[(x, 0)].symbol())
+                .collect();
+            assert!(header.contains("очередь 0 · ошибки 0"));
+            assert!(!header.contains("недоступна"));
+        }
+    }
 
     #[test]
     fn waiting_and_running_pipeline_keep_their_reason_next_step_and_clock_visible() {

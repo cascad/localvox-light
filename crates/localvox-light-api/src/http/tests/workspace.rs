@@ -90,6 +90,96 @@ fn parallel_short_imports_complete_once_and_release_their_connections() {
 }
 
 #[test]
+fn queue_reads_reject_unreadable_storage_and_recover_without_mutation() {
+    let directory = tempfile::tempdir().unwrap();
+    let queue_path = directory.path().join("jobs.json");
+    let server = journal_http_fixture(directory.path(), Some("synthetic-token"));
+    let client = Client::new(&server.address, "synthetic-token".into()).unwrap();
+    assert!(client.queue().unwrap().is_empty());
+    assert_eq!(client.jobs().unwrap().pending, 0);
+    assert!(!queue_path.exists(), "reads must not create the queue");
+    for bytes in [b"{broken".as_slice(), b"{\"jobs\":false}".as_slice()] {
+        fs::write(&queue_path, bytes).unwrap();
+        for endpoint in ["queue", "jobs"] {
+            let error = ureq::get(&format!("{}/api/{endpoint}", server.address))
+                .set("Authorization", "Bearer synthetic-token")
+                .call()
+                .unwrap_err();
+            match error {
+                ureq::Error::Status(status, response) => {
+                    assert_eq!(status, 503, "{endpoint} must not report an empty queue");
+                    let body: Value = response.into_json().unwrap();
+                    assert!(body["error"]
+                        .as_str()
+                        .unwrap()
+                        .contains("Очередь недоступна"));
+                    assert!(body.get("queue").is_none());
+                    assert!(body.get("pending").is_none());
+                }
+                error => panic!("unexpected error: {error}"),
+            }
+        }
+        assert!(client.queue().is_err());
+        assert!(client.jobs().is_err());
+        assert_eq!(fs::read(&queue_path).unwrap(), bytes);
+    }
+    fs::remove_file(&queue_path).unwrap();
+    fs::create_dir(&queue_path).unwrap();
+    assert!(client.queue().is_err());
+    assert!(client.jobs().is_err());
+    assert!(
+        queue_path.is_dir(),
+        "I/O failure must not replace the directory"
+    );
+    fs::remove_dir(&queue_path).unwrap();
+    jobs::JobQueue::mutate(directory.path(), |q| {
+        q.enqueue_cook("pending", false, false, false);
+        q.enqueue_cook("running", false, false, false);
+        q.enqueue_cook("failed", false, false, false);
+        q.start(1).unwrap();
+        q.start(2).unwrap();
+        q.mark_failed(2, "synthetic model error", 1);
+    });
+    let saved = fs::read(&queue_path).unwrap();
+    let queue = client.queue().unwrap();
+    assert_eq!(
+        queue.iter().map(|j| j.state.as_str()).collect::<Vec<_>>(),
+        ["pending", "running", "failed"]
+    );
+    let status = client.jobs().unwrap();
+    assert_eq!((status.pending, status.running, status.failed), (1, 1, 1));
+    assert_eq!(status.current.as_deref(), Some("running"));
+    assert_eq!(fs::read(&queue_path).unwrap(), saved);
+    fs::write(&queue_path, "{\"next_id\":0,\"jobs\":[]}").unwrap();
+    assert!(client.queue().unwrap().is_empty());
+    let status = client.jobs().unwrap();
+    assert_eq!((status.pending, status.running, status.failed), (0, 0, 0));
+}
+
+#[test]
+fn queue_read_errors_are_redacted_for_remote_clients() {
+    let directory = tempfile::tempdir().unwrap();
+    fs::create_dir(directory.path().join("jobs.json")).unwrap();
+    let archive = Archive::new(directory.path().into());
+    for endpoint in ["queue", "jobs"] {
+        let (status, body) = respond(
+            &archive,
+            &cfg(Some("synthetic-token")),
+            &Method::Get,
+            &format!("/api/{endpoint}"),
+            Some("Bearer synthetic-token"),
+            false,
+            "",
+        );
+        assert_eq!(status, 503);
+        assert_eq!(
+            body,
+            json!({"error":"сервис временно недоступен, повторите позже"})
+        );
+    }
+}
+
+#[test]
 fn raw_transcript_is_readable_without_cleanup_through_the_real_api() {
     let directory = tempfile::tempdir().unwrap();
     session(directory.path(), "raw-only");

@@ -240,6 +240,8 @@ button[disabled] { opacity: .4; cursor: not-allowed; }
 .queue.failed:hover { border-color: var(--rec); }
 .queue b { color: var(--ink); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .queue .mut { color: var(--mute); }
+.queue-status { display: flex; flex-direction: column; gap: 2px; min-width: 0; text-align: left; }
+.queue-status > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .qdot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
 .qdot.busy { background: var(--busy); }
 .qdot.err { background: var(--rec); }
