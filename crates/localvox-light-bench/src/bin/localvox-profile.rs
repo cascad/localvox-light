@@ -18,6 +18,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[path = "profile/ollama.rs"]
+mod ollama;
 #[path = "profile/resources.rs"]
 mod resources;
 
@@ -42,6 +44,12 @@ struct Args {
     llm_base_url: String,
     #[arg(long, default_value = "qwen3.5:9b")]
     llm_model: String,
+    /// Record content-free native Ollama request timings through an ephemeral local proxy.
+    #[arg(long)]
+    trace_ollama: bool,
+    /// Explicit NER directory; otherwise only the sibling of --model-dir is used.
+    #[arg(long)]
+    ner_model_dir: Option<PathBuf>,
 }
 
 #[derive(Deserialize)]
@@ -72,6 +80,31 @@ fn checksum(path: &Path) -> Result<String> {
         hash.update(&buffer[..count]);
     }
     Ok(format!("{:x}", hash.finalize()))
+}
+
+fn model_fingerprints(dir: &Path) -> Result<Vec<Value>> {
+    let mut paths: Vec<_> = fs::read_dir(dir)?
+        .collect::<std::io::Result<Vec<_>>>()?
+        .into_iter()
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.is_file()
+                && matches!(
+                    path.extension().and_then(|s| s.to_str()),
+                    Some("onnx" | "txt" | "yaml" | "yml" | "json")
+                )
+        })
+        .collect();
+    paths.sort();
+    paths
+        .iter()
+        .map(|path| {
+            Ok(
+                json!({"file": path.file_name().unwrap_or_default().to_string_lossy(),
+        "sha256": checksum(path)?}),
+            )
+        })
+        .collect()
 }
 
 fn audio_seconds(path: &Path) -> Result<f64> {
@@ -169,6 +202,12 @@ fn worker_command(args: &Args, root: &Path, session: &Path, phase: JobPhase) -> 
         .env("TEMP", root.join("temp"))
         .env("TMP", root.join("temp"))
         .env("LOCALVOX_DIARIZE", "off")
+        .env(
+            "LOCALVOX_NER_MODEL_DIR",
+            args.ner_model_dir
+                .clone()
+                .unwrap_or_else(|| root.join("missing-ner")),
+        )
         .arg(session)
         .arg("--worker-phase")
         .arg(phase.as_str())
@@ -219,6 +258,19 @@ fn measure(mut command: Command, timeout: Duration, cancelled: &AtomicBool) -> R
         Termination::Cancelled => "cancelled",
         Termination::OutputLimit => "output_limit",
     };
+    let diagnostic_text = String::from_utf8_lossy(&output.stderr);
+    let ner_loaded = if diagnostic_text
+        .lines()
+        .any(|line| line.trim_start().starts_with("name checking:"))
+    {
+        Some(true)
+    } else if diagnostic_text.contains("name checking is OFF")
+        || diagnostic_text.contains("NER model failed to load")
+    {
+        Some(false)
+    } else {
+        None
+    };
     let diagnostic_tail = (status != "success").then(|| {
         String::from_utf8_lossy(&output.stderr)
             .chars()
@@ -233,7 +285,8 @@ fn measure(mut command: Command, timeout: Duration, cancelled: &AtomicBool) -> R
         json!({"status": status, "wall_sec": output.elapsed.as_secs_f64(),
         "resources": usage,
         "exit_code": match output.termination { Termination::Exited(code) => code.code(), _ => None },
-        "stdout_bytes": output.stdout.len(), "stderr_bytes": output.stderr.len(), "diagnostic_tail": diagnostic_tail}),
+        "stdout_bytes": output.stdout.len(), "stderr_bytes": output.stderr.len(), "diagnostic_tail": diagnostic_tail,
+        "ner_loaded_worker_diagnostic": ner_loaded}),
     )
 }
 
@@ -315,40 +368,46 @@ fn run(mut args: Args, cancelled: &AtomicBool) -> Result<PathBuf> {
             }))
         })
         .collect::<Result<_>>()?;
-    let mut model_paths: Vec<_> = fs::read_dir(&args.model_dir)?
-        .filter_map(|entry| entry.ok())
-        .map(|entry| entry.path())
-        .filter(|path| {
-            path.is_file()
-                && matches!(
-                    path.extension().and_then(|s| s.to_str()),
-                    Some("onnx" | "txt" | "yaml" | "yml" | "json")
-                )
-        })
-        .collect();
-    model_paths.sort();
-    let model_files: Vec<_> = model_paths
-        .iter()
-        .map(|path| {
-            Ok(json!({
-        "file": path.file_name().unwrap_or_default().to_string_lossy(), "sha256": checksum(path)?,
-            }))
-        })
-        .collect::<Result<_>>()?;
+    let model_files = model_fingerprints(&args.model_dir)?;
+    if manifest.cases.iter().any(|case| case.summary) {
+        if args.ner_model_dir.is_none() {
+            args.ner_model_dir = args
+                .model_dir
+                .parent()
+                .map(|parent| parent.join("ner-gliner"))
+                .filter(|path| path.is_dir());
+        }
+        args.ner_model_dir = args
+            .ner_model_dir
+            .map(|path| path.canonicalize())
+            .transpose()?;
+    }
+    let ner_model_files = args
+        .ner_model_dir
+        .as_deref()
+        .map(model_fingerprints)
+        .transpose()?;
     let mut report = json!({"version": 1, "scope": "isolated_sequential_worker_phases",
         "label": manifest.label, "runner_debug_assertions": cfg!(debug_assertions),
         "os": std::env::consts::OS, "arch": std::env::consts::ARCH,
         "logical_cpus": std::thread::available_parallelism().ok().map(|n| n.get()),
         "worker_sha256": checksum(&args.worker)?, "runner_sha256": checksum(&std::env::current_exe()?)?,
         "manifest_sha256": checksum(&args.manifest)?,
-        "model_files": model_files, "fingerprints_pre_read_inputs_and_models": true,
+        "model_files": model_files, "ner_model_files": ner_model_files, "fingerprints_pre_read_inputs_and_models": true,
         "repeats": args.repeats, "process_policy": "fresh process for each phase; cache state uncontrolled",
         "configuration": {"diarization": false, "cleanup": false, "refine": false,
             "summary_provider": "ollama", "llm_base_url": args.llm_base_url, "llm_model": args.llm_model,
-            "timeout_sec": args.timeout_sec}, "inputs": fingerprints,
+            "timeout_sec": args.timeout_sec, "trace_ollama": args.trace_ollama}, "inputs": fingerprints,
         "queue_wait_sec": null, "external_llm_resources": null,
         "runs": [], "complete": false});
     let root = new_output(&args.output)?;
+    let trace = args
+        .trace_ollama
+        .then(|| ollama::Trace::start(&args.llm_base_url, Duration::from_secs(args.timeout_sec)))
+        .transpose()?;
+    if let Some(trace) = &trace {
+        args.llm_base_url = trace.base_url().to_string();
+    }
     report["preflight_sec"] = json!(started.elapsed().as_secs_f64());
     checkpoint(&root, &report)?;
     let batch = Instant::now();
@@ -377,11 +436,15 @@ fn run(mut args: Args, cancelled: &AtomicBool) -> Result<PathBuf> {
             };
             fs::write(session.join("meta.json"), serde_json::to_vec_pretty(&meta)?)?;
             let mut record = json!({"case": case.name, "repeat": repeat,
-                "audio_sec": input["audio_sec"], "setup_sec": setup.elapsed().as_secs_f64(), "phases": []});
+                "audio_sec": input["audio_sec"], "setup_sec": setup.elapsed().as_secs_f64(), "phases": [],
+                "complete": false, "success": false, "worker_wall_sec": null, "rtf": null});
+            let run_index = report["runs"].as_array().unwrap().len();
+            report["runs"].as_array_mut().unwrap().push(record.clone());
             for phase in [JobPhase::Transcribe, JobPhase::Summary] {
                 if phase == JobPhase::Summary && !case.summary {
                     continue;
                 }
+                let before_requests = trace.as_ref().map_or(0, |trace| trace.count());
                 let mut result = match measure(
                     worker_command(&args, &root, &session, phase),
                     Duration::from_secs(args.timeout_sec),
@@ -392,6 +455,15 @@ fn run(mut args: Args, cancelled: &AtomicBool) -> Result<PathBuf> {
                         json!({"status": "spawn_error", "wall_sec": null, "error": error.to_string()})
                     }
                 };
+                result["llm_trace"] = trace
+                    .as_ref()
+                    .map(|trace| {
+                        ollama::summarize(trace.since(before_requests), result["wall_sec"].as_f64())
+                    })
+                    .unwrap_or(Value::Null);
+                if trace.is_some() {
+                    ollama::redact_phase(&mut result);
+                }
                 result["phase"] = json!(phase.as_str());
                 if result["status"] == "success" {
                     let artifact = if phase == JobPhase::Transcribe {
@@ -402,6 +474,15 @@ fn run(mut args: Args, cancelled: &AtomicBool) -> Result<PathBuf> {
                     let verification = Instant::now();
                     let artifact = processing::inspect(&session, artifact);
                     result["artifact_state"] = serde_json::to_value(artifact.state)?;
+                    result["content_unverified"] = json!(processing::doubts(
+                        &session,
+                        if phase == JobPhase::Summary {
+                            processing::SUMMARY
+                        } else {
+                            processing::TRANSCRIPT
+                        }
+                    )
+                    .is_some());
                     result["acceptance_verification_sec"] =
                         json!(verification.elapsed().as_secs_f64());
                     if !matches!(
@@ -422,6 +503,11 @@ fn run(mut args: Args, cancelled: &AtomicBool) -> Result<PathBuf> {
                     result["wall_sec"]
                 );
                 record["phases"].as_array_mut().unwrap().push(result);
+                // Preserve an accepted STT measurement even while a long summary is still pending.
+                report["runs"][run_index] = record.clone();
+                report["batch_wall_sec"] = json!(batch.elapsed().as_secs_f64());
+                report["total_wall_sec"] = json!(started.elapsed().as_secs_f64());
+                checkpoint(&root, &report)?;
                 if !success {
                     break;
                 }
@@ -434,13 +520,17 @@ fn run(mut args: Args, cancelled: &AtomicBool) -> Result<PathBuf> {
                 .filter_map(|p| p["wall_sec"].as_f64())
                 .sum::<f64>();
             record["success"] = json!(success);
+            record["complete"] = json!(true);
             record["timeline"] = timeline(&session);
+            if trace.is_some() {
+                ollama::redact_timeline(&mut record["timeline"]);
+            }
             record["worker_wall_sec"] = if success { json!(wall) } else { Value::Null };
             record["rtf"] = record["worker_wall_sec"]
                 .as_f64()
                 .map(|wall| json!(wall / input["audio_sec"].as_f64().unwrap()))
                 .unwrap_or(Value::Null);
-            report["runs"].as_array_mut().unwrap().push(record);
+            report["runs"][run_index] = record;
             report["batch_wall_sec"] = json!(batch.elapsed().as_secs_f64());
             report["total_wall_sec"] = json!(started.elapsed().as_secs_f64());
             checkpoint(&root, &report)?;

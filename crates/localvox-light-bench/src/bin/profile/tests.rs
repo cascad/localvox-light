@@ -33,6 +33,8 @@ fn fixture(root: &Path) -> Args {
         timeout_sec: 5,
         llm_base_url: "http://127.0.0.1:11434/v1".into(),
         llm_model: "test".into(),
+        trace_ollama: false,
+        ner_model_dir: None,
     }
 }
 
@@ -139,6 +141,27 @@ fn cancellation_writes_an_incomplete_report_without_starting_a_worker() {
         serde_json::from_slice(&fs::read(root.path().join("output/report.json")).unwrap()).unwrap();
     assert_eq!(report["complete"], false);
     assert_eq!(report["runs"], json!([]));
+}
+
+#[test]
+fn traced_failures_omit_worker_diagnostic_content_and_pin_ner_environment() {
+    let root = tempfile::tempdir().unwrap();
+    let mut args = fixture(root.path());
+    args.trace_ollama = true;
+    let command = worker_command(&args, root.path(), root.path(), JobPhase::Summary);
+    let ner = command
+        .get_envs()
+        .find(|(key, _)| *key == "LOCALVOX_NER_MODEL_DIR")
+        .unwrap()
+        .1
+        .unwrap();
+    assert_eq!(Path::new(ner), root.path().join("missing-ner"));
+    assert!(run(args, &AtomicBool::new(false)).is_err());
+    let report: Value =
+        serde_json::from_slice(&fs::read(root.path().join("output/report.json")).unwrap()).unwrap();
+    let phase = &report["runs"][0]["phases"][0];
+    assert!(phase["diagnostic_tail"].is_null());
+    assert_eq!(phase["diagnostic_content_omitted"], true);
 }
 
 #[test]

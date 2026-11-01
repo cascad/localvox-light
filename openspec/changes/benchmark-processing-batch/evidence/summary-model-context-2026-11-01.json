@@ -1,0 +1,38 @@
+{
+  "after_ten_minutes": {
+    "ObservedAt": "2026-11-01T12:37:06.6883208Z",
+    "ResidentAfter": [
+      {
+        "name": "qwen3.5:9b",
+        "size": 6618370538,
+        "size_vram": 6618370538,
+        "context_length": 32768,
+        "expires_at": "2026-11-01T15:41:09.8422816+03:00"
+      }
+    ]
+  },
+  "before_repeated": {
+    "ObservedAt": "2026-11-01T12:40:58.7422214Z",
+    "ResidentBefore": [
+      {
+        "name": "qwen3.5:9b",
+        "size": 6618370538,
+        "size_vram": 6618370538,
+        "context_length": 32768,
+        "expires_at": "2026-11-01T15:41:09.8422816+03:00"
+      }
+    ]
+  },
+  "before_ten_minutes": {
+    "Version": "0.40.13",
+    "Selected": [
+      {
+        "name": "qwen3.5:9b",
+        "size": 6594474711,
+        "digest": "6488c96fa5faab64bb65cbd30d4289e20e6130ef535a93ef9a49f42eda893ea7"
+      }
+    ],
+    "ResidentBefore": [],
+    "ObservedAt": "2026-11-01T12:35:01.4326557Z"
+  }
+}

@@ -1,0 +1,253 @@
+{
+  "all_success": true,
+  "arch": "x86_64",
+  "batch_wall_sec": 18.3749078,
+  "complete": true,
+  "configuration": {
+    "cleanup": false,
+    "diarization": false,
+    "llm_base_url": "http://127.0.0.1:11434/v1",
+    "llm_model": "qwen3.5:9b",
+    "refine": false,
+    "summary_provider": "ollama",
+    "timeout_sec": 240,
+    "trace_ollama": true
+  },
+  "external_llm_resources": null,
+  "fingerprints_pre_read_inputs_and_models": true,
+  "inputs": [
+    {
+      "audio_sec": 602.1295,
+      "audio_sha256": "f268fc25294f9c6bb50c32b95a8d3db5d2df54965b115536495b202d970c51cf",
+      "name": "lf-summary",
+      "summary": true
+    }
+  ],
+  "label": "Public lf-dense 602s direct STT+summary with native Ollama telemetry; NER from ASR sibling; no cold-cache claim",
+  "logical_cpus": 6,
+  "manifest_sha256": "30b9b1a6613b6a8bc6eaac5a3801df8279a989ea807312fb60f00bf7ec56d59a",
+  "model_files": [
+    {
+      "file": "v3_e2e_ctc.int8.onnx",
+      "sha256": "2e3fcb7a7b66030336fd10c2fcfb033bd1dc7e1bf238fe5cfd83b1d0cfc9d28e"
+    },
+    {
+      "file": "v3_e2e_ctc.yaml",
+      "sha256": "e67eca3a311ad7c8813d36dff6b8eeba7ad3459fd811d6faea2a26535754a358"
+    },
+    {
+      "file": "v3_e2e_ctc_vocab.txt",
+      "sha256": "142de7570b3de5b3035ce111a89c228e80e6085273731d944093ddf24fa539cd"
+    }
+  ],
+  "ner_model_files": [
+    {
+      "file": "gliner_config.json",
+      "sha256": "1ef59c57fe6816a155697a5670ca8d0faf0babe13f199a2c2b5b65113399ed72"
+    },
+    {
+      "file": "model_fp16.onnx",
+      "sha256": "9cec3c771bfa7e886e029cd013326b13ad7d18f58fac33824f43c106fbdfe920"
+    },
+    {
+      "file": "model_q4f16.onnx",
+      "sha256": "11d5f4f5a720931d91429867fc1df22fc507f1878a321ada77a47afa424ff3dc"
+    },
+    {
+      "file": "tokenizer.json",
+      "sha256": "914bd3c8fb7b525af9e23b60d0ec7b1248ddb2b99014efd9c02ebeb022f8cab7"
+    }
+  ],
+  "os": "windows",
+  "preflight_sec": 2.041045,
+  "process_policy": "fresh process for each phase; cache state uncontrolled",
+  "queue_wait_sec": null,
+  "repeats": 1,
+  "runner_debug_assertions": false,
+  "runner_sha256": "6ebaeb0940ca19bc01f2445ead360a4b4d85386e4c21fd91ea1819f483af03ad",
+  "runs": [
+    {
+      "audio_sec": 602.1295,
+      "case": "lf-summary",
+      "complete": true,
+      "phases": [
+        {
+          "acceptance_verification_sec": 0.0002689,
+          "artifact_state": "ready",
+          "content_unverified": false,
+          "diagnostic_content_omitted": true,
+          "exit_code": 0,
+          "llm_trace": {
+            "generation_sec": null,
+            "http_wall_sec": null,
+            "model_load_sec": null,
+            "non_http_worker_wall_sec": null,
+            "prompt_sec": null,
+            "request_count": 0,
+            "requests": [],
+            "source": "native_ollama_response"
+          },
+          "ner_loaded_worker_diagnostic": null,
+          "phase": "transcribe",
+          "resources": {
+            "availability": "observed",
+            "cpu_sec": 2.40625,
+            "peak_commit_bytes": 338337792,
+            "peak_method": "maximum observed OS high-water mark; final retained-handle query",
+            "peak_working_set_bytes": 330977280,
+            "samples": 360,
+            "sampling_interval_ms": 20,
+            "scope": "worker_process_only"
+          },
+          "status": "success",
+          "stderr_bytes": 444,
+          "stdout_bytes": 288,
+          "wall_sec": 7.2946394
+        },
+        {
+          "acceptance_verification_sec": 0.000287,
+          "artifact_state": "ready",
+          "content_unverified": false,
+          "diagnostic_content_omitted": true,
+          "exit_code": 0,
+          "llm_trace": {
+            "generation_sec": 2.250015,
+            "http_wall_sec": 5.0398185,
+            "model_load_sec": 2.1923912,
+            "non_http_worker_wall_sec": 6.0165701,
+            "prompt_sec": 0.582779,
+            "request_count": 1,
+            "requests": [
+              {
+                "http_status": 200,
+                "http_wall_sec": 5.0398185,
+                "message_count": 1,
+                "ollama": {
+                  "done": true,
+                  "done_reason": "stop",
+                  "eval_count": 296,
+                  "generation_sec": 2.250015,
+                  "load_sec": 2.1923912,
+                  "prompt_eval_count": 4085,
+                  "prompt_sec": 0.582779,
+                  "total_sec": 5.0396834
+                },
+                "options": {
+                  "frequency_penalty": 0.0,
+                  "num_ctx": 32768,
+                  "num_predict": 8192,
+                  "presence_penalty": 0.0,
+                  "repeat_penalty": 1.0,
+                  "temperature": 0.20000000298023224,
+                  "top_k": 20,
+                  "top_p": 0.8999999761581421
+                },
+                "request_bytes": 18538,
+                "response_bytes": 1914,
+                "status": "completed",
+                "stream": false,
+                "think": false
+              }
+            ],
+            "source": "native_ollama_response"
+          },
+          "ner_loaded_worker_diagnostic": true,
+          "phase": "summary",
+          "resources": {
+            "availability": "observed",
+            "cpu_sec": 2.828125,
+            "peak_commit_bytes": 1922756608,
+            "peak_method": "maximum observed OS high-water mark; final retained-handle query",
+            "peak_working_set_bytes": 1517215744,
+            "samples": 545,
+            "sampling_interval_ms": 20,
+            "scope": "worker_process_only"
+          },
+          "status": "success",
+          "stderr_bytes": 2362,
+          "stdout_bytes": 254,
+          "wall_sec": 11.0563886
+        }
+      ],
+      "repeat": 1,
+      "rtf": 0.03047687914310792,
+      "setup_sec": 0.0043372,
+      "success": true,
+      "timeline": {
+        "generation_sec": null,
+        "history_status": "available",
+        "incomplete_tail": false,
+        "malformed_records": 0,
+        "model_load_sec": null,
+        "operation_durations_are_nested_not_additive": true,
+        "operations": [
+          {
+            "category": "operation",
+            "elapsed_sec": 7.1936542,
+            "operation": "01a1972e-e438-78d3-9016-d86171ed5206",
+            "stage": "transcribe"
+          },
+          {
+            "category": "ner_model_load",
+            "elapsed_sec": 1.0323923,
+            "operation": "01a1972f-00ad-7ec3-bd2d-064b502410eb",
+            "stage": "summary"
+          },
+          {
+            "category": "llm_request",
+            "elapsed_sec": 5.0480312,
+            "operation": "01a1972f-04ba-75c2-b63b-8cec1036e76b",
+            "stage": "summary"
+          },
+          {
+            "category": "grounding_check",
+            "elapsed_sec": 4.2758489,
+            "operation": "01a1972f-1875-7eb1-91c1-47b517873166",
+            "stage": "summary"
+          },
+          {
+            "category": "operation",
+            "elapsed_sec": 0.4831007,
+            "operation": "01a1972f-2934-7821-a1dd-5dccf7359f0b",
+            "stage": "summary"
+          }
+        ],
+        "stages": [
+          {
+            "artifact": null,
+            "done": 602,
+            "elapsed_sec": 7.197,
+            "ended_at": "2026-11-01T15:56:42.325865700+03:00",
+            "stage": "transcribe",
+            "started_at": "2026-11-01T15:56:35.128268900+03:00",
+            "state": "done",
+            "total": 602,
+            "updated_at": "2026-11-01T15:56:42.325865700+03:00"
+          },
+          {
+            "artifact": null,
+            "done": 2,
+            "elapsed_sec": 10.87,
+            "ended_at": "2026-11-01T15:56:53.282898900+03:00",
+            "stage": "summary",
+            "started_at": "2026-11-01T15:56:42.412769+03:00",
+            "state": "done",
+            "total": 2,
+            "updated_at": "2026-11-01T15:56:53.282898900+03:00"
+          }
+        ],
+        "verification_sec": null
+      },
+      "worker_wall_sec": 18.351028
+    }
+  ],
+  "scope": "isolated_sequential_worker_phases",
+  "total_wall_sec": 20.4187807,
+  "version": 1,
+  "worker_sha256": "9ad460f6922ff9e86c69a129fbd844885840519fa5637626b880c0ad1e0699d2",
+  "evidence_normalization": {
+    "removed": "free diagnostic fields, stage notes/artifact reasons, raw operation labels",
+    "labels": "fixed categories; timing fields preserved",
+    "source_report_sha256": "bd111f8d4e11fc4947fa352515f214f2c40e9bffe6681384f74770aa87689b08"
+  }
+}
