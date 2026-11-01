@@ -46,6 +46,11 @@
 | [ARCH-004](../specs/archive-playback/spec.md#requirement-arch-004-экспорт-best) | [src/export.rs](../../crates/localvox-light-core/src/export.rs) | code-reviewed | Отдельный runtime всех сценариев не выполнен. |
 | [ARCH-005](../specs/archive-playback/spec.md#requirement-arch-005-явное-удаление) | [src/archive.rs](../../crates/localvox-light-api/src/archive.rs) | test-run (частично): `test:delete_needs_the_session_name_and_is_final` | GAP BL-002: занятый worker пока получает отказ, controlled stop до удаления не реализован. |
 
+Дополнение 2026-11-01: [рефакторинг диспетчера TUI](../changes/refactor-terminal-command-dispatch/evidence/implementation.md).
+Пройдены прежние snapshots, палитра/хоткеи, подтверждение удаления/повторов с привязкой
+к исходной сессии, копирование и ConPTY F8/F9/F10. Настоящий общий API/UI/TUI-сценарий
+также выполнен. Серверные gaps и аппаратные границы ARCH-001–005 этим не закрываются.
+
 ## audio-storage
 
 | Требование | Реализация / вход | Свидетельство | Разрыв или граница проверки |

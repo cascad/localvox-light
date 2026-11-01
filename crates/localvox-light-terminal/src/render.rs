@@ -1,6 +1,6 @@
 //! Stateless terminal presentation. All user/server text is inert display data.
 mod documents;
-use crate::app::{state_symbol, timecode, App, Tab, View, TABS, VIEWS};
+use crate::app::{state_symbol, timecode, App, Tab, View, COMMANDS, TABS, VIEWS};
 use crate::io::Resource;
 use localvox_light_client::{safe_label, safe_text};
 use ratatui::{
@@ -279,17 +279,16 @@ pub fn draw(f: &mut Frame, a: &App) {
         rows[3],
     );
     if a.palette {
-        let commands = a.commands();
         let offset = a.palette_index.saturating_sub(8);
-        let entries = commands
+        let entries = COMMANDS
             .iter()
             .enumerate()
             .skip(offset)
             .take(16)
-            .map(|(i, c)| {
+            .map(|(i, (_, label))| {
                 ListItem::new(Line::from(vec![
                     Span::styled(format!(" {:02} ", i + 1), Style::default().fg(t.dim)),
-                    Span::styled((*c).to_owned(), Style::default().fg(t.command)),
+                    Span::styled((*label).to_owned(), Style::default().fg(t.command)),
                 ]))
             })
             .collect::<Vec<_>>();
@@ -1898,7 +1897,7 @@ mod tests {
                 .map(|c| c.symbol())
                 .collect::<String>();
             assert!(text.contains("ошибка заметки → идеи"));
-            app.command(5);
+            app.command(crate::app::Action::NewNote);
             app.paste("Черновик при изменении размера");
             terminal.draw(|f| draw(f, &app)).unwrap();
             let text = terminal

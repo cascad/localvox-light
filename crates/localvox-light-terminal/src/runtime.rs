@@ -1,5 +1,5 @@
 use crate::{
-    app::App,
+    app::{Action, App},
     io::{Io, Resource, Task},
     render,
 };
@@ -178,8 +178,8 @@ pub fn run(mut client: Client, mut app: App) -> Result<()> {
                 dirty = true;
                 match event::read()? {
                     Event::Key(k) if k.kind != KeyEventKind::Release => match k.code {
-                        KeyCode::F(8) => app.command(2),
-                        KeyCode::F(9) => app.command(1),
+                        KeyCode::F(8) => app.command(Action::StopRecording),
+                        KeyCode::F(9) => app.command(Action::StartRecording),
                         _ => app.key(k),
                     },
                     Event::Paste(text) => app.paste(&text),

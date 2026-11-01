@@ -258,7 +258,18 @@ fn real_terminal_accepts_paste_resize_and_restores_screen_on_quit() {
         &mut queries,
         deadline,
     );
-    // The reserved stop shortcut still works inside a Unicode editor.
+    // Both reserved recording shortcuts work inside an existing Unicode editor.
+    writer.write_all(b"\x1b[20~").unwrap(); // F9 replaces the import form
+    writer.flush().unwrap();
+    wait_for(
+        "Название",
+        &mut all,
+        &mut screen,
+        &rx,
+        &mut writer,
+        &mut queries,
+        deadline,
+    );
     writer.write_all(b"\x1b[19~").unwrap();
     writer.flush().unwrap();
     while api.stops.load(Ordering::Relaxed) == 0 {

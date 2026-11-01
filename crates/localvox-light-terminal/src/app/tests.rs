@@ -1,4 +1,119 @@
 use super::*;
+
+fn choose_palette(app: &mut App, label: &str) {
+    app.key(KeyEvent::new(KeyCode::Char(':'), KeyModifiers::NONE));
+    assert!(app.palette);
+    for _ in 0..COMMANDS.len() {
+        if COMMANDS[app.palette_index].1 == label {
+            app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+            assert!(!app.palette);
+            return;
+        }
+        app.key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+    }
+    panic!("No palette entry: {label}");
+}
+
+#[test]
+fn palette_repeat_and_delete_require_confirmation_for_the_original_session() {
+    for (label, scope) in [
+        ("Повторить сводку", Scope::Summary),
+        ("Повторить текст", Scope::Text),
+        ("Повторить всё", Scope::All),
+    ] {
+        let mut app = App::default();
+        app.current = Some("original".into());
+        choose_palette(&mut app, label);
+        assert!(app.effects.is_empty());
+        assert!(matches!(&app.form.as_ref().unwrap().kind,
+            FormKind::Confirm(Task::Recook(session, actual)) if session == "original" && *actual == scope));
+        app.current = Some("another".into());
+        app.paste("ДА");
+        app.submit_form().unwrap();
+        assert!(matches!(&app.effects[0].1,
+            Task::Recook(session, actual) if session == "original" && *actual == scope));
+    }
+    let mut app = App::default();
+    app.current = Some("original".into());
+    choose_palette(&mut app, "Удалить запись");
+    app.current = Some("another".into());
+    app.paste("нет");
+    assert!(app.submit_form().is_err() && app.effects.is_empty());
+    app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    assert!(app.form.is_none() && app.effects.is_empty());
+    app.current = Some("original".into());
+    choose_palette(&mut app, "Удалить запись");
+    app.current = Some("another".into());
+    app.paste("ДА");
+    app.submit_form().unwrap();
+    assert!(matches!(&app.effects[0].1, Task::DeleteSession(session) if session == "original"));
+}
+
+#[test]
+fn contextual_shortcuts_and_visible_palette_labels_open_the_same_editors() {
+    for (view, tab, key, label, kind) in [
+        (View::Archive, Tab::Summary, '/', "Поиск", FormKind::Search),
+        (
+            View::Archive,
+            Tab::Progress,
+            '/',
+            "Фильтр журнала",
+            FormKind::JournalFilter,
+        ),
+        (
+            View::Settings,
+            Tab::Summary,
+            '/',
+            "Фильтр настроек",
+            FormKind::SettingsFilter,
+        ),
+        (
+            View::Notes,
+            Tab::Summary,
+            'n',
+            "Новая заметка",
+            FormKind::Note,
+        ),
+        (View::Ask, Tab::Summary, 'n', "Новый вопрос", FormKind::Ask),
+        (
+            View::Archive,
+            Tab::Summary,
+            'i',
+            "Импорт URL",
+            FormKind::Import,
+        ),
+        (
+            View::Archive,
+            Tab::Summary,
+            'g',
+            "Перейти ко времени",
+            FormKind::Seek,
+        ),
+    ] {
+        for palette in [false, true] {
+            let mut app = App::default();
+            app.view = view;
+            app.tab = tab;
+            if palette {
+                choose_palette(&mut app, label);
+            } else {
+                app.key(KeyEvent::new(KeyCode::Char(key), KeyModifiers::NONE));
+            }
+            assert_eq!(
+                std::mem::discriminant(&app.form.as_ref().unwrap().kind),
+                std::mem::discriminant(&kind),
+                "{label}, palette={palette}"
+            );
+            assert!(app.effects.is_empty());
+            for letter in ['q', 'y', 'n', 'i', '/'] {
+                app.key(KeyEvent::new(KeyCode::Char(letter), KeyModifiers::NONE));
+            }
+            assert!(app.effects.is_empty() && !app.quit && !app.palette);
+            assert!(app.form.as_ref().unwrap().fields[0].value.contains("qyni/"));
+        }
+    }
+}
+
 #[test]
 fn player_focus_seeks_with_boundaries_and_forms_keep_playback_keys_as_text() {
     let mut a = App::default();
@@ -25,7 +140,7 @@ fn player_focus_seeks_with_boundaries_and_forms_keep_playback_keys_as_text() {
     }
     a.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     assert_eq!(a.focus, 2);
-    a.command(7);
+    a.command(Action::NewAsk);
     let before = a.player_effects.len();
     for c in ['g', 'p', ' '] {
         a.key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
@@ -47,7 +162,7 @@ fn ordinary_play_after_a_fragment_continues_from_its_endpoint() {
         fragment_end: Some(20.8),
         ..Default::default()
     };
-    a.command(24);
+    a.command(Action::TogglePlayback);
     assert!(
         matches!(a.player_effects.last(), Some(crate::player::PlaybackCommand::Load { start, end: None, .. }) if *start == 20.8)
     );
@@ -74,7 +189,7 @@ fn stale_session_cannot_replace_the_open_document() {
 #[test]
 fn paste_is_text_not_commands() {
     let mut a = App::default();
-    a.command(7);
+    a.command(Action::NewAsk);
     a.paste("Русский\nqri: текст");
     assert!(!a.quit);
     assert!(a.effects.is_empty());
@@ -84,7 +199,7 @@ fn paste_is_text_not_commands() {
 fn cancellation_never_deletes() {
     let mut a = App::default();
     a.current = Some("session".into());
-    a.command(17);
+    a.command(Action::DeleteSession);
     a.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
     assert!(a.form.is_none());
     assert!(a.effects.is_empty());
@@ -93,7 +208,7 @@ fn cancellation_never_deletes() {
 fn record_requires_engine_confirmation() {
     let mut a = App::default();
     a.record.engine = true;
-    a.command(1);
+    a.command(Action::StartRecording);
     a.submit_form().unwrap();
     assert_eq!(a.pending_record, Some(true));
     assert!(!a.record.recording);
@@ -105,7 +220,7 @@ fn record_requires_engine_confirmation() {
 fn failed_mutation_restores_the_original_session_draft() {
     let mut a = App::default();
     a.current = Some("A".into());
-    a.command(10);
+    a.command(Action::ChangeLanguage);
     a.submit_form().unwrap();
     a.current = Some("B".into());
     a.apply(Response {
@@ -123,7 +238,7 @@ fn failed_mutation_restores_the_original_session_draft() {
 fn stop_is_independent_of_a_pending_model_action() {
     let mut a = App::default();
     a.pending_actions.insert(Resource::Action);
-    a.command(2);
+    a.command(Action::StopRecording);
     assert!(matches!(&a.effects[0], (Resource::Control, Task::Stop)));
 }
 #[test]
@@ -167,7 +282,11 @@ fn plain_text_copy_is_whole_document_and_letter_shortcuts_stay_text_in_forms() {
     }
     app.effects.clear();
     app.pending_actions.clear();
-    app.command(7);
+    choose_palette(&mut app, "Копировать документ");
+    assert!(matches!(&app.effects[0].1, Task::Copy(text) if text == &expected));
+    app.effects.clear();
+    app.pending_actions.clear();
+    app.command(Action::NewAsk);
     for key in ['q', 'y', 'й', 'н'] {
         app.key(KeyEvent::new(KeyCode::Char(key), KeyModifiers::NONE));
     }
@@ -186,14 +305,14 @@ fn quit_alternatives_leave_recording_and_daemon_alone() {
         assert!(app.record.recording);
     }
     let mut app = App::default();
-    app.command(7);
+    app.command(Action::NewAsk);
     app.key(KeyEvent::new(KeyCode::F(10), KeyModifiers::NONE));
     assert!(app.quit && app.effects.is_empty());
 }
 #[test]
 fn editing_preserves_unicode_at_the_cursor() {
     let mut a = App::default();
-    a.command(7);
+    a.command(Action::NewAsk);
     a.paste("абв");
     a.key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
     a.key(KeyEvent::new(KeyCode::Char('Я'), KeyModifiers::NONE));
@@ -221,7 +340,7 @@ fn note_deletion_is_scoped_to_the_selected_slot() {
         },
     ];
     a.selected = 1;
-    a.command(18);
+    a.command(Action::DeleteNote);
     let f = a.form.unwrap();
     assert!(
         matches!(f.kind,FormKind::Confirm(Task::DeleteNote(slot,n)) if slot=="two"&&n.text=="right")
@@ -236,7 +355,7 @@ fn failed_poll_keeps_document_focus_and_draft() {
         text: "retained".into(),
         ..Default::default()
     }];
-    a.command(7);
+    a.command(Action::NewAsk);
     a.paste("черновик");
     a.apply(Response {
         id: 1,
@@ -267,7 +386,7 @@ fn copy_excludes_original_and_provenance_even_when_expanded() {
         ..Default::default()
     };
     assert_eq!(a.copy_text(), "чистый документ");
-    a.command(22);
+    a.command(Action::CopyDocument);
     assert!(matches!(&a.effects[0].1,Task::Copy(s) if s=="чистый документ"));
 }
 #[test]
@@ -316,7 +435,7 @@ fn catalogue_field_types_validate_without_exposing_secrets_or_saving_untouched_d
         (2, "unknown-provider", "ollama"),
     ] {
         app.selected = index;
-        app.command(20);
+        app.command(Action::EditSetting);
         app.paste(bad);
         assert!(app.submit_form().is_err());
         let field = &mut app.form.as_mut().unwrap().fields[0];
@@ -324,7 +443,7 @@ fn catalogue_field_types_validate_without_exposing_secrets_or_saving_untouched_d
         app.submit_form().unwrap();
     }
     app.selected = 3;
-    app.command(20);
+    app.command(Action::EditSetting);
     assert!(app.form.as_ref().unwrap().fields[0].secret);
     assert!(app.form.as_ref().unwrap().fields[0].value.is_empty());
     app.paste("new-synthetic-secret");
@@ -334,10 +453,10 @@ fn catalogue_field_types_validate_without_exposing_secrets_or_saving_untouched_d
         .document_text()
         .contains("must-not-display-server-value"));
     app.selected = 4;
-    app.command(20);
+    app.command(Action::EditSetting);
     app.submit_form().unwrap();
     assert!(!app.settings_edits.contains_key("LOCALVOX_P"));
-    app.command(32);
+    app.command(Action::SaveSettings);
     app.paste("ДА");
     app.submit_form().unwrap();
     assert!(
@@ -359,12 +478,12 @@ fn settings_are_staged_and_failure_does_not_lose_changed_keys() {
             ..Default::default()
         },
     ];
-    a.command(20);
+    a.command(Action::EditSetting);
     a.form.as_mut().unwrap().fields[0].value = "20".into();
     a.submit_form().unwrap();
     assert!(a.effects.is_empty());
     assert_eq!(a.settings_edits.len(), 1);
-    a.command(32);
+    a.command(Action::SaveSettings);
     a.form.as_mut().unwrap().fields[0].value = "ДА".into();
     a.submit_form().unwrap();
     assert!(
@@ -395,7 +514,7 @@ fn settings_are_staged_and_failure_does_not_lose_changed_keys() {
 #[test]
 fn empty_search_and_invalid_number_do_not_send_requests() {
     let mut a = App::default();
-    a.command(3);
+    a.command(Action::Search);
     assert!(a.submit_form().is_err());
     assert!(a.effects.is_empty());
     a.form = None;
@@ -404,7 +523,7 @@ fn empty_search_and_invalid_number_do_not_send_requests() {
         kind: "number".into(),
         ..Default::default()
     }];
-    a.command(20);
+    a.command(Action::EditSetting);
     a.form.as_mut().unwrap().fields[0].value = "NaN".into();
     assert!(a.submit_form().is_err());
     assert!(a.effects.is_empty());
@@ -412,9 +531,9 @@ fn empty_search_and_invalid_number_do_not_send_requests() {
 #[test]
 fn route_proposes_without_sending_or_replacing_a_note() {
     let mut a = App::default();
-    a.command(5);
+    a.command(Action::NewNote);
     a.form.as_mut().unwrap().fields[1].value = "мой черновик".into();
-    a.command(6);
+    a.command(Action::SuggestSlot);
     assert!(matches!(&a.effects[0],(Resource::Route,Task::Route(text)) if text=="мой черновик"));
     a.effects.clear();
     a.apply(Response {
@@ -434,7 +553,7 @@ fn route_proposes_without_sending_or_replacing_a_note() {
 fn late_mutation_ack_cannot_navigate_back_to_the_previous_session() {
     let mut a = App::default();
     a.current = Some("A".into());
-    a.command(10);
+    a.command(Action::ChangeLanguage);
     a.submit_form().unwrap();
     a.select_session("B".into());
     a.effects.clear();
@@ -452,10 +571,10 @@ fn late_mutation_ack_cannot_navigate_back_to_the_previous_session() {
 #[test]
 fn failed_action_keeps_its_draft_when_another_form_is_open() {
     let mut a = App::default();
-    a.command(7);
+    a.command(Action::NewAsk);
     a.paste("original material");
     a.submit_form().unwrap();
-    a.command(5);
+    a.command(Action::NewNote);
     a.paste("new note");
     a.apply(Response {
         id: 1,
@@ -465,7 +584,7 @@ fn failed_action_keeps_its_draft_when_another_form_is_open() {
     });
     assert!(matches!(a.form.as_ref().unwrap().kind, FormKind::Note));
     a.form = None;
-    a.command(35);
+    a.command(Action::RestoreDraft);
     assert_eq!(
         a.form.as_ref().unwrap().fields[0].value,
         "original material"
@@ -485,8 +604,8 @@ fn seek_parses_timecodes_and_repeating_a_fragment_sends_it_twice() {
         end_sec: 2.0,
         ..Default::default()
     }];
-    a.command(25);
-    a.command(25);
+    a.command(Action::PlayFragment);
+    a.command(Action::PlayFragment);
     assert_eq!(a.player_effects.len(), 2);
     a.select_session("other".into());
     assert!(matches!(
@@ -576,7 +695,7 @@ fn deleting_a_session_drops_its_document_and_ignores_an_older_list() {
         text: "deleted document".into(),
         ..Default::default()
     }];
-    a.command(17);
+    a.command(Action::DeleteSession);
     a.form.as_mut().unwrap().fields[0].value = "ДА".into();
     a.submit_form().unwrap();
     a.apply(Response {
@@ -607,7 +726,7 @@ fn untouched_settings_do_not_create_an_override() {
         kind: "number".into(),
         ..Default::default()
     }];
-    a.command(20);
+    a.command(Action::EditSetting);
     a.submit_form().unwrap();
     assert!(a.settings_edits.is_empty());
     assert!(a.effects.is_empty());
@@ -615,7 +734,7 @@ fn untouched_settings_do_not_create_an_override() {
 #[test]
 fn accepted_import_opens_its_progress_without_inventing_a_finished_document() {
     let mut a = App::default();
-    a.command(0);
+    a.command(Action::ImportUrl);
     a.paste("https://example.org/video");
     a.submit_form().unwrap();
     a.apply(Response {
@@ -635,7 +754,10 @@ fn accepted_import_opens_its_progress_without_inventing_a_finished_document() {
 
 #[test]
 fn search_and_chat_failures_keep_the_unicode_query_for_editing() {
-    for (command, resource) in [(3, Resource::Search), (4, Resource::Chat)] {
+    for (command, resource) in [
+        (Action::Search, Resource::Search),
+        (Action::Chat, Resource::Chat),
+    ] {
         let mut a = App::default();
         a.command(command);
         a.paste("Зачем нужен журнал? 🦀");
@@ -666,10 +788,10 @@ fn search_and_chat_failures_keep_the_unicode_query_for_editing() {
 #[test]
 fn rejected_submission_keeps_its_draft_beside_a_new_form() {
     let mut a = App::default();
-    a.command(4);
+    a.command(Action::Chat);
     a.paste("Долгий вопрос");
     a.submit_form().unwrap();
-    a.command(0);
+    a.command(Action::ImportUrl);
     a.paste("https://example.org/new");
     a.submission_rejected(Resource::Chat);
     assert_eq!(
@@ -706,15 +828,15 @@ fn settings_filter_edits_the_visible_key_and_discard_is_local_and_explicit() {
     a.submit_form().unwrap();
     assert_eq!(a.list_len(), 1);
     assert_eq!(a.selected_setting().unwrap().key, "SECOND");
-    a.command(20);
+    a.command(Action::EditSetting);
     a.form.as_mut().unwrap().fields[0].value = "20".into();
     a.submit_form().unwrap();
     assert_eq!(a.settings_edits["SECOND"].as_deref(), Some("20"));
-    a.command(37);
+    a.command(Action::DiscardSettings);
     assert!(a.submit_form().is_err());
     a.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
     assert_eq!(a.settings_edits.len(), 1);
-    a.command(37);
+    a.command(Action::DiscardSettings);
     a.paste("ДА");
     a.submit_form().unwrap();
     assert!(a.settings_edits.is_empty() && a.effects.is_empty());
@@ -769,7 +891,7 @@ fn artifact_confirmation_rejects_reads_started_before_its_ack() {
     let mut a = App::default();
     a.current = Some("A".into());
     let old_epoch = a.epoch;
-    a.command(16);
+    a.command(Action::ConfirmDocument);
     a.apply(Response {
         id: 10,
         epoch: 0,
@@ -819,7 +941,7 @@ fn a_failed_answer_with_an_empty_answer_field_still_shows_its_error_and_input() 
 fn a_recording_ack_is_not_confirmation_and_timeout_does_not_invent_a_stop() {
     let mut a = App::default();
     a.record.engine = true;
-    a.command(1);
+    a.command(Action::StartRecording);
     a.paste("Длинное название встречи");
     a.submit_form().unwrap();
     a.apply(Response {
@@ -884,7 +1006,7 @@ fn clipboard_failure_preserves_the_clean_document_and_has_a_visible_reason() {
         text: "Текст документа".into(),
         ..Default::default()
     }];
-    a.command(22);
+    a.command(Action::CopyDocument);
     assert!(matches!(&a.effects[0].1,Task::Copy(text) if text=="Текст документа"));
     a.apply(Response {
         id: 1,
@@ -898,7 +1020,7 @@ fn clipboard_failure_preserves_the_clean_document_and_has_a_visible_reason() {
 #[test]
 fn search_pending_empty_and_error_are_distinct_and_enter_selects_the_timecoded_line() {
     let mut a = App::default();
-    a.command(3);
+    a.command(Action::Search);
     a.paste("архитектура");
     a.submit_form().unwrap();
     assert!(a.document_text().contains("Ищем:") && !a.document_text().contains("не найдено"));
@@ -958,11 +1080,11 @@ fn search_pending_empty_and_error_are_distinct_and_enter_selects_the_timecoded_l
 #[test]
 fn a_pending_route_cannot_be_relabelled_as_a_suggestion_for_new_text() {
     let mut a = App::default();
-    a.command(5);
+    a.command(Action::NewNote);
     a.form.as_mut().unwrap().fields[1].value = "Старый текст".into();
-    a.command(6);
+    a.command(Action::SuggestSlot);
     a.form.as_mut().unwrap().fields[1].value = "Новая заметка".into();
-    a.command(6);
+    a.command(Action::SuggestSlot);
     assert_eq!(a.route_text.as_deref(), Some("Старый текст"));
     a.apply(Response {
         id: 1,
@@ -984,7 +1106,7 @@ fn a_pending_route_cannot_be_relabelled_as_a_suggestion_for_new_text() {
 #[test]
 fn failed_note_delivery_preserves_its_text_and_explicit_slot() {
     let mut a = App::default();
-    a.command(5);
+    a.command(Action::NewNote);
     a.form.as_mut().unwrap().fields[0].value = "идеи".into();
     a.form.as_mut().unwrap().fields[1].value = "Черновик".into();
     a.submit_form().unwrap();
@@ -1041,7 +1163,11 @@ fn queue_keeps_server_order_and_retries_the_selected_session_with_explicit_scope
     a.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     assert_eq!(a.current.as_deref(), Some("b"));
     assert_eq!(a.tab, Tab::Progress);
-    for (command, scope) in [(13, Scope::Summary), (14, Scope::Text), (15, Scope::All)] {
+    for (command, scope) in [
+        (Action::RecookSummary, Scope::Summary),
+        (Action::RecookText, Scope::Text),
+        (Action::RecookAll, Scope::All),
+    ] {
         a.pending_actions.clear();
         a.effects.clear();
         a.command(command);

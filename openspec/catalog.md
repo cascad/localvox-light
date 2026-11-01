@@ -55,6 +55,8 @@ BL-001/007/020 реализованы и проверены в исходник�
 | [protect-retained-audio](changes/protect-retained-audio/proposal.md) | [BL-020](backlog.md#bl-020) | Хранить аудио по умолчанию и проверять STT перед opt-in очисткой |
 | [persist-notes-before-delivery](changes/persist-notes-before-delivery/proposal.md) | [BL-021](backlog.md#bl-021) | Сохранить локальную заметку до доставки и подтверждать фактический результат |
 | [add-technical-journal-workspace](changes/add-technical-journal-workspace/proposal.md) | Запрос владельца 2026-10-31 | Общий журнал UI/TUI и новый терминальный аналог графического приложения; [план](changes/add-technical-journal-workspace/design.md), [паритет](changes/add-technical-journal-workspace/parity.md), [реализация и проверки](changes/add-technical-journal-workspace/evidence/implementation.md) в работе |
+| [control-postprocessing-and-terminal-player](changes/control-postprocessing-and-terminal-player/proposal.md) | Уточнения владельца 2026-10-31/11-01 | Обязательный STT, опциональная summary, непрерывный ход обработки, плеер и цельный текст; программные задачи 21/21, [последние проверки](changes/control-postprocessing-and-terminal-player/evidence/plain-text-and-terminal-exit.md), аппаратная приёмка общего журнала остаётся открытой |
+| [refactor-terminal-command-dispatch](changes/refactor-terminal-command-dispatch/proposal.md) | Продолжение рефакторинга 2026-11-01 | Именованные действия и статическая палитра TUI без изменения поведения; [проверки](changes/refactor-terminal-command-dispatch/evidence/implementation.md) |
 
 Группы сырых идей BL-011–017 остаются во [входящем списке](backlog.md).
 Их ещё нужно разделить на конкретные изменения; наличие там записи не запускает разработку.

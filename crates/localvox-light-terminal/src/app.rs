@@ -1,7 +1,9 @@
 //! Deterministic workspace state. I/O results carry the selection epoch.
+mod commands;
 mod documents;
 mod forms;
 use crate::io::{Data, Resource, Response, Task};
+pub use commands::{Action, COMMANDS};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use localvox_light_client::{safe_text, types::*, Scope};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -718,7 +720,7 @@ impl App {
                     .as_ref()
                     .is_some_and(|f| matches!(f.kind, FormKind::Note))
             {
-                self.command(6);
+                self.command(Action::SuggestSlot);
                 return;
             }
             if key.code == KeyCode::Esc {
@@ -765,13 +767,12 @@ impl App {
             match key.code {
                 KeyCode::Esc => self.palette = false,
                 KeyCode::Down | KeyCode::Char('j') => {
-                    self.palette_index = (self.palette_index + 1) % self.commands().len()
+                    self.palette_index = (self.palette_index + 1) % COMMANDS.len()
                 }
                 KeyCode::Up | KeyCode::Char('k') => {
-                    self.palette_index =
-                        (self.palette_index + self.commands().len() - 1) % self.commands().len()
+                    self.palette_index = (self.palette_index + COMMANDS.len() - 1) % COMMANDS.len()
                 }
-                KeyCode::Enter => self.command(self.palette_index),
+                KeyCode::Enter => self.command(COMMANDS[self.palette_index].0),
                 _ => {}
             }
             return;
@@ -810,18 +811,18 @@ impl App {
                     .modifiers
                     .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
             {
-                self.command(22)
+                self.command(Action::CopyDocument)
             }
-            KeyCode::Char('g') => self.command(26),
+            KeyCode::Char('g') => self.command(Action::Seek),
             KeyCode::Char('?') => self.help = true,
             KeyCode::Char(':') => self.palette = true,
             KeyCode::Char('/') => {
                 self.command(if self.view == View::Archive && self.tab == Tab::Progress {
-                    34
+                    Action::FilterJournal
                 } else if self.view == View::Settings {
-                    36
+                    Action::FilterSettings
                 } else {
-                    3
+                    Action::Search
                 })
             }
             KeyCode::Tab => {
@@ -839,8 +840,8 @@ impl App {
                 }
             }
             KeyCode::Char('r') => self.refresh(),
-            KeyCode::Char(' ') => self.command(24),
-            KeyCode::Char('p') => self.command(25),
+            KeyCode::Char(' ') => self.command(Action::TogglePlayback),
+            KeyCode::Char('p') => self.command(Action::PlayFragment),
             KeyCode::Left if key.modifiers.contains(KeyModifiers::ALT) => self.nudge(-15.0),
             KeyCode::Right if key.modifiers.contains(KeyModifiers::ALT) => self.nudge(15.0),
             KeyCode::Char('o') if self.view == View::Archive && self.tab == Tab::Progress => {
@@ -850,11 +851,11 @@ impl App {
                         .push((Resource::Journal, Task::Journal(s, None, Some(before))));
                 }
             }
-            KeyCode::Char('i') => self.command(0),
+            KeyCode::Char('i') => self.command(Action::ImportUrl),
             KeyCode::Char('n') => self.command(match self.view {
-                View::Notes => 5,
-                View::Ask => 7,
-                _ => 0,
+                View::Notes => Action::NewNote,
+                View::Ask => Action::NewAsk,
+                _ => Action::ImportUrl,
             }),
             KeyCode::Char('1'..='5') => {
                 if let KeyCode::Char(c) = key.code {
@@ -1130,7 +1131,7 @@ impl App {
             }
             View::Settings => {
                 self.item = self.selected;
-                self.command(20);
+                self.command(Action::EditSetting);
             }
             _ => self.expanded = !self.expanded,
         }
