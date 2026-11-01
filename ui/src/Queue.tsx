@@ -69,10 +69,15 @@ export function QueuePane({
                     {i.state === "running" && <span className="st busy">обрабатывается</span>}
                     {i.state === "pending" && <span className="st mute">ждёт очереди</span>}
                     {i.state === "failed" && (
-                      <span className="st err">{i.stuck ? "остановлено" : "сорвалось, повторю"}</span>
+                      <span className="st err">{i.retry?.state === "retry_wait" ? "ожидается повтор" : i.stuck || i.retry?.state === "failed" ? "остановлено" : "повтор не подтверждён"}</span>
                     )}
                     {i.kind === "ingest" && <span>· по ссылке</span>}
                   </span>
+                  <span className="m">этап <code>{i.phase ?? "неизвестен"}</code> · попыток: {i.attempts}</span>
+                  {i.retry && <span className="qerr" data-retry-state={i.retry.state}>
+                    {i.retry.message}
+                    {i.retry.retry_at ? <><br />Повтор не раньше: {new Date(i.retry.retry_at).toLocaleString("ru-RU")}.</> : i.retry.state !== "failed" && <><br />Срок повтора неизвестен.</>}
+                  </span>}
                   {i.last_error && <span className="qerr">{i.last_error}</span>}
                 </button>
                 {/* Out of retries: it will not move again by itself, and saying so beats a queue

@@ -231,6 +231,8 @@ pub struct QueueItem {
     /// Place in the line. 1 — next. `None` for what is already running.
     pub position: Option<usize>,
     pub attempts: u32,
+    pub phase: localvox_light_core::jobs::JobPhase,
+    pub retry: Option<localvox_light_core::workflow::RetryPlan>,
     /// Why it failed, if it did — the reason belongs next to the fact, not in a log nobody opens.
     pub last_error: Option<String>,
     /// It has burned its retry budget: it will not move again on its own, only by a human's
@@ -2120,6 +2122,8 @@ impl Archive {
     pub fn queue(&self) -> Result<Vec<QueueItem>> {
         use localvox_light_core::jobs::{JobKind, JobState as S, MAX_REVIVALS};
         let q = self.readable_queue()?;
+        let coordinator = localvox_light_core::jobs::coordinator_status();
+        let now = localvox_light_core::versions::now_rfc3339();
         let mut place = 0usize;
         Ok(q.jobs()
             .iter()
@@ -2162,6 +2166,8 @@ impl Archive {
                     .into(),
                     position,
                     attempts: j.attempts,
+                    phase: j.phase,
+                    retry: localvox_light_core::workflow::retry_plan(j, coordinator.as_ref(), &now),
                     last_error: j.last_error.clone(),
                     stuck: j.state == S::Failed && j.revivals >= MAX_REVIVALS,
                 }

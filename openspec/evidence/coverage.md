@@ -224,6 +224,16 @@
 |---|---|---|---|
 | API-006 | [API delta](../changes/fix-workspace-status-polling/specs/api-access/spec.md), [App](../../ui/src/App.tsx), [usePolling](../../ui/src/usePolling.ts), [API client](../../ui/src/api.ts) | [test-run](../changes/fix-workspace-status-polling/evidence/implementation.md): до исправления перекрывались sessions/jobs/record; после — независимые последовательные циклы, свежий снимок после start/stop/import, отмена старого GET, сохранение выбора и backoff/recovery; полный browser и общий API/UI/TUI | Mock задержки и команды записи, без физического захвата; REC-001/003 и аппаратная приёмка этим полностью не закрываются |
 
+## План автоматического повтора · 2026-11-01
+
+Дополнение к PIPE-010/011 и delta PIPE-016:
+[план автоматического повтора](../changes/explain-automatic-retry-state/evidence/implementation.md),
+[уточнение PIPE-011](../changes/explain-automatic-retry-state/specs/processing-pipeline/spec.md).
+Воспроизведён ложный retry_wait при disabled coordinator; общий plan теперь
+различает доступность/неподтверждённость и исчерпание, сохраняет deadline 1/2/4 часа
+и неизвестное время. API/UI/TUI показывают фазу, попытки, причину и «не раньше»;
+чтение не меняет jobs.json. Это не изменение scheduler или закрытие BL-002/003/004.
+
 ## Ручное возобновление обработки · 2026-11-01
 
 Продолжение PIPE-010/011/012: [ручное возобновление Failed](../changes/resume-failed-processing/evidence/implementation.md),

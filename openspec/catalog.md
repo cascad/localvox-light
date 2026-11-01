@@ -63,6 +63,7 @@ BL-001/007/020 реализованы и проверены в исходник�
 | [fix-browser-player-lifecycle](changes/fix-browser-player-lifecycle/proposal.md) | Продолжение проверки плеера 2026-11-01 | Сохранение позиции/паузы/фрагмента при обновлении метаданных, последовательная waveform и cleanup источника; [проверки](changes/fix-browser-player-lifecycle/evidence/implementation.md) |
 | [fix-queue-read-failures](changes/fix-queue-read-failures/proposal.md) | Продолжение проверки фоновой обработки 2026-11-01 | Нечитаемая очередь даёт 503 и явный статус UI/TUI с сохранением последних данных; [проверки](changes/fix-queue-read-failures/evidence/implementation.md) |
 | [resume-failed-processing](changes/resume-failed-processing/proposal.md) | Продолжение проверки ручного повтора 2026-11-01 | Возобновление Failed с прежней фазы без full recook, отдельные API/UI/TUI команды; [проверки](changes/resume-failed-processing/evidence/implementation.md) |
+| [explain-automatic-retry-state](changes/explain-automatic-retry-state/proposal.md) | Продолжение проверки повторов 2026-11-01 | Единое объяснение backoff/координатора, фаза и план в очереди UI/TUI; [проверки](changes/explain-automatic-retry-state/evidence/implementation.md) |
 
 Группы сырых идей BL-011–017 остаются во [входящем списке](backlog.md).
 Их ещё нужно разделить на конкретные изменения; наличие там записи не запускает разработку.

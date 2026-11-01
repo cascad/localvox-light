@@ -123,6 +123,8 @@ export interface QueueItem {
   /** Place in the line; null for what is already cooking. */
   position?: number | null;
   attempts: number;
+  phase?: "prepare" | "transcribe" | "text" | "summary" | null;
+  retry?: { state: string; message: string; retry_at: string | null } | null;
   last_error?: string | null;
   /** Out of retries — it will not move again without a human pressing "переварить". */
   stuck: boolean;

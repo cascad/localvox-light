@@ -355,6 +355,61 @@ fn retry_rejects_busy_recording_invalid_queue_and_other_states_before_changing_p
 }
 
 #[test]
+fn queue_and_progress_share_retry_deadlines_and_never_reset_persisted_attempts() {
+    let root = tempfile::tempdir().unwrap();
+    session(root.path(), "waiting");
+    jobs::JobQueue::mutate(root.path(), |queue| {
+        queue.requeue_derivatives("waiting", true, false, false);
+        let job = queue.start_phase(0, &[jobs::JobPhase::Summary]).unwrap();
+        queue.mark_failed(job.id, "synthetic model offline", 1);
+    });
+    let path = root.path().join("jobs.json");
+    let mut saved: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    let failed_at = saved["jobs"][0]["failed_at"].as_u64().unwrap();
+    let server = journal_http_fixture(root.path(), Some("synthetic-token"));
+    let client = Client::new(&server.address, "synthetic-token".into()).unwrap();
+    for round in 0..=jobs::MAX_REVIVALS {
+        saved["jobs"][0]["revivals"] = json!(round);
+        let bytes = serde_json::to_vec(&saved).unwrap();
+        fs::write(&path, &bytes).unwrap();
+        let queue = client.queue().unwrap();
+        assert_eq!(queue[0].phase.as_deref(), Some("summary"));
+        assert_eq!(queue[0].attempts, 1);
+        let plan = queue[0].retry.as_ref().unwrap();
+        let execution = client.progress("waiting").unwrap().execution.unwrap();
+        assert_eq!(
+            (&execution.state, &execution.retry_at),
+            (&plan.state, &plan.retry_at)
+        );
+        assert!(execution.message.starts_with(&plan.message));
+        if round < jobs::MAX_REVIVALS {
+            let at = chrono::DateTime::parse_from_rfc3339(plan.retry_at.as_deref().unwrap())
+                .unwrap()
+                .timestamp() as u64;
+            assert_eq!(at - failed_at, 3600 * (1 << round));
+            assert!(!queue[0].stuck);
+        } else {
+            assert_eq!(plan.state, "failed");
+            assert!(plan.retry_at.is_none() && queue[0].stuck);
+        }
+        assert_eq!(fs::read(&path).unwrap(), bytes);
+        assert_eq!(jobs::JobQueue::load(root.path()).jobs()[0].revivals, round);
+    }
+    saved["jobs"][0]["revivals"] = json!(0);
+    saved["jobs"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("failed_at");
+    let bytes = serde_json::to_vec(&saved).unwrap();
+    fs::write(&path, &bytes).unwrap();
+    let queue = client.queue().unwrap();
+    let plan = queue[0].retry.as_ref().unwrap();
+    assert_ne!(plan.state, "failed");
+    assert!(plan.retry_at.is_none() && !queue[0].stuck);
+    assert_eq!(fs::read(&path).unwrap(), bytes);
+}
+
+#[test]
 fn raw_transcript_is_readable_without_cleanup_through_the_real_api() {
     let directory = tempfile::tempdir().unwrap();
     session(directory.path(), "raw-only");

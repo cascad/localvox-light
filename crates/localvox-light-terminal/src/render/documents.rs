@@ -59,6 +59,26 @@ pub(super) fn project(a: &App, t: Theme, metadata: bool) -> Projection {
     };
     let focused = a.focus == 2;
     match a.view {
+        View::Queue => {
+            let retry = a.queue.get(a.selected).and_then(|job| job.retry.as_ref());
+            for line in a.document_text().lines() {
+                let color = if retry
+                    .is_some_and(|plan| plan.message == line && plan.state != "retry_wait")
+                {
+                    t.error
+                } else if line.starts_with("Повтор не раньше:") {
+                    t.argument
+                } else if line.starts_with("Этап:") {
+                    t.value
+                } else {
+                    t.ink
+                };
+                projection.lines.push(Line::from(Span::styled(
+                    safe_text(line),
+                    Style::default().fg(color),
+                )));
+            }
+        }
         View::Archive => match a.tab {
             Tab::Readable if a.readable.from_transcript => {
                 projection.lines.push(Line::from(Span::styled(

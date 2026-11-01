@@ -519,21 +519,32 @@ fn items(f: &mut Frame, a: &App, area: Rect, t: Theme) {
                 )
             })
             .collect(),
-        View::Queue => a
-            .queue
-            .iter()
-            .map(|q| {
-                format!(
-                    "{} {}",
-                    if q.stuck {
-                        "! остановлено"
-                    } else {
-                        state_symbol(&q.state, a.ascii)
-                    },
-                    safe_label(&q.title)
-                )
-            })
-            .collect(),
+        View::Queue => {
+            a.queue
+                .iter()
+                .map(|q| {
+                    format!(
+                        "{} {}",
+                        if q.retry
+                            .as_ref()
+                            .is_some_and(|plan| plan.state == "retry_wait")
+                        {
+                            "~ повтор"
+                        } else if q.retry.as_ref().is_some_and(|plan| matches!(
+                            plan.state.as_str(),
+                            "blocked" | "stalled"
+                        )) {
+                            "? повтор"
+                        } else if q.stuck {
+                            "! остановлено"
+                        } else {
+                            state_symbol(&q.state, a.ascii)
+                        },
+                        safe_label(&q.title)
+                    )
+                })
+                .collect()
+        }
         View::Notes => a
             .notes
             .iter()
@@ -1314,6 +1325,80 @@ fn context(f: &mut Frame, a: &App, area: Rect, t: Theme) {
 mod tests {
     use super::*;
     use ratatui::{backend::TestBackend, Terminal};
+
+    #[test]
+    fn queue_retry_plan_shows_phase_reason_deadline_and_state_styles() {
+        for state in ["retry_wait", "blocked", "stalled", "failed"] {
+            let mut app = App::default();
+            app.view = View::Queue;
+            let message = if state == "retry_wait" {
+                "Ожидается повтор"
+            } else {
+                "Повтор пока недоступен"
+            };
+            app.queue.push(localvox_light_client::QueueItem {
+                session: "retry".into(),
+                title: "Запись".into(),
+                state: "failed".into(),
+                phase: Some("summary".into()),
+                attempts: 3,
+                last_error: Some("model offline".into()),
+                retry: Some(localvox_light_client::RetryPlan {
+                    state: state.into(),
+                    message: message.into(),
+                    retry_at: (state != "failed").then(|| "2026-10-31T08:00:00Z".into()),
+                }),
+                ..Default::default()
+            });
+            let theme = Theme::for_app(&app);
+            let projection = documents::project(&app, theme, false);
+            let plain = app.document_text();
+            assert!(
+                plain.contains("Этап: summary · попыток: 3") && plain.contains("model offline")
+            );
+            assert!(plain.contains("Повтор не раньше:") == (state != "failed"));
+            let reason = projection
+                .lines
+                .iter()
+                .find(|line| line.to_string() == message)
+                .unwrap();
+            assert_eq!(
+                reason.spans[0].style.fg,
+                Some(if state == "retry_wait" {
+                    theme.ink
+                } else {
+                    theme.error
+                })
+            );
+            if state != "failed" {
+                let date = projection
+                    .lines
+                    .iter()
+                    .find(|line| line.to_string().starts_with("Повтор не раньше:"))
+                    .unwrap();
+                assert_eq!(date.spans[0].style.fg, Some(theme.argument));
+            }
+        }
+    }
+
+    #[test]
+    fn legacy_queue_does_not_invent_a_phase_or_retry_date() {
+        let mut app = App::default();
+        app.view = View::Queue;
+        app.queue.push(localvox_light_client::QueueItem {
+            state: "failed".into(),
+            ..Default::default()
+        });
+        let text = app.document_text();
+        assert!(text.contains("Этап: неизвестен") && text.contains("не подтверждён старым API"));
+        assert!(!text.contains("Повтор не раньше:"));
+        app.queue[0].retry = Some(localvox_light_client::RetryPlan {
+            state: "retry_wait".into(),
+            message: "Время отказа неизвестно".into(),
+            retry_at: None,
+        });
+        assert!(app.document_text().contains("Срок повтора неизвестен"));
+    }
 
     #[test]
     fn queue_read_failure_is_visible_in_header_and_list_without_false_empty_state() {

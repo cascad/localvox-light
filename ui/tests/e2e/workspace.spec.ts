@@ -1065,6 +1065,56 @@ test("an initial queue read failure is visible and never claims all work is done
   expect(mutations).toEqual([]);
 });
 
+test("queue retry plan reports phase, blocked backoff, exhaustion and recovery without mutations", async ({ page }) => {
+  await workspace(page);
+  let state = "blocked", offline = false, recovered = false;
+  const message = () => state === "retry_wait" ? "Ожидается автоматический повтор" : state === "stalled" ? "Координатор не подаёт сигнал" : "Автоматическая обработка выключена · повтор не подтверждён";
+  const posts: string[] = [];
+  page.on("request", request => { if (request.method() === "POST") posts.push(request.url()); });
+  await page.route("**/api/jobs", route => route.fulfill({ json: { running: 0, pending: 1, failed: 2 } }));
+  await page.route("**/api/queue", route => offline ? route.fulfill({ status: 503, json: { error: "synthetic queue offline" } }) : route.fulfill({ json: { queue: [
+    { ...fixture.queue[0], title: "Сводка архитектурной встречи", state: recovered ? "pending" : "failed", attempts: 3, phase: "summary", stuck: false, last_error: "Ollama временно недоступна", retry: recovered ? null : { state, message: message(), retry_at: "2026-10-31T08:00:00Z" } },
+    { ...fixture.queue[0], session: "exhausted", title: "Запись с исчерпанным бюджетом", state: "failed", phase: "transcribe", attempts: 3, stuck: true, retry: { state: "failed", message: "Попытки автоматического повтора исчерпаны; требуется ручной повтор", retry_at: null } },
+    { ...fixture.queue[0], session: "next", title: "Следующая запись", state: "pending", phase: "prepare", attempts: 0, position: 1, stuck: false, retry: null },
+  ] } }));
+  await page.locator(".nav").getByRole("button", { name: /Очередь/ }).click();
+  const row = page.locator(".qrow").first();
+  await expect(row).toContainText("этап summary · попыток: 3");
+  await expect(row).toContainText("Автоматическая обработка выключена");
+  await expect(row).toContainText("Повтор не раньше: 31.10.2026, 11:00:00");
+  await expect(page.locator(".qrow").nth(1)).not.toContainText("Повтор не раньше:");
+  await expect(page.locator(".qrow").nth(1).getByRole("button", { name: "♻ Повторить этап", exact: true })).toBeVisible();
+  await expect(page.locator(".main .pane")).toHaveScreenshot("queue-retry-plan-dark.png");
+  state = "retry_wait"; await page.clock.runFor(3100);
+  await expect(row.locator("[data-retry-state]")).toHaveAttribute("data-retry-state", "retry_wait");
+  await expect(row).toContainText("ожидается повтор");
+  state = "stalled"; await page.clock.runFor(3100);
+  await expect(row).toContainText("Координатор не подаёт сигнал");
+  offline = true; await page.clock.runFor(3100);
+  await expect(page.getByText(/Очередь не обновляется/)).toBeVisible();
+  await expect(row).toContainText("Повтор не раньше: 31.10.2026, 11:00:00");
+  offline = false; recovered = true; await page.clock.runFor(6100);
+  await expect(page.getByText(/Очередь не обновляется/)).toHaveCount(0);
+  await expect(row).toHaveClass(/pending/);
+  await expect(row).not.toContainText("Повтор не раньше:");
+  expect(posts).toEqual([]);
+});
+
+test("queue legacy metadata never invents a phase, retry deadline or exhausted budget", async ({ page }) => {
+  await workspace(page);
+  let legacy = false;
+  await page.route("**/api/queue", route => route.fulfill({ json: { queue: [{ ...fixture.queue[0], state: "failed", attempts: 2, stuck: false, last_error: "old failure", ...(!legacy ? { phase: "summary", retry: { state: "retry_wait", message: "Время отказа неизвестно; повтор возможен", retry_at: null } } : {}) }] } }));
+  await page.locator(".nav").getByRole("button", { name: /Очередь/ }).click();
+  const row = page.locator(".qrow");
+  await expect(row).toContainText("Срок повтора неизвестен");
+  await expect(row).not.toContainText("Повтор не раньше:");
+  await expect(row.getByRole("button", { name: "♻ Повторить этап", exact: true })).toHaveCount(0);
+  legacy = true; await page.clock.runFor(3100);
+  await expect(row).toContainText("этап неизвестен · попыток: 2");
+  await expect(row).toContainText("повтор не подтверждён");
+  await expect(row).not.toContainText("Повтор не раньше:");
+});
+
 test("queue retry resumes its failed phase without requesting a full recook", async ({ page }) => {
   await workspace(page);
   const posts: string[] = [];

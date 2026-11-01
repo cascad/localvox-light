@@ -135,15 +135,21 @@ impl App {
                 .queue
                 .get(self.selected)
                 .map(|q| {
-                    format!(
-                        "{}\n{} · {} · попытка {}\n{}\n{}",
+                    let mut text = format!(
+                        "{}\n{} · {}\n{}\n{}",
                         q.title,
                         q.session,
                         q.state,
-                        q.attempts,
                         q.last_error.as_deref().unwrap_or(""),
                         if q.stuck { "Попытки исчерпаны. Выберите явный повтор через палитру.".into() } else { q.position.map(|n|format!("Место в очереди: {n}")).unwrap_or_default() }
-                    )
+                    );
+                    text.push_str(&format!("\nЭтап: {} · попыток: {}", q.phase.as_deref().unwrap_or("неизвестен"), q.attempts));
+                    if let Some(plan) = &q.retry {
+                        text.push_str(&format!("\n{}", plan.message));
+                        if let Some(at) = &plan.retry_at { text.push_str(&format!("\nПовтор не раньше: {at}")); }
+                        else if plan.state != "failed" { text.push_str("\nСрок повтора неизвестен."); }
+                    } else if q.state == "failed" && !q.stuck { text.push_str("\nПлан автоматического повтора не подтверждён старым API."); }
+                    text
                 })
                 .unwrap_or_default(),
             View::Ask => self

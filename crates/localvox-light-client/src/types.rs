@@ -101,8 +101,31 @@ pub struct QueueItem {
     pub kind: String,
     pub position: Option<usize>,
     pub attempts: usize,
+    pub phase: Option<String>,
+    pub retry: Option<RetryPlan>,
     pub last_error: Option<String>,
     pub stuck: bool,
+}
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct RetryPlan {
+    pub state: String,
+    pub message: String,
+    pub retry_at: Option<String>,
+}
+
+#[cfg(test)]
+mod retry_compatibility {
+    use super::*;
+    #[test]
+    fn queue_accepts_legacy_rows_and_additive_retry_metadata() {
+        let old: QueueItem =
+            serde_json::from_str(r#"{"session":"old","state":"failed","attempts":3}"#).unwrap();
+        assert!(old.phase.is_none() && old.retry.is_none());
+        let new: QueueItem = serde_json::from_str(r#"{"session":"new","state":"failed","phase":"summary","retry":{"state":"blocked","message":"coordinator unavailable","retry_at":"2026-10-31T08:00:00Z"}}"#).unwrap();
+        assert_eq!(new.phase.as_deref(), Some("summary"));
+        assert_eq!(new.retry.unwrap().state, "blocked");
+    }
 }
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(default)]
