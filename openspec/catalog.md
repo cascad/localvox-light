@@ -56,7 +56,7 @@ BL-003 завершён как reference-измерение с [условным
 | [serialize-session-mutations](changes/archive/2026-11-01-serialize-session-mutations/proposal.md) | [BL-002](backlog.md#bl-002) | Реализовано/проверено: владение, controlled cancel/delete, native CLI и restart/fault; [результаты](changes/archive/2026-11-01-serialize-session-mutations/evidence/implementation.md) |
 | [benchmark-processing-batch](changes/benchmark-processing-batch/proposal.md) | [BL-003](backlog.md#bl-003) | Изолированные worker-замеры: [STT](changes/benchmark-processing-batch/evidence/calibration.md), [настоящая summary/NER](changes/benchmark-processing-batch/evidence/summary-probes.md); полный координатор с длинной русской речью и repeats off/on, [бюджет и границы](changes/benchmark-processing-batch/evidence/queue-benchmark.md) проверены |
 | [recover-corrupt-processing-artifacts](changes/recover-corrupt-processing-artifacts/proposal.md) | [BL-004](backlog.md#bl-004) | Восстанавливать повреждённые готовые артефакты |
-| [verify-background-indexing](changes/verify-background-indexing/proposal.md) | [BL-005](backlog.md#bl-005) | Проверить индексатор вместе с очередью и поиском |
+| [verify-background-indexing](changes/verify-background-indexing/proposal.md) | [BL-005](backlog.md#bl-005) | Native проверка выполнена: [idle/cancel/timeout/отказ/recovery/search](changes/verify-background-indexing/evidence/implementation.md), синтетические embeddings; качество модели отдельно |
 | [unify-manual-and-queued-import](changes/unify-manual-and-queued-import/proposal.md) | [BL-006](backlog.md#bl-006) | Объединить ручной импорт и фоновый Prepare |
 | [allow-postprocess-without-audio](changes/allow-postprocess-without-audio/proposal.md) | [BL-007](backlog.md#bl-007) | Повторять Text/Summary после retention аудио |
 | [explore-stt-worker-lifecycle](changes/explore-stt-worker-lifecycle/proposal.md) | [BL-008](backlog.md#bl-008) | Исследовать память импорта и постоянный STT-worker |
@@ -117,3 +117,5 @@ P9: источники — файлы, индексы производные; о
 команда, doctor, models.json, голосовые профили) не считаются отсутствующими только
 потому, что были записаны в старый пул хотелок. Расширение этих возможностей —
 отдельное предложение после сверки существующего кода.
+
+BL-005 обнаружил [RV-017 / fix-empty-semantic-index-failure](changes/fix-empty-semantic-index-failure/proposal.md): отказ embeddings при пустом индексе больше не выдаётся за отсутствие совпадений; [red → green](changes/fix-empty-semantic-index-failure/evidence/implementation.md).

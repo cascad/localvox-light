@@ -228,6 +228,7 @@ impl SemanticIndex {
         let before = docs.len();
         docs.retain(|d| alive.contains(&d.session));
         let mut changed = docs.len() != before;
+        let mut embed_error = None;
 
         // 3) scan of the sessions: where best changed/appeared — reindex the session
         if let Ok(entries) = fs::read_dir(&sessions_root) {
@@ -319,6 +320,9 @@ impl SemanticIndex {
                     Ok(v) => v,
                     Err(e) => {
                         tracing::warn!("semantic: session {name} skipped (embed failed): {e:#}");
+                        if embed_error.is_none() {
+                            embed_error = Some(e);
+                        }
                         continue;
                     }
                 };
@@ -384,6 +388,14 @@ impl SemanticIndex {
             fs::rename(&tmp, &path)?;
         }
 
+        // A genuinely empty archive has no matches. Failed vectorization of all
+        // available text is an unavailable channel, not a successful empty search.
+        if docs.is_empty() {
+            if let Some(error) = embed_error {
+                return Err(error)
+                    .context("semantic index unavailable: no documents could be vectorized");
+            }
+        }
         Ok(Self { docs, client })
     }
 
@@ -471,8 +483,7 @@ impl SemanticIndex {
                 kind: d.kind.clone(),
                 // only transcript lines have a timecode
                 start_sec: (d.kind == "transcript").then_some(d.start_sec),
-                end_sec: (d.kind == "transcript" && d.end_sec > d.start_sec)
-                    .then_some(d.end_sec),
+                end_sec: (d.kind == "transcript" && d.end_sec > d.start_sec).then_some(d.end_sec),
                 text: d.text.clone(),
                 score,
             })

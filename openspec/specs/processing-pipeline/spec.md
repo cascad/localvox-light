@@ -481,7 +481,7 @@ retention, но это не должно стирать сохранённый �
 
 ## Implementation status
 
-PIPE-010: автоматический ремонт Done (BL-004) и пользовательская отмена (BL-002) ещё не реализованы. Производительность reference-пачки с публичной двухчасовой речью измерена на release: [BL-003](../../changes/benchmark-processing-batch/evidence/queue-benchmark.md). Это не универсальный SLA или приёмка качества. Полный ручной импорт (BL-006) и живая индексация (BL-005) не проверены. Частичная готовность, фазовые receipts и mock heartbeat проверены.
+PIPE-010: автоматический ремонт Done (BL-004) ещё не реализован; пользовательская отмена BL-002 реализована и проверена, см. Observed limitations. Производительность reference-пачки с публичной двухчасовой речью измерена на release: [BL-003](../../changes/benchmark-processing-batch/evidence/queue-benchmark.md). Это не универсальный SLA или приёмка качества. Полный ручной импорт (BL-006) не проверен. [BL-005 native](../../changes/verify-background-indexing/evidence/implementation.md) проверил индексацию/поиск/отказы на синтетических embeddings без устройств. Частичная готовность, фазовые receipts и mock heartbeat проверены.
 
 [Матрица по требованиям](../../evidence/coverage.md#processing-pipeline) ·
 [Расхождения RV](../../review.md) ·
@@ -493,6 +493,6 @@ PIPE-010: автоматический ремонт Done (BL-004) и польз�
 BL-001/002/007 реализованы и проверены в исходниках. Для BL-002 пройдены
 [управляемая отмена, native worker/CLI, restart/fault и UI/TUI проверки](../../changes/archive/2026-11-01-serialize-session-mutations/evidence/implementation.md).
 BL-003 завершён как reference-измерение с указанными ограничениями;
-BL-004/005/006/008 остаются открытыми. См. [бэклог](../../backlog.md)
+BL-005 выполнен как native synthetic проверка; качество реального retrieval отдельно. BL-004/006/008 остаются открытыми. См. [бэклог](../../backlog.md)
 и [очередь сверки](../../review.md). Это описание рабочего дерева, не свидетельство
 производительности установленной сборки и не утверждение, что все отказы диска обработаны.

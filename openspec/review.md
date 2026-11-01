@@ -32,6 +32,7 @@
 
 | ID | Актуальное состояние |
 |---|---|
+| RV-017 | Найден и исправлен 2026-11-01: отказ embeddings при пустом semantic ошибочно давал пустые результаты. SEARCH-002: сохранение причины, lexical/hybrid, recovery и кеш; [red → green](changes/fix-empty-semantic-index-failure/evidence/implementation.md). Работающий демон не обновлялся. |
 | RV-004 | Исправлен по DEC-001 (BL-020), unit/fault-state проверки пройдены; release ещё старый |
 | RV-006 | Опрос start/stop без PCM исправлен и проверен; получение команды всё ещё не гарантирует успешную запись при отказе диска |
 | RV-011 | BL-002 реализован и проверен 2026-11-01: общий control/execution lease, controlled cancel/delete, native worker/CLI, restart и Windows fault-переходы; [свидетельства](changes/archive/2026-11-01-serialize-session-mutations/evidence/implementation.md). Общая multi-file crash-транзакция не заявлена |
@@ -40,7 +41,7 @@
 | RV-015 | Shared recognition/enroll отключены, local manual origin/recook и временная копия исходной записи проверены; реальный архив не исправлен |
 | RV-002/005 | Пробелы подтверждены чтением текущего кода; не исправлены |
 | RV-001 | Исправлен в исходниках 2026-10-31: snapshot-потребители помечены Restart, неизвестные ключи тоже возвращают need_restart. Пройдены каталог, Config/child_env и настоящий settings HTTP в изолированном процессе; [свидетельства](changes/add-technical-journal-workspace/evidence/implementation.md). Hot reload snapshot не заявлен, работающий демон не обновлялся. |
-| RV-008 | Исправлен в исходниках 2026-10-31: двойной отказ hybrid передаётся как ошибка; единственный рабочий канал сохраняет результаты. Настоящий временный HTTP проверил три режима, двойной отказ и отказ chat до LLM; [свидетельства](changes/add-technical-journal-workspace/evidence/implementation.md). Полный прогон индексации/отмены остаётся BL-005. |
+| RV-008 | Исправлен в исходниках 2026-10-31: двойной отказ hybrid передаётся как ошибка; единственный рабочий канал сохраняет результаты. Настоящий временный HTTP проверил три режима, двойной отказ и отказ chat до LLM; [свидетельства](changes/add-technical-journal-workspace/evidence/implementation.md). Дополнение 2026-11-01: [BL-005 native](changes/verify-background-indexing/evidence/implementation.md) проверил индексацию/отмену/поиск на loopback embeddings; качество реальной модели отдельно. |
 | RV-003 | На временном HTTP-сервере foreign Host/Origin у media проходит до 404 отсутствующей сессии; обычный health возвращает 403 |
 | RV-007 | Нет local-first/outbox, возможны коллизии, TTS успеха отделён от результата Write; создан BL-021; mock отказа/timeout/повтора выполнен, lost-ack дал 2 копии после повтора |
 | RV-009 | UI показывает provider select; API без provider сохранён как Claude в тестовом архиве; atomic queue/cancel и неизвестный provider не исправлены |

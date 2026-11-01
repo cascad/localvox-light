@@ -76,6 +76,11 @@ jobs:
           cargo test --locked -p localvox-light-bench --bin localvox-queue-profile -- --ignored --exact tests::real_coordinator_empty_timeout_and_preflight_failure_are_bounded
       - name: Real worker cancellation and standalone CLI ownership (local HTTP, no models/devices)
         run: cargo test --locked -p localvox-light --lib autocook::cancellation_tests -- --ignored --nocapture
+      - name: Background indexes and search (local HTTP, no models/devices)
+        run: |
+          rustfmt --edition 2021 --check crates/localvox-light/src/autocook/indexing_tests.rs
+          rustfmt --edition 2021 --check crates/localvox-light-search/src/semantic.rs
+          cargo test --locked -p localvox-light --lib autocook::indexing_tests:: -- --ignored --skip indexing_fixture --test-threads=1 --nocapture
       - name: Both clients against one actual temporary API/archive
         run: cargo test --locked -p localvox-light-api --lib -- --ignored --exact http::tests::cross_clients::shared_workspace --nocapture
       - name: Real media backend (generated PCM, null audio output)
@@ -104,6 +109,8 @@ jobs:
           npx --yes @fission-ai/openspec@1.13.2 validate benchmark-processing-batch --type change --strict --no-interactive
           npx --yes @fission-ai/openspec@1.13.2 validate profile-summary-grounding-cost --type change --strict --no-interactive
           npx --yes @fission-ai/openspec@1.13.2 validate extract-headless-processing-coordinator --type change --strict --no-interactive
+          npx --yes @fission-ai/openspec@1.13.2 validate verify-background-indexing --type change --strict --no-interactive
+          npx --yes @fission-ai/openspec@1.13.2 validate fix-empty-semantic-index-failure --type change --strict --no-interactive
           python scripts/check-openspec.py
           git diff --check
       - name: Upload browser diffs, traces and terminal snapshot proposals

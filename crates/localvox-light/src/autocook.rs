@@ -432,6 +432,8 @@ fn discover_with(
 mod cancellation_tests;
 #[cfg(test)]
 mod discovery_tests;
+#[cfg(test)]
+mod indexing_tests;
 
 #[cfg(test)]
 fn run_phase(cfg: &Config, running: &AtomicBool, job: &Job) -> bool {
