@@ -74,6 +74,8 @@ jobs:
           cargo test --locked -p localvox-light-bench --bin localvox-profile
           cargo test --locked -p localvox-light-bench --bin localvox-queue-profile
           cargo build --locked -p localvox-light-asr --bin localvox-process -p localvox-light-bench --bin localvox-queue-profile
+          $env:LOCALVOX_PROFILE_TEST_WORKER = (Resolve-Path target/debug/localvox-process.exe).Path
+          cargo test --locked -p localvox-light-bench --bin localvox-profile -- --ignored --exact text::tests::text_profile_roundtrip_uses_real_workers_and_a_numeric_only_local_llm_fixture
           cargo test --locked -p localvox-light-bench --bin localvox-queue-profile -- --ignored --exact tests::real_coordinator_empty_timeout_and_preflight_failure_are_bounded
       - name: Real worker cancellation and standalone CLI ownership (local HTTP, no models/devices)
         run: cargo test --locked -p localvox-light --lib autocook::cancellation_tests -- --ignored --nocapture
@@ -113,6 +115,7 @@ jobs:
           npx --yes @fission-ai/openspec@1.13.2 validate verify-background-indexing --type change --strict --no-interactive
           npx --yes @fission-ai/openspec@1.13.2 validate fix-empty-semantic-index-failure --type change --strict --no-interactive
           npx --yes @fission-ai/openspec@1.13.2 validate refine-workspace-controls-and-settings --type change --strict --no-interactive
+          npx --yes @fission-ai/openspec@1.13.2 validate profile-text-postprocessing-cost --type change --strict --no-interactive
           python scripts/check-openspec.py
           git diff --check
       - name: Upload browser diffs, traces and terminal snapshot proposals

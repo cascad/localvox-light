@@ -24,12 +24,17 @@ mod ollama;
 mod queue;
 #[path = "profile/resources.rs"]
 mod resources;
+#[path = "profile/text.rs"]
+mod text;
 #[path = "profile/tree_resources.rs"]
 mod tree_resources;
 
 #[derive(Parser)]
 #[command(about = "Measure fresh-process worker phases on copied PCM WAV fixtures")]
 struct Args {
+    /// Manifest of ready JSONL transcripts; compare text stages without running ASR.
+    #[arg(long)]
+    text_only: bool,
     #[arg(long)]
     manifest: PathBuf,
     #[arg(long)]
@@ -384,6 +389,9 @@ fn run(mut args: Args, cancelled: &AtomicBool) -> Result<PathBuf> {
     );
     args.worker = args.worker.canonicalize().context("worker path")?;
     args.model_dir = args.model_dir.canonicalize().context("model directory")?;
+    if args.text_only {
+        return text::run(&mut args, cancelled);
+    }
     let manifest = read_manifest(&args.manifest)?;
     queue::validate(&mut args, &manifest)?;
     let fingerprints: Vec<_> = manifest
