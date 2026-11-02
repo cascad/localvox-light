@@ -1,6 +1,8 @@
 //! Bounded admission of line corrections, not a semantic judge. On uncertainty keep source.
 use std::collections::{HashSet, VecDeque};
 
+mod russian;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Rejection {
@@ -401,6 +403,7 @@ fn group_repair(a: &[Word], b: &[Word]) -> bool {
     // A long damaged anchor plus a short damaged word: retains legacy ASR repairs
     // such as the joined tail in «ориентируйсям сво», not arbitrary short substitutions.
     a[0].key != b[0].key
+        && a[0].key.chars().count().max(b[0].key.chars().count()) <= 128
         && a[0].key.chars().count().min(b[0].key.chars().count()) >= 8
         && a[0]
             .key
@@ -418,6 +421,24 @@ fn group_repair(a: &[Word], b: &[Word]) -> bool {
             .chain(b.iter().take(2))
             .all(|w| !critical(&w.key) && !w.key.chars().any(char::is_numeric))
         && !mood_changed(&a[0].key, &b[0].key)
+        && russian::admits(&a[0].key, &b[0].key, None)
+        && russian::admits(&a[1].key, &b[1].key, None)
+}
+
+/// A direct unchanged subject at a sentence boundary; never infer one across punctuation.
+fn subject<'a>(text: &str, words: &'a [Word], verb: usize) -> Option<&'a str> {
+    let subject = verb.checked_sub(1)?;
+    if !text[words[subject].end..words[verb].start]
+        .chars()
+        .all(char::is_whitespace)
+    {
+        return None;
+    }
+    if subject > 0 && !text[words[subject - 1].end..words[subject].start].contains(['.', '?', '!'])
+    {
+        return None;
+    }
+    Some(&words[subject].key)
 }
 
 pub fn check(source: &str, candidate: &str) -> Result<(), Rejection> {
@@ -478,7 +499,9 @@ pub fn check(source: &str, candidate: &str) -> Result<(), Rejection> {
         if i == a.len() || j == b.len() {
             continue;
         }
-        if near(&a[i].key, &b[j].key) {
+        let unchanged_subject =
+            subject(source, &a, i).filter(|s| Some(*s) == subject(candidate, &b, j));
+        if near(&a[i].key, &b[j].key) && russian::admits(&a[i].key, &b[j].key, unchanged_subject) {
             queue.push_back((i + 1, j + 1));
         }
         if i + 1 < a.len() && joined(&a[i], &a[i + 1], &b[j]) {
@@ -571,6 +594,53 @@ mod tests {
             ("Открой документ.", "Открой документ. Открой документ."),
         ] {
             assert!(check(source, fixed).is_err(), "unsafe: {source} => {fixed}");
+        }
+    }
+
+    #[test]
+    fn existing_russian_words_require_evidence_beyond_spelling_distance() {
+        for (source, fixed) in [
+            (
+                "Работа шла под влиянием команды.",
+                "Работа шла под влияние команды.",
+            ),
+            (
+                "Я собрал со всех истории и выбрал публичные.",
+                "Я собрал со всех историй и выбрал публичные.",
+            ),
+            ("Мы обсуждаем ограничения.", "Мы обсуждаем ограничение."),
+            ("Завтра они решат задачу.", "Завтра они решают задачу."),
+            ("Метод расшивается.", "Метод расширяется."),
+            ("Текст наскрам.", "Текст наскром."),
+            ("Письмо отправили вчера.", "Письмо отправило вчера."),
+            ("Я завершили задачу.", "Я завершила задачу."),
+            ("Команда, завершили задачу?", "Команда, завершила задачу?"),
+            ("Команду завершили вчера.", "Команду завершила вчера."),
+            ("Команда завершила задачу.", "Команда завершили задачу."),
+            ("ориентируйсям его", "ориентируйся ему"),
+        ] {
+            assert!(
+                check(source, fixed).is_err(),
+                "unconfirmed: {source} => {fixed}"
+            );
+        }
+    }
+
+    #[test]
+    fn typo_and_unambiguous_agreement_remain_useful() {
+        for (source, fixed) in [
+            ("Проект гатов.", "Проект готов."),
+            ("Письмо атправлено.", "Письмо отправлено."),
+            ("Это ошыбка.", "Это ошибка."),
+            ("Команда завершили задачу.", "Команда завершила задачу."),
+            ("Она работали вчера.", "Она работала вчера."),
+            ("Мы работала вчера.", "Мы работали вчера."),
+            (
+                "Готово. Команда завершили задачу.",
+                "Готово. Команда завершила задачу.",
+            ),
+        ] {
+            assert_eq!(check(source, fixed), Ok(()), "useful: {source} => {fixed}");
         }
     }
 

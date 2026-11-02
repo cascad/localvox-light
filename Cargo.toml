@@ -50,6 +50,8 @@ toml = "0.8"
 # rust-stemmers (Snowball ru) вместо «первые 5 символов», strsim вместо своего
 # Левенштейна, deunicode вместо самодельной таблицы транслита.
 rust-stemmers = "1"
+# Exact Russian dictionary evidence for line corrections; see licenses/rs-morphy4.
+rs-morphy4 = "=0.1.3"
 strsim = "0.11"
 deunicode = "1"
 

@@ -150,6 +150,12 @@ CFG-001/005; [проверки 2026-11-02](changes/refine-workspace-controls-and
 
 Длинный cleanup после исправления сохранности: [verify-guarded-cleanup-on-long-transcript](changes/verify-guarded-cleanup-on-long-transcript/proposal.md).
 [4 новых release запуска, 2816 строк и targeted review](changes/verify-guarded-cleanup-on-long-transcript/evidence/results.md):
-Gemma быстрее на RTX, Qwen меньше по файлам; выявлен открытый RV-020 с близкими
-морфологическими заменами. Полная автоматическая правка/default модели не приняты,
+Gemma быстрее на RTX, Qwen меньше по файлам; в том этапе выявлен RV-020 с близкими
+морфологическими заменами; последующее исправление указано ниже. Полная автоматическая правка/default модели не приняты,
 Mac и качество summary не проверены.
+
+Словарное основание русской правки: [fix-unsupported-russian-word-corrections](changes/fix-unsupported-russian-word-corrections/proposal.md).
+[RV-020 исправлен в воспроизведённом объёме](changes/fix-unsupported-russian-word-corrections/evidence/implementation.md):
+106 LLM tests, настоящий worker с fake provider, 4800 replay решений; короткие useful
+24/24 сохранены. Словарь встроен в Rust, без LLM-вызовов/нового сервиса; часть полезной
+длинной правки отклоняется. Модели, настройки и рабочая установка не переключались.

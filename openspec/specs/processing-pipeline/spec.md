@@ -203,6 +203,11 @@ Cleanup не создаёт ещё одну STT-версию и не удаля�
 - **WHEN** часть поправок проходит проверку, а другая часть опасна
 - **THEN** processed.json содержит допустимые поправки, опасные строки остаются исходными, rejected отражает отклонения.
 
+#### Scenario: Неподтверждённая словоформа сохраняет источник
+
+- **WHEN** cleanup предлагает неподтверждённую замену близкого русского слова или окончания
+- **THEN** строка остаётся исходной с учётом rejected, а прочие допустимые поправки и source version сохраняются.
+
 ### Requirement: PIPE-007 Summary — сводка и её проверка
 
 Код: [process_session, chat_grounded](../../../crates/localvox-light-llm/src/pipeline.rs).
@@ -496,6 +501,8 @@ retention, но это не должно стирать сохранённый �
 
 ## Implementation status
 
+RV-020: воспроизведённые неподтверждённые русские словоформы исправлены в исходниках 2026-11-02: [словарное основание и проверки](../../changes/fix-unsupported-russian-word-corrections/evidence/implementation.md). 106 LLM tests, runtime-mock refine/cleanup настоящим worker и 4800 replay решений; 24/24 коротких useful сохранены. Часть полезных длинных поправок отклоняется; неизвестные слова, другие языки и полная смысловая корректность не получили общей гарантии. Модели/настройки и рабочая установка не переключались.
+
 PIPE-005/006: воспроизведённые RV-018/RV-019 исправлены в исходниках 2026-11-02. 104 LLM unit tests, настоящий worker с fake provider для refine/cleanup, 12 native cleanup repeats и replay сохранённых предложений: [результаты и пределы](../../changes/fix-text-correction-retention/evidence/implementation.md). Консервативный guard отклоняет и часть полезных переформулировок; общая смысловая корректность и native качество refine не доказаны. Рабочий демон не обновлялся.
 
 PIPE-010: автоматический ремонт Done (BL-004) ещё не реализован; пользовательская отмена BL-002 реализована и проверена, см. Observed limitations. Производительность reference-пачки с публичной двухчасовой речью измерена на release: [BL-003](../../changes/benchmark-processing-batch/evidence/queue-benchmark.md). Это не универсальный SLA или приёмка качества. Полный ручной импорт (BL-006) не проверен. [BL-005 native](../../changes/verify-background-indexing/evidence/implementation.md) проверил индексацию/поиск/отказы на синтетических embeddings без устройств. Частичная готовность, фазовые receipts и mock heartbeat проверены.
@@ -507,7 +514,7 @@ PIPE-010: автоматический ремонт Done (BL-004) ещё не р
 
 ## Observed limitations
 
-Последующая [длинная release проверка cleanup](../../changes/verify-guarded-cleanup-on-long-transcript/evidence/results.md) выявила открытый RV-020: близкая словоформа может нарушать связь с контекстом. Проверены 4 новых native запуска и сохранность исходника/receipts; полная смысловая приёмка, Mac и новая модель по умолчанию не подтверждены. Это ограничение реализации, не исключение из контракта.
+Последующая [длинная release проверка cleanup](../../changes/verify-guarded-cleanup-on-long-transcript/evidence/results.md) выявила RV-020: близкая словоформа может нарушать связь с контекстом; последующее исправление указано в Implementation status. Проверены 4 новых native запуска и сохранность исходника/receipts; полная смысловая приёмка, Mac и новая модель по умолчанию не подтверждены. Это ограничение реализации, не исключение из контракта.
 
 BL-001/002/007 реализованы и проверены в исходниках. Для BL-002 пройдены
 [управляемая отмена, native worker/CLI, restart/fault и UI/TUI проверки](../../changes/archive/2026-11-01-serialize-session-mutations/evidence/implementation.md).

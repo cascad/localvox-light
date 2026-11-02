@@ -1,0 +1,39 @@
+rs-morphy4
+Rust implementation: Lopanov Dmitrii (LdDl).
+
+The Rust implementation is licensed under the Apache License, Version 2.0
+(LICENSE). Portions adapted from the sources below also retain their MIT
+license terms (LICENSE-MIT).
+
+The tag, dictionary and dictionary analysis implementations are adapted from
+mawo-pymorphy3 1.0.4,
+commit f60ff89ced0aab256470061e1e566fab317b6170.
+Source: https://github.com/mawo-ru/mawo-pymorphy3
+Copyright (c) 2025 MAWO Team. MIT License.
+
+Suffix prediction by productive paradigms and their suffix frequencies is
+adapted from KnownSuffixAnalyzer in pymorphy3/units/by_analogy.py (pymorphy3 2.0.6).
+The source project also credits pymorphy2 and pymorphy3:
+pymorphy2: Copyright (c) Mikhail Korobov and contributors.
+https://github.com/pymorphy2/pymorphy2
+pymorphy3: Copyright (c) 2022 (continuation of pymorphy2).
+Maintainers: Danylo Halaiko, insolor and contributors.
+https://github.com/no-plagiarism/pymorphy3
+
+The dictionary in data/dicts_ru originates from OpenCorpora and is distributed
+under CC BY-SA 3.0. Attribution: OpenCorpora contributors; distribution source:
+MAWO Team's mawo-pymorphy3. The files are included without changes.
+Source: https://opencorpora.org/
+License: https://creativecommons.org/licenses/by-sa/3.0/
+The pinned distribution source and license text are documented in data/README.md.
+
+DAWG traversal and bit layout are adapted from dawg2-python 0.9.0
+(dawg_python/wrapper.py and units.py).
+Copyright (c) Mikhail Korobov, 2012. MIT License (LICENSE-MIT-DAWG).
+Source: https://github.com/pymorphy2-fork/DAWG-Python/
+
+The word/tag probability data in data/probabilities_ru is copied unchanged
+from pymorphy3-dicts-ru 2.4.417150.4580142, maintained by Danylo Halaiko
+and contributors. Attribution: OpenCorpora contributors. CC BY-SA 3.0.
+Source: https://pypi.org/project/pymorphy3-dicts-ru/2.4.417150.4580142/
+Dictionary revision: 417150. Annotated corpus revision: 4580142.

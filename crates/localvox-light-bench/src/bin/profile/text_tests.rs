@@ -310,6 +310,10 @@ fn retention_real_worker_preserves_semantics_and_line_ownership_in_both_modes() 
         "Ну, как бы, проект готов.",
         "Бюджет 15 000 рублей.",
         "Письмо не отправлено.",
+        "Я собрал со всех истории и выбрал публичные.",
+        "Работа шла под влиянием команды.",
+        "Команда завершили задачу.",
+        "Письмо атправлено.",
     ];
     let bytes=texts.iter().enumerate().map(|(i,text)|json!({"source_id":0,"start_sec":i*10,"end_sec":(i+1)*10,"text":text,"speaker":"PRIVATE_SPEAKER"}).to_string()).collect::<Vec<_>>().join("\n")+"\n";
     fs::write(root.path().join("input.jsonl"), &bytes).unwrap();
@@ -319,7 +323,7 @@ fn retention_real_worker_preserves_semantics_and_line_ownership_in_both_modes() 
     let stop = Arc::new(AtomicBool::new(false));
     let stopped = stop.clone();
     let handle = std::thread::spawn(move || {
-        let answer = "[1] Проект готов.\n[2] Проект готов.\n[3] Оплата не подтверждена.\n[4] Он сказал.\n[5] Сначала сохранил запись, потом удалил файл.\n[6] Мы перенесём запуск только после подтверждения оплаты и успешной проверки резервной копии.\n[7] подтверждения оплаты и успешной проверки резервной копии.\n[8] Проект готов.\n[9] Данные обновлены.\n[10] Проект готов.\n[11] Бюджет 150 000 рублей.\n[12] Письмо отправлено.\n[9] Данные удалены.";
+        let answer = "[1] Проект готов.\n[2] Проект готов.\n[3] Оплата не подтверждена.\n[4] Он сказал.\n[5] Сначала сохранил запись, потом удалил файл.\n[6] Мы перенесём запуск только после подтверждения оплаты и успешной проверки резервной копии.\n[7] подтверждения оплаты и успешной проверки резервной копии.\n[8] Проект готов.\n[9] Данные обновлены.\n[10] Проект готов.\n[11] Бюджет 150 000 рублей.\n[12] Письмо отправлено.\n[13] Я собрал со всех историй и выбрал публичные.\n[14] Работа шла под влияние команды.\n[15] Команда завершила задачу.\n[16] Письмо отправлено.\n[9] Данные удалены.";
         while !stopped.load(Ordering::Relaxed) {
             if let Some(req) = server.recv_timeout(Duration::from_millis(50)).unwrap() {
                 req.respond(Response::from_string(
@@ -347,7 +351,7 @@ fn retention_real_worker_preserves_semantics_and_line_ownership_in_both_modes() 
         );
         let actual = if mode == "cleanup" {
             let processed = localvox_light_core::readable::load(&session).unwrap();
-            assert_eq!((processed.rejected, processed.omitted), (8, 0));
+            assert_eq!((processed.rejected, processed.omitted), (10, 0));
             texts
                 .iter()
                 .enumerate()
@@ -375,13 +379,15 @@ fn retention_real_worker_preserves_semantics_and_line_ownership_in_both_modes() 
             }
             lines.into_iter().map(|line| line.text).collect()
         };
+        assert_eq!(actual.len(), texts.len(), "{mode} must preserve every line");
         for (i, text) in actual.iter().enumerate() {
             assert_eq!(
                 text,
-                if matches!(i, 0 | 7 | 9) {
-                    "Проект готов."
-                } else {
-                    texts[i]
+                match i {
+                    0 | 7 | 9 => "Проект готов.",
+                    14 => "Команда завершила задачу.",
+                    15 => "Письмо отправлено.",
+                    _ => texts[i],
                 },
                 "{mode} line {i}"
             );

@@ -16,6 +16,7 @@ ureq.workspace = true
 # Проверка обоснованности (grounding): морфология и близость строк — библиотеки,
 # а не самописные эвристики.
 rust-stemmers.workspace = true
+rs-morphy4.workspace = true
 strsim.workspace = true
 deunicode.workspace = true
 

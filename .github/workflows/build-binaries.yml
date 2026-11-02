@@ -169,6 +169,9 @@ jobs:
           cp scripts/setup-mpv.mjs "$out/scripts/"
           cp docs/terminal-workspace.md "$out/docs/"
           cp .env.defaults "$out/"
+          cp -R licenses "$out/"
+          test -f "$out/licenses/rs-morphy4/NOTICE"
+          test -f "$out/licenses/rs-morphy4/LICENSE-CC-BY-SA-3.0.txt"
           cd dist
           if [ "${{ runner.os }}" = "Windows" ]; then
             pushd "${{ matrix.artifact }}"

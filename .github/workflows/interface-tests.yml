@@ -76,7 +76,7 @@ jobs:
           python -m unittest discover -s scripts/tests -p "test_*quality.py"
           python scripts/profile-sage-quality.py --help
           python scripts/replay-correction-retention.py --help
-          rustfmt --edition 2021 --check crates/localvox-light-llm/src/correction_guard.rs crates/localvox-light-llm/src/pipeline.rs crates/localvox-light-llm/src/bin/localvox-correction-check.rs
+          rustfmt --edition 2021 --check crates/localvox-light-llm/src/correction_guard.rs crates/localvox-light-llm/src/correction_guard/russian.rs crates/localvox-light-llm/src/pipeline.rs crates/localvox-light-llm/src/bin/localvox-correction-check.rs
           cargo test --locked -p localvox-light-llm --lib
           cargo test --locked -p localvox-light-bench --bin localvox-queue-profile
           cargo build --locked -p localvox-light-asr --bin localvox-process -p localvox-light-bench --bin localvox-queue-profile
@@ -129,6 +129,7 @@ jobs:
           npx --yes @fission-ai/openspec@1.13.2 validate evaluate-local-cleanup-quality --type change --strict --no-interactive
           npx --yes @fission-ai/openspec@1.13.2 validate screen-portable-cleanup-models --type change --strict --no-interactive
           npx --yes @fission-ai/openspec@1.13.2 validate fix-text-correction-retention --type change --strict --no-interactive
+          npx --yes @fission-ai/openspec@1.13.2 validate fix-unsupported-russian-word-corrections --type change --strict --no-interactive
           python scripts/check-openspec.py
           git diff --check
       - name: Upload browser diffs, traces and terminal snapshot proposals
