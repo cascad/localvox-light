@@ -135,3 +135,8 @@ CFG-001/005; [проверки 2026-11-02](changes/refine-workspace-controls-and
 Проверка качества обычной правки: [evaluate-local-cleanup-quality](changes/evaluate-local-cleanup-quality/proposal.md).
 [72 synthetic фразы × 2 модели × 3 повтора и 51 agent-review публичных строк](changes/evaluate-local-cleanup-quality/evidence/results.md).
 RV-018/RV-019 открыты; модель не принята для автоматической смысловой правки, сверка с аудио not-run.
+
+Отбор для Mac/слабого железа: [screen-portable-cleanup-models](changes/screen-portable-cleanup-models/proposal.md).
+[18 Ollama worker repeats и 6 SAGE CPU repeats](changes/screen-portable-cleanup-models/evidence/results.md),
+без production rollout; модель и изолированное Python-окружение SAGE на F: по поручению владельца.
+Никто не прошёл полный gate; Mac/MPS/ONNX и качество summary остаются not-run.

@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "scope": "Own held-out adjacent transcript rows; keep words with their original line. Typography variants are declared before runs.",
+  "cases": [
+    {"id":"launch-head","category":"boundary","intent":"preserve","text":"Мы перенесём запуск только после","expected":["Мы перенесём запуск только после","Мы перенесём запуск только после."],"preserve":["только после"]},
+    {"id":"launch-tail","category":"boundary","intent":"preserve","text":"подтверждения оплаты и успешной проверки резервной копии.","expected":["подтверждения оплаты и успешной проверки резервной копии.","Подтверждения оплаты и успешной проверки резервной копии."]},
+    {"id":"delete-head","category":"boundary","intent":"preserve","text":"Не удаляй исходную запись, пока","expected":["Не удаляй исходную запись, пока","Не удаляй исходную запись, пока."],"preserve":["Не удаляй","пока"]},
+    {"id":"delete-tail","category":"boundary","intent":"preserve","text":"не завершится экспорт и не будет проверена его целостность.","expected":["не завершится экспорт и не будет проверена его целостность.","Не завершится экспорт и не будет проверена его целостность."],"preserve":["не завершится","не будет проверена"]},
+    {"id":"report-head","category":"boundary","intent":"preserve","text":"В отчёте нужно явно указать, что","expected":["В отчёте нужно явно указать, что","В отчёте нужно явно указать, что."]},
+    {"id":"report-tail","category":"boundary","intent":"preserve","text":"проект почти готов, но проверка безопасности пока не завершена.","expected":["проект почти готов, но проверка безопасности пока не завершена.","Проект почти готов, но проверка безопасности пока не завершена."],"preserve":["почти","пока не"]},
+    {"id":"tests-head","category":"boundary","intent":"preserve","text":"Если тесты снова упадут, мы","expected":["Если тесты снова упадут, мы","Если тесты снова упадут, мы."],"preserve":["Если тесты снова упадут"]},
+    {"id":"tests-tail","category":"boundary","intent":"preserve","text":"отложим обновление и сохраним прежнюю рабочую версию.","expected":["отложим обновление и сохраним прежнюю рабочую версию.","Отложим обновление и сохраним прежнюю рабочую версию."]},
+    {"id":"number-head","category":"boundary","intent":"preserve","text":"Стоимость поддержки составит не более","expected":["Стоимость поддержки составит не более","Стоимость поддержки составит не более."],"preserve":["не более"]},
+    {"id":"number-tail","category":"boundary","intent":"preserve","text":"15 000 рублей в месяц, включая резервное копирование.","preserve":["15 000","в месяц"]},
+    {"id":"quote-head","category":"boundary","intent":"preserve","text":"В примере он буквально произнёс слово","expected":["В примере он буквально произнёс слово","В примере он буквально произнёс слово."]},
+    {"id":"quote-tail","category":"boundary","intent":"preserve","text":"«эээ», а затем объяснил значение этой голосовой паузы.","preserve":["«эээ»"]},
+    {"id":"question-import","category":"dialogue","intent":"preserve","text":"Мы уже включили автоматическое удаление записей?","preserve":["?"]},
+    {"id":"answer-import","category":"dialogue","intent":"preserve","text":"Нет, пока оставляем все исходные записи в архиве.","preserve":["Нет","пока","все исходные"]},
+    {"id":"question-release","category":"dialogue","intent":"preserve","text":"Когда можно отправлять обновление пользователям?","preserve":["?"]},
+    {"id":"answer-release","category":"dialogue","intent":"preserve","text":"Только после проверки звука и приёмки владельцем.","preserve":["Только после"]},
+    {"id":"question-server","category":"dialogue","intent":"preserve","text":"Адрес сервера уже поменяли в настройках?","preserve":["?"]},
+    {"id":"answer-server","category":"dialogue","intent":"preserve","text":"Нет, используем http://localhost:11434/v1 до перезапуска демона.","preserve":["Нет","http://localhost:11434/v1","до перезапуска"]},
+    {"id":"question-comparison","category":"dialogue","intent":"preserve","text":"Почему этот файл короче предыдущего?","preserve":["короче предыдущего","?"]},
+    {"id":"answer-comparison","category":"dialogue","intent":"preserve","text":"Потому что в нём меньше реплик, а скорость воспроизведения та же.","preserve":["меньше реплик","та же"]},
+    {"id":"question-command","category":"dialogue","intent":"preserve","text":"Какую команду нужно выполнить перед запуском?","preserve":["?"]},
+    {"id":"answer-command","category":"dialogue","intent":"preserve","text":"Выполни `cargo test --offline`, исходные файлы не удаляй.","preserve":["`cargo test --offline`","не удаляй"]},
+    {"id":"question-ready","category":"dialogue","intent":"preserve","text":"Отчёт готов, можно его публиковать?","preserve":["?"]},
+    {"id":"answer-ready","category":"dialogue","intent":"preserve","text":"Почти готов, но цифры пока не проверены, публикацию откладываем.","preserve":["Почти","пока не проверены","откладываем"]}
+  ]
+}
