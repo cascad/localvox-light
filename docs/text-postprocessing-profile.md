@@ -4,6 +4,8 @@
 `localvox-profile`, `localvox-process` и локальная Ollama. `.env`/архив приложения не
 читаются. `--output` должен указывать на новый каталог; существующий не затирается.
 
+Для сравнения коротких ответов есть [guarded sparse experiment](sparse-edit-experiment.md).
+
 Manifest (пути относительно его файла):
 
 ```json

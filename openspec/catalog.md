@@ -127,3 +127,7 @@ CFG-001/005; [проверки 2026-11-02](changes/refine-workspace-controls-and
 отдельно измерены refine, cleanup, их последовательность и summary на публичной
 двухчасовой STT. [Нативные результаты 2026-11-02](changes/profile-text-postprocessing-cost/evidence/native-reference.md);
 исторический часовой инцидент владельца не воспроизведён, prompts/качество не менялись.
+
+Проба другого подхода к правке: [experiment-guarded-sparse-text-edits](changes/experiment-guarded-sparse-text-edits/proposal.md).
+Два opt-in engineering протокола, 4 локальные модели, corpus/длинные прогоны;
+[итог — без production rollout](changes/experiment-guarded-sparse-text-edits/evidence/results.md), обнаружен открытый RV-018.

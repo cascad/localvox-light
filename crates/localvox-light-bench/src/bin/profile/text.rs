@@ -148,6 +148,23 @@ pub(super) fn run(args: &mut Args, cancelled: &AtomicBool) -> Result<PathBuf> {
         "text-only cannot use the audio queue runner"
     );
     let manifest = read_manifest(&args.manifest)?;
+    let experimental = args.experimental_sparse_edits || args.experimental_sparse_lines;
+    if experimental {
+        ensure!(
+            manifest
+                .cases
+                .iter()
+                .all(|c| c.modes.iter().all(|m| matches!(m, Mode::Cleanup))),
+            "sparse experiment supports cleanup only"
+        );
+        for case in &manifest.cases {
+            let lines = localvox_light_core::artifacts::transcript(&fs::read(&case.transcript)?)?;
+            ensure!(
+                lines.iter().all(|l| !l.text.chars().any(char::is_control)),
+                "sparse experiment requires single-line source text"
+            );
+        }
+    }
     args.ner_model_dir = args
         .ner_model_dir
         .clone()
@@ -179,9 +196,17 @@ pub(super) fn run(args: &mut Args, cancelled: &AtomicBool) -> Result<PathBuf> {
         "runner_debug_assertions":cfg!(debug_assertions),"os":std::env::consts::OS,
         "llm_model":args.llm_model,"llm_provider":"explicit_local_ollama",
         "ner_model_files":args.ner_model_dir.as_deref().map(model_fingerprints).transpose()?,
-        "asr_executed":false,"input_preserved":null,"inputs":inputs,"runs":[],"complete":false,"success":false});
+        "asr_executed":false,"experimental_sparse_edits":args.experimental_sparse_edits,
+        "experimental_sparse_lines":args.experimental_sparse_lines,
+        "semantic_quality_established":false,"input_preserved":null,"inputs":inputs,"runs":[],"complete":false,"success":false});
     checkpoint(&root, &report)?;
-    let trace = ollama::Trace::start(&args.llm_base_url, Duration::from_secs(args.timeout_sec))?;
+    let trace = if args.experimental_sparse_lines {
+        ollama::Trace::sparse_lines(&args.llm_base_url, Duration::from_secs(args.timeout_sec))?
+    } else if args.experimental_sparse_edits {
+        ollama::Trace::sparse_experiment(&args.llm_base_url, Duration::from_secs(args.timeout_sec))?
+    } else {
+        ollama::Trace::start(&args.llm_base_url, Duration::from_secs(args.timeout_sec))?
+    };
     let original_endpoint = std::mem::replace(&mut args.llm_base_url, trace.base_url().into());
     let started = Instant::now();
     let mut all_ok = true;
@@ -220,8 +245,35 @@ pub(super) fn run(args: &mut Args, cancelled: &AtomicBool) -> Result<PathBuf> {
                 result["case"] = json!(case.name);
                 result["mode"] = json!(mode);
                 result["repeat"] = json!(repeat);
-                result["llm_trace"] =
-                    ollama::summarize(trace.since(index), result["wall_sec"].as_f64());
+                let rows = trace.since(index);
+                if experimental {
+                    let fields = [
+                        "input_lines",
+                        "eligible_lines",
+                        "proposed",
+                        "accepted",
+                        "rejected",
+                        "noop",
+                        "restored_lines",
+                        "protocol_errors",
+                    ];
+                    let mut totals = serde_json::Map::new();
+                    for field in fields {
+                        totals.insert(
+                            field.into(),
+                            json!(rows
+                                .iter()
+                                .filter_map(|r| r["sparse"][field].as_u64())
+                                .sum::<u64>()),
+                        );
+                    }
+                    totals.insert(
+                        "omission_is_not_a_model_coverage_measure".into(),
+                        json!(true),
+                    );
+                    result["sparse"] = json!(totals);
+                }
+                result["llm_trace"] = ollama::summarize(rows, result["wall_sec"].as_f64());
                 let ledger = processing::load(&session);
                 let verified = mode.artifacts().iter().all(|key| {
                     ledger.artifacts.get(*key).is_some_and(|record| {

@@ -1,0 +1,405 @@
+{
+  "scope": "engineering_experiment_only",
+  "semantic_quality_established": false,
+  "corpus_sha256": "505f537ea397411014881bb5adae0eb7d76daa7661f219557ac0cfe484dc8a96",
+  "evaluator_sha256": "ed1881a299b940dde0d374c951cdfdafd466d5d694dc06e43b0c23583fea9192",
+  "current_profiler_sha256": "3357e5a67dc5cdbb55d319bd03367353d2d537be5cef9e4841e1f048167eb30a",
+  "worker_sha256": "1519c7e085aaa22e66632673c3d2eee2638bc141f04852236ea1a353eceb2a6a",
+  "model_registry_at_end": [
+    {
+      "name": "gemma4:e4b",
+      "digest": "dc35e8d9c6061baa6f0fa870975ab6932e2542b579b13ea0f199fa4bb7300c9c",
+      "size": 6583656505,
+      "details": {
+        "parent_model": "gemma4-validation-20260929:e4b-imatrix-attention-q6-q8-draft2",
+        "format": "gguf",
+        "family": "gemma4",
+        "families": [
+          "gemma4"
+        ],
+        "parameter_size": "7.5B",
+        "quantization_level": "Q4_K_M",
+        "context_length": 131072,
+        "embedding_length": 2560,
+        "runner": "llamacpp"
+      }
+    },
+    {
+      "name": "qwen3.5:4b",
+      "digest": "2a654d98e6fba55d452b7043684e9b57a947e393bbffa62485a7aac05ee4eefd",
+      "size": 3389983735,
+      "details": {
+        "parent_model": "",
+        "format": "gguf",
+        "family": "qwen35",
+        "families": [
+          "qwen35"
+        ],
+        "parameter_size": "4.7B",
+        "quantization_level": "Q4_K_M",
+        "context_length": 262144,
+        "embedding_length": 2560,
+        "runner": "ggml"
+      }
+    },
+    {
+      "name": "qwen3.5:9b",
+      "digest": "6488c96fa5faab64bb65cbd30d4289e20e6130ef535a93ef9a49f42eda893ea7",
+      "size": 6594474711,
+      "details": {
+        "parent_model": "",
+        "format": "gguf",
+        "family": "qwen35",
+        "families": [
+          "qwen35"
+        ],
+        "parameter_size": "9.7B",
+        "quantization_level": "Q4_K_M",
+        "context_length": 262144,
+        "embedding_length": 4096,
+        "runner": "ggml"
+      }
+    },
+    {
+      "name": "qwen2.5:3b-instruct",
+      "digest": "357c53fb659c5076de1d65ccb0b397446227b71a42be9d1603d46168015c9e4b",
+      "size": 1929912432,
+      "details": {
+        "parent_model": "",
+        "format": "gguf",
+        "family": "qwen2",
+        "families": [
+          "qwen2"
+        ],
+        "parameter_size": "3.1B",
+        "quantization_level": "Q4_K_M",
+        "context_length": 32768,
+        "embedding_length": 2048,
+        "runner": "ggml"
+      }
+    }
+  ],
+  "input_sha256": "09014305b713638301d3cd4693d03e1f7f2920e75bdfc749c7164d0e10034ae8",
+  "input_lines": 704,
+  "input_end_sec": 7146.527375,
+  "profiles": [
+    {
+      "run": "sparse-long-gemma4-e4b-baseline-b",
+      "model": "gemma4:e4b",
+      "variant": "baseline",
+      "raw_report_sha256": "82dcc74e69e3addf77c72bbcef8e2c11ec38ee6c062d397eeb2e288ae1e572f2",
+      "metrics": {
+        "wall_sec": 98.2428243,
+        "trace": {
+          "generation_sec": 78.74800399600001,
+          "http_wall_sec": 92.69485419999994,
+          "model_load_sec": 0.8519278000000002,
+          "non_http_worker_wall_sec": 5.547970100000057,
+          "prompt_sec": 10.432667997,
+          "request_count": 179,
+          "source": "native_ollama_response"
+        },
+        "prompt_tokens": 64312,
+        "output_tokens": 29707,
+        "context_counts": {
+          "4096": 179
+        },
+        "done_reason_counts": {
+          "stop": 179
+        },
+        "sparse": null,
+        "corrections": {
+          "cleanup_edits": 559,
+          "cleanup_omitted": 0,
+          "cleanup_rejected": 21,
+          "counts_do_not_establish_semantic_quality": true,
+          "refined_changed_lines": null,
+          "refined_lines": null
+        },
+        "artifact_verified": true,
+        "source_preserved": true
+      },
+      "end_to_end_structure": null,
+      "model_residency_after": {
+        "models": [
+          {
+            "name": "gemma4:e4b",
+            "model": "gemma4:e4b",
+            "size": 369371380,
+            "digest": "dc35e8d9c6061baa6f0fa870975ab6932e2542b579b13ea0f199fa4bb7300c9c",
+            "details": {
+              "parent_model": "",
+              "format": "gguf",
+              "family": "gemma4",
+              "families": [
+                "gemma4"
+              ],
+              "parameter_size": "7.5B",
+              "quantization_level": "Q4_K_M"
+            },
+            "expires_at": "2026-11-02T18:01:00.6937183+03:00",
+            "size_vram": 369371380,
+            "context_length": 4096,
+            "runner": "llamacpp"
+          },
+          {
+            "name": "qwen3.5:4b",
+            "model": "qwen3.5:4b",
+            "size": 3138524281,
+            "digest": "2a654d98e6fba55d452b7043684e9b57a947e393bbffa62485a7aac05ee4eefd",
+            "details": {
+              "parent_model": "",
+              "format": "gguf",
+              "family": "qwen35",
+              "families": [
+                "qwen35"
+              ],
+              "parameter_size": "4.7B",
+              "quantization_level": "Q4_K_M"
+            },
+            "expires_at": "2026-11-02T17:59:15.2200698+03:00",
+            "size_vram": 3138524281,
+            "context_length": 4096,
+            "runner": "llamacpp"
+          }
+        ]
+      }
+    },
+    {
+      "run": "sparse-long-gemma4-e4b-lines-b",
+      "model": "gemma4:e4b",
+      "variant": "lines",
+      "raw_report_sha256": "84f23f6eb4286ddba018df15107a1ca54baa850789525a54b1bfcccc9e325eba",
+      "metrics": {
+        "wall_sec": 125.9242844,
+        "trace": {
+          "generation_sec": 96.04949399400002,
+          "http_wall_sec": 116.87133650000001,
+          "model_load_sec": 0.7414021000000001,
+          "non_http_worker_wall_sec": 9.052947899999992,
+          "prompt_sec": 16.69767898299999,
+          "request_count": 179,
+          "source": "native_ollama_response"
+        },
+        "prompt_tokens": 87882,
+        "output_tokens": 35820,
+        "context_counts": {
+          "4096": 179
+        },
+        "done_reason_counts": {
+          "stop": 179
+        },
+        "sparse": {
+          "accepted": 26,
+          "eligible_lines": 126,
+          "input_lines": 704,
+          "noop": 66,
+          "omission_is_not_a_model_coverage_measure": true,
+          "proposed": 702,
+          "protocol_errors": 0,
+          "rejected": 610,
+          "restored_lines": 610
+        },
+        "corrections": {
+          "cleanup_edits": 26,
+          "cleanup_omitted": 0,
+          "cleanup_rejected": 0,
+          "counts_do_not_establish_semantic_quality": true,
+          "refined_changed_lines": null,
+          "refined_lines": null
+        },
+        "artifact_verified": true,
+        "source_preserved": true
+      },
+      "end_to_end_structure": {
+        "original_version_identical": true,
+        "content_token_sequence_preserved_for_all_edits": true,
+        "checked_edits": 26,
+        "audio_semantic_quality": "not-run"
+      },
+      "model_residency_after": {
+        "models": [
+          {
+            "name": "gemma4:e4b",
+            "model": "gemma4:e4b",
+            "size": 369371380,
+            "digest": "dc35e8d9c6061baa6f0fa870975ab6932e2542b579b13ea0f199fa4bb7300c9c",
+            "details": {
+              "parent_model": "",
+              "format": "gguf",
+              "family": "gemma4",
+              "families": [
+                "gemma4"
+              ],
+              "parameter_size": "7.5B",
+              "quantization_level": "Q4_K_M"
+            },
+            "expires_at": "2026-11-02T18:03:07.2731103+03:00",
+            "size_vram": 369371380,
+            "context_length": 4096,
+            "runner": "llamacpp"
+          },
+          {
+            "name": "qwen3.5:4b",
+            "model": "qwen3.5:4b",
+            "size": 3138524281,
+            "digest": "2a654d98e6fba55d452b7043684e9b57a947e393bbffa62485a7aac05ee4eefd",
+            "details": {
+              "parent_model": "",
+              "format": "gguf",
+              "family": "qwen35",
+              "families": [
+                "qwen35"
+              ],
+              "parameter_size": "4.7B",
+              "quantization_level": "Q4_K_M"
+            },
+            "expires_at": "2026-11-02T17:59:15.2200698+03:00",
+            "size_vram": 3138524281,
+            "context_length": 4096,
+            "runner": "llamacpp"
+          }
+        ]
+      }
+    },
+    {
+      "run": "sparse-long-qwen3-5-4b-baseline-b",
+      "model": "qwen3.5:4b",
+      "variant": "baseline",
+      "raw_report_sha256": "367c88447add0da7f1878c3ae171a82e8326bca2b071a77e58575e9a1b35e5bc",
+      "metrics": {
+        "wall_sec": 331.4809664,
+        "trace": {
+          "generation_sec": 151.59213599799997,
+          "http_wall_sec": 173.124189,
+          "model_load_sec": null,
+          "non_http_worker_wall_sec": 158.3567774,
+          "prompt_sec": 9.91316700000001,
+          "request_count": 179,
+          "source": "native_ollama_response"
+        },
+        "prompt_tokens": 64954,
+        "output_tokens": 30866,
+        "context_counts": {
+          "4096": 179
+        },
+        "done_reason_counts": {
+          "stop": 179
+        },
+        "sparse": null,
+        "corrections": {
+          "cleanup_edits": 509,
+          "cleanup_omitted": 3,
+          "cleanup_rejected": 27,
+          "counts_do_not_establish_semantic_quality": true,
+          "refined_changed_lines": null,
+          "refined_lines": null
+        },
+        "artifact_verified": true,
+        "source_preserved": true
+      },
+      "end_to_end_structure": null,
+      "model_residency_after": {
+        "models": [
+          {
+            "name": "qwen3.5:4b",
+            "model": "qwen3.5:4b",
+            "size": 3138524281,
+            "digest": "2a654d98e6fba55d452b7043684e9b57a947e393bbffa62485a7aac05ee4eefd",
+            "details": {
+              "parent_model": "",
+              "format": "gguf",
+              "family": "qwen35",
+              "families": [
+                "qwen35"
+              ],
+              "parameter_size": "4.7B",
+              "quantization_level": "Q4_K_M"
+            },
+            "expires_at": "2026-11-02T17:56:00.3669656+03:00",
+            "size_vram": 3138524281,
+            "context_length": 4096,
+            "runner": "llamacpp"
+          }
+        ]
+      }
+    },
+    {
+      "run": "sparse-long-qwen3-5-4b-lines-b",
+      "model": "qwen3.5:4b",
+      "variant": "lines",
+      "raw_report_sha256": "79010c90e8319aa890209bc8bd334a7a5c43a604b63aba87c8cffc3aa71f5df9",
+      "metrics": {
+        "wall_sec": 191.4951746,
+        "trace": {
+          "generation_sec": 136.069907997,
+          "http_wall_sec": 157.9700844,
+          "model_load_sec": 0.6855861000000005,
+          "non_http_worker_wall_sec": 33.52509020000002,
+          "prompt_sec": 11.980095983000009,
+          "request_count": 179,
+          "source": "native_ollama_response"
+        },
+        "prompt_tokens": 89197,
+        "output_tokens": 27681,
+        "context_counts": {
+          "4096": 179
+        },
+        "done_reason_counts": {
+          "stop": 179
+        },
+        "sparse": {
+          "accepted": 11,
+          "eligible_lines": 126,
+          "input_lines": 704,
+          "noop": 44,
+          "omission_is_not_a_model_coverage_measure": true,
+          "proposed": 543,
+          "protocol_errors": 0,
+          "rejected": 488,
+          "restored_lines": 488
+        },
+        "corrections": {
+          "cleanup_edits": 11,
+          "cleanup_omitted": 0,
+          "cleanup_rejected": 0,
+          "counts_do_not_establish_semantic_quality": true,
+          "refined_changed_lines": null,
+          "refined_lines": null
+        },
+        "artifact_verified": true,
+        "source_preserved": true
+      },
+      "end_to_end_structure": {
+        "original_version_identical": true,
+        "content_token_sequence_preserved_for_all_edits": true,
+        "checked_edits": 11,
+        "audio_semantic_quality": "not-run"
+      },
+      "model_residency_after": {
+        "models": [
+          {
+            "name": "qwen3.5:4b",
+            "model": "qwen3.5:4b",
+            "size": 3138524281,
+            "digest": "2a654d98e6fba55d452b7043684e9b57a947e393bbffa62485a7aac05ee4eefd",
+            "details": {
+              "parent_model": "",
+              "format": "gguf",
+              "family": "qwen35",
+              "families": [
+                "qwen35"
+              ],
+              "parameter_size": "4.7B",
+              "quantization_level": "Q4_K_M"
+            },
+            "expires_at": "2026-11-02T17:59:15.2200698+03:00",
+            "size_vram": 3138524281,
+            "context_length": 4096,
+            "runner": "llamacpp"
+          }
+        ]
+      }
+    }
+  ]
+}

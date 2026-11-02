@@ -15,6 +15,15 @@ pub struct Trace {
 
 impl Trace {
     pub fn start(upstream: &str, timeout: Duration) -> Result<Self> {
+        Self::start_mode(upstream, timeout, 0)
+    }
+    pub fn sparse_experiment(upstream: &str, timeout: Duration) -> Result<Self> {
+        Self::start_mode(upstream, timeout, 1)
+    }
+    pub fn sparse_lines(upstream: &str, timeout: Duration) -> Result<Self> {
+        Self::start_mode(upstream, timeout, 2)
+    }
+    fn start_mode(upstream: &str, timeout: Duration, sparse: u8) -> Result<Self> {
         ensure!(
             local_endpoint(upstream),
             "telemetry upstream must be local HTTP"
@@ -56,11 +65,34 @@ impl Trace {
                     let _ = request.respond(Response::empty(413));
                     continue;
                 }
-                let Ok(value) = serde_json::from_slice::<Value>(&body) else {
+                let Ok(mut value) = serde_json::from_slice::<Value>(&body) else {
                     let _ = request.respond(Response::empty(400));
                     continue;
                 };
-                let row = request_metadata(&value, body.len());
+                let prepared = if sparse != 0 {
+                    match if sparse == 2 {
+                        crate::sparse::prepare_lines(&value)
+                    } else {
+                        crate::sparse::prepare(&value)
+                    } {
+                        Ok(prepared) => Some(prepared),
+                        Err(_) => {
+                            let _ = request.respond(Response::empty(400));
+                            continue;
+                        }
+                    }
+                } else {
+                    None
+                };
+                if let Some(prepared) = &prepared {
+                    value = prepared.body.clone();
+                    body = serde_json::to_vec(&value).unwrap();
+                }
+                let mut row = request_metadata(&value, body.len());
+                if sparse != 0 {
+                    row["experimental_sparse_edits"] = json!(true);
+                    row["sparse_protocol"] = json!(if sparse == 2 { "lines" } else { "anchors" });
+                }
                 let index = {
                     let mut entries = data.lock().unwrap_or_else(|e| e.into_inner());
                     let index = entries.len();
@@ -91,6 +123,21 @@ impl Trace {
                     }
                 }
                 let parsed = serde_json::from_slice::<Value>(&bytes).ok();
+                let native_bytes = bytes.len();
+                let sparse_stats = prepared.as_ref().filter(|_| status == 200).map(|prepared| {
+                    let content = parsed
+                        .as_ref()
+                        .and_then(|v| v["message"]["content"].as_str())
+                        .unwrap_or("");
+                    let (expanded, stats) = prepared.adapt(content);
+                    let mut adapted = parsed
+                        .clone()
+                        .filter(|v| v["message"].is_object())
+                        .unwrap_or_else(|| json!({"message":{}}));
+                    adapted["message"]["content"] = json!(expanded);
+                    bytes = serde_json::to_vec(&adapted).unwrap();
+                    serde_json::to_value(stats).unwrap()
+                });
                 {
                     let mut entries = data.lock().unwrap_or_else(|e| e.into_inner());
                     let row = &mut entries[index];
@@ -102,8 +149,12 @@ impl Trace {
                     row["http_status"] = json!(status);
                     row["http_wall_sec"] = json!(started.elapsed().as_secs_f64());
                     row["ended_at"] = json!(localvox_light_core::versions::now_rfc3339());
-                    row["response_bytes"] = json!(bytes.len());
+                    row["response_bytes"] = json!(native_bytes);
                     row["ollama"] = parsed.as_ref().map(response_metrics).unwrap_or(Value::Null);
+                    if let Some(stats) = sparse_stats {
+                        row["sparse"] = stats;
+                        row["locally_expanded_response_bytes"] = json!(bytes.len());
+                    }
                 }
                 // Record telemetry before allowing the worker to observe completion.
                 let response = Response::from_data(bytes)

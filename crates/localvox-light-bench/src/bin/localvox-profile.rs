@@ -24,6 +24,8 @@ mod ollama;
 mod queue;
 #[path = "profile/resources.rs"]
 mod resources;
+#[path = "profile/sparse.rs"]
+mod sparse;
 #[path = "profile/text.rs"]
 mod text;
 #[path = "profile/tree_resources.rs"]
@@ -35,6 +37,16 @@ struct Args {
     /// Manifest of ready JSONL transcripts; compare text stages without running ASR.
     #[arg(long)]
     text_only: bool,
+    /// Engineering-only conservative patch adapter; text-only cleanup only.
+    #[arg(long, requires = "text_only")]
+    experimental_sparse_edits: bool,
+    /// Simpler experimental response: only changed line IDs and text, same conservative guards.
+    #[arg(
+        long,
+        requires = "text_only",
+        conflicts_with = "experimental_sparse_edits"
+    )]
+    experimental_sparse_lines: bool,
     #[arg(long)]
     manifest: PathBuf,
     #[arg(long)]
@@ -379,6 +391,10 @@ fn checkpoint(root: &Path, report: &Value) -> Result<()> {
 
 fn run(mut args: Args, cancelled: &AtomicBool) -> Result<PathBuf> {
     let started = Instant::now();
+    ensure!(
+        !(args.experimental_sparse_edits || args.experimental_sparse_lines) || args.text_only,
+        "sparse experiment requires text-only"
+    );
     ensure!(
         (1..=100).contains(&args.repeats) && args.timeout_sec > 0,
         "invalid repeat/timeout limit"

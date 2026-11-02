@@ -26,6 +26,8 @@ pub(super) fn fixture(root: &Path) -> Args {
     .unwrap();
     Args {
         text_only: false,
+        experimental_sparse_edits: false,
+        experimental_sparse_lines: false,
         manifest: root.join("manifest.json"),
         worker: std::env::current_exe().unwrap(),
         model_dir: root.into(),

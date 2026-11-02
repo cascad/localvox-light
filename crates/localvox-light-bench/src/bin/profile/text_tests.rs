@@ -45,7 +45,7 @@ fn text_manifest_rejects_bad_paths_modes_and_transcripts_before_creating_output(
 }
 
 fn args_for(args: &Args) -> Args {
-    Args::try_parse_from([
+    let mut result = Args::try_parse_from([
         "profile",
         "--text-only",
         "--manifest",
@@ -61,7 +61,10 @@ fn args_for(args: &Args) -> Args {
         "--timeout-sec",
         "5",
     ])
-    .unwrap()
+    .unwrap();
+    result.experimental_sparse_edits = args.experimental_sparse_edits;
+    result.experimental_sparse_lines = args.experimental_sparse_lines;
+    result
 }
 
 #[test]
@@ -174,4 +177,112 @@ fn args_for_endpoint(args: &Args) -> Args {
     result.llm_base_url = args.llm_base_url.clone();
     result.timeout_sec = args.timeout_sec;
     result
+}
+
+#[test]
+fn sparse_experiment_rejects_non_cleanup_modes_before_creating_output() {
+    let root = tempfile::tempdir().unwrap();
+    let mut args = fixture(root.path());
+    args.experimental_sparse_edits = true;
+    assert!(crate::run(args_for(&args), &AtomicBool::new(false)).is_err());
+    assert!(!args.output.exists());
+}
+
+#[test]
+#[ignore = "requires LOCALVOX_PROFILE_TEST_WORKER; local synthetic LLM, no models/devices"]
+fn sparse_real_worker_keeps_bad_edits_and_malformed_answers_as_originals() {
+    sparse_worker_fixture(false);
+}
+
+#[test]
+#[ignore = "requires LOCALVOX_PROFILE_TEST_WORKER; local synthetic LLM, no models/devices"]
+fn sparse_lines_real_worker_keeps_bad_edits_and_malformed_answers_as_originals() {
+    sparse_worker_fixture(true);
+}
+
+fn sparse_worker_fixture(lines: bool) {
+    use tiny_http::{Response, Server};
+    let root = tempfile::tempdir().unwrap();
+    let mut args = fixture(root.path());
+    args.worker = std::env::var_os("LOCALVOX_PROFILE_TEST_WORKER")
+        .expect("built worker required")
+        .into();
+    args.experimental_sparse_edits = !lines;
+    args.experimental_sparse_lines = lines;
+    args.timeout_sec = 20;
+    let texts = [
+        "Эээ, проект готов.",
+        "Письмо не отправлено.",
+        "Бюджет 15 000 рублей.",
+    ];
+    let bytes=texts.iter().enumerate().map(|(i,text)|json!({"source_id":0,"start_sec":i*10,"end_sec":(i+1)*10,"text":text,"speaker":"PRIVATE_SPEAKER"}).to_string()).collect::<Vec<_>>().join("\n")+"\n";
+    fs::write(root.path().join("input.jsonl"), bytes.as_bytes()).unwrap();
+    fs::write(
+        &args.manifest,
+        json!({"version":1,"cases":[
+        {"name":"accept","transcript":"input.jsonl","lang":"ru","modes":["cleanup"]},
+        {"name":"malformed","transcript":"input.jsonl","lang":"ru","modes":["cleanup"]}]})
+        .to_string(),
+    )
+    .unwrap();
+    let server = Server::http("127.0.0.1:0").unwrap();
+    args.llm_base_url = format!("http://{}/v1", server.server_addr().to_ip().unwrap());
+    let stop = Arc::new(AtomicBool::new(false));
+    let stopped = stop.clone();
+    let handle = std::thread::spawn(move || {
+        let mut calls = 0;
+        while !stopped.load(Ordering::Relaxed) {
+            if let Some(mut req) = server.recv_timeout(Duration::from_millis(50)).unwrap() {
+                let body: Value = serde_json::from_reader(req.as_reader()).unwrap();
+                assert!(body["format"].is_object());
+                let answer = if calls == 0 && lines {
+                    json!({"changes":[{"line":1,"text":"Проект готов."},{"line":2,"text":"Письмо отправлено."},{"line":3,"text":"Бюджет 150 000 рублей."}]}).to_string()
+                } else if calls == 0 {
+                    json!({"edits":[
+                    {"line":1,"before":"Эээ, п","after":"П"},
+                    {"line":2,"before":"не ","after":""},
+                    {"line":3,"before":"15 000","after":"150 000"}]})
+                    .to_string()
+                } else {
+                    "not JSON".into()
+                };
+                calls += 1;
+                let reply = json!({"message":{"content":answer},"done":true,"done_reason":"stop",
+                    "load_duration":0,"prompt_eval_duration":1,"eval_duration":1,"total_duration":2,"prompt_eval_count":20,"eval_count":10});
+                req.respond(Response::from_string(reply.to_string()))
+                    .unwrap();
+            }
+        }
+    });
+    let result = crate::run(args_for_endpoint(&args), &AtomicBool::new(false));
+    stop.store(true, Ordering::Relaxed);
+    handle.join().unwrap();
+    result.unwrap();
+    let raw = fs::read_to_string(args.output.join("report.json")).unwrap();
+    let report: Value = serde_json::from_str(&raw).unwrap();
+    assert_eq!(report["input_preserved"], true);
+    assert_eq!(report["runs"][0]["sparse"]["accepted"], 1);
+    assert_eq!(report["runs"][0]["sparse"]["rejected"], 2);
+    assert_eq!(report["runs"][1]["sparse"]["protocol_errors"], 1);
+    for case in ["accept", "malformed"] {
+        let session = args
+            .output
+            .join("sessions")
+            .join(format!("{case}-cleanup-r1"));
+        let readable = localvox_light_core::readable::load(&session).unwrap();
+        assert!(!readable.edits.contains_key(&1));
+        assert!(!readable.edits.contains_key(&2));
+        assert_eq!(readable.edits.len(), usize::from(case == "accept"));
+        assert_eq!(
+            fs::read(session.join("transcripts/v001-profile-source.jsonl")).unwrap(),
+            bytes.as_bytes()
+        );
+    }
+    assert_eq!(
+        report["runs"][0]["llm_trace"]["requests"][0]["ollama"]["eval_count"],
+        10
+    );
+    for secret in ["PRIVATE_SPEAKER", "проект", "отправлено", "15 000"] {
+        assert!(!raw.contains(secret));
+    }
 }
