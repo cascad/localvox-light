@@ -131,3 +131,7 @@ CFG-001/005; [проверки 2026-11-02](changes/refine-workspace-controls-and
 Проба другого подхода к правке: [experiment-guarded-sparse-text-edits](changes/experiment-guarded-sparse-text-edits/proposal.md).
 Два opt-in engineering протокола, 4 локальные модели, corpus/длинные прогоны;
 [итог — без production rollout](changes/experiment-guarded-sparse-text-edits/evidence/results.md), обнаружен открытый RV-018.
+
+Проверка качества обычной правки: [evaluate-local-cleanup-quality](changes/evaluate-local-cleanup-quality/proposal.md).
+[72 synthetic фразы × 2 модели × 3 повтора и 51 agent-review публичных строк](changes/evaluate-local-cleanup-quality/evidence/results.md).
+RV-018/RV-019 открыты; модель не принята для автоматической смысловой правки, сверка с аудио not-run.

@@ -83,7 +83,8 @@
 | RV-011 / BL-002 | PIPE-010, ARCH-005 | Реализовано/проверено 2026-11-01: пользовательская отмена, запрет повторного захвата, остановка до удаления; границы в BL-002 evidence |
 | RV-013 / BL-004 | PIPE-008/010 | Ограниченный ремонт повреждённых Done и зависимых результатов |
 | RV-016 | LLM-006 | Отличать ошибку целостности/записи от отсутствующей пометки |
-| RV-018 | LLM-003, PIPE-006 | Открыт 2026-11-02: ordinary cleanup может потерять «почти»/«пока» в короткой фразе или буквальную цитату; [native reproduction](changes/experiment-guarded-sparse-text-edits/evidence/implementation.md). Экспериментальный guard не засчитывается исправлением production. |
+| RV-018 | LLM-003, PIPE-006 | Открыт 2026-11-02: ordinary cleanup может потерять «почти»/«пока» в короткой фразе или буквальную цитату; [native reproduction](changes/experiment-guarded-sparse-text-edits/evidence/implementation.md). [Расширенный quality corpus и разбор 2026-11-02](changes/evaluate-local-cleanup-quality/evidence/results.md) подтвердили потерю содержательных слов/цитаты у Gemma. Экспериментальный guard не засчитывается исправлением production. |
+| RV-019 | LLM-003, PIPE-006 | Открыт 2026-11-02: ordinary cleanup Qwen 4B дописывает соседнюю реплику к своей, оставляя её также отдельно; появляются дубль и слова под чужим временем. [Сверка сохранённых native результатов](changes/evaluate-local-cleanup-quality/evidence/results.md), индексы 95/256/267/666. Причина на границе model/parser/guards ещё не локализована; production не исправлен. |
 
 RV-002 ограничивает доказанную долговечность live-текста; power-loss гарантия не
 заявлена. RV-014 и историческое исправление RV-015 остаются открытыми несмотря на

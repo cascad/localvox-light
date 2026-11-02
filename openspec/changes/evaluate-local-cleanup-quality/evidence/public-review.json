@@ -1,0 +1,835 @@
+{
+  "scope": "agent textual review; selected rows, not general accuracy",
+  "date": "2026-11-02",
+  "evaluator_sha256": "bb7a1395f2293e07d1323df37d34596dc4886bc6456fc74b722798834f97f95c",
+  "semantic_quality_established": false,
+  "input_sha256": "09014305b713638301d3cd4693d03e1f7f2920e75bdfc749c7164d0e10034ae8",
+  "index_base": 0,
+  "audio_review": "not-run",
+  "owner_acceptance": "not-run",
+  "samples_are_risk_stratified_not_random": true,
+  "profiles": [
+    {
+      "model": "gemma4:e4b",
+      "source_lines": 704,
+      "changed": 559,
+      "flag_counts": {
+        "lexical": 520,
+        "question_emphasis": 11,
+        "literal": 36,
+        "qualifier": 23,
+        "number": 3
+      },
+      "selection": "all numbers; four quantiles per qualifier/literal/question flag; evenly spaced low-flag controls to 24",
+      "selected_indices": [
+        2,
+        5,
+        17,
+        46,
+        89,
+        168,
+        227,
+        260,
+        278,
+        315,
+        356,
+        371,
+        439,
+        460,
+        472,
+        496,
+        531,
+        579,
+        618,
+        644,
+        668,
+        674,
+        700,
+        702
+      ],
+      "adjacent_overlap_flags": [],
+      "supplemental_indices": [],
+      "original_report_sha256": "82dcc74e69e3addf77c72bbcef8e2c11ec38ee6c062d397eeb2e288ae1e572f2",
+      "scan_sha256": "2a01d88369c2f24323a2d8eb068bbdb6a8c3dca4686417b713c2653d9228b240",
+      "review_counts": {
+        "context_supported": 16,
+        "audio_needed": 4,
+        "style_tradeoff": 3,
+        "meaning_risk": 1
+      },
+      "reviews": [
+        {
+          "index": 2,
+          "start_sec": 18.17,
+          "flags": [
+            "lexical"
+          ],
+          "source_text_sha256": "60f16d78dc720a9c5bfa4b70fd6e0422eaaae29fe3c09f35dc5365468ab7c60c",
+          "actual_text_sha256": "7e4e6ba0d8a4ac16ff9c4a4dadb4c1fd6429fb0ece761e31af580d030336916e",
+          "previous_text_sha256": "ee893cdf38e25b6c46d07c18899611b449cfdd2e8a15a277f1e46ed0bcb69a36",
+          "next_text_sha256": "a7ea5a48250b481af0750c907bac6adc3804647858a79902ff24afa541851819",
+          "assessment": "context_supported",
+          "note": "Удалён вводный оборот, обе содержательные фразы сохранены."
+        },
+        {
+          "index": 5,
+          "start_sec": 48.15,
+          "flags": [
+            "question_emphasis",
+            "lexical"
+          ],
+          "source_text_sha256": "320eb362b15bbbdeba937dfab47c3127f0da78b8678d16fcb8be79c899e040ba",
+          "actual_text_sha256": "e3d725d60cb158b94949a70cef86387d01f2f01c728bdfa6b52ded8ae7eba850",
+          "previous_text_sha256": "84bf51ca679d5db3ceebf5cbdd781775b1ceef9789c3858ea26d19856d3619fc",
+          "next_text_sha256": "1bef930c4fbc627c214b3869bc6595e3651d1db4bc4f9290fe5ce83954a34731",
+          "assessment": "audio_needed",
+          "note": "Убран один из двух приветов. Это может быть отдельный ответ другого участника; без аудио не принимать за простой повтор."
+        },
+        {
+          "index": 17,
+          "start_sec": 171.57,
+          "flags": [
+            "literal",
+            "lexical"
+          ],
+          "source_text_sha256": "b280e593ddbb050b869478bc985072db40904c3e6f242bef752626512b32aad9",
+          "actual_text_sha256": "2b19fe8bb9bb6d6978e51936e4d3abead133031d9de435660b9410ebdf0c03e0",
+          "previous_text_sha256": "e9c2ce552d3b92a222ab4afdac9a503a3dd6e575b10d497dd15e335e7248a78a",
+          "next_text_sha256": "7284cc7335dd2db5dd91e30106e5d0e241c23d93efd6cdc5a55f92e8c8a1221f",
+          "assessment": "style_tradeoff",
+          "note": "Исправлены кавычки, но убрана реакция внутри прямой речи. Содержание поиска сохранено, интонация потеряна."
+        },
+        {
+          "index": 46,
+          "start_sec": 467.94,
+          "flags": [
+            "qualifier",
+            "lexical"
+          ],
+          "source_text_sha256": "f357a6a44a7f4c8074530d06945c3c768c334a2b21d39c1b162630cd73e280e7",
+          "actual_text_sha256": "65905ee264c87c5ce132e2b8ea84fba24c07c15a76384b14e02f907f6b4726ad",
+          "previous_text_sha256": "1249820e30c5b4e727dd9757ab090b1a7106f24d32b40701445d7a0994598124",
+          "next_text_sha256": "4c5735d08159bf62fce9708e5ab29e143f50f4d11eaa3b7cf7305abf51658671",
+          "assessment": "context_supported",
+          "note": "Устранён непосредственный повтор условного союза, условие осталось."
+        },
+        {
+          "index": 89,
+          "start_sec": 901.4,
+          "flags": [
+            "lexical"
+          ],
+          "source_text_sha256": "91e56a408a675c83cee36aa5f6619ac400103c6a868e25817bf55ca5b7b570aa",
+          "actual_text_sha256": "cd04ca4d7c230447c22007025b27eef0eaa4340b4a2a78bcb7a38be264b9e9aa",
+          "previous_text_sha256": "b450bce3fe4d73ec1483bf75bc997d689a79f2d13fc910de95fb26653dc06f0f",
+          "next_text_sha256": "4dcab31c89a24cc5e06ce4ec6810d77a0d3fe16ae5467d46fae5138eadcdf2a3",
+          "assessment": "audio_needed",
+          "note": "Шумное слово заменено связкой. Читается лучше, но произнесённый вариант текстом не установить."
+        },
+        {
+          "index": 168,
+          "start_sec": 1700.19,
+          "flags": [
+            "lexical"
+          ],
+          "source_text_sha256": "1f6cf036894f1900a42cf967eecdc0036a71bec9fcdbca6362c5ba6874131649",
+          "actual_text_sha256": "e903e764b74b9959f97c5b88740d680ac32dc5bbb225c1efde3792487572fb34",
+          "previous_text_sha256": "d56d0dd4fc087757417e7bb1432cf402abcb8e77722931b68c474f257c7b542c",
+          "next_text_sha256": "03a7cfd5d290507723be6e7a0e9eb48fbb2503d8e71bb7ac6f079445f5e82c91",
+          "assessment": "context_supported",
+          "note": "Удалён заполнитель, модальность и сам вопрос сохранены."
+        },
+        {
+          "index": 227,
+          "start_sec": 2276.33,
+          "flags": [
+            "literal",
+            "lexical"
+          ],
+          "source_text_sha256": "359e8b10ca59fcac9c8b0ae0c4d391d1b8f3c947b9316922496635108fc19be2",
+          "actual_text_sha256": "b9c4215c8b3d2494597799d82e3dfc46cefebae160ba2a1557042981818d1121",
+          "previous_text_sha256": "b0b2bb9274da9569085c2d4155732ff014c4694c4530d76c8ec6d92e260e15c1",
+          "next_text_sha256": "2b137d9b715fd3506921defa1f2b3888055818defa8a8d036fbd58064665a5f4",
+          "assessment": "style_tradeoff",
+          "note": "Английский термин поддержан соседним контекстом; одновременно убран ответ-согласие в конце."
+        },
+        {
+          "index": 260,
+          "start_sec": 2614.11,
+          "flags": [
+            "lexical"
+          ],
+          "source_text_sha256": "b9a264dae2fbfbafac590d44dabaa8397f34eb57cfed29a457896b8c533e5009",
+          "actual_text_sha256": "33b272ac465ec62d54ee749fd51a8d32bdd001c626fc4e6a0376f1fefdf88060",
+          "previous_text_sha256": "0ab80effd55714e794835ca5796f87660bfb512221c43ef906d087757b42813c",
+          "next_text_sha256": "52a7859adfbe97e0ad9c77ee408dacbf332460247d7e009646a82515348f650b",
+          "assessment": "context_supported",
+          "note": "Раскрыт заикающийся разговорный вариант; цель и четвёртый шаг сохранены."
+        },
+        {
+          "index": 278,
+          "start_sec": 2794.5,
+          "flags": [
+            "qualifier",
+            "literal",
+            "lexical"
+          ],
+          "source_text_sha256": "c758f09ed58337e36db4de84f8e28c691dd5598e114b7a58353a2b7bfcd3b1cd",
+          "actual_text_sha256": "8f08af7873956f6812011bbbb4bd2f68ec4aba365f5de8e7540787e3bd58dc39",
+          "previous_text_sha256": "c38623ace71b8107a446a6318f0bc7ae8fbb0fb44f8d59f3b298e0f4630479f1",
+          "next_text_sha256": "14b26905eb8458ae11d00efed5b4ae8bf3fdc19884bf3a1d0cc4414af22cc3a1",
+          "assessment": "audio_needed",
+          "note": "Неразборчивый термин заменён догадкой о специалистах. Точное определение консультантов требует аудио."
+        },
+        {
+          "index": 315,
+          "start_sec": 3178.18,
+          "flags": [
+            "question_emphasis",
+            "lexical"
+          ],
+          "source_text_sha256": "a3ec52b3b9b7d9b1ab58382f6a3b752d8ce5bc5f8c77ac66007e0b42310ade60",
+          "actual_text_sha256": "560acc27e05ed8964d18dc2f6040bab7e5c5637ab3dffdde3bf5cf4b8ab85ade",
+          "previous_text_sha256": "54ba3c44227a70c1d030763850f6c765e3a3d418c1bf280e4cf90aef25b5ab44",
+          "next_text_sha256": "73a0b05241c0b9b51df01adf073ef066ee864f4c149eb7cefd67aa24ebfc3174",
+          "assessment": "style_tradeoff",
+          "note": "Риторический вопрос заменён связкой; последовательность команд сохранена, форма речи изменена."
+        },
+        {
+          "index": 356,
+          "start_sec": 3616.55,
+          "flags": [
+            "lexical"
+          ],
+          "source_text_sha256": "b0603e5fff4c385b9ae1370449609efb1cd8a60475315e38afa8c6f27a1d6180",
+          "actual_text_sha256": "f87fda9bf9cc7d40752c4382d280d27501bbce4622bc330a58216d0cbcdd226e",
+          "previous_text_sha256": "e3eb7280feb6e62b3cbd15306490410b7acaeb715d12ce134cf5fa0b50d80ce9",
+          "next_text_sha256": "a86288d8ed347be79fb5948b4166993e767305740bf6d9d782575632c24253f1",
+          "assessment": "context_supported",
+          "note": "Убран ложный старт; объект и ограничение на российских консультантов сохранены."
+        },
+        {
+          "index": 371,
+          "start_sec": 3773.59,
+          "flags": [
+            "number",
+            "lexical"
+          ],
+          "source_text_sha256": "66ea81855331e02bfa36f0d0957bcef8d0a951dbf45b93b6d9a2aa16e82b2723",
+          "actual_text_sha256": "ccd807a6c28b6bcf31efa36df13569604865d3a9874cd881bbe62de93b482be2",
+          "previous_text_sha256": "9d19973ef0ba14857eb67aba5a5b83346f1c64437795d86c6373dcf1ad22b63c",
+          "next_text_sha256": "639f8f0b97391c78f29f37abe81ccb708b7a598fa0b3fdc570b752207ff52666",
+          "assessment": "context_supported",
+          "note": "Числа не изменились: замена типа тире в диапазонах и оформление человеко-дней."
+        },
+        {
+          "index": 439,
+          "start_sec": 4442.14,
+          "flags": [
+            "lexical"
+          ],
+          "source_text_sha256": "bd4793112853eefda0ea0833664e153d00aa80115817c2bf387738a8b8ff9221",
+          "actual_text_sha256": "214b5fb48d877dfebdcfd1b2b83e9ce0d0b3b94dbebcdf68b4a888dd44e60a92",
+          "previous_text_sha256": "f8b662e209dd13ad4642aaba5e9af7bd6d4dafab3567d1cacd937e97d6679793",
+          "next_text_sha256": "4b59bcb19d14ab3700b47758819b0e89cb3bcd57d4681be233928707cdab2d61",
+          "assessment": "meaning_risk",
+          "note": "Фраза превратилась в отсутствие результата; следующая исходная реплика явно говорит, что результат есть. Исходник шумный, но такая автоматическая трактовка опасна."
+        },
+        {
+          "index": 460,
+          "start_sec": 4647.51,
+          "flags": [
+            "number",
+            "literal",
+            "lexical"
+          ],
+          "source_text_sha256": "19f27112681f5010faac1e9e62b88404a1b7ae12faea63126f4a727ff3cb4580",
+          "actual_text_sha256": "f5f0dbd27b53ee569bf136bb912bf8aacc67da485a64bca3c867059e64d42a72",
+          "previous_text_sha256": "208a556b58ac1ba0cffc3ecf63003732ae0c1f84ebc49a9ebec7294da242f7ef",
+          "next_text_sha256": "f9683d759f014617f3b04bd36aedf8136fbcb1110d513ba4d1bac47b2eba4a72",
+          "assessment": "context_supported",
+          "note": "Цифра записана словом, оба времени и вопрос сохранились."
+        },
+        {
+          "index": 472,
+          "start_sec": 4772.23,
+          "flags": [
+            "qualifier",
+            "lexical"
+          ],
+          "source_text_sha256": "52274f5d80cf094450f5d7e6bdd521b2de6f92b275257c1753b3bac5ec7afd47",
+          "actual_text_sha256": "6ffc4f84015856ba405659e761b68d9152a031659cdaa952881df26165dcc2c4",
+          "previous_text_sha256": "9e1d353f6d17665bc7c6a813cc8be36dda9de165dc76fd59222a845e115dbf68",
+          "next_text_sha256": "2feb8e62a553d63611ae00f0860090e96f5298ed43d1a069a61f2aec4c7f7753",
+          "assessment": "context_supported",
+          "note": "Убран наложенный ложный старт двух условных конструкций; условие и отрицание сохранены."
+        },
+        {
+          "index": 496,
+          "start_sec": 5045.7,
+          "flags": [
+            "literal",
+            "lexical"
+          ],
+          "source_text_sha256": "7f74ff271ef22ff12a2ac6f73dfee239aaffe6944de3c4552811085331d71502",
+          "actual_text_sha256": "14e86309042861754e81357fb3068286cb1fd2558353d1955f43d938298dfb1f",
+          "previous_text_sha256": "bd67eee9919e79322e7f2e8e75461b10153adea2ce6dc4405a2d00c212d2d433",
+          "next_text_sha256": "ade6967d422faf75ad1ab08b86d209ed7dddc6f5424108fc6fd65f832a26fdcf",
+          "assessment": "audio_needed",
+          "note": "Неясная фраза получила неграмматичную форму с другим местоимением. Надёжного восстановления по этому тексту нет."
+        },
+        {
+          "index": 531,
+          "start_sec": 5395.98,
+          "flags": [
+            "lexical"
+          ],
+          "source_text_sha256": "7af6fb3a7a0017356948f648b37888bac2fcf042809b49707eea9cdc3d3ebbfd",
+          "actual_text_sha256": "1419ec8fe4c72ace1f95024f6281e67cf7d6be2acb13dbae8dd23a1a7e59ee77",
+          "previous_text_sha256": "d8c4ab25cb15a58e4d7434b1c2a4949b0bfe7eda160360bfdd2aeb62d07a8c3d",
+          "next_text_sha256": "ac9c6e2e2a7fcfd4fb48c75b77ad68483d7b576f4727ae16ffad8728fc2b9ef6",
+          "assessment": "context_supported",
+          "note": "Убраны вокальные паузы, фраза продолжена следующей строкой без приписывания её слов."
+        },
+        {
+          "index": 579,
+          "start_sec": 5886.36,
+          "flags": [
+            "question_emphasis",
+            "lexical"
+          ],
+          "source_text_sha256": "32b5a6c21d7c4e59af102aa6146d9d5c1d6262b6e085a3b67cb9a60937f2a87d",
+          "actual_text_sha256": "e3cf3c8a2d7c39f943976af59065e16ce38a87446513237e687fcf6c15e72769",
+          "previous_text_sha256": "e6b7c98e3198f5baf4b1a75acbf0f6e09dcb3b14caa366c08f21190b30a05818",
+          "next_text_sha256": "199d74aca79de0968d66cbfd9fcf74057776cc1078cc379d32ffd50aad1625d0",
+          "assessment": "context_supported",
+          "note": "Пунктуация вопросительной конструкции поддержана формой и соседними вопросами."
+        },
+        {
+          "index": 618,
+          "start_sec": 6271.13,
+          "flags": [
+            "lexical"
+          ],
+          "source_text_sha256": "162354a8b36606e0f32919dc4a0149052a0d688d409351a724a3c91a5a3672ea",
+          "actual_text_sha256": "6e014214bc325f3ff2177141b832cb5fb7730ccc4c4b7e93a020a25fda722548",
+          "previous_text_sha256": "2522fc2394ef3c9975911bb1017e2614dc5b3930878003e1ebece425ff196592",
+          "next_text_sha256": "ab992ded0c2ecb875738d8933ae15d70513a60635a92b1b0b51723cd705b773d",
+          "assessment": "context_supported",
+          "note": "Исправлен явный сбой пробелов; сомнение, отрицания и метафора сохранены."
+        },
+        {
+          "index": 644,
+          "start_sec": 6529.06,
+          "flags": [
+            "question_emphasis"
+          ],
+          "source_text_sha256": "a4209f354bde4c73fc58260fcd402edce8fc84394bffbdeb825bb566a563a995",
+          "actual_text_sha256": "d38381a0068c1f9780e4f6ecc1fe0256a48b323a368b449245955c212a7b8c1c",
+          "previous_text_sha256": "9de87d006638798327ca359b5fa291636b25156e911084209183d1c591e2b6f7",
+          "next_text_sha256": "0619452a9d939132ee7edfff9a49e5bf5829ecfda20aa7d91d9e353c460dc6b5",
+          "assessment": "context_supported",
+          "note": "Вопросительный знак завершает начатый в предыдущей строке вопрос об аттестации; новые слова не приписаны."
+        },
+        {
+          "index": 668,
+          "start_sec": 6766.44,
+          "flags": [
+            "literal",
+            "lexical"
+          ],
+          "source_text_sha256": "ee0cfede80bd888835827fd6c2f7f5bce9bc9cbd73f53fda35834d45516fefb7",
+          "actual_text_sha256": "d18d2ab5960b76761f39cb790a5e7e1775d270637993e7325f4351310647155a",
+          "previous_text_sha256": "e9f6fed6be8314b19ee7dad9027a88781ccf10ce5d4ccb2466b5e83c49383232",
+          "next_text_sha256": "0b7eff1e6ff14c3d1ce87878cdaf969653211307dd5c834f712e43e6e83bbce5",
+          "assessment": "context_supported",
+          "note": "Оформлен регистр названия книги, рекомендация сохранена."
+        },
+        {
+          "index": 674,
+          "start_sec": 6827.56,
+          "flags": [
+            "qualifier",
+            "lexical"
+          ],
+          "source_text_sha256": "023c01eb86f0089244ba9994ffed797ff204488c5089453af83baec57e87deba",
+          "actual_text_sha256": "53f62060462d79e5ebd59ad712fa25b4845fe946643d6e44c132333de781ed4f",
+          "previous_text_sha256": "818fe4e7564b704f0311613ff9fc8e311f6f469f6abb68e3c6cf7f6dd021a608",
+          "next_text_sha256": "2adcae7f747acabe91ece5fe9570864e02fcebfa4c57b8f356e05d32aa0e9cc6",
+          "assessment": "context_supported",
+          "note": "Исправлен ложный старт; условие выбора книги осталось."
+        },
+        {
+          "index": 700,
+          "start_sec": 7105.34,
+          "flags": [
+            "lexical"
+          ],
+          "source_text_sha256": "2d171fc605e53fc6062ae820c6af6c680374d2f6d6f9a7b4af2bb198e096cf44",
+          "actual_text_sha256": "e210a9732e2fb36e08b2195939a2ed5ba54a06b4b52d9f2d3b46fa8329ce0d40",
+          "previous_text_sha256": "13d6b20cca5a06cfabd61b8ad395dd264709a9b6dcae00aa3649e4f39bad44a0",
+          "next_text_sha256": "bf6126b4f67bfb1902c6e9e8a05eb84cfed3c44330fcaab37ee215e3c5e3149e",
+          "assessment": "context_supported",
+          "note": "Удалена вокальная пауза, вопрос сохранён."
+        },
+        {
+          "index": 702,
+          "start_sec": 7121.25,
+          "flags": [
+            "number",
+            "lexical"
+          ],
+          "source_text_sha256": "ac2cc3cd73a20dcd4b070584b9df26c580c3b5ee8c692db3f5adb888c4a026ac",
+          "actual_text_sha256": "6e4e580245e847a6d17b79e54e0bc160dfe79f98dc9acd08be09b25ea123b2b4",
+          "previous_text_sha256": "bf6126b4f67bfb1902c6e9e8a05eb84cfed3c44330fcaab37ee215e3c5e3149e",
+          "next_text_sha256": "78d961d9670bc951016b4f6751c30d3686f8e056d9d38de2444923b688323132",
+          "assessment": "context_supported",
+          "note": "Исправлены явные буквенно-цифровые ошибки в названии площадки/номере; номер согласуется с началом записи."
+        }
+      ]
+    },
+    {
+      "model": "qwen3.5:4b",
+      "source_lines": 704,
+      "changed": 509,
+      "flag_counts": {
+        "lexical": 443,
+        "question_emphasis": 12,
+        "literal": 46,
+        "qualifier": 26,
+        "number": 2
+      },
+      "selection": "all numbers; four quantiles per qualifier/literal/question flag; evenly spaced low-flag controls to 24",
+      "selected_indices": [
+        4,
+        5,
+        17,
+        46,
+        78,
+        158,
+        161,
+        177,
+        209,
+        245,
+        278,
+        312,
+        379,
+        437,
+        449,
+        514,
+        534,
+        535,
+        621,
+        666,
+        668,
+        686,
+        700,
+        702
+      ],
+      "adjacent_overlap_flags": [
+        {
+          "index": 95,
+          "neighbor": "next",
+          "matched_words": 23
+        },
+        {
+          "index": 256,
+          "neighbor": "next",
+          "matched_words": 13
+        },
+        {
+          "index": 267,
+          "neighbor": "next",
+          "matched_words": 19
+        },
+        {
+          "index": 666,
+          "neighbor": "next",
+          "matched_words": 22
+        }
+      ],
+      "supplemental_indices": [
+        95,
+        256,
+        267
+      ],
+      "original_report_sha256": "367c88447add0da7f1878c3ae171a82e8326bca2b071a77e58575e9a1b35e5bc",
+      "scan_sha256": "dceca1ac4619c914332b35411d196cfc8333520b287ff7a9f02f8f90a59c7d91",
+      "review_counts": {
+        "context_supported": 14,
+        "style_tradeoff": 4,
+        "cross_line_copy": 4,
+        "audio_needed": 3,
+        "meaning_risk": 2
+      },
+      "reviews": [
+        {
+          "index": 4,
+          "start_sec": 37.93,
+          "flags": [
+            "lexical"
+          ],
+          "source_text_sha256": "84bf51ca679d5db3ceebf5cbdd781775b1ceef9789c3858ea26d19856d3619fc",
+          "actual_text_sha256": "332ba7202e6ec3bae7c7b54e8ef346f69829fb11853d15b8e23d5a66597ef81b",
+          "previous_text_sha256": "a7ea5a48250b481af0750c907bac6adc3804647858a79902ff24afa541851819",
+          "next_text_sha256": "320eb362b15bbbdeba937dfab47c3127f0da78b8678d16fcb8be79c899e040ba",
+          "assessment": "context_supported",
+          "note": "Удалена вокальная пауза; оговорки вероятности и субъективной оценки сохранены."
+        },
+        {
+          "index": 5,
+          "start_sec": 48.15,
+          "flags": [
+            "question_emphasis"
+          ],
+          "source_text_sha256": "320eb362b15bbbdeba937dfab47c3127f0da78b8678d16fcb8be79c899e040ba",
+          "actual_text_sha256": "8e261bc97babdf6724b26e98887f5f86386917f93c8a461029e5f1f5a527f1de",
+          "previous_text_sha256": "84bf51ca679d5db3ceebf5cbdd781775b1ceef9789c3858ea26d19856d3619fc",
+          "next_text_sha256": "1bef930c4fbc627c214b3869bc6595e3651d1db4bc4f9290fe5ce83954a34731",
+          "assessment": "context_supported",
+          "note": "Исправлена сломанная пунктуация, оба привета оставлены."
+        },
+        {
+          "index": 17,
+          "start_sec": 171.57,
+          "flags": [
+            "literal",
+            "lexical"
+          ],
+          "source_text_sha256": "b280e593ddbb050b869478bc985072db40904c3e6f242bef752626512b32aad9",
+          "actual_text_sha256": "9fb8cf55aa5b23272d3f2bb5b171d2f9f56f1d6a352593f235f63ef98ed81cd3",
+          "previous_text_sha256": "e9c2ce552d3b92a222ab4afdac9a503a3dd6e575b10d497dd15e335e7248a78a",
+          "next_text_sha256": "7284cc7335dd2db5dd91e30106e5d0e241c23d93efd6cdc5a55f92e8c8a1221f",
+          "assessment": "style_tradeoff",
+          "note": "Уменьшительная форма и реакция нормализованы; факты сохранены, стиль изменён."
+        },
+        {
+          "index": 46,
+          "start_sec": 467.94,
+          "flags": [
+            "qualifier",
+            "lexical"
+          ],
+          "source_text_sha256": "f357a6a44a7f4c8074530d06945c3c768c334a2b21d39c1b162630cd73e280e7",
+          "actual_text_sha256": "65905ee264c87c5ce132e2b8ea84fba24c07c15a76384b14e02f907f6b4726ad",
+          "previous_text_sha256": "1249820e30c5b4e727dd9757ab090b1a7106f24d32b40701445d7a0994598124",
+          "next_text_sha256": "4c5735d08159bf62fce9708e5ab29e143f50f4d11eaa3b7cf7305abf51658671",
+          "assessment": "context_supported",
+          "note": "Убран непосредственный повтор союза, условие сохранено."
+        },
+        {
+          "index": 78,
+          "start_sec": 788.84,
+          "flags": [
+            "lexical"
+          ],
+          "source_text_sha256": "33ef00d624727026ebf489550b1e593fa21a4110eda2e41e0e7f60c413e9a29b",
+          "actual_text_sha256": "c365d524dfe1455298b626b45faed1fda109bcb4a86f99b859bd6508e0529668",
+          "previous_text_sha256": "2de7c625d6b679167749198fd298f309422053a03461e63aae40017418430acc",
+          "next_text_sha256": "9dd7fcdc1f4a99e47d7529f4282e73866f54772fecdd1e984397c2ca3f882afe",
+          "assessment": "context_supported",
+          "note": "Удалён один разговорный заполнитель, объяснение роли книг осталось."
+        },
+        {
+          "index": 95,
+          "start_sec": 968.54,
+          "flags": [
+            "question_emphasis",
+            "lexical"
+          ],
+          "source_text_sha256": "88120d0c07c77754b461dfdd2539face8fd53afa9045346d0f39a7d4d998bca2",
+          "actual_text_sha256": "61e34980c951206dcf9155c313a5c5fa9566a453ccb5c814f286bba57fcdc15a",
+          "previous_text_sha256": "93b271e5af21bc0884487aca887b54db59c32623f601ea553b89e8efc4574aa7",
+          "next_text_sha256": "617a87e94491a436fbb3d873a968404c532295936ec6f22d1e49c84c1e84b8b4",
+          "assessment": "cross_line_copy",
+          "note": "Следующая исходная строка целиком дописана к предыдущей, но также сохранена отдельно. Слова дублируются под другим временем."
+        },
+        {
+          "index": 158,
+          "start_sec": 1597.65,
+          "flags": [
+            "lexical"
+          ],
+          "source_text_sha256": "2291fa1cc51aa946c35d6875ffaf77d3e98f249af98a7b0be3bbf969c4e668a5",
+          "actual_text_sha256": "083afef7ef20dbe71c673f7f2771656fc07c882a9e3e6b3da9b8ee5dc3f4fc31",
+          "previous_text_sha256": "79d254ab846c521e314de46aca845c7c93b5443d473a8853025eb827229791b2",
+          "next_text_sha256": "b06e653094c64885f187fb2041f388e93ea608911d3927612c0c965cff69beb2",
+          "assessment": "context_supported",
+          "note": "Убраны повторы, сохранена последовательность обратной связи."
+        },
+        {
+          "index": 161,
+          "start_sec": 1628.28,
+          "flags": [
+            "question_emphasis",
+            "lexical"
+          ],
+          "source_text_sha256": "26806d89d2775d82b29a8bd7abc4df0f71e0e99d963c6a789f2019abc53d5b4b",
+          "actual_text_sha256": "ce600c19e87d26d3f52632d8bae8c3212abe26f37237fa16f28b751213cfbfe8",
+          "previous_text_sha256": "cc55975d1562b5ffdd475a19f1598545e36b3aebff1719d709341b5bbdfdc7f5",
+          "next_text_sha256": "318574ede02ce8822cf4c8e61fa5c1329ab104942a77e0a8dbe2dc6457888f92",
+          "assessment": "style_tradeoff",
+          "note": "Риторический вопрос стал утверждением; основная ситуация сохранена."
+        },
+        {
+          "index": 177,
+          "start_sec": 1792.4,
+          "flags": [
+            "number",
+            "lexical"
+          ],
+          "source_text_sha256": "208b874dc3c85a9f24248824aca24ac3d57ea47ec8f5b43e7ad0dc06bfe11290",
+          "actual_text_sha256": "5c5dd68da852911e55b9892bdb04c1e2cb884c91a8af043d05e29b7048afc99d",
+          "previous_text_sha256": "f0afe4ebec9e860388d8a306a3af919e2685e3d59f2c453dd44368c96e28625d",
+          "next_text_sha256": "9e6f01ab4bb1dfff1465b920f2e31856cbd58f4ca73966edeed7f67c3a098644",
+          "assessment": "context_supported",
+          "note": "Шесть месяцев записаны словами; значения и противопоставление недель/месяцев сохранены. Остался неразборчивый фрагмент."
+        },
+        {
+          "index": 209,
+          "start_sec": 2111.62,
+          "flags": [
+            "qualifier",
+            "lexical"
+          ],
+          "source_text_sha256": "9ae723ca0bd45712e0c83b9d5242a2fd7b3c37ab641392f9e4b23b0aa20fef1a",
+          "actual_text_sha256": "4a16b3839106e46ac00136ebd193748181e3964e92b763cbd6a79345aedf6492",
+          "previous_text_sha256": "a5a3ada4087589f63ac31ad3dd07677097326eac7daaf337acc96cf73275195e",
+          "next_text_sha256": "9d5d7636b064a94a96ed868737820d4dc872f5f8c34fcf889c986d0bc80e46bb",
+          "assessment": "context_supported",
+          "note": "Убран шумный фрагмент перед расшифровкой термина. Lexical-флаг отрицания здесь не доказывает смысловую ошибку."
+        },
+        {
+          "index": 245,
+          "start_sec": 2469.82,
+          "flags": [
+            "lexical"
+          ],
+          "source_text_sha256": "967142540f686418bad74dbd47901ba95ec37a9d5efd8fb798c7ef66b483eb17",
+          "actual_text_sha256": "9238680f64ae7ef749f11c6fd54d49e3ca3f7e24e4881be3775ca301d90ee31b",
+          "previous_text_sha256": "003a4e25373318aad8b83a6e40e460314a414fe83244bf295ca8dd3a168fc958",
+          "next_text_sha256": "ba55db9936429ecddf6a13d1a42aa455add3456fe09c6d9e01d35dc4ac507904",
+          "assessment": "audio_needed",
+          "note": "На границе строк разорвано слово, модель его не восстановила. Точный вариант требует прослушивания."
+        },
+        {
+          "index": 256,
+          "start_sec": 2575.72,
+          "flags": [
+            "lexical"
+          ],
+          "source_text_sha256": "92c7eb1291cfe2b053c6205dc56b9ab3a1dd8a2cb40ff0632d64e19041ca7d23",
+          "actual_text_sha256": "bf73496b182e650916dbe33999c20d4519e0a5ab00fc9cf9372fe3eadd742b23",
+          "previous_text_sha256": "5ed9fa1d8ab985fb00378db47a8dfa5220aac24c9d1a32c7cfaf820a311731dd",
+          "next_text_sha256": "a3e30839ffc80ef9ab9de1b2053169e29034e13e133d2ca1d916f45d9fd09ba6",
+          "assessment": "cross_line_copy",
+          "note": "Продолжение из следующей строки дописано к своей, следующая сохранена. Связный текст стал дублированным."
+        },
+        {
+          "index": 267,
+          "start_sec": 2682.24,
+          "flags": [
+            "qualifier",
+            "lexical"
+          ],
+          "source_text_sha256": "a3c9d12ad3a161dd13028a73b451f55af1feccd9b73edd212a4add1e7286b5ef",
+          "actual_text_sha256": "2880d9d627cf6fd2b694751a56481bde57a6e6121f0319ab4963bc6d7b1279a0",
+          "previous_text_sha256": "4c16f679166caed8ae8e2b11990cf9ad27a89fa57b14ae94d88db8fb91cc9907",
+          "next_text_sha256": "280cac18a96d67a4cee522804eaf1103990f95728221cda99cac205bc0de7aa9",
+          "assessment": "cross_line_copy",
+          "note": "Соседняя строка дописана к своей, а отдельно осталась исходной; дублирование содержания и временной привязки."
+        },
+        {
+          "index": 278,
+          "start_sec": 2794.5,
+          "flags": [
+            "qualifier",
+            "literal",
+            "lexical"
+          ],
+          "source_text_sha256": "c758f09ed58337e36db4de84f8e28c691dd5598e114b7a58353a2b7bfcd3b1cd",
+          "actual_text_sha256": "71b16902c2eb473d2808702b831883366cad303521e6f2f81a572f6a5d52d79a",
+          "previous_text_sha256": "c38623ace71b8107a446a6318f0bc7ae8fbb0fb44f8d59f3b298e0f4630479f1",
+          "next_text_sha256": "14b26905eb8458ae11d00efed5b4ae8bf3fdc19884bf3a1d0cc4414af22cc3a1",
+          "assessment": "audio_needed",
+          "note": "Неразборчивое определение консультанта заменено догадкой; нельзя принять точность по тексту."
+        },
+        {
+          "index": 312,
+          "start_sec": 3151.18,
+          "flags": [
+            "lexical"
+          ],
+          "source_text_sha256": "99739a658e4e8f3852546f797bec61975f88eed8dbb4acab3ec4091cc5308f30",
+          "actual_text_sha256": "46664594114ce2e9bfcfedb51aaf9e51ee64dc86c2fa8ecaadba7aa411e90a70",
+          "previous_text_sha256": "b20db83505ac14bfc64222848382669a9518974fd3f51f91858748720229cb7c",
+          "next_text_sha256": "8e4dcabcc4e2eedf9e7ab7c18648e6c64b5ad1733e83bf20a95f5f7d2757d4df",
+          "assessment": "audio_needed",
+          "note": "Убран второй ответ одним словом. Возможны два говорящих, нужна проверка аудио."
+        },
+        {
+          "index": 379,
+          "start_sec": 3855.48,
+          "flags": [
+            "lexical"
+          ],
+          "source_text_sha256": "c4872a9cdf3d1e6a24d6f0b521936c318e0c0576475d81ba78a6069b21041f34",
+          "actual_text_sha256": "4a83b528ffc7e0479ae684484320a6b56c02ecea749b4ce9d59922c5926fa783",
+          "previous_text_sha256": "7b0df39213701a62c7d3b80f88296f5b314c6e39f591fa206af01e4782946655",
+          "next_text_sha256": "88c7a3d51a3580f8a8d1b4253633112afab017a3b983bf69a924dbbb2f79d442",
+          "assessment": "context_supported",
+          "note": "Убраны повтор слова и голосовая пауза; экономические понятия сохранены."
+        },
+        {
+          "index": 437,
+          "start_sec": 4414.43,
+          "flags": [
+            "question_emphasis",
+            "lexical"
+          ],
+          "source_text_sha256": "6e5a621581fb2f088750bceb0a3b8fcbc534d80e4ae7b9817255886d220061f6",
+          "actual_text_sha256": "a104528d80e9a491d8f1fec6e9ec83cc9734a864d7c8ada2ec455431fbf2ad56",
+          "previous_text_sha256": "bab6979628654cbcd46b741947cb26ddb7aafe773b27d50ef9f6aa2f5bf59957",
+          "next_text_sha256": "f8b662e209dd13ad4642aaba5e9af7bd6d4dafab3567d1cacd937e97d6679793",
+          "assessment": "style_tradeoff",
+          "note": "Убрана вопросительная реплика подтверждения. Само противоречие и оба отрицания сохранены."
+        },
+        {
+          "index": 449,
+          "start_sec": 4538.51,
+          "flags": [
+            "lexical"
+          ],
+          "source_text_sha256": "a3e57954ac8f835650361af813c306535856fe663d7d2e1f08c863c29fefc200",
+          "actual_text_sha256": "5e7c607e5048bff16e9d1c134fb980b5de8076825eddf9fc218d31706e62f0f0",
+          "previous_text_sha256": "4b14198b9856daa7b31656496721114f0b732db7ef331afbc687d92e76082b20",
+          "next_text_sha256": "10cabc3b13b7ae78e92ce00d22ad4e19fd3463f8ec3d2efbff4ce32f19b26a27",
+          "assessment": "context_supported",
+          "note": "Сокращена грамматическая связка; цель встречи сохранена."
+        },
+        {
+          "index": 514,
+          "start_sec": 5222.06,
+          "flags": [
+            "qualifier",
+            "lexical"
+          ],
+          "source_text_sha256": "3bcebac2564aa983c3fa2d10d45e55928922b3d70c1a994cb50c8c3216afa2a5",
+          "actual_text_sha256": "a770d779e566d9ea8f6a5bdb6a98acceca58e31a97e97e20d2022959d13cfbac",
+          "previous_text_sha256": "f3b904ca86b0e45f3b8b9819ffbf71ba219f120ccb48facf19c3c2252acd486a",
+          "next_text_sha256": "2b89b58f047fb30bb4b42026f2982aa7f9ce14c9f9d911a6657e87c02c6ce560",
+          "assessment": "style_tradeoff",
+          "note": "Идиома об умершем человеке стала менее однозначной. Контекст смерти остаётся в предыдущей строке, но эту замену нельзя считать чистой пунктуацией."
+        },
+        {
+          "index": 534,
+          "start_sec": 5419.9,
+          "flags": [
+            "lexical"
+          ],
+          "source_text_sha256": "3e389619aa65450c1441ad0e83130788d067ddfebffe758ed8f312f28fab938e",
+          "actual_text_sha256": "dbc532a784ea243359f52ae8a1940c8c821acc113553975d37a3ad71c0fb86f6",
+          "previous_text_sha256": "6815551606362b5229e9d8b9db8ed9fe8b5309096808ab1b64aac15d4604bcdd",
+          "next_text_sha256": "da325862ee30927adb302be031a4374016c2e84ad08c232767c0380b7289d0f6",
+          "assessment": "context_supported",
+          "note": "Исправлено согласование, проблема внедрения сохранена."
+        },
+        {
+          "index": 535,
+          "start_sec": 5426.21,
+          "flags": [
+            "literal",
+            "lexical"
+          ],
+          "source_text_sha256": "da325862ee30927adb302be031a4374016c2e84ad08c232767c0380b7289d0f6",
+          "actual_text_sha256": "b14ff60bc74a1194b763db7d485a6c53fb613a2bc8c1c6509eb334206da01abd",
+          "previous_text_sha256": "3e389619aa65450c1441ad0e83130788d067ddfebffe758ed8f312f28fab938e",
+          "next_text_sha256": "0b587b1a6d37e4d4fda2186b8e110f50e7d3c7bbb83e24d23f4cc921438d46c6",
+          "assessment": "context_supported",
+          "note": "Закрыта незакрытая цитата, содержание и невозможность внедрения сохранены."
+        },
+        {
+          "index": 621,
+          "start_sec": 6303.44,
+          "flags": [
+            "lexical"
+          ],
+          "source_text_sha256": "0116c27c6754c204077be2ace6b5e9d755f7068aee7d524c5977df316595d331",
+          "actual_text_sha256": "a8235816f57cf00191b714d1089a2a777daa7f931de9f9c62254fba1f0481ad0",
+          "previous_text_sha256": "4971c7ca24f8a72e96c1a9847a20a3fb969ced145771969991fea3931ab611c3",
+          "next_text_sha256": "319c09c37a4f08a9da5ac186b032ac438081ad80d2381e12cb5f39d6db3ffec9",
+          "assessment": "context_supported",
+          "note": "Убрано наложение заполнителей; остальной шум не исправлен, новых фактов нет."
+        },
+        {
+          "index": 666,
+          "start_sec": 6744.37,
+          "flags": [
+            "question_emphasis",
+            "lexical"
+          ],
+          "source_text_sha256": "91fd4b8173f4dad1c6428cb526c94f8312ca1febdca4143da430bde2c77834c7",
+          "actual_text_sha256": "e1e17764db07bc2bb15baacc57663ece987e013c6c329af727c1d05d583bc6d7",
+          "previous_text_sha256": "8cc6a3abca826dae113345cbf720546af3d8792e4aff48fcbcfefb3a4dbb3c74",
+          "next_text_sha256": "e9f6fed6be8314b19ee7dad9027a88781ccf10ce5d4ccb2466b5e83c49383232",
+          "assessment": "cross_line_copy",
+          "note": "Скопирован большой фрагмент следующей строки, которая осталась в результате; одновременно потеряно начало собственной реплики. Возник дубль и неверная временная привязка."
+        },
+        {
+          "index": 668,
+          "start_sec": 6766.44,
+          "flags": [
+            "literal"
+          ],
+          "source_text_sha256": "ee0cfede80bd888835827fd6c2f7f5bce9bc9cbd73f53fda35834d45516fefb7",
+          "actual_text_sha256": "73859cfd6d1bf6b7cb6bf7c75d951b80d93421bf7393e05e3adcd0071828ba79",
+          "previous_text_sha256": "e9f6fed6be8314b19ee7dad9027a88781ccf10ce5d4ccb2466b5e83c49383232",
+          "next_text_sha256": "0b7eff1e6ff14c3d1ce87878cdaf969653211307dd5c834f712e43e6e83bbce5",
+          "assessment": "context_supported",
+          "note": "Изменён только регистр названия книги."
+        },
+        {
+          "index": 686,
+          "start_sec": 6960.32,
+          "flags": [
+            "qualifier",
+            "lexical"
+          ],
+          "source_text_sha256": "185aad88c6aba741a9006e4916140c705e8fe34f096e0166f1ab4b4241802de1",
+          "actual_text_sha256": "b12e57cedd81367eb26efe4551d03ac11415ae131c0bb7d85d11f5c496a34506",
+          "previous_text_sha256": "7adb7658102167972eaeb67bb1b5062dcbcc466fb2bec1f454173be54ad1c46f",
+          "next_text_sha256": "b1951fcb1aa36b6aac174aa0b1250db3f992d9bd115245326e2ec7c7a8bab6a0",
+          "assessment": "meaning_risk",
+          "note": "Отрицательное уточнение о мастер-классе исчезло, лекция стала мастер-классом; шумный термин заменён другой неподтверждённой сущностью."
+        },
+        {
+          "index": 700,
+          "start_sec": 7105.34,
+          "flags": [
+            "lexical"
+          ],
+          "source_text_sha256": "2d171fc605e53fc6062ae820c6af6c680374d2f6d6f9a7b4af2bb198e096cf44",
+          "actual_text_sha256": "e210a9732e2fb36e08b2195939a2ed5ba54a06b4b52d9f2d3b46fa8329ce0d40",
+          "previous_text_sha256": "13d6b20cca5a06cfabd61b8ad395dd264709a9b6dcae00aa3649e4f39bad44a0",
+          "next_text_sha256": "bf6126b4f67bfb1902c6e9e8a05eb84cfed3c44330fcaab37ee215e3c5e3149e",
+          "assessment": "context_supported",
+          "note": "Удалена вокальная пауза, вопрос сохранён."
+        },
+        {
+          "index": 702,
+          "start_sec": 7121.25,
+          "flags": [
+            "number",
+            "lexical"
+          ],
+          "source_text_sha256": "ac2cc3cd73a20dcd4b070584b9df26c580c3b5ee8c692db3f5adb888c4a026ac",
+          "actual_text_sha256": "6736d36e254e323b42ae96b47cc0a34f21f31212736f9e8f377b91b80ea35012",
+          "previous_text_sha256": "bf6126b4f67bfb1902c6e9e8a05eb84cfed3c44330fcaab37ee215e3c5e3149e",
+          "next_text_sha256": "78d961d9670bc951016b4f6751c30d3686f8e056d9d38de2444923b688323132",
+          "assessment": "meaning_risk",
+          "note": "Название площадки для звёзд заменено общим подкастом. Исправление номера полезно, но не оправдывает изменение адресата действия."
+        }
+      ]
+    }
+  ]
+}
