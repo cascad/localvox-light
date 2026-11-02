@@ -77,6 +77,7 @@ pub enum FormKind {
     Export(String),
     Confirm(Task),
     Setting(String),
+    LlmServer,
     SettingChoice {
         key: String,
         options: Vec<(String, Option<String>)>,
@@ -114,6 +115,7 @@ pub struct App {
     pub console: crate::diagnostics::Console,
     pub metadata_open: bool,
     pub settings_advanced: bool,
+    pub llm_server_pending: bool,
     pub action_diagnostics: HashMap<Resource, crate::diagnostics::Context>,
     pub notes: Vec<SlotNotes>,
     pub asks: Vec<AskRecord>,
@@ -195,6 +197,7 @@ impl Default for App {
             console: crate::diagnostics::Console::default(),
             metadata_open: false,
             settings_advanced: false,
+            llm_server_pending: false,
             action_diagnostics: HashMap::new(),
             notes: vec![],
             asks: vec![],
@@ -310,6 +313,7 @@ impl App {
         }
     }
     pub fn switch(&mut self, v: View) {
+        self.llm_server_pending = false;
         self.view = v;
         self.nav = VIEWS.iter().position(|(view, _)| *view == v).unwrap_or(0);
         self.epoch += 1;
@@ -713,6 +717,13 @@ impl App {
             Data::Settings(s) => {
                 let key = self.selected_setting().map(|s| s.key.clone());
                 self.settings = s;
+                if std::mem::take(&mut self.llm_server_pending) {
+                    if self.settings.settings.iter().any(|s| s.kind == "servers") {
+                        self.command(Action::AddLlmServer);
+                    } else {
+                        self.status = "Список LLM-серверов требует обновления API".into();
+                    }
+                }
                 self.selected = key
                     .and_then(|key| self.visible_settings().iter().position(|s| s.key == key))
                     .unwrap_or_else(|| {
@@ -919,6 +930,10 @@ impl App {
             return;
         }
         if self.form.is_none() && self.view == View::Settings {
+            if key.code == KeyCode::Char('N') {
+                self.command(Action::AddLlmServer);
+                return;
+            }
             if key.code == KeyCode::Char('A') {
                 self.command(Action::ToggleAdvancedSettings);
                 return;
@@ -1227,14 +1242,15 @@ impl App {
             .settings
             .iter()
             .filter(|s| {
-                (self.settings_advanced
-                    || !filter.is_empty()
-                    || self
-                        .settings
-                        .settings
-                        .iter()
-                        .all(|s| !basic_setting(&s.key))
-                    || basic_setting(&s.key))
+                s.kind != "servers"
+                    && (self.settings_advanced
+                        || !filter.is_empty()
+                        || self
+                            .settings
+                            .settings
+                            .iter()
+                            .all(|s| !basic_setting(&s.key))
+                        || basic_setting(&s.key))
                     && (filter.is_empty()
                         || format!("{} {} {} {}", s.key, s.group, s.label, s.hint)
                             .to_lowercase()

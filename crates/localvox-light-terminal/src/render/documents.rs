@@ -89,14 +89,30 @@ pub(super) fn project(a: &App, t: Theme, _metadata: bool) -> Projection {
                     setting.label.clone(),
                     Style::default().fg(t.ink).add_modifier(Modifier::BOLD),
                 )));
-                projection.lines.push(Line::from(""));
-                projection.lines.push(Line::from(vec![
-                    Span::styled("Значение  ", Style::default().fg(t.dim)),
-                    Span::styled(
-                        a.setting_value(setting, true),
-                        Style::default().fg(t.value).add_modifier(Modifier::BOLD),
-                    ),
-                ]));
+                let marker = if a.ascii { "--" } else { "┄┄" };
+                projection.lines.push(Line::from(Span::styled(
+                    format!("{marker} значение"),
+                    Style::default().fg(t.dim),
+                )));
+                projection.lines.push(Line::from(Span::styled(
+                    format!("  {}", a.setting_value(setting, true)),
+                    Style::default().fg(t.value).add_modifier(Modifier::BOLD),
+                )));
+                if setting.default_value.is_some() {
+                    let overridden = a
+                        .settings_edits
+                        .get(&setting.key)
+                        .map(|v| v.is_some())
+                        .unwrap_or(setting.value.is_some());
+                    projection.lines.push(Line::from(Span::styled(
+                        if overridden {
+                            "  источник: .env"
+                        } else {
+                            "  источник: .env.defaults"
+                        },
+                        Style::default().fg(t.dim),
+                    )));
+                }
                 if a.settings_edits.contains_key(&setting.key) {
                     projection.lines.push(Line::from(Span::styled(
                         format!("* Не сохранено · было: {}", a.setting_value(setting, false)),
@@ -109,12 +125,16 @@ pub(super) fn project(a: &App, t: Theme, _metadata: bool) -> Projection {
                     _ => "После перезапуска демона",
                 };
                 projection.lines.push(Line::from(Span::styled(
-                    applies,
+                    format!("{marker} применение"),
                     Style::default().fg(t.dim),
+                )));
+                projection.lines.push(Line::from(Span::styled(
+                    format!("  {applies}"),
+                    Style::default().fg(t.dim).add_modifier(Modifier::ITALIC),
                 )));
                 projection.lines.push(Line::from(""));
                 projection.lines.push(Line::from(Span::styled(
-                    "Подсказка",
+                    format!("{marker} пояснение"),
                     Style::default().fg(t.dim),
                 )));
                 projection.lines.push(Line::from(Span::styled(
@@ -123,17 +143,19 @@ pub(super) fn project(a: &App, t: Theme, _metadata: bool) -> Projection {
                 )));
                 projection.lines.push(Line::from(""));
                 projection.lines.push(Line::from(Span::styled(
-                    "Enter изменить · S сохранить",
-                    Style::default().fg(t.command),
-                )));
-                projection.lines.push(Line::from(Span::styled(
                     if a.settings_advanced {
-                        "A основные настройки"
+                        "Enter изменить · S сохранить · A основные"
                     } else {
-                        "A все настройки"
+                        "Enter изменить · S сохранить · A все"
                     },
                     Style::default().fg(t.command),
                 )));
+                if setting.key == "LOCALVOX_LLM_BASE_URL" {
+                    projection.lines.push(Line::from(Span::styled(
+                        "N добавить LLM-сервер",
+                        Style::default().fg(t.command),
+                    )));
+                }
                 if a.settings_advanced {
                     projection.lines.push(Line::from(Span::styled(
                         setting.key.clone(),

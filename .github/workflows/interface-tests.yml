@@ -61,6 +61,7 @@ jobs:
           cargo test --locked -p localvox-light-api http::tests::workspace --lib
           cargo test --locked -p localvox-light-api http::tests::settings --lib
           cargo test --locked -p localvox-light-core settings:: --lib
+          cargo test --locked -p localvox-light-core presets:: --lib
           cargo test --locked -p localvox-light-core env_file:: --lib
           cargo test --locked -p localvox-light-core jobs:: --lib
           cargo test --locked -p localvox-light-core workflow:: --lib
@@ -111,6 +112,7 @@ jobs:
           npx --yes @fission-ai/openspec@1.13.2 validate extract-headless-processing-coordinator --type change --strict --no-interactive
           npx --yes @fission-ai/openspec@1.13.2 validate verify-background-indexing --type change --strict --no-interactive
           npx --yes @fission-ai/openspec@1.13.2 validate fix-empty-semantic-index-failure --type change --strict --no-interactive
+          npx --yes @fission-ai/openspec@1.13.2 validate refine-workspace-controls-and-settings --type change --strict --no-interactive
           python scripts/check-openspec.py
           git diff --check
       - name: Upload browser diffs, traces and terminal snapshot proposals

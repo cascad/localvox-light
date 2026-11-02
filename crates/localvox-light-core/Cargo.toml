@@ -17,6 +17,7 @@ cpal.workspace = true
 hound.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+url.workspace = true
 sha2 = "0.10"
 same-file = "1"
 tempfile.workspace = true

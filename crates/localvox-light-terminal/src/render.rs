@@ -193,11 +193,7 @@ pub fn draw(f: &mut Frame, a: &App) {
                     Style::default().fg(t.error),
                 ),
                 Span::styled(
-                    if area.width < 95 {
-                        " "
-                    } else {
-                        " / технический журнал   "
-                    },
+                    if area.width < 95 { " " } else { "   " },
                     Style::default().fg(t.dim),
                 ),
                 Span::styled(
@@ -351,7 +347,7 @@ pub fn draw(f: &mut Frame, a: &App) {
     if a.help {
         let rect = modal(area, 78, 26);
         f.render_widget(Clear, rect);
-        f.render_widget(Paragraph::new("НОВОЕ ТЕРМИНАЛЬНОЕ ПРОСТРАНСТВО\nSpace play/pause; p fragment; g time; Alt+Left/Right +/-15s\nF6 player focus: Left/Right +/-5s, Home/End\n\nTab / Shift+Tab — фокус панели\n↑↓ / j k — выбрать строку; Enter — открыть\n1–5 — вкладка документа; y / Ctrl+Y — копировать всё\n/ — поиск; : — все действия; n — создать; i — URL → Enter\nF8 — остановить запись; F9 — начать запись\nX — отменить обработку; R — продолжить этап\nPgUp / PgDn, Home / End — чтение документа\n← / → — свернуть / раскрыть подробности\n\nВ форме: Tab — поле; Enter — новая строка\nCtrl+Enter — отправить; Esc — отменить\nURL, настройка, время: Enter — подтвердить\nВставка остаётся текстом, команды не исполняются.\nI — сведения в «Ход»; A / S — все настройки / сохранить\n~ / ё — консоль ошибок; F12 — также из формы\n\nq / F10 / Ctrl+Q закрывают только клиент.\nДемон и запись продолжают работать.\n\nЛюбая клавиша — закрыть справку").block(borders(a.ascii).title(" Помощь ").style(Style::default().bg(t.bg).fg(t.ink))).wrap(Wrap{trim:false}),rect);
+        f.render_widget(Paragraph::new("УПРАВЛЕНИЕ\nSpace play/pause; p fragment; g time; Alt+Left/Right +/-15s\nF6 — стрелки плееру; повтор — к документу\n\nTab / Shift+Tab — фокус панели\n↑↓ / j k — выбрать строку; Enter — открыть\n1–5 — вкладка документа; y / Ctrl+Y — копировать всё\n/ — поиск; : — все действия; n — создать; i — URL → Enter\nF8 — остановить запись; F9 — начать запись\nX — отменить обработку; R — продолжить этап\nPgUp / PgDn, Home / End — чтение документа\n← / → — свернуть / раскрыть подробности\n\nВ форме: Tab — поле; Enter — новая строка\nCtrl+Enter — отправить; Esc — отменить\nURL, настройка, время: Enter — подтвердить\nВставка остаётся текстом, команды не исполняются.\nI — сведения в «Ход»; A / S — все настройки / сохранить\n~ / ё — консоль ошибок; F12 — также из формы\n\nq / F10 / Ctrl+Q закрывают только клиент.\nДемон и запись продолжают работать.\n\nЛюбая клавиша — закрыть справку").block(borders(a.ascii).title(" Помощь ").style(Style::default().bg(t.bg).fg(t.ink))).wrap(Wrap{trim:false}),rect);
     }
     if let Some(form) = &a.form {
         let desired = match &form.kind {
@@ -360,6 +356,7 @@ pub fn draw(f: &mut Frame, a: &App) {
             }
             crate::app::FormKind::Seek
             | crate::app::FormKind::Import
+            | crate::app::FormKind::LlmServer
             | crate::app::FormKind::Setting(_) => 9,
             _ => 30,
         };
@@ -526,7 +523,10 @@ pub fn draw(f: &mut Frame, a: &App) {
                     "↑↓ число · Tab поле · Enter перейти · Esc отменить"
                 } else if matches!(form.kind, crate::app::FormKind::Import) {
                     "Enter импортировать · Esc отменить"
-                } else if matches!(form.kind, crate::app::FormKind::Setting(_)) {
+                } else if matches!(
+                    form.kind,
+                    crate::app::FormKind::Setting(_) | crate::app::FormKind::LlmServer
+                ) {
                     "Enter в черновик · Esc отменить"
                 } else {
                     "Tab поле · Ctrl+Enter / Ctrl+S отправить · Esc отменить"
@@ -542,15 +542,24 @@ pub fn draw(f: &mut Frame, a: &App) {
     render_console(f, a, t);
 }
 fn player_bar(f: &mut Frame, a: &App, area: Rect, t: Theme) {
-    let block = panel("Аудио · F6 фокус", a.focus == 3, t).borders(Borders::ALL);
+    let block = panel(
+        if a.focus == 3 {
+            "Аудио · ←/→ перемотка · F6 к документу"
+        } else {
+            "Аудио · F6: стрелки плееру"
+        },
+        a.focus == 3,
+        t,
+    )
+    .borders(Borders::ALL);
     let inner = block.inner(area);
     f.render_widget(block, area);
     let keys = if a.focus == 3 {
-        "←/→ ±5с · Home/End · g время · Space пауза · F6 назад"
+        "←/→ ±5с · Home/End · g время · Space ▶/‖"
     } else if area.width < 95 {
-        "Space play/pause · p фрагмент · g время · Alt+←/→ ±15с"
+        "Space ▶/‖ · p фрагмент · g время · Alt+←/→ ±15с"
     } else {
-        "Space play/pause · p фрагмент · g время · Alt+←/→ ±15с · F6 перемотка"
+        "Space ▶/‖ · p фрагмент · g время · Alt+←/→ ±15с · F6: стрелки плееру"
     };
     f.render_widget(
         Paragraph::new(vec![
@@ -562,19 +571,37 @@ fn player_bar(f: &mut Frame, a: &App, area: Rect, t: Theme) {
 }
 fn player_line(a: &App, t: Theme, width: u16) -> Line<'static> {
     let duration = a.media_duration();
+    let duration_text = duration.map(timecode).unwrap_or_else(|| "—".into());
+    let position_text = format!(
+        "{:>width$}",
+        timecode(a.playback.position),
+        width = duration_text.len().max(5)
+    );
     let label = format!(
         " {} {} / {}  ",
         if a.playback.error.is_some() {
-            "! ~ ошибки"
+            "!"
         } else if a.playback.idle {
-            "готов"
+            if a.ascii {
+                "."
+            } else {
+                "■"
+            }
         } else if a.playback.paused {
-            "пауза"
+            if a.ascii {
+                "="
+            } else {
+                "‖"
+            }
         } else {
-            "играет"
+            if a.ascii {
+                ">"
+            } else {
+                "▶"
+            }
         },
-        timecode(a.playback.position),
-        duration.map(timecode).unwrap_or_else(|| "—".into())
+        position_text,
+        duration_text
     );
     let buckets = width.saturating_sub(30).min(100) as usize;
     let mut spans = vec![Span::styled(label, Style::default().fg(t.command))];
@@ -1493,7 +1520,7 @@ fn context(f: &mut Frame, a: &App, area: Rect, t: Theme) {
         let hints = if a.view == View::Settings {
             "Enter изменить\nS сохранить\nA основные / все\n/ найти настройку\n\n~ консоль ошибок"
         } else {
-            "I сведения о записи\n3 текст · y / Ctrl+Y копия\n5 ход обработки\ni добавить YouTube / URL\n\nSpace play / pause\np слушать фрагмент\ng перейти ко времени\nF6 фокус плеера\n\n~ консоль ошибок\n: все действия"
+            "I сведения о записи\n3 текст · y / Ctrl+Y копия\n5 ход обработки\ni добавить YouTube / URL\n\nSpace play / pause\np слушать фрагмент\ng перейти ко времени\nF6 стрелки плееру\n\n~ консоль ошибок\n: все действия"
         };
         let mut lines = hints
             .lines()
@@ -1920,7 +1947,7 @@ mod tests {
             })
             .collect::<Vec<_>>()
             .join("\n");
-        assert!(plain.contains("пауза") && plain.contains("Home/End") && plain.contains("F8"));
+        assert!(plain.contains("‖") && plain.contains("Home/End") && plain.contains("F8"));
         insta::assert_debug_snapshot!(format!("player_{width}_{height}"), buffer);
     }
 

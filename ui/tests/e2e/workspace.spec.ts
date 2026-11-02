@@ -5,6 +5,73 @@ import { fileURLToPath } from "node:url";
 const fixture = JSON.parse(readFileSync(fileURLToPath(new URL("../../../tests/fixtures/workspace.json", import.meta.url)), "utf8"));
 const journalFixture = JSON.parse(readFileSync(fileURLToPath(new URL("../../../tests/fixtures/journal.json", import.meta.url)), "utf8"));
 
+test("expanding journal details preserves both scroll positions until explicit follow", async ({page}) => {
+  await page.setViewportSize({width:1000,height:650});
+  await workspace(page);
+  let append = false;
+  const extra = {...journalFixture.events.find((e: {text?:string}) => e.text?.includes("Диагностическая")),id:"reader-new",text:"Новая строка для проверки чтения"};
+  await page.route("**/journal**", route => route.fulfill({json:{...journalFixture,events:append ? [...journalFixture.events,extra] : journalFixture.events}}));
+  await page.addStyleTag({content:".journal-scroll {max-height:180px} .main {height:360px;padding-bottom:300px}"});
+  await page.getByRole("button",{name:"Ход",exact:true}).click();
+  const toggle=page.getByRole("button",{name:"+ 35 lines",exact:true});
+  await expect(toggle).toBeVisible();
+  await page.clock.runFor(50);
+  await toggle.scrollIntoViewIfNeeded();
+  const positions=() => page.evaluate(() => [document.querySelector(".main")!.scrollTop,document.querySelector(".journal-scroll")!.scrollTop,window.scrollY]);
+  await page.locator(".main").evaluate(el => {el.scrollTop=60;});
+  const locked=await positions();
+  expect(locked[0]).toBeGreaterThan(0);
+  await toggle.evaluate(node => node.click());
+  await page.clock.runFor(50);
+  expect(await positions()).toEqual(locked);
+  append=true;
+  await page.clock.runFor(2600);
+  await expect(page.getByRole("button",{name:/новые: 1/})).toBeVisible();
+  expect(await positions()).toEqual(locked);
+  await page.getByRole("button",{name:"− свернуть",exact:true}).evaluate(node => node.click());
+  await page.clock.runFor(50);
+  expect(await positions()).toEqual(locked);
+  await page.getByRole("button",{name:/новые: 1/}).click();
+  await page.clock.runFor(50);
+  const atTail=await page.locator(".journal-scroll").evaluate(el => el.scrollHeight-el.clientHeight-el.scrollTop);
+  expect(atTail).toBeLessThan(2);
+});
+
+test("settings show editable presets and stage reusable LLM servers", async ({page}) => {
+  await workspace(page);
+  const settings = [
+    {key:"LOCALVOX_LLM_MODEL",group:"LLM",label:"Модель",kind:"text",value:null,default_value:"qwen3.5:9b",applies:"restart",hint:"Модель обработки",set:false},
+    {key:"LOCALVOX_LLM_BASE_URL",group:"LLM",label:"Адрес сервера",kind:"text",value:null,default_value:"http://localhost:11434/v1",applies:"restart",hint:"HTTP(S) endpoint модели",set:false},
+    {key:"LOCALVOX_LLM_SERVER_URLS",group:"LLM",label:"Список",kind:"servers",value:null,default_value:'["http://localhost:11434/v1"]',applies:"live",hint:"",set:false},
+  ];
+  const sent: Record<string,string|null>[]=[];
+  await page.route("**/api/settings", route => {
+    if(route.request().method()==="POST") { const {set}=route.request().postDataJSON();sent.push(set);for(const s of settings)if(s.key in set)s.value=set[s.key];return route.fulfill({json:{msg:"Сохранено",need_restart:["Адрес сервера"]}}); }
+    return route.fulfill({json:{path:"test/.env",defaults_path:"test/.env.defaults",exists:true,settings,extra:[]}});
+  });
+  await page.getByRole("button",{name:/⚙ Настройки/}).click();
+  await expect(page.locator('.set-row input').first()).toHaveValue("qwen3.5:9b");
+  await expect(page.locator(".pane")).not.toContainText("зашито в коде");
+  await expect(page.locator(".set-source").first()).toHaveText("Предустановка");
+  await page.getByRole("button",{name:"Добавить сервер",exact:true}).click();
+  const url=page.getByRole("textbox",{name:"Адрес нового LLM-сервера"});
+  await url.fill("https://user:secret@models.example/v1");
+  await page.getByRole("button",{name:"Добавить в список"}).click();
+  await expect(page.locator(".llm-server-add .err")).toBeVisible();
+  expect(sent).toEqual([]);
+  await url.fill("https://models.example/v1/");
+  await page.getByRole("button",{name:"Добавить в список"}).click();
+  await expect(page.getByRole("combobox",{name:"Адрес сервера"})).toHaveValue("https://models.example/v1");
+  expect(sent).toEqual([]);
+  await expect(page.locator(".pane")).toHaveScreenshot("settings-presets-and-servers.png");
+  await page.getByRole("button",{name:/^Сохранить/}).click();
+  await expect.poll(()=>sent.length).toBe(1);
+  expect(JSON.parse(sent[0].LOCALVOX_LLM_SERVER_URLS!)).toEqual(["http://localhost:11434/v1","https://models.example/v1"]);
+  await page.getByRole("button",{name:/Записи/}).click();
+  await page.getByRole("button",{name:/⚙ Настройки/}).click();
+  await expect(page.getByRole("combobox",{name:"Адрес сервера"})).toHaveValue("https://models.example/v1");
+});
+
 test("missing summary is a neutral document instead of a service error", async ({ page }) => {
   await workspace(page);
   await page.route("**/summary", route => route.fulfill({ json: { available: false, blocks: [], provenance: null } }));

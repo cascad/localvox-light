@@ -139,9 +139,7 @@ LOCALVOX_LIGHT_MODEL=$INSTALL_DIR/models/vosk-model-ru-0.42
 LOCALVOX_ASR_MODEL_DIR=$INSTALL_DIR/models/gigaam-v3-e2e-ctc
 LOCALVOX_LIGHT_AUDIO_DIR=$INSTALL_DIR/archive
 
-# Сводка и чистовик. Без Ollama расшифровка всё равно работает.
-LOCALVOX_LLM_BASE_URL=http://localhost:11434/v1
-LOCALVOX_LLM_MODEL=qwen3.5:9b
+# Остальные предустановки — в .env.defaults; свои изменения добавляйте здесь.
 EOF
   echo "  записан $ENV_PATH"
 fi

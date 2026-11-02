@@ -105,13 +105,13 @@ struct Cli {
     /// OpenAI-compatible endpoint: Ollama / OpenAI / OpenRouter
     #[arg(
         long,
-        default_value = "http://localhost:11434/v1",
+        default_value = localvox_light_core::presets::baked("LOCALVOX_LLM_BASE_URL"),
         env = "LOCALVOX_LLM_BASE_URL"
     )]
     llm_base_url: String,
 
     /// LLM model
-    #[arg(long, default_value = "qwen3.5:9b", env = "LOCALVOX_LLM_MODEL")]
+    #[arg(long, default_value = localvox_light_core::presets::baked("LOCALVOX_LLM_MODEL"), env = "LOCALVOX_LLM_MODEL")]
     llm_model: String,
 
     /// Name of the env variable holding the API key (not needed for Ollama)
@@ -257,6 +257,7 @@ fn main() -> Result<()> {
                 eprintln!("  → variables AFTER the broken line were NOT read (format: KEY=value or # comment)");
             }
         }
+        localvox_light_core::presets::apply_missing()?;
     }
     let mut cli = Cli::parse();
     if cli.worker_protocol {

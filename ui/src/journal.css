@@ -65,6 +65,10 @@ body { font-family: var(--mono); font-size: 12px; }
 .journal-toolbar input { flex: 1; min-width: 100px; max-width: 210px; font: inherit; padding: 3px 6px; border: 1px solid var(--line-soft); background: transparent; border-radius: 2px; }
 .journal-toolbar .tool { margin-left: auto; font-size: 10px; }
 .journal-scroll { max-height: 540px; overflow: auto; overflow-anchor: none; padding-right: 4px; scrollbar-color: var(--line) transparent; }
+.journal { overflow-anchor: none; }
+.set-source { display: block; font-size: 10px; color: var(--dim); margin-top: 4px; }
+.set-auto { display: block; color: var(--value); font-size: 11px; }
+.llm-server-add { display: grid; gap: 6px; margin-top: 8px; }
 .journal-notice { color: var(--dim); font-size: 10px; }
 .journal-run { margin: 15px 0 8px; color: var(--mute); font-size: 10px; overflow-wrap: anywhere; }
 .journal-run span { color: var(--dim); }

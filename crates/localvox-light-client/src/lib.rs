@@ -66,6 +66,21 @@ impl Scope {
     }
 }
 
+/// LLM endpoints may include /v1; daemon addresses intentionally cannot.
+pub fn normalize_llm_server(value: &str) -> Result<String> {
+    let url = Url::parse(value.trim()).context("Нужен HTTP(S) адрес LLM-сервера")?;
+    anyhow::ensure!(
+        matches!(url.scheme(), "http" | "https")
+            && url.host_str().is_some()
+            && url.username().is_empty()
+            && url.password().is_none()
+            && url.query().is_none()
+            && url.fragment().is_none()
+            && value.len() <= 2048,
+        "Нужен HTTP(S) адрес без токена, логина, query или фрагмента"
+    );
+    Ok(url.to_string().trim_end_matches('/').into())
+}
 impl Client {
     pub fn new(address: &str, token: String) -> Result<Self> {
         let mut base = Url::parse(address).context("Адрес должен быть HTTP(S) URL")?;

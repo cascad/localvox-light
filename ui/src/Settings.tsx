@@ -1,14 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, token, type Setting, type SettingsDoc } from "./api";
 
-/** The settings screen — an editor for ONE file, `.env`.
- *
- *  There is no second config file, and that is the design: defaults live in the code, `.env`
- *  overrides them, and this screen edits `.env`. The write is surgical, so the 280 lines of
- *  comments in that file — measurements, why a threshold is what it is — survive every save.
- *
- *  Application timing comes from the server catalogue: automatic post-processing flags are
- *  live for future phases; settings retained by startup consumers require a restart. */
+/** Env presets are visible values; .env stores only user overrides. */
 export function SettingsPane({ say }: { say: (m: string) => void }) {
   const [doc, setDoc] = useState<SettingsDoc | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -35,6 +28,7 @@ export function SettingsPane({ say }: { say: (m: string) => void }) {
   const groups = useMemo(() => {
     const out: [string, Setting[]][] = [];
     for (const s of doc?.settings ?? []) {
+      if (s.kind === "servers") continue;
       const last = out[out.length - 1];
       if (last && last[0] === s.group) last[1].push(s);
       else out.push([s.group, [s]]);
@@ -69,9 +63,8 @@ export function SettingsPane({ say }: { say: (m: string) => void }) {
         <h1 style={{ fontSize: 19, margin: "0 0 4px" }}>Настройки</h1>
         <Access onChanged={() => void load()} say={say} />
         <p className="hint" style={{ margin: "0 0 14px" }}>
-          Всё живёт в одном файле: <code>{doc.path}</code>
-          {!doc.exists && " — его пока нет, он появится при первом сохранении"}. Пустое поле — значит
-          работает то, что зашито в коде.
+          Предустановки: <code>{doc.defaults_path ?? ".env.defaults"}</code>.
+          Ваши изменения: <code>{doc.path}</code>. Сброс возвращает показанную предустановку.
         </p>
 
         {/* The truth about the save that just happened — and only about it. Saying «требуется
@@ -105,13 +98,19 @@ export function SettingsPane({ say }: { say: (m: string) => void }) {
             {items.map((s) => (
               <Field
                 key={s.key}
-                s={s}
+                s={s.key === "LOCALVOX_LLM_BASE_URL" && doc.settings.some((s) => s.kind === "servers") ? { ...s, options: serverUrls(doc, edits).map((url) => ({value:url,label:url,is_default:false})) } : s}
                 edit={edits[s.key]}
+                onAddServer={s.key === "LOCALVOX_LLM_BASE_URL" && doc.settings.some((s) => s.kind === "servers") ? (value) => {
+                  const url = normalizeServer(value);
+                  const servers = serverUrls(doc, edits);
+                  if (!servers.includes(url)) { if (servers.length >= 32) throw new Error("Не больше 32 серверов"); servers.push(url); }
+                  setEdits((old) => ({...old, LOCALVOX_LLM_SERVER_URLS:JSON.stringify(servers), LOCALVOX_LLM_BASE_URL:url}));
+                } : undefined}
                 onChange={(v) =>
                   setEdits((e) => {
                     const next = { ...e };
                     // Back to what the file already says — then it is not an edit at all.
-                    const current = s.value ?? "";
+                    const current = s.value ?? s.default_value ?? "";
                     if (v === current) delete next[s.key];
                     else next[s.key] = v === "" ? null : v;
                     return next;
@@ -176,23 +175,34 @@ function Field({
   s,
   edit,
   onChange,
+  onAddServer,
 }: {
   s: Setting;
   edit: string | null | undefined;
   onChange: (v: string) => void;
+  onAddServer?: (v: string) => void;
 }) {
+  const [adding, setAdding] = useState(false);
+  const [newServer, setNewServer] = useState("");
+  const [serverError, setServerError] = useState<string | null>(null);
+  const addServer = () => {
+    try { onAddServer?.(newServer); setAdding(false); setNewServer(""); setServerError(null); }
+    catch (error) { setServerError((error as Error).message); }
+  };
   // `edit === null` means "cleared" — an unset, which is a real edit and must not read back as the
   // stored value.
-  const shown = edit === undefined ? (s.value ?? "") : (edit ?? "");
+  const shown = edit === undefined ? (s.value ?? s.default_value ?? "") : (edit ?? s.default_value ?? "");
   const changed = edit !== undefined;
+  const source = s.kind !== "secret" && s.default_value !== undefined && <span className="set-source">{edit === null || (edit === undefined && s.value == null) ? "Предустановка" : changed ? "Черновик" : "Из .env"}</span>;
+  const preset = s.default_value || (s.kind === "path" ? "автопоиск" : "автоматически");
 
   // A device is PICKED. Typing its name by hand is how a recording silently opens the wrong
   // microphone — or none at all — and the mistake is invisible until you play the file back.
-  if (s.options && s.options.length > 0) {
+  if ((s.options && s.options.length > 0) || onAddServer) {
     // The stored value may name a device that is not plugged in right now. It stays selectable:
     // dropping it would silently re-point the setting at something else the moment a headset is
     // unplugged.
-    const known = s.options.some((o) => o.value === shown);
+    const known = (s.options ?? []).some((o) => o.value === shown);
     return (
       <div className={`set-row${changed ? " changed" : ""}`}>
         <label>
@@ -202,16 +212,23 @@ function Field({
         </label>
         <div className="set-ctl">
           <select aria-label={s.label} value={shown} onChange={(e) => onChange(e.target.value)}>
-            <option value="">по умолчанию ({s.hint})</option>
-            {s.options.map((o) => (
+            <option value="">Предустановка · {preset}</option>
+            {(s.options ?? []).map((o) => (
               <option key={o.value} value={o.value}>
                 {o.label}
               </option>
             ))}
             {shown && !known && (
-              <option value={shown}>{shown} — сейчас не подключено</option>
+              <option value={shown}>{shown} — сохранённое значение</option>
             )}
           </select>
+          {source}
+          {onAddServer && <button className="btn sm" onClick={() => setAdding(!adding)}>Добавить сервер</button>}
+          {adding && <div className="llm-server-add">
+            <input aria-label="Адрес нового LLM-сервера" placeholder="http://localhost:11434/v1" value={newServer} onChange={(e) => {setNewServer(e.target.value);setServerError(null);}} onKeyDown={(e) => {if(e.key === "Enter") {e.preventDefault();addServer();}}} />
+            <button className="btn sm" onClick={addServer}>Добавить в список</button>
+            {serverError && <p className="err">{serverError}</p>}
+          </div>}
         </div>
       </div>
     );
@@ -229,10 +246,11 @@ function Field({
         </label>
         <div className="set-ctl">
           <select aria-label={s.label} value={on === null ? "" : on ? "on" : "off"} onChange={(e) => onChange(e.target.value)}>
-            <option value="">по умолчанию ({s.hint})</option>
+            <option value="">Предустановка · {preset}</option>
             <option value="on">включено</option>
             <option value="off">выключено</option>
           </select>
+          {source}
         </div>
       </div>
     );
@@ -252,12 +270,27 @@ function Field({
           value={shown}
           // A secret is never sent back to the screen, so an empty box does not mean "unset".
           // Saying which it is beats a blank that could mean either.
-          placeholder={s.kind === "secret" && s.set ? "задан — введите новый, чтобы заменить" : s.hint}
+          placeholder={s.kind === "secret" && s.set ? "задан — введите новый, чтобы заменить" : s.kind === "path" ? "Автоматический поиск" : s.hint}
           onChange={(e) => onChange(e.target.value)}
         />
+        {source}
+        {!shown && s.kind === "path" && <span className="set-auto">Автоматический поиск</span>}
       </div>
     </div>
   );
+}
+
+function normalizeServer(value: string): string {
+  let url: URL;
+  try { url = new URL(value.trim()); } catch { throw new Error("Нужен HTTP(S) адрес сервера"); }
+  if (!["http:","https:"].includes(url.protocol) || !url.hostname || url.username || url.password || url.search || url.hash || value.length > 2048) throw new Error("Нужен HTTP(S) адрес без токена, логина, query или фрагмента");
+  return url.href.replace(/\/+$/, "");
+}
+function serverUrls(doc: SettingsDoc, edits: Record<string,string|null>): string[] {
+  const setting = doc.settings.find((s) => s.key === "LOCALVOX_LLM_SERVER_URLS");
+  const raw = edits.LOCALVOX_LLM_SERVER_URLS === null ? setting?.default_value : edits.LOCALVOX_LLM_SERVER_URLS ?? setting?.value ?? setting?.default_value;
+  try { const urls = raw ? JSON.parse(raw) as string[] : doc.settings.find((s) => s.key === "LOCALVOX_LLM_BASE_URL")?.options?.map((s) => s.value) ?? []; return [...new Set(urls.map(normalizeServer))]; }
+  catch { return []; }
 }
 
 /** Unknown keys expose presence and explicit replace/unset actions, never a saved value. */

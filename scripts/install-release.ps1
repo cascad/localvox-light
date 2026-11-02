@@ -130,9 +130,7 @@ try {
             "LOCALVOX_ASR_MODEL_DIR=$d/models/gigaam-v3-e2e-ctc",
             "LOCALVOX_LIGHT_AUDIO_DIR=$d/archive",
             "",
-            "# Сводка и чистовик. Без Ollama расшифровка всё равно работает.",
-            "LOCALVOX_LLM_BASE_URL=http://localhost:11434/v1",
-            "LOCALVOX_LLM_MODEL=qwen3.5:9b",
+            "# Остальные предустановки — в .env.defaults; свои изменения добавляйте здесь.",
             ""
         ) -join "`r`n"
         [System.IO.File]::WriteAllText($envPath, $lines, [System.Text.UTF8Encoding]::new($false))

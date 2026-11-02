@@ -95,3 +95,8 @@ python scripts/check-openspec.py
 в processing-pipeline. [BL-002](changes/archive/2026-11-01-serialize-session-mutations/evidence/implementation.md)
 реализован и проверен на временном Windows-архиве; аппаратная приёмка, внешняя LLM
 и общая многофайловая crash-транзакция этим не подтверждаются.
+
+Дополнение 2026-11-02: по ручной обратной связи владельца приняты предустановки
+каталога в env-данных и сохранённые LLM-серверы: CFG-001 delta и новый CFG-005.
+[Реализация и проверки](changes/refine-workspace-controls-and-settings/evidence/implementation.md).
+Остальные baseline-контракты и открытые аппаратные сценарии не переопределены.

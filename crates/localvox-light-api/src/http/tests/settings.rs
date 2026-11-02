@@ -38,6 +38,11 @@ fn settings_http_masks_unknown_values_and_reports_snapshot_restart_before_and_af
     fs::copy(std::env::current_exe().unwrap(), &exe).unwrap();
     let env_path = directory.path().join(".env");
     fs::write(&env_path, "# keep this comment\nLOCALVOX_LLM_MODEL=before\nLOCALVOX_API_TOKEN=synthetic-known-secret\nLOCALVOX_NEW_CREDENTIAL=synthetic-unknown-secret\n").unwrap();
+    fs::write(
+        directory.path().join(".env.defaults"),
+        "LOCALVOX_LLM_MODEL=preset-model\nLOCALVOX_LIGHT_CHUNK_SEC=420\n",
+    )
+    .unwrap();
     let mut command = Command::new(exe);
     command
         .args([
@@ -49,6 +54,8 @@ fn settings_http_masks_unknown_values_and_reports_snapshot_restart_before_and_af
         .current_dir(directory.path())
         .env("LOCALVOX_SETTINGS_FIXTURE", directory.path())
         .env("LOCALVOX_LLM_MODEL", "before")
+        .env_remove("LOCALVOX_LIGHT_MIC")
+        .env_remove("LOCALVOX_LIGHT_LOOPBACK_DEVICE")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
@@ -91,11 +98,18 @@ fn settings_http_masks_unknown_values_and_reports_snapshot_restart_before_and_af
         .filter(|s| s.applies == "live")
         .map(|s| s.key.as_str())
         .collect();
-    assert_eq!(live, ["LOCALVOX_LIGHT_AUTOCOOK_SUMMARY"]);
+    assert_eq!(
+        live,
+        [
+            "LOCALVOX_LLM_SERVER_URLS",
+            "LOCALVOX_LIGHT_AUTOCOOK_SUMMARY"
+        ]
+    );
     assert!(live.iter().all(|s| [
         "LOCALVOX_LIGHT_AUTOCOOK_SUMMARY",
         "LOCALVOX_LIGHT_AUTOCOOK_CLEANUP",
-        "LOCALVOX_LIGHT_AUTOCOOK_REFINE"
+        "LOCALVOX_LIGHT_AUTOCOOK_REFINE",
+        "LOCALVOX_LLM_SERVER_URLS"
     ]
     .contains(s)));
     let token = doc
@@ -104,6 +118,60 @@ fn settings_http_masks_unknown_values_and_reports_snapshot_restart_before_and_af
         .find(|s| s.key == "LOCALVOX_API_TOKEN")
         .unwrap();
     assert!(token.set && token.value.is_none());
+    assert!(token.default_value.is_none());
+    let model = doc
+        .settings
+        .iter()
+        .find(|s| s.key == "LOCALVOX_LLM_MODEL")
+        .unwrap();
+    assert_eq!(model.value.as_deref(), Some("before"));
+    assert_eq!(model.default_value.as_deref(), Some("preset-model"));
+    let chunk = || {
+        client
+            .settings()
+            .unwrap()
+            .settings
+            .into_iter()
+            .find(|s| s.key == "LOCALVOX_LIGHT_CHUNK_SEC")
+            .unwrap()
+    };
+    assert_eq!(chunk().default_value.as_deref(), Some("420"));
+    client
+        .save_settings([("LOCALVOX_LIGHT_CHUNK_SEC".into(), Some("123".into()))].into())
+        .unwrap();
+    assert_eq!(chunk().value.as_deref(), Some("123"));
+    client
+        .save_settings([("LOCALVOX_LIGHT_CHUNK_SEC".into(), None)].into())
+        .unwrap();
+    assert!(chunk().value.is_none());
+    assert_eq!(chunk().default_value.as_deref(), Some("420"));
+    client.save_settings([
+        ("LOCALVOX_LLM_SERVER_URLS".into(), Some(r#"["http://localhost:11434/v1/","http://localhost:11434/v1","https://models.example/v1"]"#.into())),
+        ("LOCALVOX_LLM_BASE_URL".into(), Some("https://models.example/v1/".into())),
+    ].into()).unwrap();
+    let servers = client.settings().unwrap();
+    let urls = servers
+        .settings
+        .iter()
+        .find(|s| s.key == "LOCALVOX_LLM_BASE_URL")
+        .unwrap();
+    assert_eq!(urls.options.as_ref().unwrap().len(), 2);
+    assert_eq!(urls.value.as_deref(), Some("https://models.example/v1"));
+    let unchanged = fs::read(&env_path).unwrap();
+    let error = client
+        .save_settings(
+            [(
+                "LOCALVOX_LLM_BASE_URL".into(),
+                Some("https://user:private-credential@host/v1".into()),
+            )]
+            .into(),
+        )
+        .unwrap_err();
+    assert!(!format!("{error:#}").contains("private-credential"));
+    assert_eq!(fs::read(&env_path).unwrap(), unchanged);
+    client
+        .save_settings([("LOCALVOX_LLM_BASE_URL".into(), None)].into())
+        .unwrap();
     let original = fs::read(&env_path).unwrap();
     assert!(client
         .request::<Reply>(
@@ -219,6 +287,7 @@ fn settings_http_masks_unknown_values_and_reports_snapshot_restart_before_and_af
         "failed persistence must not mutate the child process environment"
     );
     assert!(child.0.wait().unwrap().success());
+    assert_eq!(result["chunk"], "420");
 }
 
 #[test]
@@ -231,6 +300,9 @@ fn settings_fixture() {
     let exe = std::env::current_exe().unwrap();
     assert_eq!(exe.parent().unwrap(), root);
     assert_eq!(std::env::current_dir().unwrap(), root);
+    localvox_light_core::presets::apply_missing().unwrap();
+    assert!(std::env::var_os("LOCALVOX_LIGHT_MIC").is_none());
+    assert!(std::env::var_os("LOCALVOX_LIGHT_LOOPBACK_DEVICE").is_none());
     let server = Server::http("127.0.0.1:0").unwrap();
     let config = cfg(Some("synthetic-token"));
     let archive = Archive::new(root.join("archive"));
@@ -247,7 +319,7 @@ fn settings_fixture() {
     }
     fs::write(
         root.join("result.json"),
-        json!({"model":std::env::var("LOCALVOX_LLM_MODEL").unwrap()}).to_string(),
+        json!({"model":std::env::var("LOCALVOX_LLM_MODEL").unwrap(),"chunk":std::env::var("LOCALVOX_LIGHT_CHUNK_SEC").unwrap()}).to_string(),
     )
     .unwrap();
 }

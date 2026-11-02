@@ -1257,7 +1257,7 @@ pub fn post_processing_from_env() -> (bool, bool, bool) {
     let on_unless_off = |name: &str| {
         !matches!(
             std::env::var(name)
-                .unwrap_or_default()
+                .unwrap_or_else(|_| crate::presets::baked(name).into())
                 .to_lowercase()
                 .as_str(),
             "0" | "off" | "false" | "no"

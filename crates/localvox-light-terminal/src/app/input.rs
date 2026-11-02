@@ -1,12 +1,37 @@
 use super::*;
 
 impl App {
+    pub fn llm_servers(&self) -> Vec<String> {
+        let setting = self
+            .settings
+            .settings
+            .iter()
+            .find(|s| s.key == "LOCALVOX_LLM_SERVER_URLS");
+        let raw = self
+            .settings_edits
+            .get("LOCALVOX_LLM_SERVER_URLS")
+            .cloned()
+            .unwrap_or_else(|| setting.and_then(|s| s.value.clone()))
+            .or_else(|| setting.and_then(|s| s.default_value.clone()));
+        raw.and_then(|value| serde_json::from_str(&value).ok())
+            .unwrap_or_else(|| {
+                self.settings
+                    .settings
+                    .iter()
+                    .find(|s| s.key == "LOCALVOX_LLM_BASE_URL")
+                    .and_then(|s| s.options.as_ref())
+                    .map(|options| options.iter().map(|option| option.value.clone()).collect())
+                    .unwrap_or_default()
+            })
+    }
     pub(super) fn constrained_form_key(&mut self, key: KeyEvent) -> bool {
         let Some(form) = &mut self.form else {
             return false;
         };
-        if matches!(form.kind, FormKind::Import | FormKind::Setting(_))
-            && key.code == KeyCode::Enter
+        if matches!(
+            form.kind,
+            FormKind::Import | FormKind::Setting(_) | FormKind::LlmServer
+        ) && key.code == KeyCode::Enter
         {
             if let Err(error) = self.submit_form() {
                 if let Some(form) = &mut self.form {
@@ -145,11 +170,16 @@ impl App {
             }
             .into();
         }
-        let Some(value) = value else {
-            return "По умолчанию".into();
+        let Some(value) = value.or_else(|| setting.default_value.clone()) else {
+            return "Предустановка".into();
         };
         if value.is_empty() {
-            return "По умолчанию".into();
+            return if setting.kind == "path" {
+                "Автопоиск"
+            } else {
+                "Автоматически"
+            }
+            .into();
         }
         if setting.kind == "bool" {
             return match value.to_lowercase().as_str() {

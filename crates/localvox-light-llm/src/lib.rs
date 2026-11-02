@@ -97,8 +97,8 @@ impl Default for LlmProfile {
     fn default() -> Self {
         Self {
             provider: Provider::Http,
-            base_url: "http://localhost:11434/v1".into(),
-            model: "qwen3.5:9b".into(),
+            base_url: localvox_light_core::presets::baked("LOCALVOX_LLM_BASE_URL").into(),
+            model: localvox_light_core::presets::baked("LOCALVOX_LLM_MODEL").into(),
             api_key: None,
             temperature: 0.2,
             timeout_sec: 600,

@@ -48,7 +48,12 @@ pub struct Finding {
 
 impl Finding {
     fn ok(what: &str, detail: impl Into<String>) -> Self {
-        Finding { what: what.into(), state: State::Ok, detail: detail.into(), fix: None }
+        Finding {
+            what: what.into(),
+            state: State::Ok,
+            detail: detail.into(),
+            fix: None,
+        }
     }
     fn bad(what: &str, state: State, detail: impl Into<String>, fix: impl Into<String>) -> Self {
         Finding {
@@ -103,10 +108,11 @@ impl Layout {
             cook,
             work_dir,
             llm_base_url: std::env::var("LOCALVOX_LLM_BASE_URL")
-                .unwrap_or_else(|_| "http://localhost:11434/v1".into()),
-            llm_model: std::env::var("LOCALVOX_LLM_MODEL").unwrap_or_else(|_| "qwen3.5:9b".into()),
+                .unwrap_or_else(|_| crate::presets::baked("LOCALVOX_LLM_BASE_URL").into()),
+            llm_model: std::env::var("LOCALVOX_LLM_MODEL")
+                .unwrap_or_else(|_| crate::presets::baked("LOCALVOX_LLM_MODEL").into()),
             api_bind: std::env::var("LOCALVOX_API_BIND")
-                .unwrap_or_else(|_| "127.0.0.1:3017".into()),
+                .unwrap_or_else(|_| crate::presets::baked("LOCALVOX_API_BIND").into()),
         }
     }
 }
@@ -123,7 +129,10 @@ pub fn inspect(l: &Layout) -> Vec<Finding> {
     // ── Живое распознавание. Без него демон не стартует вообще: validate_vosk_model
     //    вызывается в main() безусловно.
     out.push(match crate::cli::validate_vosk_model_dir(&l.vosk_model) {
-        Ok(()) => Finding::ok("Vosk (живое распознавание)", l.vosk_model.display().to_string()),
+        Ok(()) => Finding::ok(
+            "Vosk (живое распознавание)",
+            l.vosk_model.display().to_string(),
+        ),
         Err(e) => Finding::bad(
             "Vosk (живое распознавание)",
             State::Fail,
@@ -137,7 +146,11 @@ pub fn inspect(l: &Layout) -> Vec<Finding> {
     out.push(match &l.gigaam {
         Some(d) => match first_missing(
             d,
-            &["v3_e2e_ctc.int8.onnx", "v3_e2e_ctc.yaml", "v3_e2e_ctc_vocab.txt"],
+            &[
+                "v3_e2e_ctc.int8.onnx",
+                "v3_e2e_ctc.yaml",
+                "v3_e2e_ctc_vocab.txt",
+            ],
         ) {
             None => Finding::ok("GigaAM (расшифровка архива)", d.display().to_string()),
             Some(f) => Finding::bad(
@@ -220,7 +233,10 @@ pub fn inspect(l: &Layout) -> Vec<Finding> {
         Finding::bad(
             "Архив",
             State::Warn,
-            format!("{} ещё нет — создастся при первой записи", l.work_dir.display()),
+            format!(
+                "{} ещё нет — создастся при первой записи",
+                l.work_dir.display()
+            ),
             "ничего не делать, если путь верный",
         )
     });
@@ -372,7 +388,11 @@ mod tests {
 
         let missing = yt_dlp_finding("yt-dlp", None, None);
         assert_eq!(missing.state, State::Warn);
-        assert_ne!(missing.state, State::Fail, "нет yt-dlp — это не отказ продукта");
+        assert_ne!(
+            missing.state,
+            State::Fail,
+            "нет yt-dlp — это не отказ продукта"
+        );
     }
 
     /// Каталога архива ещё нет — это НЕ отказ: он создаётся при первой записи. А вот файл

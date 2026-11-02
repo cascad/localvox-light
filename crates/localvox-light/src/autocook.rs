@@ -100,13 +100,23 @@ impl Config {
             exe,
             model_dir: absolute(model_dir),
             ffmpeg: localvox_light_core::chunks::resolve_ffmpeg_for_decode().into(),
-            interval: Duration::from_secs(seconds("LOCALVOX_LIGHT_AUTOCOOK_INTERVAL_SEC", 5)?),
-            quiescent_sec: seconds("LOCALVOX_LIGHT_AUTOCOOK_QUIESCENT_SEC", 15)?,
-            llm_model: std::env::var("LOCALVOX_LLM_MODEL").unwrap_or_else(|_| "qwen3.5:9b".into()),
+            interval: Duration::from_secs(seconds(
+                "LOCALVOX_LIGHT_AUTOCOOK_INTERVAL_SEC",
+                localvox_light_core::presets::number("LOCALVOX_LIGHT_AUTOCOOK_INTERVAL_SEC"),
+            )?),
+            quiescent_sec: seconds(
+                "LOCALVOX_LIGHT_AUTOCOOK_QUIESCENT_SEC",
+                localvox_light_core::presets::number("LOCALVOX_LIGHT_AUTOCOOK_QUIESCENT_SEC"),
+            )?,
+            llm_model: std::env::var("LOCALVOX_LLM_MODEL").unwrap_or_else(|_| {
+                localvox_light_core::presets::baked("LOCALVOX_LLM_MODEL").into()
+            }),
             summary_template: std::env::var("LOCALVOX_LLM_SUMMARY_TEMPLATE")
                 .ok()
                 .filter(|v| !v.trim().is_empty()),
-            summary_provider: std::env::var("LOCALVOX_SUMMARY_PROVIDER").unwrap_or_default(),
+            summary_provider: std::env::var("LOCALVOX_SUMMARY_PROVIDER").unwrap_or_else(|_| {
+                localvox_light_core::presets::baked("LOCALVOX_SUMMARY_PROVIDER").into()
+            }),
             timeouts: [
                 Duration::from_secs(seconds("LOCALVOX_PREPARE_TIMEOUT_SEC", 1800)?),
                 Duration::from_secs(seconds("LOCALVOX_TRANSCRIBE_TIMEOUT_SEC", 7200)?),
@@ -194,7 +204,9 @@ fn spawn_inner(
 ) -> Option<std::thread::JoinHandle<()>> {
     if matches!(
         std::env::var("LOCALVOX_LIGHT_AUTOCOOK")
-            .unwrap_or_default()
+            .unwrap_or_else(
+                |_| localvox_light_core::presets::baked("LOCALVOX_LIGHT_AUTOCOOK").into()
+            )
             .to_lowercase()
             .as_str(),
         "0" | "off" | "false" | "no"

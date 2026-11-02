@@ -281,8 +281,9 @@ fn llm_client_capped(
 
 fn llm_client_tuned(timeout_sec: u64, temperature: Option<f32>) -> localvox_light_llm::LlmClient {
     let base_url = std::env::var("LOCALVOX_LLM_BASE_URL")
-        .unwrap_or_else(|_| "http://localhost:11434/v1".into());
-    let model = std::env::var("LOCALVOX_LLM_MODEL").unwrap_or_else(|_| "qwen3.5:9b".into());
+        .unwrap_or_else(|_| localvox_light_core::presets::baked("LOCALVOX_LLM_BASE_URL").into());
+    let model = std::env::var("LOCALVOX_LLM_MODEL")
+        .unwrap_or_else(|_| localvox_light_core::presets::baked("LOCALVOX_LLM_MODEL").into());
     let api_key = std::env::var("LOCALVOX_LLM_API_KEY_ENV")
         .ok()
         .and_then(|name| std::env::var(name).ok());

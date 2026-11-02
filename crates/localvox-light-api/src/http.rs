@@ -748,25 +748,40 @@ pub fn respond(
             (Method::Post, "/api/record/stop") => {
                 Ok(json!({"ok": true, "session": archive.stop_recording()?}))
             }
-            // The settings screen. ONE config file — `.env`: defaults live in the code, `.env`
-            // overrides them, and this endpoint edits `.env`. There is no second config file, on
-            // purpose: two sources of truth for one fact drift apart the first time either moves.
+            // Settings edit user overrides in `.env`; `.env.defaults` supplies preset metadata.
             //
             // We report what is IN THE FILE, not what is in the daemon's environment. Those differ
             // the moment someone saves — the process keeps the value it started with — and showing
             // the live environment would make a saved change look like it had not been saved.
             (Method::Get, "/api/settings") => {
                 let path = localvox_light_core::env_file::resolve_path();
-                let content = std::fs::read_to_string(&path).unwrap_or_default();
+                let content = match std::fs::read_to_string(&path) {
+                    Ok(content) => content,
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+                    Err(error) => return Err(error).context("не удалось прочитать настройки"),
+                };
                 let in_file = localvox_light_core::env_file::parse(&content);
+                let defaults = localvox_light_core::presets::load()?;
+                let servers = localvox_light_core::presets::server_urls(
+                    in_file
+                        .get(localvox_light_core::presets::LLM_SERVERS)
+                        .filter(|value| !value.trim().is_empty())
+                        .or_else(|| {
+                            defaults
+                                .values
+                                .get(localvox_light_core::presets::LLM_SERVERS)
+                        })
+                        .context("не задан список LLM-серверов")?,
+                )?;
                 let catalogue: Vec<Value> = localvox_light_core::settings::CATALOGUE
                     .iter()
                     .map(|s| {
-                        let set = in_file.get(s.key);
+                        let set = in_file.get(s.key).filter(|value| !value.trim().is_empty());
                         // Devices are PICKED, not typed. A name entered by hand is a name that can
                         // be misspelled, and the recording then silently opens a different
                         // microphone — or none. Enumerated live: devices come and go.
                         let options: Option<Value> = match s.key {
+                            "LOCALVOX_LLM_BASE_URL" => Some(json!(servers.iter().map(|url| json!({"value":url,"label":url})).collect::<Vec<_>>())),
                             "LOCALVOX_LIGHT_MIC" => {
                                 Some(json!(localvox_light_core::audio::input_device_choices()))
                             }
@@ -774,7 +789,7 @@ pub fn respond(
                                 Some(json!(localvox_light_core::audio::output_device_choices()))
                             }
                             // The summary provider is a real choice, so a dropdown — like «Спросить».
-                            // Empty selects the default (the local model in the hint).
+                            // Empty selects the preset supplied separately from the description.
                             "LOCALVOX_SUMMARY_PROVIDER" => Some(json!([
                                 {"value": "ollama", "label": "Локальная (Ollama)"},
                                 {"value": "claude", "label": "Claude (подписка)"},
@@ -796,6 +811,7 @@ pub fn respond(
                             // travels to the screen on every poll is a token in every log and cache
                             // between here and there.
                             "value": if s.secret() { None } else { set.cloned() },
+                            "default_value": if s.secret() { None } else { defaults.values.get(s.key).cloned() },
                             "set": set.is_some(),
                         })
                     })
@@ -819,6 +835,7 @@ pub fn respond(
                     .collect();
                 Ok(json!({
                     "path": path.to_string_lossy(),
+                    "defaults_path": if defaults.packaged { ".env.defaults (из комплекта)".into() } else { defaults.path.to_string_lossy().into_owned() },
                     "exists": path.is_file(),
                     "settings": catalogue,
                     "extra": extra,
@@ -828,6 +845,7 @@ pub fn respond(
             // preserved (`env_file::apply`). A null value unsets the key: it is commented out and
             // the code default takes over again.
             (Method::Post, "/api/settings") => {
+                localvox_light_core::presets::load()?;
                 let parsed: Value = serde_json::from_str(body).context("тело — JSON")?;
                 let obj = parsed
                     .get("set")
@@ -838,7 +856,7 @@ pub fn respond(
                     if !localvox_light_core::settings::writable(k) {
                         anyhow::bail!("нельзя писать ключ «{k}»: только LOCALVOX_* и RUST_LOG");
                     }
-                    let value = match v {
+                    let mut value = match v {
                         Value::Null => None,
                         Value::String(s) if s.trim().is_empty() => None,
                         Value::String(s) => Some(s.to_string()),
@@ -846,6 +864,15 @@ pub fn respond(
                         Value::Number(n) => Some(n.to_string()),
                         other => anyhow::bail!("значение «{k}» должно быть строкой: {other}"),
                     };
+                    if let Some(raw) = &value {
+                        if k == localvox_light_core::presets::LLM_SERVERS {
+                            value = Some(serde_json::to_string(
+                                &localvox_light_core::presets::server_urls(raw)?,
+                            )?);
+                        } else if k == "LOCALVOX_LLM_BASE_URL" {
+                            value = Some(localvox_light_core::presets::normalize_server(raw)?);
+                        }
+                    }
                     changes.push((k.clone(), value));
                 }
                 let path = localvox_light_core::env_file::save(&changes)?;

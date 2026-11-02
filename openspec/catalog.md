@@ -119,3 +119,6 @@ P9: источники — файлы, индексы производные; о
 отдельное предложение после сверки существующего кода.
 
 BL-005 обнаружил [RV-017 / fix-empty-semantic-index-failure](changes/fix-empty-semantic-index-failure/proposal.md): отказ embeddings при пустом индексе больше не выдаётся за отсутствие совпадений; [red → green](changes/fix-empty-semantic-index-failure/evidence/implementation.md).
+
+Предустановки каталога и список LLM-адресов: [refine-workspace-controls-and-settings](changes/refine-workspace-controls-and-settings/proposal.md),
+CFG-001/005; [проверки 2026-11-02](changes/refine-workspace-controls-and-settings/evidence/implementation.md).

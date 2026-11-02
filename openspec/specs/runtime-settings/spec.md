@@ -9,6 +9,9 @@ F3/F6/P7. Жизненный цикл демона/окна, сборка, на�
 [Основание принятия и границы](../../baseline.md) ·
 [Сверка каждого требования](../../evidence/coverage.md#runtime-settings).
 
+Дополнение 2026-11-02: CFG-001 уточнён и CFG-005 принят по запросу владельца;
+[change и проверки](../../changes/refine-workspace-controls-and-settings/evidence/implementation.md).
+
 ## Requirements
 
 ### Requirement: RUN-001 Окно отдельно от движка
@@ -54,17 +57,24 @@ Tauri SHALL проверять TCP-доступность адреса, при �
 
 POST settings SHALL разрешать ключи LOCALVOX_* и RUST_LOG, преобразовывать bool в on/off, number в строку, null/пустую строку в unset. env_file сохраняет изменения с остальными строками/комментариями, затем apply_live обновляет процессное окружение. Ошибка сохранения предшествует применению.
 
-Код: [POST /api/settings](../../../crates/localvox-light-api/src/http.rs), [save, apply](../../../crates/localvox-light-core/src/env_file.rs), [writable, apply_live](../../../crates/localvox-light-core/src/settings.rs).
+Предустановки каталога SHALL храниться в `.env.defaults`, иметь меньший приоритет, чем пользовательские значения и явные CLI-аргументы, и быть видны в UI/TUI вместе с источником. Сброс SHALL убирать пользовательское переопределение и возвращать предустановку. Автоматический выбор SHALL иметь явную подпись; API SHALL не раскрывать секреты ни как значение, ни как предустановку.
+
+Код: [presets](../../../crates/localvox-light-core/src/presets.rs), [settings API](../../../crates/localvox-light-api/src/http.rs), [env editor](../../../crates/localvox-light-core/src/env_file.rs), [apply](../../../crates/localvox-light-core/src/settings.rs). [Проверки](../../evidence/coverage.md).
 
 #### Scenario: Сброс
 
 - **WHEN** значение передано null
-- **THEN** ключ снимается через env_file и переменную процесса.
+- **THEN** пользовательский ключ снимается через env_file; значение возвращается к видимой предустановке с прежним сроком применения.
 
 #### Scenario: Запрещённый ключ
 
 - **WHEN** передан ключ вне разрешённых префиксов
 - **THEN** изменение отклоняется.
+
+#### Scenario: Значение без переопределения
+
+- **WHEN** ключ отсутствует в пользовательском env
+- **THEN** интерфейс показывает предустановленное значение или явный автоматический выбор; простое открытие редактора не создаёт переопределение.
 
 ### Requirement: CFG-002 Область действия настроек
 
@@ -97,6 +107,22 @@ GET settings SHALL для известных secret-полей каталога 
 
 - **WHEN** ключ отсутствует в каталоге
 - **THEN** его исходное значение не возвращается; поле не обходится через extra.
+
+### Requirement: CFG-005 Сохранённые адреса LLM-серверов
+
+Настройки SHALL позволять выбирать сохранённый HTTP(S) адрес LLM и добавлять новый адрес в UI/TUI. Список SHALL храниться в env, отдельно от активного адреса; добавление и выбор SHALL попадать в черновик и применяться после сохранения. URL с credentials SHALL отклоняться; токены остаются отдельными секретными параметрами. Активный адрес SHALL сохранять Restart-семантику, смена списка сама по себе не запускает обработку.
+
+Код: [settings](../../../crates/localvox-light-core/src/settings.rs), [UI](../../../ui/src/Settings.tsx), [TUI](../../../crates/localvox-light-terminal/src/app/forms.rs). [Проверки](../../evidence/coverage.md).
+
+#### Scenario: Добавление адреса
+
+- **WHEN** пользователь добавил корректный LLM URL и сохранил настройки
+- **THEN** адрес доступен для выбора после повторного открытия клиента; повтор того же адреса не создаёт дубликат.
+
+#### Scenario: Некорректный адрес
+
+- **WHEN** введён не HTTP(S) URL или адрес с credentials
+- **THEN** ошибка показана до сохранения, прежние значения и черновик остальных полей сохраняются.
 
 ### Requirement: RUN-003 Windows автостарт
 

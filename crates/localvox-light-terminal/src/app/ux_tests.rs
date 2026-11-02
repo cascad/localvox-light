@@ -3,6 +3,103 @@ use super::*;
 fn key(app: &mut App, code: KeyCode) {
     app.key(KeyEvent::new(code, KeyModifiers::NONE));
 }
+
+#[test]
+fn visible_presets_do_not_create_overrides_and_llm_servers_are_staged() {
+    let mut app = App::default();
+    app.view = View::Settings;
+    app.settings.settings = vec![
+        Setting {
+            key: "LOCALVOX_LLM_MODEL".into(),
+            default_value: Some("qwen3.5:9b".into()),
+            ..Default::default()
+        },
+        Setting {
+            key: "LOCALVOX_LLM_BASE_URL".into(),
+            default_value: Some("http://localhost:11434/v1".into()),
+            ..Default::default()
+        },
+        Setting {
+            key: "LOCALVOX_LLM_SERVER_URLS".into(),
+            kind: "servers".into(),
+            default_value: Some(r#"["http://localhost:11434/v1"]"#.into()),
+            ..Default::default()
+        },
+    ];
+    assert_eq!(app.visible_settings().len(), 2);
+    assert_eq!(
+        app.setting_value(app.selected_setting().unwrap(), true),
+        "qwen3.5:9b"
+    );
+    app.command(Action::EditSetting);
+    assert_eq!(app.form.as_ref().unwrap().fields[0].value, "qwen3.5:9b");
+    key(&mut app, KeyCode::Enter);
+    assert!(app.settings_edits.is_empty());
+    app.command(Action::AddLlmServer);
+    app.paste("https://models.example/v1/");
+    key(&mut app, KeyCode::Enter);
+    assert_eq!(
+        app.llm_servers(),
+        vec!["http://localhost:11434/v1", "https://models.example/v1"]
+    );
+    assert!(app.effects.is_empty());
+    app.command(Action::AddLlmServer);
+    app.paste("https://user:password@host/v1");
+    key(&mut app, KeyCode::Enter);
+    assert!(app.form.as_ref().unwrap().error.is_some());
+    assert_eq!(app.llm_servers().len(), 2);
+}
+
+#[test]
+fn adding_a_server_from_palette_waits_for_the_server_list_before_editing() {
+    let mut app = App::default();
+    app.command(Action::AddLlmServer);
+    assert_eq!(app.view, View::Settings);
+    assert!(app.form.is_none() && app.llm_server_pending);
+    response(
+        &mut app,
+        1,
+        Resource::Settings,
+        Ok(Data::Settings(SettingsDoc {
+            settings: vec![Setting {
+                key: "LOCALVOX_LLM_SERVER_URLS".into(),
+                kind: "servers".into(),
+                value: Some(r#"["https://saved.example/v1"]"#.into()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        })),
+    );
+    assert!(matches!(
+        app.form.as_ref().unwrap().kind,
+        FormKind::LlmServer
+    ));
+    assert_eq!(app.llm_servers(), vec!["https://saved.example/v1"]);
+}
+
+#[test]
+fn f6_assigns_arrows_to_audio_then_returns_them_to_document_controls() {
+    let mut app = App::default();
+    app.current = Some("demo".into());
+    app.focus = 2;
+    app.playback = crate::player::PlaybackState {
+        session: app.current.clone(),
+        position: 20.,
+        duration: Some(120.),
+        ..Default::default()
+    };
+    key(&mut app, KeyCode::F(6));
+    assert_eq!(app.focus, 3);
+    key(&mut app, KeyCode::Right);
+    assert_eq!(app.player_effects.len(), 1);
+    assert_eq!(app.tab, Tab::Summary);
+    key(&mut app, KeyCode::F(6));
+    assert_eq!(app.focus, 2);
+    key(&mut app, KeyCode::Right);
+    assert_eq!(app.tab, Tab::Summary);
+    assert!(app.expanded);
+    assert_eq!(app.player_effects.len(), 1);
+}
 fn response(app: &mut App, id: u64, resource: Resource, result: Result<Data, String>) {
     app.apply(Response {
         id,

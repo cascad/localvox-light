@@ -137,7 +137,7 @@ export interface QueueItem {
  *  are being recorded. */
 /** How the settings screen renders a field. Presentation only — every value lands in `.env` as
  *  text; the kind decides the control, not the storage. */
-export type SettingKind = "text" | "path" | "bool" | "number" | "secret";
+export type SettingKind = "text" | "path" | "bool" | "number" | "secret" | "servers";
 
 /** WHEN a saved value starts working. Per setting, because the answer differs per setting:
  *  «live» is read at the moment it is used, «capture» re-opens the microphone, «restart» was read
@@ -149,13 +149,13 @@ export interface Setting {
   group: string;
   label: string;
   applies: Applies;
-  /** What happens when the key is left unset — placeholder text, never a value. The real default
-   *  lives in the code, and claiming to know it here is how a catalogue starts lying. */
+  /** What happens when the key is left unset — placeholder text, never a value. Values come separately from .env.defaults. */
   hint: string;
   kind: SettingKind;
   /** Absent for secrets: a token that travels to the screen on every poll is a token in every log
    *  and cache between here and there. `set` still says whether one exists. */
   value?: string | null;
+  default_value?: string | null;
   set: boolean;
   /** Present when the value must be PICKED, not typed — audio devices. Enumerated live by the
    *  daemon, because devices come and go while it runs. */
@@ -172,6 +172,7 @@ export interface DeviceChoice {
 }
 
 export interface SettingsDoc {
+  defaults_path?: string;
   /** The `.env` actually in effect — shown on screen so nobody has to guess which file they edit. */
   path: string;
   exists: boolean;

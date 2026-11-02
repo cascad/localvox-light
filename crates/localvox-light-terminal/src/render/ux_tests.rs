@@ -20,6 +20,20 @@ fn screen(case: &str, width: u16, height: u16, light: bool) {
         .unwrap()
         .timestamp_millis();
     match case {
+        "preset" => {
+            app.view = View::Settings;
+            app.nav = 4;
+            app.settings.settings = vec![Setting {
+                key: "LOCALVOX_LLM_MODEL".into(),
+                group: "LLM".into(),
+                label: "Модель".into(),
+                kind: "text".into(),
+                default_value: Some("qwen3.5:9b".into()),
+                applies: "restart".into(),
+                hint: "Модель обработки текста и сводки".into(),
+                ..Default::default()
+            }];
+        }
         "settings" | "choice" => {
             app.view = View::Settings;
             app.nav = 4;
@@ -82,7 +96,7 @@ fn screen(case: &str, width: u16, height: u16, light: bool) {
     if case == "settings" {
         assert!(
             text.contains("Выключено")
-                && text.contains("Подсказка")
+                && text.contains("пояснение")
                 && !text.contains("LOCALVOX_API_TOKEN")
         );
     }
@@ -105,6 +119,10 @@ fn settings_dark() {
 #[test]
 fn settings_light() {
     screen("settings", 80, 24, true);
+}
+#[test]
+fn settings_preset() {
+    screen("preset", 80, 24, false);
 }
 #[test]
 fn setting_choice() {
@@ -134,4 +152,45 @@ fn metadata_expanded() {
 #[test]
 fn notification_visible() {
     screen("notification", 80, 24, false);
+}
+
+#[test]
+fn play_pause_keeps_the_waveform_in_the_same_columns() {
+    for ascii in [false, true] {
+        let mut app = App {
+            ascii,
+            current: Some("demo".into()),
+            ..Default::default()
+        };
+        app.playback = crate::player::PlaybackState {
+            session: app.current.clone(),
+            duration: Some(120.),
+            position: 15.,
+            ..Default::default()
+        };
+        let text = |a: &App| {
+            player_line(a, Theme::for_app(a), 80)
+                .spans
+                .iter()
+                .map(|s| s.content.as_ref())
+                .collect::<String>()
+        };
+        let playing = text(&app);
+        app.playback.paused = true;
+        let paused = text(&app);
+        assert!(playing.contains('['));
+        assert_eq!(
+            playing.chars().position(|c| c == '['),
+            paused.chars().position(|c| c == '[')
+        );
+        assert!(!playing.contains("играет") && !paused.contains("пауза"));
+        app.playback.duration = Some(7200.);
+        app.playback.position = 5999.;
+        let before = text(&app);
+        app.playback.position = 6000.;
+        assert_eq!(
+            before.chars().position(|c| c == '['),
+            text(&app).chars().position(|c| c == '[')
+        );
+    }
 }

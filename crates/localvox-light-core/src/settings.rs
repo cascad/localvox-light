@@ -4,12 +4,7 @@
 //! generically. A list hardcoded in the frontend as well would be a second source of truth for the
 //! same facts, and the two would drift the first time either was touched.
 //!
-//! WHAT THIS DELIBERATELY DOES NOT KNOW: the default values. They live at the call sites, as
-//! `env::var(...).unwrap_or(default)`, and copying them here would create exactly the drift this
-//! module exists to avoid — the catalogue would keep claiming `300` long after the code moved on.
-//! So an unset key is reported as unset, and the screen says «по умолчанию» rather than inventing
-//! a number. `hint` is documentation (what the code does when the key is absent), shown as
-//! placeholder text — never as a value.
+//! Defaults come from .env.defaults. Hints explain behavior and never stand in for values.
 //!
 //! Only classified values may be returned by the API. Unknown keys expose their
 //! name and presence, never their contents, because they may contain credentials.
@@ -34,6 +29,7 @@ pub enum Kind {
     Number,
     /// Never echoed back to the screen once set — see `Setting::secret`.
     Secret,
+    Servers,
 }
 
 /// WHEN a saved value starts working. Per setting, because the answer differs per setting and a
@@ -59,7 +55,7 @@ pub struct Setting {
     pub group: &'static str,
     pub label: &'static str,
     /// What happens if the key is left unset, in the owner's language. Placeholder text, not a
-    /// value: the real default lives in the code.
+    /// value: the default comes from .env.defaults.
     pub hint: &'static str,
     pub kind: Kind,
     pub applies: Applies,
@@ -96,6 +92,8 @@ pub fn apply_live(changes: &[(String, Option<String>)]) -> Vec<String> {
     let mut need_restart = Vec::new();
     let mut touched_capture = false;
     for (key, value) in changes {
+        let resolved = value.clone().or_else(|| crate::presets::default_value(key));
+        let value = &resolved;
         match applies(key) {
             Applies::Live | Applies::Capture => {
                 match value {
@@ -173,7 +171,7 @@ pub const CATALOGUE: &[Setting] = &[
         key: "LOCALVOX_LIGHT_MIC",
         group: "Устройства",
         label: "Микрофон",
-        hint: "default — системный по умолчанию",
+        hint: "Автоматически: сохранённое или системное устройство",
         kind: Kind::Text,
         applies: Applies::Capture,
     },
@@ -181,7 +179,7 @@ pub const CATALOGUE: &[Setting] = &[
         key: "LOCALVOX_LIGHT_LOOPBACK_DEVICE",
         group: "Устройства",
         label: "Системный звук (loopback)",
-        hint: "default-output — то, что звучит в колонках",
+        hint: "Автоматически: сохранённый или системный выход",
         kind: Kind::Text,
         applies: Applies::Capture,
     },
@@ -193,7 +191,7 @@ pub const CATALOGUE: &[Setting] = &[
         // The hint states the DEFAULT'S consequence, not the number alone: this buffer is the one
         // setting here that costs RAM continuously, and it costs it whether or not anything is
         // being recorded. A person raising it to an hour deserves to know that before, not after.
-        hint: "300 — пять минут, ≈19 МБ памяти на две дорожки",
+        hint: "Буфер предыдущего звука; увеличение требует больше памяти",
         kind: Kind::Number,
         applies: Applies::Restart,
     },
@@ -203,7 +201,7 @@ pub const CATALOGUE: &[Setting] = &[
         label: "Ротация файлов аудио, сек",
         // Not a quality knob: neighbouring chunks join sample-exactly, so this changes how the
         // recording is SPLIT ON DISK and nothing about what is recorded.
-        hint: "300 — новый файл каждые пять минут",
+        hint: "Ротация аудиофайлов; соседние части соединяются без потери звука",
         kind: Kind::Number,
         applies: Applies::Restart,
     },
@@ -211,7 +209,7 @@ pub const CATALOGUE: &[Setting] = &[
         key: "LOCALVOX_LIGHT_AUTOSTOP_SEC",
         group: "Запись",
         label: "Автостоп по тишине, сек",
-        hint: "900 — пятнадцать минут тишины на обеих дорожках; 0 — никогда",
+        hint: "Тишина перед автоматическим завершением записи; 0 отключает автостоп",
         kind: Kind::Number,
         applies: Applies::Restart,
     },
@@ -241,6 +239,14 @@ pub const CATALOGUE: &[Setting] = &[
         hint: "локальная модель (Ollama)",
         kind: Kind::Text,
         applies: Applies::Restart,
+    },
+    Setting {
+        key: "LOCALVOX_LLM_SERVER_URLS",
+        group: "LLM",
+        label: "Сохранённые LLM-серверы",
+        hint: "Адреса для выбора, без токенов",
+        kind: Kind::Servers,
+        applies: Applies::Live,
     },
     // ── API ──────────────────────────────────────────────────────────────────
     Setting {
@@ -272,7 +278,7 @@ pub const CATALOGUE: &[Setting] = &[
         key: "LOCALVOX_LIGHT_AUTOCOOK_INTERVAL_SEC",
         group: "Автоварка",
         label: "Как часто искать недоваренное, сек",
-        hint: "300",
+        hint: "Пауза между проверками очереди",
         kind: Kind::Number,
         applies: Applies::Restart,
     },
@@ -280,7 +286,7 @@ pub const CATALOGUE: &[Setting] = &[
         key: "LOCALVOX_LIGHT_AUTOCOOK_QUIESCENT_SEC",
         group: "Автоварка",
         label: "Сессия «тихая» столько секунд → варим",
-        hint: "60",
+        hint: "Сколько ждать после последнего изменения записи",
         kind: Kind::Number,
         applies: Applies::Restart,
     },

@@ -25,7 +25,7 @@ struct Cli {
     work_dir: PathBuf,
 
     /// Listen address (for LAN: 0.0.0.0:3017 — then a token is mandatory)
-    #[arg(long, default_value = "127.0.0.1:3017", env = "LOCALVOX_API_BIND")]
+    #[arg(long, default_value = localvox_light_core::presets::baked("LOCALVOX_API_BIND"), env = "LOCALVOX_API_BIND")]
     bind: String,
 
     /// Access token (the Authorization: Bearer … header)
@@ -41,6 +41,7 @@ fn main() -> Result<()> {
             eprintln!("  → the variables AFTER the broken line were NOT read (format: KEY=value or # comment)");
         }
     }
+    localvox_light_core::presets::apply_missing()?;
     // The filter and the color come from the shared place (see core::cli): someone
     // else's debug output (ORT) does not pour into the log, and ANSI codes are not
     // written where there is no terminal.

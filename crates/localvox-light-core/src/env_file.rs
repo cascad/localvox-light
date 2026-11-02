@@ -1,9 +1,7 @@
 //! Editing `.env` in place — the ONE file that holds the owner's settings.
 //!
-//! There is no second config file, and that is a decision, not an omission: defaults live in the
-//! code (`env::var(...).unwrap_or(default)`), `.env` overrides them, and the settings screen edits
-//! `.env`. A `settings.json` beside it would be a second source of truth for the same facts, and
-//! two writers of one thing drift apart the first time either is fixed.
+//! This edits only user overrides. Predetermined values live in .env.defaults;
+//! resetting a key leaves that preset in effect.
 //!
 //! WHY THIS IS NOT "serialize a map and write the file". The owner's `.env` is 280 lines and most
 //! of them are COMMENTS — measurements, the reason a threshold is what it is, why a model was
@@ -17,8 +15,8 @@
 //!     of orphaned at the end of the file;
 //!   * the key appears nowhere → appended at the end.
 //!
-//! Unsetting comments the line back out rather than deleting it: the key stops applying (the code
-//! default takes over), the documentation survives, and the previous value is still readable. The
+//! Unsetting comments the line back out rather than deleting it: the key stops applying (the preset
+//! takes over), the documentation survives, and the previous value is still readable. The
 //! operation is its own inverse.
 
 use std::path::{Path, PathBuf};
@@ -112,7 +110,7 @@ fn render(key: &str, value: &str) -> String {
 /// Apply changes to the text of a `.env`. Pure — this is the whole invariant, and it is testable
 /// without touching a disk.
 ///
-/// `None` means «unset»: the assignment is commented out and the code default takes over again.
+/// `None` means «unset»: the assignment is commented out; the caller resolves the preset.
 pub fn apply(content: &str, changes: &[(String, Option<String>)]) -> String {
     // Whether the source ended with a newline decides whether we have to add one before appending.
     let mut lines: Vec<String> = content.lines().map(str::to_string).collect();
@@ -327,7 +325,7 @@ LOCALVOX_LIGHT_CALL_DETECT=off
         );
     }
 
-    /// Unset comments the line out instead of deleting it: the code default takes over, the old
+    /// Unset comments the line out instead of deleting it: the preset takes over, the old
     /// value stays readable, and the operation is its own inverse.
     #[test]
     fn unsetting_comments_the_line_out_and_setting_it_again_restores_it() {

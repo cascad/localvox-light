@@ -182,7 +182,7 @@ impl App {
                                 "не задано".into()
                             }
                         } else {
-                            s.value.clone().unwrap_or_else(|| "по умолчанию".into())
+                            self.setting_value(s, true)
                         },
                         self.settings_edits.get(&s.key).map(|value|format!("Несохранённый черновик: {}",if s.kind=="secret"{if value.is_some(){"скрыто".into()}else{"сброс к умолчанию".into()}}else{value.clone().unwrap_or_else(||"сброс к умолчанию".into())})).unwrap_or_else(||"Enter изменить · : сохранить изменённые ключи".into()),
                         if s.group == "После распознавания" {

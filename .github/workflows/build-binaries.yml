@@ -21,6 +21,7 @@ on:
     paths:
       - "Cargo.toml"
       - "Cargo.lock"
+      - ".env.defaults"
       - "crates/**"
       - "src-tauri/**"
       - "ui/**"
@@ -167,9 +168,12 @@ jobs:
           mkdir -p "$out/scripts" "$out/docs"
           cp scripts/setup-mpv.mjs "$out/scripts/"
           cp docs/terminal-workspace.md "$out/docs/"
+          cp .env.defaults "$out/"
           cd dist
           if [ "${{ runner.os }}" = "Windows" ]; then
-            7z a "${{ matrix.artifact }}.zip" "${{ matrix.artifact }}"/*
+            pushd "${{ matrix.artifact }}"
+            7z a "../${{ matrix.artifact }}.zip" ./* .env.defaults
+            popd
           else
             tar -czf "${{ matrix.artifact }}.tar.gz" -C "${{ matrix.artifact }}" .
           fi

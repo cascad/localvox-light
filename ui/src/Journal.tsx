@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api, type Progress } from "./api";
 import { groupJournal, journalState, mergeJournal, type JournalEntry } from "./journal-model";
 
@@ -29,6 +29,24 @@ export function Journal({ session, execution, uncertain, now = Date.now() }: { s
   const [limited, setLimited] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   const follow = useRef(true);
+  const manualReading = useRef(false);
+  const viewportRevision = useRef(0);
+  const savedViewport = useRef<{ node: Element; top: number; left: number }[] | null>(null);
+  useLayoutEffect(() => {
+    for (const point of savedViewport.current ?? []) {
+      point.node.scrollTop = point.top; point.node.scrollLeft = point.left;
+    }
+    savedViewport.current = null;
+  }, [expanded]);
+  const toggle = (id: string) => {
+    manualReading.current = true; follow.current = false; viewportRevision.current++;
+    const positions = [];
+    for (let node: Element | null = box.current; node; node = node.parentElement) {
+      positions.push({ node, top: node.scrollTop, left: node.scrollLeft });
+    }
+    savedViewport.current = positions;
+    setExpanded((old) => { const next = new Set(old); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+  };
   const generation = useRef(0);
   const historyGeneration = useRef(0);
   const received = useRef(new Set<string>());
@@ -57,6 +75,7 @@ export function Journal({ session, execution, uncertain, now = Date.now() }: { s
     setDroppedVerbose(0);
     setEntries([]); setError(null); setExpanded(new Set()); setUnseen(0); setLimited(false); setOlder(null);
     follow.current = true;
+    manualReading.current = false; viewportRevision.current++;
     const load = async () => {
       const history = historyGeneration.current;
       const request = new AbortController(); requests.current.add(request);
@@ -69,6 +88,7 @@ export function Journal({ session, execution, uncertain, now = Date.now() }: { s
         // a response from the old file to the new file's tail.
         if (history !== historyGeneration.current) { timer = setTimeout(() => void load(), 100); return; }
         const anchor = follow.current || page.reset || replace ? null : readingAnchor(box.current);
+        const revision = viewportRevision.current;
         if (page.reset || replace) {
           historyGeneration.current++; received.current.clear();
           setExpanded(new Set()); setUnseen(0);
@@ -94,8 +114,8 @@ export function Journal({ session, execution, uncertain, now = Date.now() }: { s
         if (!cursor || page.reset) setOlder(page.truncated ? page.previous_cursor : null);
         cursorRef.current = page.next_cursor || undefined;
         if (added && !follow.current && !page.reset && !replace) setUnseen((n) => n + added);
-        if (follow.current) requestAnimationFrame(() => { if (alive && box.current) box.current.scrollTop = box.current.scrollHeight; });
-        else requestAnimationFrame(() => { if (alive && generation.current === epoch) restoreReadingAnchor(box.current, anchor); });
+        if (follow.current) requestAnimationFrame(() => { if (alive && generation.current === epoch && follow.current && revision === viewportRevision.current && box.current) box.current.scrollTop = box.current.scrollHeight; });
+        else requestAnimationFrame(() => { if (alive && generation.current === epoch && revision === viewportRevision.current) restoreReadingAnchor(box.current, anchor); });
         setError(null); failures = 0;
         timer = setTimeout(() => void load(), page.has_more ? 100 : 2500);
       } catch (e) {
@@ -152,14 +172,14 @@ export function Journal({ session, execution, uncertain, now = Date.now() }: { s
     <div className="journal-toolbar">
       <span className="journal-label">журнал / операции</span>
       <input aria-label="Фильтр журнала" placeholder="фильтр…" value={filter} onChange={(e) => setFilter(e.target.value)} />
-      <button className="tool" onClick={() => { follow.current = true; setUnseen(0); if (tailGap.current) reloadTail.current = true; if (box.current) box.current.scrollTop = box.current.scrollHeight; }}>↓ {unseen ? `новые: ${unseen}` : "к хвосту"}</button>
+      <button className="tool" onClick={() => { manualReading.current = false; viewportRevision.current++; follow.current = true; setUnseen(0); if (tailGap.current) reloadTail.current = true; if (box.current) box.current.scrollTop = box.current.scrollHeight; }}>↓ {unseen ? `новые: ${unseen}` : "к хвосту"}</button>
     </div>
     {error && <p className="err" role="status">Журнал не обновляется: {error}. Последние события сохранены на экране.</p>}
     {resetNotice && <p className="journal-notice">Файл истории сменился. Показаны события нового журнала.</p>}
     {limited && <p className="journal-notice">Показана часть истории. Ограничение загрузки отличается от свёрнутых строк.</p>}
     {droppedVerbose > 0 && <p className="journal-notice">Пропущено подробностей по лимиту запуска: {droppedVerbose}. Переходы и ошибки сохраняются.</p>}
     {detached && <p className="journal-notice">Сохранено окно чтения. Переход к хвосту загрузит последние события.</p>}
-    <div ref={box} className="journal-scroll" onScroll={(e) => { const el = e.currentTarget; follow.current = !filter && !tailGap.current && el.scrollHeight - el.clientHeight - el.scrollTop < 24; if (follow.current) setUnseen(0); }}>
+    <div ref={box} className="journal-scroll" onScroll={(e) => { const el = e.currentTarget; follow.current = !manualReading.current && !filter && !tailGap.current && el.scrollHeight - el.clientHeight - el.scrollTop < 24; if (follow.current) setUnseen(0); }}>
       {older && <button className="tool journal-older" disabled={loadingOlder} onClick={() => void loadOlder()}>{loadingOlder ? "Загрузка предыдущих…" : "↑ Предыдущие события"}</button>}
       {!groups.length && !error && <p className="hint">Подробные события ещё не поступили. Состояние этапов показано выше.</p>}
       {visible.map((group, index) => {
@@ -187,7 +207,7 @@ export function Journal({ session, execution, uncertain, now = Date.now() }: { s
             {group.lastAt && <time className="journal-time" dateTime={group.lastAt}>{group.lastAt.slice(11, 19)}</time>}
           </div>
           {errors.map((entry) => <p key={entry.id} data-journal-entry={entry.id} className="journal-detail err">{entry.text}</p>)}
-          {hidden.length > 0 && <button className="journal-toggle" aria-expanded={open} onClick={() => setExpanded((old) => { const next = new Set(old); if (next.has(group.id)) next.delete(group.id); else next.add(group.id); return next; })}>{open ? "− свернуть" : `+ ${hiddenLines} lines`}</button>}
+          {hidden.length > 0 && <button className="journal-toggle" aria-expanded={open} onClick={() => toggle(group.id)}>{open ? "− свернуть" : `+ ${hiddenLines} lines`}</button>}
           {open && <div className="journal-details">{hidden.map((entry) => <div key={entry.id} data-journal-entry={entry.id} className="journal-detail"><time>{entry.at.slice(11, 19)}</time><span>{entry.text}</span></div>)}</div>}
         </div>;
       })}

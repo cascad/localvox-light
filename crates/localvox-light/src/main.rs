@@ -116,6 +116,7 @@ fn chdir_from_raw_args() {
 fn main() -> Result<()> {
     chdir_from_raw_args();
     portable_env_bootstrap();
+    localvox_light_core::presets::apply_missing()?;
     let mut cli = Cli::parse();
     merge_env_bools(&mut cli);
     cli.tui = terminal_mode(
@@ -239,9 +240,9 @@ fn launch_terminal() -> Result<()> {
     let address = std::env::var("LOCALVOX_TUI_URL").unwrap_or_else(|_| {
         format!(
             "http://{}",
-            connectable(
-                &std::env::var("LOCALVOX_API_BIND").unwrap_or_else(|_| "127.0.0.1:3017".into())
-            )
+            connectable(&std::env::var("LOCALVOX_API_BIND").unwrap_or_else(|_| {
+                localvox_light_core::presets::baked("LOCALVOX_API_BIND").into()
+            }))
         )
     });
     // Token stays in the inherited environment; the child reads it separately.
@@ -987,7 +988,8 @@ fn open_window(addr: &str) {
 /// background.
 /// Returns the bind address if the API really came up (for the tray item), otherwise None.
 fn spawn_http_api(work_dir: &str) -> Option<String> {
-    let bind = std::env::var("LOCALVOX_API_BIND").unwrap_or_else(|_| "127.0.0.1:3017".into());
+    let bind = std::env::var("LOCALVOX_API_BIND")
+        .unwrap_or_else(|_| localvox_light_core::presets::baked("LOCALVOX_API_BIND").into());
     let token = std::env::var("LOCALVOX_API_TOKEN").ok();
     if token.is_none() && !bind.starts_with("127.0.0.1") && !bind.starts_with("localhost") {
         tracing::warn!("HTTP API: bind {bind} without LOCALVOX_API_TOKEN — API not started");

@@ -301,6 +301,7 @@ pub struct Setting {
     pub hint: String,
     pub kind: String,
     pub value: Option<String>,
+    pub default_value: Option<String>,
     pub set: bool,
     pub options: Option<Vec<DeviceChoice>>,
 }

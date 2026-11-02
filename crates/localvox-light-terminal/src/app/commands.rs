@@ -35,6 +35,7 @@ pub enum Action {
     ToggleMonochrome,
     Refresh,
     Connection,
+    AddLlmServer,
     SaveSettings,
     ToggleColorDepth,
     FilterJournal,
@@ -82,6 +83,7 @@ pub const COMMANDS: &[(Action, &str)] = &[
     (Action::ToggleMonochrome, "Без цвета / цвет"),
     (Action::Refresh, "Обновить"),
     (Action::Connection, "Подключение и токен"),
+    (Action::AddLlmServer, "Добавить LLM-сервер"),
     (Action::SaveSettings, "Сохранить изменённые настройки"),
     (Action::ToggleColorDepth, "16 цветов / true color"),
     (Action::FilterJournal, "Фильтр журнала"),
@@ -100,6 +102,20 @@ impl App {
         self.palette = false;
         let s = self.current.clone().unwrap_or_default();
         match action {
+            Action::AddLlmServer => {
+                if self.view != View::Settings
+                    || !self.settings.settings.iter().any(|s| s.kind == "servers")
+                {
+                    self.switch(View::Settings);
+                    self.llm_server_pending = true;
+                    return;
+                }
+                self.open(
+                    "Добавить LLM-сервер",
+                    FormKind::LlmServer,
+                    &[("HTTP(S) адрес", "")],
+                );
+            }
             Action::DocumentInfo => {
                 if self.view != View::Archive {
                     self.switch(View::Archive);
@@ -360,12 +376,24 @@ impl App {
             Action::EditSetting => {
                 if let Some(s) = self.selected_setting() {
                     if s.kind == "bool"
+                        || s.key == "LOCALVOX_LLM_BASE_URL"
                         || s.options
                             .as_ref()
                             .is_some_and(|options| !options.is_empty())
                     {
-                        let mut options = vec![("По умолчанию".to_owned(), None)];
-                        if s.kind == "bool" {
+                        let preset = s
+                            .default_value
+                            .as_deref()
+                            .filter(|v| !v.is_empty())
+                            .unwrap_or("автоматически");
+                        let mut options = vec![(format!("Предустановка · {preset}"), None)];
+                        if s.key == "LOCALVOX_LLM_BASE_URL" {
+                            options.extend(
+                                self.llm_servers()
+                                    .into_iter()
+                                    .map(|url| (url.clone(), Some(url))),
+                            );
+                        } else if s.kind == "bool" {
                             options.extend([
                                 ("Включено".into(), Some("on".into())),
                                 ("Выключено".into(), Some("off".into())),
@@ -419,6 +447,7 @@ impl App {
                             .get(&s.key)
                             .cloned()
                             .unwrap_or_else(|| s.value.clone())
+                            .or_else(|| s.default_value.clone())
                             .unwrap_or_default()
                     };
                     let title = s.label.clone();

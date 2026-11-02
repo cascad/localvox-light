@@ -228,6 +228,26 @@ impl App {
                 }
                 t
             }
+            FormKind::LlmServer => {
+                let url = localvox_light_client::normalize_llm_server(&get(0))
+                    .map_err(|error| error.to_string())?;
+                let mut servers = self.llm_servers();
+                if !servers.contains(&url) {
+                    if servers.len() >= 32 {
+                        return Err("Не больше 32 серверов".into());
+                    }
+                    servers.push(url.clone());
+                }
+                self.settings_edits.insert(
+                    "LOCALVOX_LLM_SERVER_URLS".into(),
+                    Some(serde_json::to_string(&servers).map_err(|error| error.to_string())?),
+                );
+                self.settings_edits
+                    .insert("LOCALVOX_LLM_BASE_URL".into(), Some(url));
+                self.status = "Сервер в черновике · S сохранить настройки".into();
+                self.form = None;
+                return Ok(());
+            }
             FormKind::Setting(key) => {
                 let value = get(0);
                 if f.fields.first().is_some_and(|field| field.initial == value) {

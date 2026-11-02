@@ -170,7 +170,7 @@ pub struct Cli {
     pub no_session_chunks: bool,
 
     /// Audio chunk duration, sec (file rotation; adjacent chunks join sample-exactly)
-    #[arg(long, default_value = "300", env = "LOCALVOX_LIGHT_CHUNK_SEC")]
+    #[arg(long, default_value_t = crate::presets::number::<f64>("LOCALVOX_LIGHT_CHUNK_SEC"), env = "LOCALVOX_LIGHT_CHUNK_SEC")]
     pub chunk_sec: f64,
 
     /// Opt-in audio retention after verified transcription, days; 0 — keep forever (default)
@@ -196,11 +196,11 @@ pub struct Cli {
     /// Pre-roll ring: seconds of the past kept IN MEMORY (never on disk). Pressing "record"
     /// pulls them into the session — a conversation that began before the button is not lost.
     /// Five minutes of two tracks ≈ 19 MB.
-    #[arg(long, default_value = "300", env = "LOCALVOX_LIGHT_PREROLL_SEC")]
+    #[arg(long, default_value_t = crate::presets::number::<f64>("LOCALVOX_LIGHT_PREROLL_SEC"), env = "LOCALVOX_LIGHT_PREROLL_SEC")]
     pub preroll_sec: f64,
 
     /// Auto-stop: silence on both tracks for longer than N sec closes the recording; 0 — never
-    #[arg(long, default_value = "900", env = "LOCALVOX_LIGHT_AUTOSTOP_SEC")]
+    #[arg(long, default_value_t = crate::presets::number::<f64>("LOCALVOX_LIGHT_AUTOSTOP_SEC"), env = "LOCALVOX_LIGHT_AUTOSTOP_SEC")]
     pub autostop_sec: f64,
 
     /// Background mode: recording + voice + cooking + HTTP API, no terminal interface.
