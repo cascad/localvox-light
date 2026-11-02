@@ -1,0 +1,410 @@
+{
+  "scope": "new native ordinary cleanup after final guard; copied own corpus; no ASR",
+  "date": "2026-11-02",
+  "semantic_quality_established": false,
+  "worker_binary_preserved_through_measurements": true,
+  "profiler_sha256": "3357e5a67dc5cdbb55d319bd03367353d2d537be5cef9e4841e1f048167eb30a",
+  "evaluator_sha256": "bb7a1395f2293e07d1323df37d34596dc4886bc6456fc74b722798834f97f95c",
+  "guard_source_sha256": "da7660f406662e54ff363ed06a09eda317f0d5c5298df39dc926d05a71c19e2b",
+  "pipeline_source_sha256": "e65523a728e5bfc556b960c3195a6b71938b44476655fb2e00ab9d07ce37417d",
+  "ollama_version": "0.40.13",
+  "temperature": 0.2,
+  "num_ctx": 4096,
+  "think": false,
+  "profiles": [
+    {
+      "model": "gemma4:e4b",
+      "corpus": "quality",
+      "corpus_sha256": "391c6474183b32207c3bf01a965164c24c8e171a7deec3382b92a444e6940462",
+      "worker_sha256": "83a128cfd0019669fc1df8adf756a9c732d13d13f66c93fae4b762cc2bcd57ca",
+      "raw_report_sha256": "80778ba25775ad4918350c4b0dcef9447895ac2b450cd9f333a9d043713fe778",
+      "worker_build": "debug; no release performance inference",
+      "runs": [
+        {
+          "repeat": 1,
+          "statuses": {
+            "expected": 72
+          },
+          "useful_expected": 24,
+          "repair_total": 24,
+          "actual_changes": {
+            "noise-project": "Проект готов.",
+            "noise-name": "Анна отправила письмо.",
+            "noise-report": "Отчёт сохранён.",
+            "noise-team": "Команда завершила задачу.",
+            "noise-server": "Сервер работает.",
+            "noise-document": "Документ открыт.",
+            "noise-build": "Сборка прошла.",
+            "noise-meeting": "Встреча закончилась.",
+            "repeat-project": "Проект готов.",
+            "repeat-report": "Мы сохранили отчёт.",
+            "repeat-server": "Сервер работает стабильно.",
+            "repeat-document": "Открой документ.",
+            "repeat-team": "Команда завершила задачу.",
+            "repeat-letter": "Анна отправила письмо.",
+            "repeat-ready": "Отчёт уже готов.",
+            "repeat-file": "Файл сохранён.",
+            "format-case": "Проект готов.",
+            "format-stop": "Документ открыт.",
+            "format-comma": "Когда тесты пройдут, выпустим обновление.",
+            "format-list": "В папке лежат отчёт, протокол и схема.",
+            "repair-typo": "Проект готов.",
+            "repair-word": "Письмо отправлено.",
+            "repair-agreement": "Команда завершила задачу.",
+            "repair-space": "Мы сохранили отчёт."
+          },
+          "corrections": {
+            "cleanup_edits": 24,
+            "cleanup_omitted": 0,
+            "cleanup_rejected": 5,
+            "counts_do_not_establish_semantic_quality": true,
+            "refined_changed_lines": null,
+            "refined_lines": null
+          }
+        },
+        {
+          "repeat": 2,
+          "statuses": {
+            "expected": 72
+          },
+          "useful_expected": 24,
+          "repair_total": 24,
+          "actual_changes": {
+            "noise-project": "Проект готов.",
+            "noise-name": "Анна отправила письмо.",
+            "noise-report": "Отчёт сохранён.",
+            "noise-team": "Команда завершила задачу.",
+            "noise-server": "Сервер работает.",
+            "noise-document": "Документ открыт.",
+            "noise-build": "Сборка прошла.",
+            "noise-meeting": "Встреча закончилась.",
+            "repeat-project": "Проект готов.",
+            "repeat-report": "Мы сохранили отчёт.",
+            "repeat-server": "Сервер работает стабильно.",
+            "repeat-document": "Открой документ.",
+            "repeat-team": "Команда завершила задачу.",
+            "repeat-letter": "Анна отправила письмо.",
+            "repeat-ready": "Отчёт уже готов.",
+            "repeat-file": "Файл сохранён.",
+            "format-case": "Проект готов.",
+            "format-stop": "Документ открыт.",
+            "format-comma": "Когда тесты пройдут, выпустим обновление.",
+            "format-list": "В папке лежат отчёт, протокол и схема.",
+            "repair-typo": "Проект готов.",
+            "repair-word": "Письмо отправлено.",
+            "repair-agreement": "Команда завершила задачу.",
+            "repair-space": "Мы сохранили отчёт."
+          },
+          "corrections": {
+            "cleanup_edits": 24,
+            "cleanup_omitted": 0,
+            "cleanup_rejected": 4,
+            "counts_do_not_establish_semantic_quality": true,
+            "refined_changed_lines": null,
+            "refined_lines": null
+          }
+        },
+        {
+          "repeat": 3,
+          "statuses": {
+            "expected": 72
+          },
+          "useful_expected": 24,
+          "repair_total": 24,
+          "actual_changes": {
+            "noise-project": "Проект готов.",
+            "noise-name": "Анна отправила письмо.",
+            "noise-report": "Отчёт сохранён.",
+            "noise-team": "Команда завершила задачу.",
+            "noise-server": "Сервер работает.",
+            "noise-document": "Документ открыт.",
+            "noise-build": "Сборка прошла.",
+            "noise-meeting": "Встреча закончилась.",
+            "repeat-project": "Проект готов.",
+            "repeat-report": "Мы сохранили отчёт.",
+            "repeat-server": "Сервер работает стабильно.",
+            "repeat-document": "Открой документ.",
+            "repeat-team": "Команда завершила задачу.",
+            "repeat-letter": "Анна отправила письмо.",
+            "repeat-ready": "Отчёт уже готов.",
+            "repeat-file": "Файл сохранён.",
+            "format-case": "Проект готов.",
+            "format-stop": "Документ открыт.",
+            "format-comma": "Когда тесты пройдут, выпустим обновление.",
+            "format-list": "В папке лежат отчёт, протокол и схема.",
+            "repair-typo": "Проект готов.",
+            "repair-word": "Письмо отправлено.",
+            "repair-agreement": "Команда завершила задачу.",
+            "repair-space": "Мы сохранили отчёт."
+          },
+          "corrections": {
+            "cleanup_edits": 24,
+            "cleanup_omitted": 0,
+            "cleanup_rejected": 4,
+            "counts_do_not_establish_semantic_quality": true,
+            "refined_changed_lines": null,
+            "refined_lines": null
+          }
+        }
+      ]
+    },
+    {
+      "model": "gemma4:e4b",
+      "corpus": "boundary",
+      "corpus_sha256": "797b3971037968b6e9840d1b9815c5e80d57eaccfff55f75e2c0802b60604dcd",
+      "worker_sha256": "83a128cfd0019669fc1df8adf756a9c732d13d13f66c93fae4b762cc2bcd57ca",
+      "raw_report_sha256": "7b0177b2587704169908541b2adb698d58c96373d36cb5228eaccb8856407fd1",
+      "worker_build": "debug; no release performance inference",
+      "runs": [
+        {
+          "repeat": 1,
+          "statuses": {
+            "expected": 24
+          },
+          "useful_expected": 0,
+          "repair_total": 0,
+          "actual_changes": {},
+          "corrections": {
+            "cleanup_edits": 0,
+            "cleanup_omitted": 0,
+            "cleanup_rejected": 2,
+            "counts_do_not_establish_semantic_quality": true,
+            "refined_changed_lines": null,
+            "refined_lines": null
+          }
+        },
+        {
+          "repeat": 2,
+          "statuses": {
+            "expected": 24
+          },
+          "useful_expected": 0,
+          "repair_total": 0,
+          "actual_changes": {},
+          "corrections": {
+            "cleanup_edits": 0,
+            "cleanup_omitted": 0,
+            "cleanup_rejected": 2,
+            "counts_do_not_establish_semantic_quality": true,
+            "refined_changed_lines": null,
+            "refined_lines": null
+          }
+        },
+        {
+          "repeat": 3,
+          "statuses": {
+            "expected": 24
+          },
+          "useful_expected": 0,
+          "repair_total": 0,
+          "actual_changes": {},
+          "corrections": {
+            "cleanup_edits": 0,
+            "cleanup_omitted": 0,
+            "cleanup_rejected": 2,
+            "counts_do_not_establish_semantic_quality": true,
+            "refined_changed_lines": null,
+            "refined_lines": null
+          }
+        }
+      ]
+    },
+    {
+      "model": "qwen3.5:4b",
+      "corpus": "quality",
+      "corpus_sha256": "391c6474183b32207c3bf01a965164c24c8e171a7deec3382b92a444e6940462",
+      "worker_sha256": "83a128cfd0019669fc1df8adf756a9c732d13d13f66c93fae4b762cc2bcd57ca",
+      "raw_report_sha256": "4c7ef6206b574561ff7bb5754151163c48cf7c871f65d1dd684620c801ddf24f",
+      "worker_build": "debug; no release performance inference",
+      "runs": [
+        {
+          "repeat": 1,
+          "statuses": {
+            "expected": 72
+          },
+          "useful_expected": 24,
+          "repair_total": 24,
+          "actual_changes": {
+            "noise-project": "Проект готов.",
+            "noise-name": "Анна отправила письмо.",
+            "noise-report": "Отчёт сохранён.",
+            "noise-team": "Команда завершила задачу.",
+            "noise-server": "Сервер работает.",
+            "noise-document": "Документ открыт.",
+            "noise-build": "Сборка прошла.",
+            "noise-meeting": "Встреча закончилась.",
+            "repeat-project": "Проект готов.",
+            "repeat-report": "Мы сохранили отчёт.",
+            "repeat-server": "Сервер работает стабильно.",
+            "repeat-document": "Открой документ.",
+            "repeat-team": "Команда завершила задачу.",
+            "repeat-letter": "Анна отправила письмо.",
+            "repeat-ready": "Отчёт уже готов.",
+            "repeat-file": "Файл сохранён.",
+            "format-case": "Проект готов.",
+            "format-stop": "Документ открыт.",
+            "format-comma": "Когда тесты пройдут, выпустим обновление.",
+            "format-list": "В папке лежат отчёт, протокол и схема.",
+            "repair-typo": "Проект готов.",
+            "repair-word": "Письмо отправлено.",
+            "repair-agreement": "Команда завершила задачу.",
+            "repair-space": "Мы сохранили отчёт."
+          },
+          "corrections": {
+            "cleanup_edits": 24,
+            "cleanup_omitted": 0,
+            "cleanup_rejected": 1,
+            "counts_do_not_establish_semantic_quality": true,
+            "refined_changed_lines": null,
+            "refined_lines": null
+          }
+        },
+        {
+          "repeat": 2,
+          "statuses": {
+            "expected": 72
+          },
+          "useful_expected": 24,
+          "repair_total": 24,
+          "actual_changes": {
+            "noise-project": "Проект готов.",
+            "noise-name": "Анна отправила письмо.",
+            "noise-report": "Отчёт сохранён.",
+            "noise-team": "Команда завершила задачу.",
+            "noise-server": "Сервер работает.",
+            "noise-document": "Документ открыт.",
+            "noise-build": "Сборка прошла.",
+            "noise-meeting": "Встреча закончилась.",
+            "repeat-project": "Проект готов.",
+            "repeat-report": "Мы сохранили отчёт.",
+            "repeat-server": "Сервер работает стабильно.",
+            "repeat-document": "Открой документ.",
+            "repeat-team": "Команда завершила задачу.",
+            "repeat-letter": "Анна отправила письмо.",
+            "repeat-ready": "Отчёт уже готов.",
+            "repeat-file": "Файл сохранён.",
+            "format-case": "Проект готов.",
+            "format-stop": "Документ открыт.",
+            "format-comma": "Когда тесты пройдут, выпустим обновление.",
+            "format-list": "В папке лежат отчёт, протокол и схема.",
+            "repair-typo": "Проект готов.",
+            "repair-word": "Письмо отправлено.",
+            "repair-agreement": "Команда завершила задачу.",
+            "repair-space": "Мы сохранили отчёт."
+          },
+          "corrections": {
+            "cleanup_edits": 24,
+            "cleanup_omitted": 0,
+            "cleanup_rejected": 1,
+            "counts_do_not_establish_semantic_quality": true,
+            "refined_changed_lines": null,
+            "refined_lines": null
+          }
+        },
+        {
+          "repeat": 3,
+          "statuses": {
+            "expected": 72
+          },
+          "useful_expected": 24,
+          "repair_total": 24,
+          "actual_changes": {
+            "noise-project": "Проект готов.",
+            "noise-name": "Анна отправила письмо.",
+            "noise-report": "Отчёт сохранён.",
+            "noise-team": "Команда завершила задачу.",
+            "noise-server": "Сервер работает.",
+            "noise-document": "Документ открыт.",
+            "noise-build": "Сборка прошла.",
+            "noise-meeting": "Встреча закончилась.",
+            "repeat-project": "Проект готов.",
+            "repeat-report": "Мы сохранили отчёт.",
+            "repeat-server": "Сервер работает стабильно.",
+            "repeat-document": "Открой документ.",
+            "repeat-team": "Команда завершила задачу.",
+            "repeat-letter": "Анна отправила письмо.",
+            "repeat-ready": "Отчёт уже готов.",
+            "repeat-file": "Файл сохранён.",
+            "format-case": "Проект готов.",
+            "format-stop": "Документ открыт.",
+            "format-comma": "Когда тесты пройдут, выпустим обновление.",
+            "format-list": "В папке лежат отчёт, протокол и схема.",
+            "repair-typo": "Проект готов.",
+            "repair-word": "Письмо отправлено.",
+            "repair-agreement": "Команда завершила задачу.",
+            "repair-space": "Мы сохранили отчёт."
+          },
+          "corrections": {
+            "cleanup_edits": 24,
+            "cleanup_omitted": 0,
+            "cleanup_rejected": 1,
+            "counts_do_not_establish_semantic_quality": true,
+            "refined_changed_lines": null,
+            "refined_lines": null
+          }
+        }
+      ]
+    },
+    {
+      "model": "qwen3.5:4b",
+      "corpus": "boundary",
+      "corpus_sha256": "797b3971037968b6e9840d1b9815c5e80d57eaccfff55f75e2c0802b60604dcd",
+      "worker_sha256": "83a128cfd0019669fc1df8adf756a9c732d13d13f66c93fae4b762cc2bcd57ca",
+      "raw_report_sha256": "6aea36a5b13c734d1d6411a301b8012680f0b9b287a190ab4f867ebc3b8aedf2",
+      "worker_build": "debug; no release performance inference",
+      "runs": [
+        {
+          "repeat": 1,
+          "statuses": {
+            "expected": 24
+          },
+          "useful_expected": 0,
+          "repair_total": 0,
+          "actual_changes": {},
+          "corrections": {
+            "cleanup_edits": 0,
+            "cleanup_omitted": 0,
+            "cleanup_rejected": 1,
+            "counts_do_not_establish_semantic_quality": true,
+            "refined_changed_lines": null,
+            "refined_lines": null
+          }
+        },
+        {
+          "repeat": 2,
+          "statuses": {
+            "expected": 24
+          },
+          "useful_expected": 0,
+          "repair_total": 0,
+          "actual_changes": {},
+          "corrections": {
+            "cleanup_edits": 0,
+            "cleanup_omitted": 0,
+            "cleanup_rejected": 1,
+            "counts_do_not_establish_semantic_quality": true,
+            "refined_changed_lines": null,
+            "refined_lines": null
+          }
+        },
+        {
+          "repeat": 3,
+          "statuses": {
+            "expected": 24
+          },
+          "useful_expected": 0,
+          "repair_total": 0,
+          "actual_changes": {},
+          "corrections": {
+            "cleanup_edits": 0,
+            "cleanup_omitted": 0,
+            "cleanup_rejected": 1,
+            "counts_do_not_establish_semantic_quality": true,
+            "refined_changed_lines": null,
+            "refined_lines": null
+          }
+        }
+      ]
+    }
+  ]
+}

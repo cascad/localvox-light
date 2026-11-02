@@ -1013,8 +1013,8 @@ pub fn refine_session(
             || client.chat(&[user(prompt)]),
         )?;
         *llm_calls += 1;
-        for (n, text) in parse_numbered(&answer) {
-            if sent.contains(&n) && !text.trim().is_empty() {
+        for (n, text) in numbered_for_batch(&answer, &sent) {
+            if sent.contains(&n) {
                 corrected.insert(n, text);
             }
         }
@@ -1069,11 +1069,12 @@ pub fn refine_session(
                 matched += 1;
                 let bad = grounding::check(&l.text, fixed);
                 if !bad.is_empty() {
-                    tracing::warn!(
-                        "refine: the line at {:.0} s was added to ({}) — rolling back to \
-                         the original",
-                        l.start_sec,
-                        bad.describe()
+                    tracing::debug!(
+                        stage = "refine",
+                        line_start_sec = l.start_sec,
+                        numbers = bad.numbers.len(),
+                        names = bad.names.len(),
+                        "correction rejected by grounding; source kept"
                     );
                     rejected += 1;
                     return l;
@@ -1082,13 +1083,9 @@ pub fn refine_session(
                 // A line it REPLACED rather than repaired is an invention that `grounding::check`
                 // cannot see — it has no name and no number to catch.
                 if !keeps_what_was_said(&l.text, fixed) {
-                    tracing::warn!(
-                        "refine: the line at {:.0} s was replaced, not repaired — rolling back \
-                         to the original. was: {:?}, model: {:?}",
-                        l.start_sec,
-                        l.text,
-                        fixed
-                    );
+                    tracing::debug!(stage="refine", line_start_sec=l.start_sec,
+                        reason=?crate::correction_guard::check(&l.text, fixed).err(),
+                        "correction rejected by retention; source kept");
                     rejected += 1;
                     return l;
                 }
@@ -1161,15 +1158,6 @@ const REFINE_PROMPT: &str = "\
 порядок. Верни РОВНО те же номера [N], по одной исправленной реплике в строке, \
 без каких-либо пояснений. Если реплика — бессвязный шум, верни её без изменений.";
 
-/// The words of a line, for comparing one against the other. Case and punctuation are noise here:
-/// «Кнопка,» and «кнопка» are the same word surviving.
-fn spoken_words(s: &str) -> Vec<String> {
-    s.split(|c: char| !c.is_alphanumeric())
-        .filter(|w| !w.is_empty())
-        .map(|w| w.to_lowercase())
-        .collect()
-}
-
 /// A REPAIR KEEPS WHAT WAS SAID.
 ///
 /// The prompt asks the model to fix recognition errors and keep the meaning; it never asks it to
@@ -1190,17 +1178,7 @@ fn spoken_words(s: &str) -> Vec<String> {
 /// Rolling back costs a repair we could have had. Keeping a fabrication costs the archive its
 /// truth, permanently and invisibly. The measurement is set for that asymmetry, not for balance.
 fn keeps_what_was_said(orig: &str, fixed: &str) -> bool {
-    let o = spoken_words(orig);
-    // Too short to measure: a mangled «ориентируйсям сво» → «ориентируйся сам» is a legitimate
-    // repair that keeps almost no word intact, and a ratio over three words means nothing.
-    // Inventions of that size are still caught by `grounding::check`.
-    if o.len() < 4 {
-        return true;
-    }
-    let f: std::collections::HashSet<String> = spoken_words(fixed).into_iter().collect();
-    // A repair does not halve the utterance — it is the same speech with the errors taken out.
-    let kept = o.iter().filter(|w| f.contains(*w)).count();
-    kept * 2 >= o.len()
+    crate::correction_guard::check(orig, fixed).is_ok()
 }
 
 /// Parsing an LLM answer of the form `[N] текст`. A line that the LLM wrapped across
@@ -1230,6 +1208,31 @@ fn parse_numbered(answer: &str) -> Vec<(usize, String)> {
         }
     }
     out
+}
+
+fn numbered_for_batch(
+    answer: &str,
+    sent: &std::collections::HashSet<usize>,
+) -> std::collections::BTreeMap<usize, String> {
+    let mut result = std::collections::BTreeMap::new();
+    let mut duplicate = std::collections::HashSet::new();
+    for (id, text) in parse_numbered(answer) {
+        if sent.contains(&id) {
+            if result.insert(id, text).is_some() {
+                duplicate.insert(id);
+            }
+        }
+    }
+    result.retain(|id, text| {
+        if duplicate.contains(id) {
+            // Explicit invalid proposal: admission counts this as rejected, not omitted.
+            text.clear();
+            true
+        } else {
+            !text.trim().is_empty()
+        }
+    });
+    result
 }
 
 /// The best version's jsonl → the text «[label] (timecode) line», sorted by time.
@@ -1418,8 +1421,8 @@ fn cleanup_by_lines(
         progress(session_dir, Stage::Cleanup, (bi + 1) as u32, batches as u32);
         llm_calls += 1;
         let mut got = 0usize;
-        for (n, text) in parse_numbered(&answer) {
-            if sent.contains(&n) && !text.trim().is_empty() {
+        for (n, text) in numbered_for_batch(&answer, &sent) {
+            if sent.contains(&n) {
                 cleaned.insert(n, text);
                 got += 1;
             }
@@ -1485,23 +1488,21 @@ fn assemble_readable(
                 // the model ADDED (a name, a number that was never said); `keeps_what_was_said`
                 // catches what it THREW AWAY — a line answered instead of repaired, which `check`
                 // cannot see because an invention made of ordinary words has nothing to flag.
-                let bad = grounding::check(&l.text, fixed);
+                let bad = grounding::check(original, fixed);
                 if !bad.is_empty() {
-                    tracing::warn!(
-                        "cleanup: the line at {:.0} s was added to ({}) — keeping the original",
-                        l.start_sec,
-                        bad.describe()
+                    tracing::debug!(
+                        stage = "cleanup",
+                        line_start_sec = l.start_sec,
+                        numbers = bad.numbers.len(),
+                        names = bad.names.len(),
+                        "correction rejected by grounding; source kept"
                     );
                     rejected += 1;
                     original
-                } else if !keeps_what_was_said(&l.text, fixed) {
-                    tracing::warn!(
-                        "cleanup: the line at {:.0} s was replaced, not cleaned — keeping the \
-                         original. was: {:?}, model: {:?}",
-                        l.start_sec,
-                        l.text,
-                        fixed
-                    );
+                } else if !keeps_what_was_said(original, fixed) {
+                    tracing::debug!(stage="cleanup", line_start_sec=l.start_sec,
+                        reason=?crate::correction_guard::check(original, fixed).err(),
+                        "correction rejected by retention; source kept");
                     rejected += 1;
                     original
                 } else {
@@ -1566,7 +1567,11 @@ mod tests {
 
         let out = place_result(dir.path(), &Task::Summary);
 
-        assert_eq!(out, dir.path().join("summary.md"), "the result went into quarantine again");
+        assert_eq!(
+            out,
+            dir.path().join("summary.md"),
+            "the result went into quarantine again"
+        );
         assert!(
             !dir.path().join("summary.unverified.md").exists(),
             "the draft of the old quarantine stayed in the archive"
@@ -1601,7 +1606,10 @@ mod tests {
         assert!(ranges.len() > 1, "a 12 KB request went out as one batch");
         for r in &ranges {
             let chars: usize = fat[r.clone()].iter().map(String::len).sum();
-            assert!(chars <= CLEANUP_BATCH_CHARS + 1000, "batch of {chars} chars");
+            assert!(
+                chars <= CLEANUP_BATCH_CHARS + 1000,
+                "batch of {chars} chars"
+            );
         }
         // Every line lands in exactly one batch, in order — the invariant the whole cleanup rests
         // on. A line dropped here would simply never be offered to the model.
@@ -1615,7 +1623,11 @@ mod tests {
     fn short_lines_still_fill_a_batch_by_count() {
         let thin: Vec<String> = (0..100).map(|_| "да".to_string()).collect();
         let ranges = cleanup_batches(&thin);
-        assert_eq!(ranges.len(), 100usize.div_ceil(CLEANUP_BATCH_LINES), "{ranges:?}");
+        assert_eq!(
+            ranges.len(),
+            100usize.div_ceil(CLEANUP_BATCH_LINES),
+            "{ranges:?}"
+        );
         assert_eq!(ranges[0], 0..CLEANUP_BATCH_LINES);
     }
 
@@ -1661,10 +1673,16 @@ mod tests {
 [17] [Собеседники] (01:30) Ответ.
 ";
         let speech = speech_only(numbered);
-        assert_eq!(speech, "Привет.
+        assert_eq!(
+            speech,
+            "Привет.
 Ответ.
-");
-        assert!(!speech.contains("17"), "a line number reached the grounding source: {speech}");
+"
+        );
+        assert!(
+            !speech.contains("17"),
+            "a line number reached the grounding source: {speech}"
+        );
     }
 
     /// A citation is the model's ANSWER, not evidence: it must be checked. A number that points
@@ -1700,11 +1718,20 @@ mod tests {
         let (kept, dropped) = verify_citations(&mut blocks, &lines);
 
         assert_eq!(blocks[0].lines, vec![0], "a good citation was thrown away");
-        assert!(blocks[1].lines.is_empty(), "a citation past the end survived");
-        assert!(blocks[2].lines.is_empty(), "a citation to an unrelated line survived");
+        assert!(
+            blocks[1].lines.is_empty(),
+            "a citation past the end survived"
+        );
+        assert!(
+            blocks[2].lines.is_empty(),
+            "a citation to an unrelated line survived"
+        );
         assert_eq!((kept, dropped), (1, 2));
         for b in &blocks {
-            assert!(!b.text.is_empty(), "the verifier deleted a claim instead of its citation");
+            assert!(
+                !b.text.is_empty(),
+                "the verifier deleted a claim instead of its citation"
+            );
         }
     }
 
@@ -1714,7 +1741,8 @@ mod tests {
     fn a_looping_summary_is_cut_at_its_first_repetition() {
         let head = "## О чём запись\nСпикер рассказывает историю двух программистов, которые \
                     создали игру без опыта и столкнулись с провалом краудфандинга.";
-        let body = "## Главное\n* Первая попытка сбора средств провалилась: из 17 000 евро собрали \
+        let body =
+            "## Главное\n* Первая попытка сбора средств провалилась: из 17 000 евро собрали \
                     лишь 500, в основном от друзей.";
         let mut text = format!("{head}\n\n{body}");
         for _ in 0..30 {
@@ -1729,9 +1757,20 @@ mod tests {
         let (cut, dropped) = cut_repetition(&text);
 
         assert!(dropped > 0, "the loop was not noticed");
-        assert!(cut.contains("Спикер рассказывает"), "the real summary was thrown away: {cut}");
-        assert_eq!(cut.matches("## О чём запись").count(), 1, "the repetition survived");
-        assert!(cut.len() < 1_000, "the tail was not cut: {} chars", cut.len());
+        assert!(
+            cut.contains("Спикер рассказывает"),
+            "the real summary was thrown away: {cut}"
+        );
+        assert_eq!(
+            cut.matches("## О чём запись").count(),
+            1,
+            "the repetition survived"
+        );
+        assert!(
+            cut.len() < 1_000,
+            "the tail was not cut: {} chars",
+            cut.len()
+        );
     }
 
     /// A normal summary must pass through untouched — including one that repeats SHORT things,
@@ -1762,7 +1801,10 @@ mod tests {
     fn a_short_repeated_line_with_words_is_still_a_loop() {
         let text = "Начало документа, вполне осмысленное.\n\n                    Исправленный вариант:\n\nчто-то\n\nИсправленный вариант:";
         let (_, dropped) = cut_repetition(text);
-        assert!(dropped > 0, "a short repeat with words in it was let through");
+        assert!(
+            dropped > 0,
+            "a short repeat with words in it was let through"
+        );
     }
 
     /// An essay carries no `[N]` markers, so it parses to NOTHING. That is the whole test: an empty
@@ -1785,7 +1827,10 @@ mod tests {
 
         let (edits, omitted, rejected) = assemble_readable(&lines, &texts, &nothing);
 
-        assert!(edits.is_empty(), "the model's prose reached the document: {edits:?}");
+        assert!(
+            edits.is_empty(),
+            "the model's prose reached the document: {edits:?}"
+        );
         assert_eq!(omitted, 3, "the silence must be counted, not hidden");
         assert_eq!(rejected, 0);
     }
@@ -1808,7 +1853,10 @@ mod tests {
             "a label or a timecode got into the stored wording: {edits:?}"
         );
         // The untouched line is absent — its absence IS the record that nothing happened to it.
-        assert!(!edits.contains_key(&1), "an untouched line was written down: {edits:?}");
+        assert!(
+            !edits.contains_key(&1),
+            "an untouched line was written down: {edits:?}"
+        );
     }
 
     /// The model answered for some lines and stayed silent about the rest — the normal case on a
@@ -1891,9 +1939,8 @@ mod tests {
         ));
     }
 
-    /// A short mangled line is repaired wholesale, and that is legitimate — «ориентируйсям сво» has
-    /// no word worth keeping. A ratio over three words measures nothing, so it is not applied;
-    /// inventions of that size still have to get past `grounding::check`.
+    /// Historical short ASR repairs still pass bounded alignment. Shortness alone no longer
+    /// bypasses admission: the damaged words must remain anchored to the source.
     #[test]
     fn a_short_mangled_line_is_still_allowed_to_be_repaired() {
         assert!(keeps_what_was_said("ИНе вижу", "И не вижу"));
@@ -1908,6 +1955,45 @@ mod tests {
             "ну короче условно там с тридцать можно подъехать куда-то к андрону этому",
             "Ну, короче, условно, там с тридцать можно подъехать куда-то к Андрону этому."
         ));
+    }
+
+    #[test]
+    fn correction_retains_qualifiers_literals_mood_and_line_ownership() {
+        for (source, fixed) in [
+            ("Проект почти готов.", "Проект готов."),
+            ("Оплата пока не подтверждена.", "Оплата не подтверждена."),
+            ("Он сказал «эээ», обсуждая букву.", "Он сказал, обсуждая букву."),
+            ("Этот файл короче предыдущего.", "Этот файл предыдущего."),
+            ("Представь это как быструю очередь задач.", "Представь это как очередь задач."),
+            ("Сначала сохрани запись, потом удали файл.", "Сначала сохранил запись, потом удалил файл."),
+            ("Мы перенесём запуск только после", "Мы перенесём запуск только после подтверждения оплаты и успешной проверки резервной копии."),
+            ("Казнить нельзя, помиловать.", "Казнить, нельзя помиловать."),
+        ] {
+            assert!(!keeps_what_was_said(source, fixed), "unsafe correction: {source} => {fixed}");
+        }
+    }
+
+    #[test]
+    fn duplicate_ids_keep_the_source_instead_of_the_last_model_variant() {
+        let sent = std::collections::HashSet::from([81, 82]);
+        let parsed = numbered_for_batch(
+            "[81] Первая версия.\n[82] Вторая строка.\n[81] Другой ответ.\n[1] Чужой пакет.",
+            &sent,
+        );
+        assert!(parsed[&81].is_empty());
+        assert_eq!(parsed.get(&82).unwrap(), "Вторая строка.");
+        assert_eq!(parsed.len(), 2);
+    }
+
+    #[test]
+    fn cleanup_guard_compares_against_the_glossary_text_it_actually_sent() {
+        let lines = vec![line(0, 0, "какая как посетит команды")];
+        let texts = vec!["какая capacity команды".to_owned()];
+        let cleaned = std::collections::HashMap::from([(1, "Какая capacity команды.".to_owned())]);
+        let (edits, omitted, rejected) = assemble_readable(&lines, &texts, &cleaned);
+        assert_eq!((omitted, rejected), (0, 0));
+        assert_eq!(edits[&0], "Какая capacity команды.");
+        assert_eq!(lines[0].text, "какая как посетит команды");
     }
 
     /// The canonical form from the glossary is not an invention: it was WE who gave the

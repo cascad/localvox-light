@@ -168,6 +168,11 @@ LLM и сохраняет новую версию с родителем; тай�
 - **WHEN** подходящая refined-версия уже подтверждена и force не запрошен
 - **THEN** сохраняется результат без обязательного нового вызова модели.
 
+#### Scenario: Опасное исправление не становится рабочим текстом
+
+- **WHEN** refine предлагает потерю оговорки, изменение цитируемого слова или добавление соседней реплики
+- **THEN** в новой версии сохраняется исходная строка с прежними временами/источником, а отказ учитывается как rejected.
+
 ### Requirement: PIPE-006 Text/cleanup — читаемый текст
 
 Код: [cleanup_by_lines](../../../crates/localvox-light-llm/src/pipeline.rs), [save](../../../crates/localvox-light-core/src/readable.rs).
@@ -187,6 +192,16 @@ Cleanup не создаёт ещё одну STT-версию и не удаля�
 
 - **WHEN** processed.json ссылается на другую версию или недопустимые строки
 - **THEN** проверка артефакта отказывает.
+
+#### Scenario: Повеление не становится фактом прошлого
+
+- **WHEN** cleanup меняет «сохрани … удали» на «сохранил … удалил»
+- **THEN** эта смысловая замена отклоняется и исходная формулировка остаётся доступной.
+
+#### Scenario: Отказ не теряет выполненную работу
+
+- **WHEN** часть поправок проходит проверку, а другая часть опасна
+- **THEN** processed.json содержит допустимые поправки, опасные строки остаются исходными, rejected отражает отклонения.
 
 ### Requirement: PIPE-007 Summary — сводка и её проверка
 
@@ -480,6 +495,8 @@ retention, но это не должно стирать сохранённый �
 | Отображение и команды | [archive.rs](../../../crates/localvox-light-api/src/archive.rs), [Progress.tsx](../../../ui/src/Progress.tsx), [Queue.tsx](../../../ui/src/Queue.tsx) |
 
 ## Implementation status
+
+PIPE-005/006: воспроизведённые RV-018/RV-019 исправлены в исходниках 2026-11-02. 104 LLM unit tests, настоящий worker с fake provider для refine/cleanup, 12 native cleanup repeats и replay сохранённых предложений: [результаты и пределы](../../changes/fix-text-correction-retention/evidence/implementation.md). Консервативный guard отклоняет и часть полезных переформулировок; общая смысловая корректность и native качество refine не доказаны. Рабочий демон не обновлялся.
 
 PIPE-010: автоматический ремонт Done (BL-004) ещё не реализован; пользовательская отмена BL-002 реализована и проверена, см. Observed limitations. Производительность reference-пачки с публичной двухчасовой речью измерена на release: [BL-003](../../changes/benchmark-processing-batch/evidence/queue-benchmark.md). Это не универсальный SLA или приёмка качества. Полный ручной импорт (BL-006) не проверен. [BL-005 native](../../changes/verify-background-indexing/evidence/implementation.md) проверил индексацию/поиск/отказы на синтетических embeddings без устройств. Частичная готовность, фазовые receipts и mock heartbeat проверены.
 

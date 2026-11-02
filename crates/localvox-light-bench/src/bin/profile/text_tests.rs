@@ -286,3 +286,111 @@ fn sparse_worker_fixture(lines: bool) {
         assert!(!raw.contains(secret));
     }
 }
+
+#[test]
+#[ignore = "requires LOCALVOX_PROFILE_TEST_WORKER built with current guard; no models/devices"]
+fn retention_real_worker_preserves_semantics_and_line_ownership_in_both_modes() {
+    use tiny_http::{Response, Server};
+    let root = tempfile::tempdir().unwrap();
+    let mut args = fixture(root.path());
+    args.worker = std::env::var_os("LOCALVOX_PROFILE_TEST_WORKER")
+        .expect("built worker required")
+        .into();
+    args.timeout_sec = 30;
+    let texts = [
+        "Эээ, проект готов.",
+        "Проект почти готов.",
+        "Оплата пока не подтверждена.",
+        "Он сказал «эээ».",
+        "Сначала сохрани запись, потом удали файл.",
+        "Мы перенесём запуск только после",
+        "подтверждения оплаты и успешной проверки резервной копии.",
+        "Проект гатов.",
+        "Данные обновлены.",
+        "Ну, как бы, проект готов.",
+        "Бюджет 15 000 рублей.",
+        "Письмо не отправлено.",
+    ];
+    let bytes=texts.iter().enumerate().map(|(i,text)|json!({"source_id":0,"start_sec":i*10,"end_sec":(i+1)*10,"text":text,"speaker":"PRIVATE_SPEAKER"}).to_string()).collect::<Vec<_>>().join("\n")+"\n";
+    fs::write(root.path().join("input.jsonl"), &bytes).unwrap();
+    fs::write(&args.manifest,json!({"version":1,"cases":[{"name":"retention","transcript":"input.jsonl","lang":"ru","modes":["refine","cleanup"]}]}).to_string()).unwrap();
+    let server = Server::http("127.0.0.1:0").unwrap();
+    args.llm_base_url = format!("http://{}/v1", server.server_addr().to_ip().unwrap());
+    let stop = Arc::new(AtomicBool::new(false));
+    let stopped = stop.clone();
+    let handle = std::thread::spawn(move || {
+        let answer = "[1] Проект готов.\n[2] Проект готов.\n[3] Оплата не подтверждена.\n[4] Он сказал.\n[5] Сначала сохранил запись, потом удалил файл.\n[6] Мы перенесём запуск только после подтверждения оплаты и успешной проверки резервной копии.\n[7] подтверждения оплаты и успешной проверки резервной копии.\n[8] Проект готов.\n[9] Данные обновлены.\n[10] Проект готов.\n[11] Бюджет 150 000 рублей.\n[12] Письмо отправлено.\n[9] Данные удалены.";
+        while !stopped.load(Ordering::Relaxed) {
+            if let Some(req) = server.recv_timeout(Duration::from_millis(50)).unwrap() {
+                req.respond(Response::from_string(
+                    json!({"message":{"content":answer},"done":true,"eval_count":100}).to_string(),
+                ))
+                .unwrap();
+            }
+        }
+    });
+    let result = crate::run(args_for_endpoint(&args), &AtomicBool::new(false));
+    stop.store(true, Ordering::Relaxed);
+    handle.join().unwrap();
+    result.unwrap();
+    let raw = fs::read_to_string(args.output.join("report.json")).unwrap();
+    let report: Value = serde_json::from_str(&raw).unwrap();
+    assert_eq!(report["input_preserved"], true);
+    for mode in ["refine", "cleanup"] {
+        let session = args
+            .output
+            .join("sessions")
+            .join(format!("retention-{mode}-r1"));
+        assert_eq!(
+            fs::read_to_string(session.join("transcripts/v001-profile-source.jsonl")).unwrap(),
+            bytes
+        );
+        let actual = if mode == "cleanup" {
+            let processed = localvox_light_core::readable::load(&session).unwrap();
+            assert_eq!((processed.rejected, processed.omitted), (8, 0));
+            texts
+                .iter()
+                .enumerate()
+                .map(|(i, text)| {
+                    processed
+                        .edits
+                        .get(&i)
+                        .cloned()
+                        .unwrap_or_else(|| text.to_string())
+                })
+                .collect::<Vec<_>>()
+        } else {
+            let store = localvox_light_core::versions::VersionStore::open(&session).unwrap();
+            assert_eq!(store.best().unwrap().parents, vec![1]);
+            let lines = localvox_light_core::versions::read_transcript_lines(
+                &store.resolve(store.best().unwrap().id).unwrap(),
+            )
+            .unwrap();
+            for (i, line) in lines.iter().enumerate() {
+                assert_eq!(
+                    (line.source_id, line.start_sec, line.end_sec),
+                    (0, (i * 10) as f64, ((i + 1) * 10) as f64)
+                );
+                assert_eq!(line.speaker.as_deref(), Some("PRIVATE_SPEAKER"));
+            }
+            lines.into_iter().map(|line| line.text).collect()
+        };
+        for (i, text) in actual.iter().enumerate() {
+            assert_eq!(
+                text,
+                if matches!(i, 0 | 7 | 9) {
+                    "Проект готов."
+                } else {
+                    texts[i]
+                },
+                "{mode} line {i}"
+            );
+        }
+    }
+    assert!(report["runs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|run| run["artifacts_verified"] == true));
+    assert!(!raw.contains("PRIVATE_SPEAKER"));
+}

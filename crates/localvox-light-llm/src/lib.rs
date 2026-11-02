@@ -7,6 +7,7 @@
 //! alongside (`processed.md`, `summary.md`) — principle P2.
 
 pub mod claude_cli;
+pub mod correction_guard;
 pub mod glossary;
 pub mod grounding;
 pub mod pipeline;
