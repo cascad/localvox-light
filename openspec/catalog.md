@@ -122,3 +122,8 @@ BL-005 обнаружил [RV-017 / fix-empty-semantic-index-failure](changes/fi
 
 Предустановки каталога и список LLM-адресов: [refine-workspace-controls-and-settings](changes/refine-workspace-controls-and-settings/proposal.md),
 CFG-001/005; [проверки 2026-11-02](changes/refine-workspace-controls-and-settings/evidence/implementation.md).
+
+Правка текста после STT: [profile-text-postprocessing-cost](changes/profile-text-postprocessing-cost/proposal.md) —
+отдельно измерены refine, cleanup, их последовательность и summary на публичной
+двухчасовой STT. [Нативные результаты 2026-11-02](changes/profile-text-postprocessing-cost/evidence/native-reference.md);
+исторический часовой инцидент владельца не воспроизведён, prompts/качество не менялись.
