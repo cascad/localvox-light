@@ -1,0 +1,786 @@
+{
+  "scope": "native_release_ordinary_cleanup_on_public_STT",
+  "date": "2026-11-02",
+  "base_commit": "2fc1a62",
+  "semantic_quality_established": false,
+  "owner_acceptance": "not-run",
+  "audio_review": "not-run",
+  "source_sha256": "09014305b713638301d3cd4693d03e1f7f2920e75bdfc749c7164d0e10034ae8",
+  "worker_sha256": "85474d4ed43753f3f1bd51217e104825cbdf19991a5fb0b13eaa62886a6e1696",
+  "profiler_sha256": "a060004dd66643742c914380d1655637ba49b627b6923a7d17c7e2ab6a5cbdf8",
+  "evaluator_sha256": "bb7a1395f2293e07d1323df37d34596dc4886bc6456fc74b722798834f97f95c",
+  "ollama_version": {
+    "version": "0.40.13"
+  },
+  "model_tags": [
+    {
+      "name": "gemma4:e4b",
+      "model": "gemma4:e4b",
+      "modified_at": "2026-11-02T17:15:52.5105249+03:00",
+      "size": 6583656505,
+      "digest": "dc35e8d9c6061baa6f0fa870975ab6932e2542b579b13ea0f199fa4bb7300c9c",
+      "details": {
+        "parent_model": "gemma4-validation-20260929:e4b-imatrix-attention-q6-q8-draft2",
+        "format": "gguf",
+        "family": "gemma4",
+        "families": [
+          "gemma4"
+        ],
+        "parameter_size": "7.5B",
+        "quantization_level": "Q4_K_M",
+        "context_length": 131072,
+        "embedding_length": 2560,
+        "runner": "llamacpp"
+      },
+      "capabilities": [
+        "completion",
+        "vision",
+        "audio",
+        "tools",
+        "thinking"
+      ]
+    },
+    {
+      "name": "qwen3.5:4b",
+      "model": "qwen3.5:4b",
+      "modified_at": "2026-03-13T12:34:34.912937+03:00",
+      "size": 3389983735,
+      "digest": "2a654d98e6fba55d452b7043684e9b57a947e393bbffa62485a7aac05ee4eefd",
+      "details": {
+        "parent_model": "",
+        "format": "gguf",
+        "family": "qwen35",
+        "families": [
+          "qwen35"
+        ],
+        "parameter_size": "4.7B",
+        "quantization_level": "Q4_K_M",
+        "context_length": 262144,
+        "embedding_length": 2560,
+        "runner": "ggml"
+      },
+      "capabilities": [
+        "completion",
+        "vision",
+        "tools",
+        "thinking"
+      ]
+    }
+  ],
+  "prior_review_sha256": "40f0c686741dbfd8d6b4144b66903d692c24d7a02c85dad9d4a54c895006e375",
+  "complete": true,
+  "success": true,
+  "profiles": [
+    {
+      "model": "gemma4:e4b",
+      "repeat": 1,
+      "output": "guarded-long-gemma4-e4b-r1",
+      "report_sha256": "f513fe627009cb4fc9329977da245c1bdf43086cbca40f579daa3ac7d4ffb1f6",
+      "post_ollama_ps": {
+        "models": [
+          {
+            "name": "gemma4:e4b",
+            "model": "gemma4:e4b",
+            "size": 369371380,
+            "digest": "dc35e8d9c6061baa6f0fa870975ab6932e2542b579b13ea0f199fa4bb7300c9c",
+            "details": {
+              "parent_model": "",
+              "format": "gguf",
+              "family": "gemma4",
+              "families": [
+                "gemma4"
+              ],
+              "parameter_size": "7.5B",
+              "quantization_level": "Q4_K_M"
+            },
+            "expires_at": "2026-11-02T21:37:51.4507552+03:00",
+            "size_vram": 369371380,
+            "context_length": 4096,
+            "runner": "llamacpp"
+          }
+        ]
+      },
+      "source_lines": 704,
+      "inputs": [
+        {
+          "case": "podlodka-109",
+          "last_end_sec": 7146.527375000001,
+          "lines": 704,
+          "sha256": "09014305b713638301d3cd4693d03e1f7f2920e75bdfc749c7164d0e10034ae8",
+          "text_bytes": 186124,
+          "text_chars": 103919
+        }
+      ],
+      "wall_sec": 144.8926405,
+      "artifacts_verified": true,
+      "input_preserved": true,
+      "corrections": {
+        "cleanup_edits": 172,
+        "cleanup_omitted": 0,
+        "cleanup_rejected": 412,
+        "counts_do_not_establish_semantic_quality": true,
+        "refined_changed_lines": null,
+        "refined_lines": null
+      },
+      "llm_trace": {
+        "generation_sec": 77.20984599699999,
+        "http_wall_sec": 95.25307400000001,
+        "model_load_sec": null,
+        "non_http_worker_wall_sec": 49.63956649999999,
+        "prompt_sec": 10.671813996999996,
+        "request_count": 179,
+        "source": "native_ollama_response"
+      },
+      "request_options": [
+        {
+          "options": {
+            "frequency_penalty": 0.0,
+            "num_ctx": 4096,
+            "num_predict": 8192,
+            "presence_penalty": 0.0,
+            "repeat_penalty": 1.0,
+            "temperature": 0.20000000298023224,
+            "top_k": 20,
+            "top_p": 0.8999999761581421
+          },
+          "think": false,
+          "stream": false
+        }
+      ],
+      "done_reasons": {
+        "stop": 179
+      },
+      "flag_counts": {
+        "lexical": 137,
+        "qualifier": 1,
+        "literal": 2
+      },
+      "adjacent_overlap_flags": [],
+      "selected_indices": [
+        2,
+        5,
+        6,
+        17,
+        46,
+        89,
+        99,
+        168,
+        207,
+        227,
+        260,
+        278,
+        307,
+        315,
+        356,
+        371,
+        426,
+        439,
+        460,
+        472,
+        496,
+        520,
+        531,
+        579,
+        592,
+        618,
+        644,
+        668,
+        674,
+        700,
+        702
+      ],
+      "extra_evenly_spaced_indices": [
+        6,
+        99,
+        207,
+        307,
+        426,
+        520,
+        592,
+        700
+      ],
+      "selected_changed": 13,
+      "prior_risky_rows": [
+        {
+          "index": 439,
+          "source_preserved": true
+        }
+      ],
+      "runner_debug_assertions": false,
+      "worker_resources": {
+        "availability": "observed",
+        "cpu_sec": 0.125,
+        "peak_commit_bytes": 5349376,
+        "peak_method": "maximum observed OS high-water mark; final retained-handle query",
+        "peak_working_set_bytes": 13950976,
+        "samples": 5930,
+        "sampling_interval_ms": 20,
+        "scope": "worker_process_only"
+      },
+      "native_prompt_tokens": 64312,
+      "native_output_tokens": 29678
+    },
+    {
+      "model": "qwen3.5:4b",
+      "repeat": 1,
+      "output": "guarded-long-qwen3-5-4b-r1",
+      "report_sha256": "7bc7b06cc015eae0e9978d4a9d6a3a31e500bdd1f6d6c747aa90e6902995d348",
+      "post_ollama_ps": {
+        "models": [
+          {
+            "name": "qwen3.5:4b",
+            "model": "qwen3.5:4b",
+            "size": 3138524281,
+            "digest": "2a654d98e6fba55d452b7043684e9b57a947e393bbffa62485a7aac05ee4eefd",
+            "details": {
+              "parent_model": "",
+              "format": "gguf",
+              "family": "qwen35",
+              "families": [
+                "qwen35"
+              ],
+              "parameter_size": "4.7B",
+              "quantization_level": "Q4_K_M"
+            },
+            "expires_at": "2026-11-02T21:40:54.2821953+03:00",
+            "size_vram": 3138524281,
+            "context_length": 4096,
+            "runner": "llamacpp"
+          },
+          {
+            "name": "gemma4:e4b",
+            "model": "gemma4:e4b",
+            "size": 369371380,
+            "digest": "dc35e8d9c6061baa6f0fa870975ab6932e2542b579b13ea0f199fa4bb7300c9c",
+            "details": {
+              "parent_model": "",
+              "format": "gguf",
+              "family": "gemma4",
+              "families": [
+                "gemma4"
+              ],
+              "parameter_size": "7.5B",
+              "quantization_level": "Q4_K_M"
+            },
+            "expires_at": "2026-11-02T21:37:51.4507552+03:00",
+            "size_vram": 369371380,
+            "context_length": 4096,
+            "runner": "llamacpp"
+          }
+        ]
+      },
+      "source_lines": 704,
+      "inputs": [
+        {
+          "case": "podlodka-109",
+          "last_end_sec": 7146.527375000001,
+          "lines": 704,
+          "sha256": "09014305b713638301d3cd4693d03e1f7f2920e75bdfc749c7164d0e10034ae8",
+          "text_bytes": 186124,
+          "text_chars": 103919
+        }
+      ],
+      "wall_sec": 182.028902,
+      "artifacts_verified": true,
+      "input_preserved": true,
+      "corrections": {
+        "cleanup_edits": 138,
+        "cleanup_omitted": 5,
+        "cleanup_rejected": 401,
+        "counts_do_not_establish_semantic_quality": true,
+        "refined_changed_lines": null,
+        "refined_lines": null
+      },
+      "llm_trace": {
+        "generation_sec": 162.44372999599986,
+        "http_wall_sec": 178.8499074999999,
+        "model_load_sec": 2.2110059000000004,
+        "non_http_worker_wall_sec": 3.178994500000101,
+        "prompt_sec": 9.628891999999997,
+        "request_count": 179,
+        "source": "native_ollama_response"
+      },
+      "request_options": [
+        {
+          "options": {
+            "frequency_penalty": 0.0,
+            "num_ctx": 4096,
+            "num_predict": 8192,
+            "presence_penalty": 0.0,
+            "repeat_penalty": 1.0,
+            "temperature": 0.20000000298023224,
+            "top_k": 20,
+            "top_p": 0.8999999761581421
+          },
+          "think": false,
+          "stream": false
+        }
+      ],
+      "done_reasons": {
+        "stop": 179
+      },
+      "flag_counts": {
+        "lexical": 82,
+        "qualifier": 1,
+        "literal": 3
+      },
+      "adjacent_overlap_flags": [],
+      "selected_indices": [
+        4,
+        5,
+        17,
+        46,
+        78,
+        90,
+        95,
+        158,
+        161,
+        177,
+        209,
+        212,
+        245,
+        256,
+        267,
+        278,
+        312,
+        314,
+        379,
+        390,
+        437,
+        449,
+        514,
+        520,
+        534,
+        535,
+        585,
+        621,
+        666,
+        668,
+        686,
+        700,
+        702
+      ],
+      "extra_evenly_spaced_indices": [
+        4,
+        90,
+        212,
+        314,
+        390,
+        520,
+        585,
+        700
+      ],
+      "selected_changed": 12,
+      "prior_risky_rows": [
+        {
+          "index": 95,
+          "source_preserved": true
+        },
+        {
+          "index": 256,
+          "source_preserved": true
+        },
+        {
+          "index": 267,
+          "source_preserved": true
+        },
+        {
+          "index": 666,
+          "source_preserved": true
+        },
+        {
+          "index": 686,
+          "source_preserved": true
+        },
+        {
+          "index": 702,
+          "source_preserved": true
+        }
+      ],
+      "runner_debug_assertions": false,
+      "worker_resources": {
+        "availability": "observed",
+        "cpu_sec": 0.046875,
+        "peak_commit_bytes": 5165056,
+        "peak_method": "maximum observed OS high-water mark; final retained-handle query",
+        "peak_working_set_bytes": 13836288,
+        "samples": 8745,
+        "sampling_interval_ms": 20,
+        "scope": "worker_process_only"
+      },
+      "native_prompt_tokens": 64954,
+      "native_output_tokens": 30797
+    },
+    {
+      "model": "gemma4:e4b",
+      "repeat": 2,
+      "output": "guarded-long-gemma4-e4b-r2",
+      "report_sha256": "f7bc3f871cf10716573be750941a48452b63402279430877ad024be1a258363d",
+      "post_ollama_ps": {
+        "models": [
+          {
+            "name": "gemma4:e4b",
+            "model": "gemma4:e4b",
+            "size": 369371380,
+            "digest": "dc35e8d9c6061baa6f0fa870975ab6932e2542b579b13ea0f199fa4bb7300c9c",
+            "details": {
+              "parent_model": "",
+              "format": "gguf",
+              "family": "gemma4",
+              "families": [
+                "gemma4"
+              ],
+              "parameter_size": "7.5B",
+              "quantization_level": "Q4_K_M"
+            },
+            "expires_at": "2026-11-02T21:42:27.2083229+03:00",
+            "size_vram": 369371380,
+            "context_length": 4096,
+            "runner": "llamacpp"
+          },
+          {
+            "name": "qwen3.5:4b",
+            "model": "qwen3.5:4b",
+            "size": 3138524281,
+            "digest": "2a654d98e6fba55d452b7043684e9b57a947e393bbffa62485a7aac05ee4eefd",
+            "details": {
+              "parent_model": "",
+              "format": "gguf",
+              "family": "qwen35",
+              "families": [
+                "qwen35"
+              ],
+              "parameter_size": "4.7B",
+              "quantization_level": "Q4_K_M"
+            },
+            "expires_at": "2026-11-02T21:40:54.2821953+03:00",
+            "size_vram": 3138524281,
+            "context_length": 4096,
+            "runner": "llamacpp"
+          }
+        ]
+      },
+      "source_lines": 704,
+      "inputs": [
+        {
+          "case": "podlodka-109",
+          "last_end_sec": 7146.527375000001,
+          "lines": 704,
+          "sha256": "09014305b713638301d3cd4693d03e1f7f2920e75bdfc749c7164d0e10034ae8",
+          "text_bytes": 186124,
+          "text_chars": 103919
+        }
+      ],
+      "wall_sec": 92.0674225,
+      "artifacts_verified": true,
+      "input_preserved": true,
+      "corrections": {
+        "cleanup_edits": 154,
+        "cleanup_omitted": 0,
+        "cleanup_rejected": 428,
+        "counts_do_not_establish_semantic_quality": true,
+        "refined_changed_lines": null,
+        "refined_lines": null
+      },
+      "llm_trace": {
+        "generation_sec": 77.81603699600004,
+        "http_wall_sec": 89.2537004,
+        "model_load_sec": 0.5580472999999997,
+        "non_http_worker_wall_sec": 2.8137221000000068,
+        "prompt_sec": 8.043845000000001,
+        "request_count": 179,
+        "source": "native_ollama_response"
+      },
+      "request_options": [
+        {
+          "options": {
+            "frequency_penalty": 0.0,
+            "num_ctx": 4096,
+            "num_predict": 8192,
+            "presence_penalty": 0.0,
+            "repeat_penalty": 1.0,
+            "temperature": 0.20000000298023224,
+            "top_k": 20,
+            "top_p": 0.8999999761581421
+          },
+          "think": false,
+          "stream": false
+        }
+      ],
+      "done_reasons": {
+        "stop": 179
+      },
+      "flag_counts": {
+        "lexical": 120,
+        "qualifier": 1,
+        "literal": 2
+      },
+      "adjacent_overlap_flags": [],
+      "selected_indices": [
+        2,
+        5,
+        6,
+        17,
+        46,
+        89,
+        110,
+        168,
+        215,
+        227,
+        260,
+        278,
+        314,
+        315,
+        356,
+        371,
+        439,
+        443,
+        460,
+        472,
+        496,
+        530,
+        531,
+        579,
+        598,
+        618,
+        644,
+        668,
+        674,
+        700,
+        702
+      ],
+      "extra_evenly_spaced_indices": [
+        6,
+        110,
+        215,
+        314,
+        443,
+        530,
+        598,
+        700
+      ],
+      "selected_changed": 12,
+      "prior_risky_rows": [
+        {
+          "index": 439,
+          "source_preserved": true
+        }
+      ],
+      "runner_debug_assertions": false,
+      "worker_resources": {
+        "availability": "observed",
+        "cpu_sec": 0.0625,
+        "peak_commit_bytes": 5255168,
+        "peak_method": "maximum observed OS high-water mark; final retained-handle query",
+        "peak_working_set_bytes": 13803520,
+        "samples": 4293,
+        "sampling_interval_ms": 20,
+        "scope": "worker_process_only"
+      },
+      "native_prompt_tokens": 64312,
+      "native_output_tokens": 29651
+    },
+    {
+      "model": "qwen3.5:4b",
+      "repeat": 2,
+      "output": "guarded-long-qwen3-5-4b-r2",
+      "report_sha256": "db8d566007d79190e4e38656b62101526275d94aac13114f18d840d2c54f3a2f",
+      "post_ollama_ps": {
+        "models": [
+          {
+            "name": "qwen3.5:4b",
+            "model": "qwen3.5:4b",
+            "size": 3138524281,
+            "digest": "2a654d98e6fba55d452b7043684e9b57a947e393bbffa62485a7aac05ee4eefd",
+            "details": {
+              "parent_model": "",
+              "format": "gguf",
+              "family": "qwen35",
+              "families": [
+                "qwen35"
+              ],
+              "parameter_size": "4.7B",
+              "quantization_level": "Q4_K_M"
+            },
+            "expires_at": "2026-11-02T21:45:31.7463605+03:00",
+            "size_vram": 3138524281,
+            "context_length": 4096,
+            "runner": "llamacpp"
+          },
+          {
+            "name": "gemma4:e4b",
+            "model": "gemma4:e4b",
+            "size": 369371380,
+            "digest": "dc35e8d9c6061baa6f0fa870975ab6932e2542b579b13ea0f199fa4bb7300c9c",
+            "details": {
+              "parent_model": "",
+              "format": "gguf",
+              "family": "gemma4",
+              "families": [
+                "gemma4"
+              ],
+              "parameter_size": "7.5B",
+              "quantization_level": "Q4_K_M"
+            },
+            "expires_at": "2026-11-02T21:42:27.2083229+03:00",
+            "size_vram": 369371380,
+            "context_length": 4096,
+            "runner": "llamacpp"
+          }
+        ]
+      },
+      "source_lines": 704,
+      "inputs": [
+        {
+          "case": "podlodka-109",
+          "last_end_sec": 7146.527375000001,
+          "lines": 704,
+          "sha256": "09014305b713638301d3cd4693d03e1f7f2920e75bdfc749c7164d0e10034ae8",
+          "text_bytes": 186124,
+          "text_chars": 103919
+        }
+      ],
+      "wall_sec": 183.6762368,
+      "artifacts_verified": true,
+      "input_preserved": true,
+      "corrections": {
+        "cleanup_edits": 144,
+        "cleanup_omitted": 5,
+        "cleanup_rejected": 391,
+        "counts_do_not_establish_semantic_quality": true,
+        "refined_changed_lines": null,
+        "refined_lines": null
+      },
+      "llm_trace": {
+        "generation_sec": 157.878673997,
+        "http_wall_sec": 172.69986829999996,
+        "model_load_sec": 0.6220915000000004,
+        "non_http_worker_wall_sec": 10.976368500000035,
+        "prompt_sec": 9.352751999999995,
+        "request_count": 179,
+        "source": "native_ollama_response"
+      },
+      "request_options": [
+        {
+          "options": {
+            "frequency_penalty": 0.0,
+            "num_ctx": 4096,
+            "num_predict": 8192,
+            "presence_penalty": 0.0,
+            "repeat_penalty": 1.0,
+            "temperature": 0.20000000298023224,
+            "top_k": 20,
+            "top_p": 0.8999999761581421
+          },
+          "think": false,
+          "stream": false
+        }
+      ],
+      "done_reasons": {
+        "stop": 179
+      },
+      "flag_counts": {
+        "lexical": 80,
+        "literal": 4
+      },
+      "adjacent_overlap_flags": [],
+      "selected_indices": [
+        4,
+        5,
+        17,
+        46,
+        78,
+        95,
+        99,
+        158,
+        161,
+        177,
+        209,
+        215,
+        245,
+        256,
+        267,
+        278,
+        312,
+        379,
+        413,
+        437,
+        449,
+        514,
+        534,
+        535,
+        598,
+        621,
+        666,
+        668,
+        686,
+        700,
+        702
+      ],
+      "extra_evenly_spaced_indices": [
+        4,
+        99,
+        215,
+        312,
+        413,
+        514,
+        598,
+        700
+      ],
+      "selected_changed": 11,
+      "prior_risky_rows": [
+        {
+          "index": 95,
+          "source_preserved": true
+        },
+        {
+          "index": 256,
+          "source_preserved": true
+        },
+        {
+          "index": 267,
+          "source_preserved": true
+        },
+        {
+          "index": 666,
+          "source_preserved": true
+        },
+        {
+          "index": 686,
+          "source_preserved": true
+        },
+        {
+          "index": 702,
+          "source_preserved": true
+        }
+      ],
+      "runner_debug_assertions": false,
+      "worker_resources": {
+        "availability": "observed",
+        "cpu_sec": 0.109375,
+        "peak_commit_bytes": 5214208,
+        "peak_method": "maximum observed OS high-water mark; final retained-handle query",
+        "peak_working_set_bytes": 13787136,
+        "samples": 8627,
+        "sampling_interval_ms": 20,
+        "scope": "worker_process_only"
+      },
+      "native_prompt_tokens": 64954,
+      "native_output_tokens": 30828
+    }
+  ],
+  "worker_and_source_preserved": true,
+  "models_unchanged": true,
+  "hardware": {
+    "os": "Windows x86_64",
+    "cpu": "Ryzen 9 9900X3D",
+    "logical_processors_reported": 6,
+    "gpu": "RTX 5080",
+    "gpu_total_mib": 16303,
+    "exclusive_gpu_ownership": false,
+    "mac_tested": false
+  },
+  "source_guard_sha256": "da7660f406662e54ff363ed06a09eda317f0d5c5298df39dc926d05a71c19e2b",
+  "source_pipeline_sha256": "e65523a728e5bfc556b960c3195a6b71938b44476655fb2e00ab9d07ce37417d",
+  "raw_suite_sha256": "838a762704080074196296ecbdcf16e479766b84ade4cd6f576d5dd10a5d5f3e"
+}

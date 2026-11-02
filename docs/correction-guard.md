@@ -35,3 +35,7 @@ worker-профиля сверяются до replay; прямой SAGE оста
 проверкой API/worker целиком или приёмкой смысла.
 
 [Проверки RV-018/RV-019](../openspec/changes/fix-text-correction-retention/evidence/implementation.md).
+
+[RV-020 в длинном release cleanup](../openspec/changes/verify-guarded-cleanup-on-long-transcript/evidence/results.md):
+близкие окончания могут пройти проверку и ухудшить связь фразы с контекстом.
+Это известный открытый риск, а не подтверждённая безопасность любой ASR-замены.

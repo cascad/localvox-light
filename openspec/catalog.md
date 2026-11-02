@@ -147,3 +147,9 @@ CFG-001/005; [проверки 2026-11-02](changes/refine-workspace-controls-and
 Фильтрация консервативна и отклоняет часть полезных правок; полная смысловая/аудио
 приёмка, native качество refine и обновление работающего демона не выполнены.
 Выбор модели/default не менялся, SAGE в продукт не подключён.
+
+Длинный cleanup после исправления сохранности: [verify-guarded-cleanup-on-long-transcript](changes/verify-guarded-cleanup-on-long-transcript/proposal.md).
+[4 новых release запуска, 2816 строк и targeted review](changes/verify-guarded-cleanup-on-long-transcript/evidence/results.md):
+Gemma быстрее на RTX, Qwen меньше по файлам; выявлен открытый RV-020 с близкими
+морфологическими заменами. Полная автоматическая правка/default модели не приняты,
+Mac и качество summary не проверены.

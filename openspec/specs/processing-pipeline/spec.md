@@ -507,6 +507,8 @@ PIPE-010: автоматический ремонт Done (BL-004) ещё не р
 
 ## Observed limitations
 
+Последующая [длинная release проверка cleanup](../../changes/verify-guarded-cleanup-on-long-transcript/evidence/results.md) выявила открытый RV-020: близкая словоформа может нарушать связь с контекстом. Проверены 4 новых native запуска и сохранность исходника/receipts; полная смысловая приёмка, Mac и новая модель по умолчанию не подтверждены. Это ограничение реализации, не исключение из контракта.
+
 BL-001/002/007 реализованы и проверены в исходниках. Для BL-002 пройдены
 [управляемая отмена, native worker/CLI, restart/fault и UI/TUI проверки](../../changes/archive/2026-11-01-serialize-session-mutations/evidence/implementation.md).
 BL-003 завершён как reference-измерение с указанными ограничениями;

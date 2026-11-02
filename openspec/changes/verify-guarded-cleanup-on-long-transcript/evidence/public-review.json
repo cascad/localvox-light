@@ -1,0 +1,2422 @@
+{
+  "scope": "targeted agent textual review; not corpus accuracy",
+  "date": "2026-11-02",
+  "semantic_quality_established": false,
+  "audio_review": "not-run",
+  "owner_acceptance": "not-run",
+  "index_base": 0,
+  "source_sha256": "09014305b713638301d3cd4693d03e1f7f2920e75bdfc749c7164d0e10034ae8",
+  "selection_fixed_before_native": true,
+  "fixed_selection": "prior 51 reviewed rows per model plus 8 evenly spaced accepted edits per profile; deduplicated",
+  "supplemental_selection": "explicitly separate lexical substitution follow-ups; not preselected",
+  "profiles": [
+    {
+      "model": "gemma4:e4b",
+      "repeat": 1,
+      "report_sha256": "f513fe627009cb4fc9329977da245c1bdf43086cbca40f579daa3ac7d4ffb1f6",
+      "preselected_indices": [
+        2,
+        5,
+        6,
+        17,
+        46,
+        89,
+        99,
+        168,
+        207,
+        227,
+        260,
+        278,
+        307,
+        315,
+        356,
+        371,
+        426,
+        439,
+        460,
+        472,
+        496,
+        520,
+        531,
+        579,
+        592,
+        618,
+        644,
+        668,
+        674,
+        700,
+        702
+      ],
+      "supplemental_indices": [
+        50,
+        236,
+        396,
+        411,
+        443,
+        534,
+        580,
+        606,
+        667
+      ],
+      "review_counts": {
+        "unchanged": 18,
+        "style_review": 1,
+        "context_supported": 19,
+        "meaning_risk": 2
+      },
+      "preselected_counts": {
+        "unchanged": 18,
+        "style_review": 1,
+        "context_supported": 12
+      },
+      "supplemental_counts": {
+        "meaning_risk": 2,
+        "context_supported": 7
+      },
+      "reviews": [
+        {
+          "index": 2,
+          "start_sec": 18.17,
+          "selection": "preselected",
+          "source_text_sha256": "60f16d78dc720a9c5bfa4b70fd6e0422eaaae29fe3c09f35dc5365468ab7c60c",
+          "actual_text_sha256": "60f16d78dc720a9c5bfa4b70fd6e0422eaaae29fe3c09f35dc5365468ab7c60c",
+          "previous_text_sha256": "ee893cdf38e25b6c46d07c18899611b449cfdd2e8a15a277f1e46ed0bcb69a36",
+          "next_text_sha256": "a7ea5a48250b481af0750c907bac6adc3804647858a79902ff24afa541851819",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 5,
+          "start_sec": 48.15,
+          "selection": "preselected",
+          "source_text_sha256": "320eb362b15bbbdeba937dfab47c3127f0da78b8678d16fcb8be79c899e040ba",
+          "actual_text_sha256": "320eb362b15bbbdeba937dfab47c3127f0da78b8678d16fcb8be79c899e040ba",
+          "previous_text_sha256": "84bf51ca679d5db3ceebf5cbdd781775b1ceef9789c3858ea26d19856d3619fc",
+          "next_text_sha256": "1bef930c4fbc627c214b3869bc6595e3651d1db4bc4f9290fe5ce83954a34731",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 6,
+          "start_sec": 60.12,
+          "selection": "preselected",
+          "source_text_sha256": "1bef930c4fbc627c214b3869bc6595e3651d1db4bc4f9290fe5ce83954a34731",
+          "actual_text_sha256": "a985e79a1377a4701149d52b87901828a302a606459c173a08248be444c68ea1",
+          "previous_text_sha256": "320eb362b15bbbdeba937dfab47c3127f0da78b8678d16fcb8be79c899e040ba",
+          "next_text_sha256": "9a69a8332749b92623ddebf26d7f9c406ae0a32d4b57853f4ae5d55076b33e28",
+          "flags": [
+            "lexical"
+          ],
+          "assessment": "style_review",
+          "note": "Удалена вводная пауза, но сглажены тире вопроса и ответа внутри строки; содержание сохранено, оформление диалога требует решения.",
+          "assessment_origin": "agent_text_context"
+        },
+        {
+          "index": 17,
+          "start_sec": 171.57,
+          "selection": "preselected",
+          "source_text_sha256": "b280e593ddbb050b869478bc985072db40904c3e6f242bef752626512b32aad9",
+          "actual_text_sha256": "b280e593ddbb050b869478bc985072db40904c3e6f242bef752626512b32aad9",
+          "previous_text_sha256": "e9c2ce552d3b92a222ab4afdac9a503a3dd6e575b10d497dd15e335e7248a78a",
+          "next_text_sha256": "7284cc7335dd2db5dd91e30106e5d0e241c23d93efd6cdc5a55f92e8c8a1221f",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 46,
+          "start_sec": 467.94,
+          "selection": "preselected",
+          "source_text_sha256": "f357a6a44a7f4c8074530d06945c3c768c334a2b21d39c1b162630cd73e280e7",
+          "actual_text_sha256": "65905ee264c87c5ce132e2b8ea84fba24c07c15a76384b14e02f907f6b4726ad",
+          "previous_text_sha256": "1249820e30c5b4e727dd9757ab090b1a7106f24d32b40701445d7a0994598124",
+          "next_text_sha256": "4c5735d08159bf62fce9708e5ab29e143f50f4d11eaa3b7cf7305abf51658671",
+          "flags": [
+            "qualifier",
+            "lexical"
+          ],
+          "assessment": "context_supported",
+          "note": "Убран соседний повтор союза, условие сохранено.",
+          "assessment_origin": "agent_text_context"
+        },
+        {
+          "index": 50,
+          "start_sec": 505.87,
+          "selection": "supplemental lexical substitution follow-up",
+          "source_text_sha256": "a4cb64924341681b8b7d6da3c80a6a0ecce10e993dc8905a10528b7c0e6c4dda",
+          "actual_text_sha256": "c9b9a3bc871f63462721ed4be2c2bced9981c45b6177fe5aa5e66dd9ec56c0b0",
+          "previous_text_sha256": "e283461370b7fdbb58df3b62be135b4d483005ba2412922f9d091ff3e0bc0d5e",
+          "next_text_sha256": "251adfb8dd7264b499a7acd39538841c40b9ad66033e1c5cbeaaa7fd8aadaf90",
+          "flags": [
+            "lexical"
+          ],
+          "assessment": "meaning_risk",
+          "note": "Предыдущая исходная строка заканчивается предлогом под; замена падежа в начале текущей строки ломает эту связь. Слова близки по написанию, но правка контекстно не поддержана.",
+          "assessment_origin": "agent_text_context"
+        },
+        {
+          "index": 89,
+          "start_sec": 901.4,
+          "selection": "preselected",
+          "source_text_sha256": "91e56a408a675c83cee36aa5f6619ac400103c6a868e25817bf55ca5b7b570aa",
+          "actual_text_sha256": "91e56a408a675c83cee36aa5f6619ac400103c6a868e25817bf55ca5b7b570aa",
+          "previous_text_sha256": "b450bce3fe4d73ec1483bf75bc997d689a79f2d13fc910de95fb26653dc06f0f",
+          "next_text_sha256": "4dcab31c89a24cc5e06ce4ec6810d77a0d3fe16ae5467d46fae5138eadcdf2a3",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 99,
+          "start_sec": 1009.84,
+          "selection": "preselected",
+          "source_text_sha256": "92db6a51db81616b13a61f1f2af264670e9cbc0fd325abafb7ce0e7f16516104",
+          "actual_text_sha256": "8296d80f7591582b0382b925b9ebb017b66a4224cc9bf806904d8547fc50bbf9",
+          "previous_text_sha256": "5569eb6d654684ebda468e3fc9ecbcb073cbe9c78e6b8245ed4dae349231bf0e",
+          "next_text_sha256": "74ed26301bdd828c585c6ca2c931b0fb0e7eb7d5ae3776462f984cd24e90a2c5",
+          "flags": [
+            "lexical"
+          ],
+          "assessment": "context_supported",
+          "note": "Убрана вводная пауза, отрицание и вопрос сохранены.",
+          "assessment_origin": "agent_text_context"
+        },
+        {
+          "index": 168,
+          "start_sec": 1700.19,
+          "selection": "preselected",
+          "source_text_sha256": "1f6cf036894f1900a42cf967eecdc0036a71bec9fcdbca6362c5ba6874131649",
+          "actual_text_sha256": "e903e764b74b9959f97c5b88740d680ac32dc5bbb225c1efde3792487572fb34",
+          "previous_text_sha256": "d56d0dd4fc087757417e7bb1432cf402abcb8e77722931b68c474f257c7b542c",
+          "next_text_sha256": "03a7cfd5d290507723be6e7a0e9eb48fbb2503d8e71bb7ac6f079445f5e82c91",
+          "flags": [
+            "lexical"
+          ],
+          "assessment": "context_supported",
+          "note": "Убрано вводное ну; оговорка наверное, вопрос и оборванный хвост сохранены.",
+          "assessment_origin": "agent_text_context"
+        },
+        {
+          "index": 207,
+          "start_sec": 2089.48,
+          "selection": "preselected",
+          "source_text_sha256": "11c0f0a5801229ec5fbc559fb126a933503bf03be17bdf7ca6e0ea84b982c5e6",
+          "actual_text_sha256": "78707458ffb4faff9f37551c3813285ab619c2570cf19e66aaf8e7ca069a579b",
+          "previous_text_sha256": "1c123526ef21498bf527c60b45357e3aff21383d857958432eb78ed9857b42e7",
+          "next_text_sha256": "a5a3ada4087589f63ac31ad3dd07677097326eac7daaf337acc96cf73275195e",
+          "flags": [
+            "lexical"
+          ],
+          "assessment": "context_supported",
+          "note": "Исправлено согласование слова ограничение; цитируемый фрагмент и соседние строки не изменены.",
+          "assessment_origin": "agent_text_context"
+        },
+        {
+          "index": 227,
+          "start_sec": 2276.33,
+          "selection": "preselected",
+          "source_text_sha256": "359e8b10ca59fcac9c8b0ae0c4d391d1b8f3c947b9316922496635108fc19be2",
+          "actual_text_sha256": "359e8b10ca59fcac9c8b0ae0c4d391d1b8f3c947b9316922496635108fc19be2",
+          "previous_text_sha256": "b0b2bb9274da9569085c2d4155732ff014c4694c4530d76c8ec6d92e260e15c1",
+          "next_text_sha256": "2b137d9b715fd3506921defa1f2b3888055818defa8a8d036fbd58064665a5f4",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 236,
+          "start_sec": 2368.0,
+          "selection": "supplemental lexical substitution follow-up",
+          "source_text_sha256": "9bfe7d70921ca54c3724ddbd3d4463a5ad3941f247ef1e509b59edc4a2dda9ef",
+          "actual_text_sha256": "f4d79788a2fc85baff143063f5ab11d268d5938af3acaece049893a28004a309",
+          "previous_text_sha256": "57f20ed50a33170c7386f241a47a35b6dd83f388d2291a8fe65ffcacaf74b0ac",
+          "next_text_sha256": "0dcca56f91ece8a61be9b5ac43b7f5980b995041cfdac171b4f48c93549ab45a",
+          "flags": [
+            "lexical"
+          ],
+          "assessment": "context_supported",
+          "note": "Удалены паузы, неясное исходное слово сохранено без реконструкции.",
+          "assessment_origin": "agent_text_context"
+        },
+        {
+          "index": 260,
+          "start_sec": 2614.11,
+          "selection": "preselected",
+          "source_text_sha256": "b9a264dae2fbfbafac590d44dabaa8397f34eb57cfed29a457896b8c533e5009",
+          "actual_text_sha256": "b9a264dae2fbfbafac590d44dabaa8397f34eb57cfed29a457896b8c533e5009",
+          "previous_text_sha256": "0ab80effd55714e794835ca5796f87660bfb512221c43ef906d087757b42813c",
+          "next_text_sha256": "52a7859adfbe97e0ad9c77ee408dacbf332460247d7e009646a82515348f650b",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 278,
+          "start_sec": 2794.5,
+          "selection": "preselected",
+          "source_text_sha256": "c758f09ed58337e36db4de84f8e28c691dd5598e114b7a58353a2b7bfcd3b1cd",
+          "actual_text_sha256": "c758f09ed58337e36db4de84f8e28c691dd5598e114b7a58353a2b7bfcd3b1cd",
+          "previous_text_sha256": "c38623ace71b8107a446a6318f0bc7ae8fbb0fb44f8d59f3b298e0f4630479f1",
+          "next_text_sha256": "14b26905eb8458ae11d00efed5b4ae8bf3fdc19884bf3a1d0cc4414af22cc3a1",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 307,
+          "start_sec": 3100.15,
+          "selection": "preselected",
+          "source_text_sha256": "7d21582ccc3d04d7022f284525fcaa968e8c6817db46d756c724e043b98c5954",
+          "actual_text_sha256": "27388e881a40db606068281804bb0578b6b2cbae5e91ffbcdb2a59f263d5c81c",
+          "previous_text_sha256": "3ded0223c8d70023ea9e0c3df8f26063cc62fd5cacccb3c7ce3e0e5f5323009d",
+          "next_text_sha256": "726a6b0d3bbf1e23f0490654aeae425606c380ed433c29ddc19307cc2a160500",
+          "flags": [
+            "lexical"
+          ],
+          "assessment": "context_supported",
+          "note": "Убрана растянутая вводная вокализация; отрицание, срок и следствие сохранены.",
+          "assessment_origin": "agent_text_context"
+        },
+        {
+          "index": 315,
+          "start_sec": 3178.18,
+          "selection": "preselected",
+          "source_text_sha256": "a3ec52b3b9b7d9b1ab58382f6a3b752d8ce5bc5f8c77ac66007e0b42310ade60",
+          "actual_text_sha256": "a3ec52b3b9b7d9b1ab58382f6a3b752d8ce5bc5f8c77ac66007e0b42310ade60",
+          "previous_text_sha256": "54ba3c44227a70c1d030763850f6c765e3a3d418c1bf280e4cf90aef25b5ab44",
+          "next_text_sha256": "73a0b05241c0b9b51df01adf073ef066ee864f4c149eb7cefd67aa24ebfc3174",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 356,
+          "start_sec": 3616.55,
+          "selection": "preselected",
+          "source_text_sha256": "b0603e5fff4c385b9ae1370449609efb1cd8a60475315e38afa8c6f27a1d6180",
+          "actual_text_sha256": "2574205095a8e233e15ab7d82f8f130d2dff7f8cb9eb1c863188eeb68c6a5446",
+          "previous_text_sha256": "e3eb7280feb6e62b3cbd15306490410b7acaeb715d12ce134cf5fa0b50d80ce9",
+          "next_text_sha256": "a86288d8ed347be79fb5948b4166993e767305740bf6d9d782575632c24253f1",
+          "flags": [
+            "lexical"
+          ],
+          "assessment": "context_supported",
+          "note": "Убрана вводная пауза, вопрос и уточнение именно российских сохранены.",
+          "assessment_origin": "agent_text_context"
+        },
+        {
+          "index": 371,
+          "start_sec": 3773.59,
+          "selection": "preselected",
+          "source_text_sha256": "66ea81855331e02bfa36f0d0957bcef8d0a951dbf45b93b6d9a2aa16e82b2723",
+          "actual_text_sha256": "66ea81855331e02bfa36f0d0957bcef8d0a951dbf45b93b6d9a2aa16e82b2723",
+          "previous_text_sha256": "9d19973ef0ba14857eb67aba5a5b83346f1c64437795d86c6373dcf1ad22b63c",
+          "next_text_sha256": "639f8f0b97391c78f29f37abe81ccb708b7a598fa0b3fdc570b752207ff52666",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 396,
+          "start_sec": 4024.88,
+          "selection": "supplemental lexical substitution follow-up",
+          "source_text_sha256": "ad97f2d33eb32e647d24d73d4702c2001cd8932bcabb412e764bf149b49d8b7f",
+          "actual_text_sha256": "478b0e181164e9473cc2ee560a3d11118921d94944912a2e6a97e95fc228ebaf",
+          "previous_text_sha256": "78bbaf703eb7d95ac910665025ecb5771a20bdbe48b1206374e2c417927f078f",
+          "next_text_sha256": "2876e06b43e02a4cc85b12c2a8a0104fe8d8bd2ff4815536c3506f0a4cbf67f9",
+          "flags": [
+            "lexical"
+          ],
+          "assessment": "context_supported",
+          "note": "Исправлено согласование прилагательного с самым популярным инструментом, вводная пауза убрана.",
+          "assessment_origin": "agent_text_context"
+        },
+        {
+          "index": 411,
+          "start_sec": 4167.19,
+          "selection": "supplemental lexical substitution follow-up",
+          "source_text_sha256": "15f5a060b9d1c2453022c79c6ca3f35fc6f0e2e41d0601f4ceeb28da59541113",
+          "actual_text_sha256": "126ab381742aac3bac12ac2972bf0a4891fcaee2cbe97af5d5cee95df67f4faf",
+          "previous_text_sha256": "e89a6d8a71e6f09d35d6f69ffdb895c37f3f209f90f55dbb2b45462953f6a67d",
+          "next_text_sha256": "f17562b59b7eb772086dd9e2a2653c11349d93b3284f11265a7c5c9def68e6ae",
+          "flags": [
+            "lexical"
+          ],
+          "assessment": "context_supported",
+          "note": "Удалены вокальные паузы, исходный предметный глагол не заменён.",
+          "assessment_origin": "agent_text_context"
+        },
+        {
+          "index": 426,
+          "start_sec": 4314.52,
+          "selection": "preselected",
+          "source_text_sha256": "787beee28ef9eb40b0a4ad5da0d72b79f19b15f44a2550437235b639ca31ce70",
+          "actual_text_sha256": "d31dcf40ed7c71b5720186c48ce38dbfaad8515166424a76677089ea2f5b2eab",
+          "previous_text_sha256": "01abd57dcf79d47140897cb29f52bf29302658330e765f5fefeedfdad51b5b86",
+          "next_text_sha256": "c9975837cca68cb3ac99149b54196fabe3114890cfe8115d58f245aa6f8f594a",
+          "flags": [
+            "lexical"
+          ],
+          "assessment": "context_supported",
+          "note": "Убрана вокальная пауза, незавершённые фразы остались незавершёнными.",
+          "assessment_origin": "agent_text_context"
+        },
+        {
+          "index": 439,
+          "start_sec": 4442.14,
+          "selection": "preselected",
+          "source_text_sha256": "bd4793112853eefda0ea0833664e153d00aa80115817c2bf387738a8b8ff9221",
+          "actual_text_sha256": "bd4793112853eefda0ea0833664e153d00aa80115817c2bf387738a8b8ff9221",
+          "previous_text_sha256": "f8b662e209dd13ad4642aaba5e9af7bd6d4dafab3567d1cacd937e97d6679793",
+          "next_text_sha256": "4b59bcb19d14ab3700b47758819b0e89cb3bcd57d4681be233928707cdab2d61",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 443,
+          "start_sec": 4479.16,
+          "selection": "supplemental lexical substitution follow-up",
+          "source_text_sha256": "aa4bcb6d980abe4a197bf50a15b27598e42bc25a70bf281caf3a281a867dbe47",
+          "actual_text_sha256": "cc540fe29adeeba746c1b526e478260b5ec686b308a708792344d9d2213c0e8b",
+          "previous_text_sha256": "baa0a430e08116510dec528bf566909841e3533369cc173b9ac6b41b5731e870",
+          "next_text_sha256": "3c19b3eb67b871bade098740ee5f2c763d335b122daad07244d03f68e2db75d8",
+          "flags": [
+            "lexical"
+          ],
+          "assessment": "context_supported",
+          "note": "Исправлено согласование сказуемого с это; вопрос и условие сохранены.",
+          "assessment_origin": "agent_text_context"
+        },
+        {
+          "index": 460,
+          "start_sec": 4647.51,
+          "selection": "preselected",
+          "source_text_sha256": "19f27112681f5010faac1e9e62b88404a1b7ae12faea63126f4a727ff3cb4580",
+          "actual_text_sha256": "19f27112681f5010faac1e9e62b88404a1b7ae12faea63126f4a727ff3cb4580",
+          "previous_text_sha256": "208a556b58ac1ba0cffc3ecf63003732ae0c1f84ebc49a9ebec7294da242f7ef",
+          "next_text_sha256": "f9683d759f014617f3b04bd36aedf8136fbcb1110d513ba4d1bac47b2eba4a72",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 472,
+          "start_sec": 4772.23,
+          "selection": "preselected",
+          "source_text_sha256": "52274f5d80cf094450f5d7e6bdd521b2de6f92b275257c1753b3bac5ec7afd47",
+          "actual_text_sha256": "52274f5d80cf094450f5d7e6bdd521b2de6f92b275257c1753b3bac5ec7afd47",
+          "previous_text_sha256": "9e1d353f6d17665bc7c6a813cc8be36dda9de165dc76fd59222a845e115dbf68",
+          "next_text_sha256": "2feb8e62a553d63611ae00f0860090e96f5298ed43d1a069a61f2aec4c7f7753",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 496,
+          "start_sec": 5045.7,
+          "selection": "preselected",
+          "source_text_sha256": "7f74ff271ef22ff12a2ac6f73dfee239aaffe6944de3c4552811085331d71502",
+          "actual_text_sha256": "7f74ff271ef22ff12a2ac6f73dfee239aaffe6944de3c4552811085331d71502",
+          "previous_text_sha256": "bd67eee9919e79322e7f2e8e75461b10153adea2ce6dc4405a2d00c212d2d433",
+          "next_text_sha256": "ade6967d422faf75ad1ab08b86d209ed7dddc6f5424108fc6fd65f832a26fdcf",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 520,
+          "start_sec": 5275.0,
+          "selection": "preselected",
+          "source_text_sha256": "c6daf7af4a54679deab94661bcb3a25d4510caaf3e2de1355cfae28b04634d33",
+          "actual_text_sha256": "97d01526554cfc29db5811cae6520380a15d275c037c5303b99908900a269dcb",
+          "previous_text_sha256": "2473b114c7674a98f4db22a7c29042520f4544881e31a436c8a7181c0d895f95",
+          "next_text_sha256": "483f1e1f5b2577fabffb28b555292f2b7a5ba21d47c0496be695b9879ddc3bde",
+          "flags": [],
+          "assessment": "context_supported",
+          "note": "Оформлены регистр и начальное тире; цитата, отрицания и вопросы сохранены.",
+          "assessment_origin": "agent_text_context"
+        },
+        {
+          "index": 531,
+          "start_sec": 5395.98,
+          "selection": "preselected",
+          "source_text_sha256": "7af6fb3a7a0017356948f648b37888bac2fcf042809b49707eea9cdc3d3ebbfd",
+          "actual_text_sha256": "1419ec8fe4c72ace1f95024f6281e67cf7d6be2acb13dbae8dd23a1a7e59ee77",
+          "previous_text_sha256": "d8c4ab25cb15a58e4d7434b1c2a4949b0bfe7eda160360bfdd2aeb62d07a8c3d",
+          "next_text_sha256": "ac9c6e2e2a7fcfd4fb48c75b77ad68483d7b576f4727ae16ffad8728fc2b9ef6",
+          "flags": [
+            "lexical"
+          ],
+          "assessment": "context_supported",
+          "note": "Убраны вокальные паузы, обрыв и собственная формулировка сохранены.",
+          "assessment_origin": "agent_text_context"
+        },
+        {
+          "index": 534,
+          "start_sec": 5419.9,
+          "selection": "supplemental lexical substitution follow-up",
+          "source_text_sha256": "3e389619aa65450c1441ad0e83130788d067ddfebffe758ed8f312f28fab938e",
+          "actual_text_sha256": "dbc532a784ea243359f52ae8a1940c8c821acc113553975d37a3ad71c0fb86f6",
+          "previous_text_sha256": "6815551606362b5229e9d8b9db8ed9fe8b5309096808ab1b64aac15d4604bcdd",
+          "next_text_sha256": "da325862ee30927adb302be031a4374016c2e84ad08c232767c0380b7289d0f6",
+          "flags": [
+            "lexical"
+          ],
+          "assessment": "context_supported",
+          "note": "Восстановлена форма прямого дополнения при вижу; последующее описание препятствий поддерживает множественное число.",
+          "assessment_origin": "agent_text_context"
+        },
+        {
+          "index": 579,
+          "start_sec": 5886.36,
+          "selection": "preselected",
+          "source_text_sha256": "32b5a6c21d7c4e59af102aa6146d9d5c1d6262b6e085a3b67cb9a60937f2a87d",
+          "actual_text_sha256": "32b5a6c21d7c4e59af102aa6146d9d5c1d6262b6e085a3b67cb9a60937f2a87d",
+          "previous_text_sha256": "e6b7c98e3198f5baf4b1a75acbf0f6e09dcb3b14caa366c08f21190b30a05818",
+          "next_text_sha256": "199d74aca79de0968d66cbfd9fcf74057776cc1078cc379d32ffd50aad1625d0",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 580,
+          "start_sec": 5896.95,
+          "selection": "supplemental lexical substitution follow-up",
+          "source_text_sha256": "199d74aca79de0968d66cbfd9fcf74057776cc1078cc379d32ffd50aad1625d0",
+          "actual_text_sha256": "7bc171aea9f6e1704e24bfef26bb93c5c7cccdf03f8decc2f6484291ead470d1",
+          "previous_text_sha256": "32b5a6c21d7c4e59af102aa6146d9d5c1d6262b6e085a3b67cb9a60937f2a87d",
+          "next_text_sha256": "02f8c80e3adf2d9d16a8676df1a918ee90cc82d90f20e8910557f195c4cd7a19",
+          "flags": [
+            "lexical"
+          ],
+          "assessment": "context_supported",
+          "note": "Удалена вводная пауза, исходное время глагола сохранено.",
+          "assessment_origin": "agent_text_context"
+        },
+        {
+          "index": 592,
+          "start_sec": 6012.79,
+          "selection": "preselected",
+          "source_text_sha256": "57ef75b62ca587a5dacae7f39bbf1de5565f4a12fea329e01bbdb6b4caeac83e",
+          "actual_text_sha256": "8627bb7e1763f4bf4420af00c3699b3ed6b4311315c70a9dd39707a6614fda31",
+          "previous_text_sha256": "13a4e94eba104d907b24a2fb80d7034cd3c87e86e383ff6e0aba6e7483d8f9eb",
+          "next_text_sha256": "3b004b1757bc6dfb4bd9723e3c57ef4f234a1d40f524766a0a54a35dc3c0e66d",
+          "flags": [],
+          "assessment": "context_supported",
+          "note": "Нормализованы завершающие точки без изменения слов и оговорок.",
+          "assessment_origin": "agent_text_context"
+        },
+        {
+          "index": 606,
+          "start_sec": 6146.53,
+          "selection": "supplemental lexical substitution follow-up",
+          "source_text_sha256": "46ce901bfba008ba7a1c42e8f31cf7aba4500947c1f1bcdeb90fb4bdddbeeae9",
+          "actual_text_sha256": "a2276fcba68a22294d36e6c084853f2f34b532a033ba698edcf0221f718656ac",
+          "previous_text_sha256": "2c352ee1f112f01d8c2aad83e2a7682d5f2f6e009e576aa7a6fa306503ef381f",
+          "next_text_sha256": "bfe4f3614a937a6ed970e51923a35a89687c8a416baf479caac93339ca8069c5",
+          "flags": [
+            "lexical"
+          ],
+          "assessment": "meaning_risk",
+          "note": "Исходный объект истории после собрал заменён родительным историй после со всех; связь глагола и объекта ухудшена. Это риск ошибочного близкого морфологического исправления.",
+          "assessment_origin": "agent_text_context"
+        },
+        {
+          "index": 618,
+          "start_sec": 6271.13,
+          "selection": "preselected",
+          "source_text_sha256": "162354a8b36606e0f32919dc4a0149052a0d688d409351a724a3c91a5a3672ea",
+          "actual_text_sha256": "162354a8b36606e0f32919dc4a0149052a0d688d409351a724a3c91a5a3672ea",
+          "previous_text_sha256": "2522fc2394ef3c9975911bb1017e2614dc5b3930878003e1ebece425ff196592",
+          "next_text_sha256": "ab992ded0c2ecb875738d8933ae15d70513a60635a92b1b0b51723cd705b773d",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 644,
+          "start_sec": 6529.06,
+          "selection": "preselected",
+          "source_text_sha256": "a4209f354bde4c73fc58260fcd402edce8fc84394bffbdeb825bb566a563a995",
+          "actual_text_sha256": "a4209f354bde4c73fc58260fcd402edce8fc84394bffbdeb825bb566a563a995",
+          "previous_text_sha256": "9de87d006638798327ca359b5fa291636b25156e911084209183d1c591e2b6f7",
+          "next_text_sha256": "0619452a9d939132ee7edfff9a49e5bf5829ecfda20aa7d91d9e353c460dc6b5",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 667,
+          "start_sec": 6756.21,
+          "selection": "supplemental lexical substitution follow-up",
+          "source_text_sha256": "e9f6fed6be8314b19ee7dad9027a88781ccf10ce5d4ccb2466b5e83c49383232",
+          "actual_text_sha256": "6edc57c35c3e7051e91bcfb6d43f342dca128f7f81fb74de337aa2d8fda3749a",
+          "previous_text_sha256": "91fd4b8173f4dad1c6428cb526c94f8312ca1febdca4143da430bde2c77834c7",
+          "next_text_sha256": "ee0cfede80bd888835827fd6c2f7f5bce9bc9cbd73f53fda35834d45516fefb7",
+          "flags": [
+            "lexical"
+          ],
+          "assessment": "context_supported",
+          "note": "Предыдущая исходная строка задаёт человека, который познакомился; исправление окончания поддержано контекстом.",
+          "assessment_origin": "agent_text_context"
+        },
+        {
+          "index": 668,
+          "start_sec": 6766.44,
+          "selection": "preselected",
+          "source_text_sha256": "ee0cfede80bd888835827fd6c2f7f5bce9bc9cbd73f53fda35834d45516fefb7",
+          "actual_text_sha256": "d18d2ab5960b76761f39cb790a5e7e1775d270637993e7325f4351310647155a",
+          "previous_text_sha256": "e9f6fed6be8314b19ee7dad9027a88781ccf10ce5d4ccb2466b5e83c49383232",
+          "next_text_sha256": "0b7eff1e6ff14c3d1ce87878cdaf969653211307dd5c834f712e43e6e83bbce5",
+          "flags": [
+            "literal",
+            "lexical"
+          ],
+          "assessment": "context_supported",
+          "note": "Оформлен регистр названия и убрана вводная пауза; неясный термин сохранён.",
+          "assessment_origin": "agent_text_context"
+        },
+        {
+          "index": 674,
+          "start_sec": 6827.56,
+          "selection": "preselected",
+          "source_text_sha256": "023c01eb86f0089244ba9994ffed797ff204488c5089453af83baec57e87deba",
+          "actual_text_sha256": "023c01eb86f0089244ba9994ffed797ff204488c5089453af83baec57e87deba",
+          "previous_text_sha256": "818fe4e7564b704f0311613ff9fc8e311f6f469f6abb68e3c6cf7f6dd021a608",
+          "next_text_sha256": "2adcae7f747acabe91ece5fe9570864e02fcebfa4c57b8f356e05d32aa0e9cc6",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 700,
+          "start_sec": 7105.34,
+          "selection": "preselected",
+          "source_text_sha256": "2d171fc605e53fc6062ae820c6af6c680374d2f6d6f9a7b4af2bb198e096cf44",
+          "actual_text_sha256": "e210a9732e2fb36e08b2195939a2ed5ba54a06b4b52d9f2d3b46fa8329ce0d40",
+          "previous_text_sha256": "13d6b20cca5a06cfabd61b8ad395dd264709a9b6dcae00aa3649e4f39bad44a0",
+          "next_text_sha256": "bf6126b4f67bfb1902c6e9e8a05eb84cfed3c44330fcaab37ee215e3c5e3149e",
+          "flags": [
+            "lexical"
+          ],
+          "assessment": "context_supported",
+          "note": "Убрана вокальная пауза, вопрос сохранён.",
+          "assessment_origin": "agent_text_context"
+        },
+        {
+          "index": 702,
+          "start_sec": 7121.25,
+          "selection": "preselected",
+          "source_text_sha256": "ac2cc3cd73a20dcd4b070584b9df26c580c3b5ee8c692db3f5adb888c4a026ac",
+          "actual_text_sha256": "ac2cc3cd73a20dcd4b070584b9df26c580c3b5ee8c692db3f5adb888c4a026ac",
+          "previous_text_sha256": "bf6126b4f67bfb1902c6e9e8a05eb84cfed3c44330fcaab37ee215e3c5e3149e",
+          "next_text_sha256": "78d961d9670bc951016b4f6751c30d3686f8e056d9d38de2444923b688323132",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        }
+      ]
+    },
+    {
+      "model": "qwen3.5:4b",
+      "repeat": 1,
+      "report_sha256": "7bc7b06cc015eae0e9978d4a9d6a3a31e500bdd1f6d6c747aa90e6902995d348",
+      "preselected_indices": [
+        4,
+        5,
+        17,
+        46,
+        78,
+        90,
+        95,
+        158,
+        161,
+        177,
+        209,
+        212,
+        245,
+        256,
+        267,
+        278,
+        312,
+        314,
+        379,
+        390,
+        437,
+        449,
+        514,
+        520,
+        534,
+        535,
+        585,
+        621,
+        666,
+        668,
+        686,
+        700,
+        702
+      ],
+      "supplemental_indices": [
+        50,
+        236,
+        244,
+        358,
+        362,
+        371,
+        411,
+        580,
+        606
+      ],
+      "review_counts": {
+        "context_supported": 17,
+        "unchanged": 22,
+        "audio_required": 3
+      },
+      "preselected_counts": {
+        "context_supported": 12,
+        "unchanged": 21
+      },
+      "supplemental_counts": {
+        "context_supported": 5,
+        "audio_required": 3,
+        "unchanged": 1
+      },
+      "reviews": [
+        {
+          "index": 4,
+          "start_sec": 37.93,
+          "selection": "preselected",
+          "source_text_sha256": "84bf51ca679d5db3ceebf5cbdd781775b1ceef9789c3858ea26d19856d3619fc",
+          "actual_text_sha256": "332ba7202e6ec3bae7c7b54e8ef346f69829fb11853d15b8e23d5a66597ef81b",
+          "previous_text_sha256": "a7ea5a48250b481af0750c907bac6adc3804647858a79902ff24afa541851819",
+          "next_text_sha256": "320eb362b15bbbdeba937dfab47c3127f0da78b8678d16fcb8be79c899e040ba",
+          "flags": [
+            "lexical"
+          ],
+          "assessment": "context_supported",
+          "note": "Удалена хвостовая вокальная пауза, оговорки и собственные слова сохранены.",
+          "assessment_origin": "agent_text_context"
+        },
+        {
+          "index": 5,
+          "start_sec": 48.15,
+          "selection": "preselected",
+          "source_text_sha256": "320eb362b15bbbdeba937dfab47c3127f0da78b8678d16fcb8be79c899e040ba",
+          "actual_text_sha256": "320eb362b15bbbdeba937dfab47c3127f0da78b8678d16fcb8be79c899e040ba",
+          "previous_text_sha256": "84bf51ca679d5db3ceebf5cbdd781775b1ceef9789c3858ea26d19856d3619fc",
+          "next_text_sha256": "1bef930c4fbc627c214b3869bc6595e3651d1db4bc4f9290fe5ce83954a34731",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 17,
+          "start_sec": 171.57,
+          "selection": "preselected",
+          "source_text_sha256": "b280e593ddbb050b869478bc985072db40904c3e6f242bef752626512b32aad9",
+          "actual_text_sha256": "b280e593ddbb050b869478bc985072db40904c3e6f242bef752626512b32aad9",
+          "previous_text_sha256": "e9c2ce552d3b92a222ab4afdac9a503a3dd6e575b10d497dd15e335e7248a78a",
+          "next_text_sha256": "7284cc7335dd2db5dd91e30106e5d0e241c23d93efd6cdc5a55f92e8c8a1221f",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 46,
+          "start_sec": 467.94,
+          "selection": "preselected",
+          "source_text_sha256": "f357a6a44a7f4c8074530d06945c3c768c334a2b21d39c1b162630cd73e280e7",
+          "actual_text_sha256": "65905ee264c87c5ce132e2b8ea84fba24c07c15a76384b14e02f907f6b4726ad",
+          "previous_text_sha256": "1249820e30c5b4e727dd9757ab090b1a7106f24d32b40701445d7a0994598124",
+          "next_text_sha256": "4c5735d08159bf62fce9708e5ab29e143f50f4d11eaa3b7cf7305abf51658671",
+          "flags": [
+            "qualifier",
+            "lexical"
+          ],
+          "assessment": "context_supported",
+          "note": "Убран соседний повтор союза; условие сохранено.",
+          "assessment_origin": "agent_text_context"
+        },
+        {
+          "index": 50,
+          "start_sec": 505.87,
+          "selection": "supplemental lexical substitution follow-up",
+          "source_text_sha256": "a4cb64924341681b8b7d6da3c80a6a0ecce10e993dc8905a10528b7c0e6c4dda",
+          "actual_text_sha256": "acb52b5ca79cad27c1b61859aa58b3591ee02e007cf349fd391bd0aadcd5de0a",
+          "previous_text_sha256": "e283461370b7fdbb58df3b62be135b4d483005ba2412922f9d091ff3e0bc0d5e",
+          "next_text_sha256": "251adfb8dd7264b499a7acd39538841c40b9ad66033e1c5cbeaaa7fd8aadaf90",
+          "flags": [],
+          "assessment": "context_supported",
+          "note": "Изменён только регистр; собственные слова и связь с предыдущим предлогом сохранены, исходная ошибка согласования не исправлялась.",
+          "assessment_origin": "agent_text_context"
+        },
+        {
+          "index": 78,
+          "start_sec": 788.84,
+          "selection": "preselected",
+          "source_text_sha256": "33ef00d624727026ebf489550b1e593fa21a4110eda2e41e0e7f60c413e9a29b",
+          "actual_text_sha256": "33ef00d624727026ebf489550b1e593fa21a4110eda2e41e0e7f60c413e9a29b",
+          "previous_text_sha256": "2de7c625d6b679167749198fd298f309422053a03461e63aae40017418430acc",
+          "next_text_sha256": "9dd7fcdc1f4a99e47d7529f4282e73866f54772fecdd1e984397c2ca3f882afe",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 90,
+          "start_sec": 912.33,
+          "selection": "preselected",
+          "source_text_sha256": "4dcab31c89a24cc5e06ce4ec6810d77a0d3fe16ae5467d46fae5138eadcdf2a3",
+          "actual_text_sha256": "f2a80b50f7f036de18f756a3a1f8c20afff52e5dc451e13d4f3298025b5de9bc",
+          "previous_text_sha256": "91e56a408a675c83cee36aa5f6619ac400103c6a868e25817bf55ca5b7b570aa",
+          "next_text_sha256": "cb1e6cf74ebacb51b23dbb877d545c782e988e89c43bcce6858b2096be8152b6",
+          "flags": [
+            "lexical"
+          ],
+          "assessment": "context_supported",
+          "note": "Удалена вокальная пауза, отрицания и оборванная оговорка сохранены.",
+          "assessment_origin": "agent_text_context"
+        },
+        {
+          "index": 95,
+          "start_sec": 968.54,
+          "selection": "preselected",
+          "source_text_sha256": "88120d0c07c77754b461dfdd2539face8fd53afa9045346d0f39a7d4d998bca2",
+          "actual_text_sha256": "88120d0c07c77754b461dfdd2539face8fd53afa9045346d0f39a7d4d998bca2",
+          "previous_text_sha256": "93b271e5af21bc0884487aca887b54db59c32623f601ea553b89e8efc4574aa7",
+          "next_text_sha256": "617a87e94491a436fbb3d873a968404c532295936ec6f22d1e49c84c1e84b8b4",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 158,
+          "start_sec": 1597.65,
+          "selection": "preselected",
+          "source_text_sha256": "2291fa1cc51aa946c35d6875ffaf77d3e98f249af98a7b0be3bbf969c4e668a5",
+          "actual_text_sha256": "2291fa1cc51aa946c35d6875ffaf77d3e98f249af98a7b0be3bbf969c4e668a5",
+          "previous_text_sha256": "79d254ab846c521e314de46aca845c7c93b5443d473a8853025eb827229791b2",
+          "next_text_sha256": "b06e653094c64885f187fb2041f388e93ea608911d3927612c0c965cff69beb2",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 161,
+          "start_sec": 1628.28,
+          "selection": "preselected",
+          "source_text_sha256": "26806d89d2775d82b29a8bd7abc4df0f71e0e99d963c6a789f2019abc53d5b4b",
+          "actual_text_sha256": "26806d89d2775d82b29a8bd7abc4df0f71e0e99d963c6a789f2019abc53d5b4b",
+          "previous_text_sha256": "cc55975d1562b5ffdd475a19f1598545e36b3aebff1719d709341b5bbdfdc7f5",
+          "next_text_sha256": "318574ede02ce8822cf4c8e61fa5c1329ab104942a77e0a8dbe2dc6457888f92",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 177,
+          "start_sec": 1792.4,
+          "selection": "preselected",
+          "source_text_sha256": "208b874dc3c85a9f24248824aca24ac3d57ea47ec8f5b43e7ad0dc06bfe11290",
+          "actual_text_sha256": "208b874dc3c85a9f24248824aca24ac3d57ea47ec8f5b43e7ad0dc06bfe11290",
+          "previous_text_sha256": "f0afe4ebec9e860388d8a306a3af919e2685e3d59f2c453dd44368c96e28625d",
+          "next_text_sha256": "9e6f01ab4bb1dfff1465b920f2e31856cbd58f4ca73966edeed7f67c3a098644",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 209,
+          "start_sec": 2111.62,
+          "selection": "preselected",
+          "source_text_sha256": "9ae723ca0bd45712e0c83b9d5242a2fd7b3c37ab641392f9e4b23b0aa20fef1a",
+          "actual_text_sha256": "9ae723ca0bd45712e0c83b9d5242a2fd7b3c37ab641392f9e4b23b0aa20fef1a",
+          "previous_text_sha256": "a5a3ada4087589f63ac31ad3dd07677097326eac7daaf337acc96cf73275195e",
+          "next_text_sha256": "9d5d7636b064a94a96ed868737820d4dc872f5f8c34fcf889c986d0bc80e46bb",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 212,
+          "start_sec": 2138.72,
+          "selection": "preselected",
+          "source_text_sha256": "39f94b226a9e80f6fe48b11afc0ca344a784b1ce08c9c4590e3456c1d4a6a382",
+          "actual_text_sha256": "4285f4497686a85cf2ddff47100a5f761845179fdbbba5080582537adac0fd21",
+          "previous_text_sha256": "8699889869d203d1e85f79a6a771dde1714fe9a6fb6680081f44ae6b4678d521",
+          "next_text_sha256": "eeb4aedadb0d6c654878b0082ad764b3d2fde8ae77241406d74549b68025c453",
+          "flags": [],
+          "assessment": "context_supported",
+          "note": "Оформлены регистр и завершающая точка без изменения слов.",
+          "assessment_origin": "agent_text_context"
+        },
+        {
+          "index": 236,
+          "start_sec": 2368.0,
+          "selection": "supplemental lexical substitution follow-up",
+          "source_text_sha256": "9bfe7d70921ca54c3724ddbd3d4463a5ad3941f247ef1e509b59edc4a2dda9ef",
+          "actual_text_sha256": "8e650777421127d58768f18a099c30347a30ee8f87077e6cb5ea72c67d5f724d",
+          "previous_text_sha256": "57f20ed50a33170c7386f241a47a35b6dd83f388d2291a8fe65ffcacaf74b0ac",
+          "next_text_sha256": "0dcca56f91ece8a61be9b5ac43b7f5980b995041cfdac171b4f48c93549ab45a",
+          "flags": [
+            "lexical"
+          ],
+          "assessment": "audio_required",
+          "note": "Неясное слово заменено другой неясной формой; полезность и верность такой близкой ASR-замены по тексту не подтверждаются.",
+          "assessment_origin": "agent_text_context"
+        },
+        {
+          "index": 244,
+          "start_sec": 2454.81,
+          "selection": "supplemental lexical substitution follow-up",
+          "source_text_sha256": "003a4e25373318aad8b83a6e40e460314a414fe83244bf295ca8dd3a168fc958",
+          "actual_text_sha256": "fde1a9c14ee03cd9d46d8208cb5ac79e47fd543f3f98a9da89d5834673143589",
+          "previous_text_sha256": "4f67739a1e53b86a91c5f957ccd1e322d5ac86ebf4b8cb68c6c4566a541dc0e1",
+          "next_text_sha256": "967142540f686418bad74dbd47901ba95ec37a9d5efd8fb798c7ef66b483eb17",
+          "flags": [
+            "lexical"
+          ],
+          "assessment": "context_supported",
+          "note": "Близкая нормативная форма глагола проектирования поддержана описанием системы, обрыв не восстановлен по догадке.",
+          "assessment_origin": "agent_text_context"
+        },
+        {
+          "index": 245,
+          "start_sec": 2469.82,
+          "selection": "preselected",
+          "source_text_sha256": "967142540f686418bad74dbd47901ba95ec37a9d5efd8fb798c7ef66b483eb17",
+          "actual_text_sha256": "967142540f686418bad74dbd47901ba95ec37a9d5efd8fb798c7ef66b483eb17",
+          "previous_text_sha256": "003a4e25373318aad8b83a6e40e460314a414fe83244bf295ca8dd3a168fc958",
+          "next_text_sha256": "ba55db9936429ecddf6a13d1a42aa455add3456fe09c6d9e01d35dc4ac507904",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 256,
+          "start_sec": 2575.72,
+          "selection": "preselected",
+          "source_text_sha256": "92c7eb1291cfe2b053c6205dc56b9ab3a1dd8a2cb40ff0632d64e19041ca7d23",
+          "actual_text_sha256": "92c7eb1291cfe2b053c6205dc56b9ab3a1dd8a2cb40ff0632d64e19041ca7d23",
+          "previous_text_sha256": "5ed9fa1d8ab985fb00378db47a8dfa5220aac24c9d1a32c7cfaf820a311731dd",
+          "next_text_sha256": "a3e30839ffc80ef9ab9de1b2053169e29034e13e133d2ca1d916f45d9fd09ba6",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 267,
+          "start_sec": 2682.24,
+          "selection": "preselected",
+          "source_text_sha256": "a3c9d12ad3a161dd13028a73b451f55af1feccd9b73edd212a4add1e7286b5ef",
+          "actual_text_sha256": "a3c9d12ad3a161dd13028a73b451f55af1feccd9b73edd212a4add1e7286b5ef",
+          "previous_text_sha256": "4c16f679166caed8ae8e2b11990cf9ad27a89fa57b14ae94d88db8fb91cc9907",
+          "next_text_sha256": "280cac18a96d67a4cee522804eaf1103990f95728221cda99cac205bc0de7aa9",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 278,
+          "start_sec": 2794.5,
+          "selection": "preselected",
+          "source_text_sha256": "c758f09ed58337e36db4de84f8e28c691dd5598e114b7a58353a2b7bfcd3b1cd",
+          "actual_text_sha256": "c758f09ed58337e36db4de84f8e28c691dd5598e114b7a58353a2b7bfcd3b1cd",
+          "previous_text_sha256": "c38623ace71b8107a446a6318f0bc7ae8fbb0fb44f8d59f3b298e0f4630479f1",
+          "next_text_sha256": "14b26905eb8458ae11d00efed5b4ae8bf3fdc19884bf3a1d0cc4414af22cc3a1",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 312,
+          "start_sec": 3151.18,
+          "selection": "preselected",
+          "source_text_sha256": "99739a658e4e8f3852546f797bec61975f88eed8dbb4acab3ec4091cc5308f30",
+          "actual_text_sha256": "c4a6ae7845a8f95fd4d0b5684a3dd6d53779d774238bc214513d3689d8d5214b",
+          "previous_text_sha256": "b20db83505ac14bfc64222848382669a9518974fd3f51f91858748720229cb7c",
+          "next_text_sha256": "8e4dcabcc4e2eedf9e7ab7c18648e6c64b5ad1733e83bf20a95f5f7d2757d4df",
+          "flags": [],
+          "assessment": "context_supported",
+          "note": "Исправлен только регистр последнего слова; вопрос и повтор сохранены.",
+          "assessment_origin": "agent_text_context"
+        },
+        {
+          "index": 314,
+          "start_sec": 3166.43,
+          "selection": "preselected",
+          "source_text_sha256": "54ba3c44227a70c1d030763850f6c765e3a3d418c1bf280e4cf90aef25b5ab44",
+          "actual_text_sha256": "18ea39d6fb8467c77b132e7e76695cf7709145c2df158749b9ab49877ed91652",
+          "previous_text_sha256": "8e4dcabcc4e2eedf9e7ab7c18648e6c64b5ad1733e83bf20a95f5f7d2757d4df",
+          "next_text_sha256": "a3ec52b3b9b7d9b1ab58382f6a3b752d8ce5bc5f8c77ac66007e0b42310ade60",
+          "flags": [
+            "lexical"
+          ],
+          "assessment": "context_supported",
+          "note": "Убрана вокальная пауза, вопрос, число и условие сохранены.",
+          "assessment_origin": "agent_text_context"
+        },
+        {
+          "index": 358,
+          "start_sec": 3634.91,
+          "selection": "supplemental lexical substitution follow-up",
+          "source_text_sha256": "4324d07b3336962ecb4173679eba61a7c70749f70e30a8e39bc9df54416e7778",
+          "actual_text_sha256": "626e1fdd38d0bf08f456d12f4d9ac801a4e2dde613bad4ca487d23652c98d7af",
+          "previous_text_sha256": "a86288d8ed347be79fb5948b4166993e767305740bf6d9d782575632c24253f1",
+          "next_text_sha256": "7dde3834ec4f264b26df3dff993ad8de5f9f39f9334f6a5e28073403d6dea9a5",
+          "flags": [
+            "lexical"
+          ],
+          "assessment": "context_supported",
+          "note": "Исправлена форма наречия перед сказать, смысл и структура перечисления сохранены.",
+          "assessment_origin": "agent_text_context"
+        },
+        {
+          "index": 362,
+          "start_sec": 3678.71,
+          "selection": "supplemental lexical substitution follow-up",
+          "source_text_sha256": "b5b4d3db03f5641172307526ce0a0fbdd09e8075cf7f20e812a836a010f4a561",
+          "actual_text_sha256": "448af34a6b393c5e6f36e263f548054571f81da94fb8075452ef3462118103cb",
+          "previous_text_sha256": "05b87e57351dccccf45cb54a937d864f0062800078a3c0a4f6a4538affb7e71a",
+          "next_text_sha256": "6a0b302c7775bc392f12efa8df82df1dee3625319811b79d7d71ad1249596e9f",
+          "flags": [
+            "lexical"
+          ],
+          "assessment": "context_supported",
+          "note": "Оформлено падежное окончание имени автора без добавления имени или изменения названия.",
+          "assessment_origin": "agent_text_context"
+        },
+        {
+          "index": 371,
+          "start_sec": 3773.59,
+          "selection": "supplemental lexical substitution follow-up",
+          "source_text_sha256": "66ea81855331e02bfa36f0d0957bcef8d0a951dbf45b93b6d9a2aa16e82b2723",
+          "actual_text_sha256": "d8b247e530b4943d349df09e60d2c9d516aef07e37403dfb90a18b324a7b7676",
+          "previous_text_sha256": "9d19973ef0ba14857eb67aba5a5b83346f1c64437795d86c6373dcf1ad22b63c",
+          "next_text_sha256": "639f8f0b97391c78f29f37abe81ccb708b7a598fa0b3fdc570b752207ff52666",
+          "flags": [
+            "lexical"
+          ],
+          "assessment": "context_supported",
+          "note": "Исправлена форма единицы трудоёмкости, диапазоны чисел сохранены.",
+          "assessment_origin": "agent_text_context"
+        },
+        {
+          "index": 379,
+          "start_sec": 3855.48,
+          "selection": "preselected",
+          "source_text_sha256": "c4872a9cdf3d1e6a24d6f0b521936c318e0c0576475d81ba78a6069b21041f34",
+          "actual_text_sha256": "ccbd5424988e01947426dff7848d79a16eca391b9015d982a3f3a851104c9b4f",
+          "previous_text_sha256": "7b0df39213701a62c7d3b80f88296f5b314c6e39f591fa206af01e4782946655",
+          "next_text_sha256": "88c7a3d51a3580f8a8d1b4253633112afab017a3b983bf69a924dbbb2f79d442",
+          "flags": [
+            "lexical"
+          ],
+          "assessment": "context_supported",
+          "note": "Сокращены вокальная пауза и соседний повтор, остальные слова сохранены.",
+          "assessment_origin": "agent_text_context"
+        },
+        {
+          "index": 390,
+          "start_sec": 3962.68,
+          "selection": "preselected",
+          "source_text_sha256": "8237c0fec8d37762b0ac9032367793ff097d18d1a144df53597dea9ad46d16f7",
+          "actual_text_sha256": "7f4749e1875dc77f363c387522de8a290e55c32ea379083b6eb61330b2b10747",
+          "previous_text_sha256": "e5977185a8b3c0b7356a99abd51ab3435ac96d2ed104f0fd31861df2319f75bd",
+          "next_text_sha256": "5315447487b013fe034a1b3cd6386a4d2d562c029b2512d458bbbaa773ceaf3e",
+          "flags": [
+            "lexical"
+          ],
+          "assessment": "context_supported",
+          "note": "Убрана лишняя буква в названии теории, шумный обрыв не переписан.",
+          "assessment_origin": "agent_text_context"
+        },
+        {
+          "index": 411,
+          "start_sec": 4167.19,
+          "selection": "supplemental lexical substitution follow-up",
+          "source_text_sha256": "15f5a060b9d1c2453022c79c6ca3f35fc6f0e2e41d0601f4ceeb28da59541113",
+          "actual_text_sha256": "05a1194edf483c35491dfec265251dd3adcbe07aff9a2fbb179bdb7853e6c934",
+          "previous_text_sha256": "e89a6d8a71e6f09d35d6f69ffdb895c37f3f209f90f55dbb2b45462953f6a67d",
+          "next_text_sha256": "f17562b59b7eb772086dd9e2a2653c11349d93b3284f11265a7c5c9def68e6ae",
+          "flags": [
+            "lexical"
+          ],
+          "assessment": "audio_required",
+          "note": "Термин о расшивании заменён глаголом расширения; оба слова возможны в предметной области, аудио необходимо для подтверждения.",
+          "assessment_origin": "agent_text_context"
+        },
+        {
+          "index": 437,
+          "start_sec": 4414.43,
+          "selection": "preselected",
+          "source_text_sha256": "6e5a621581fb2f088750bceb0a3b8fcbc534d80e4ae7b9817255886d220061f6",
+          "actual_text_sha256": "6e5a621581fb2f088750bceb0a3b8fcbc534d80e4ae7b9817255886d220061f6",
+          "previous_text_sha256": "bab6979628654cbcd46b741947cb26ddb7aafe773b27d50ef9f6aa2f5bf59957",
+          "next_text_sha256": "f8b662e209dd13ad4642aaba5e9af7bd6d4dafab3567d1cacd937e97d6679793",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 449,
+          "start_sec": 4538.51,
+          "selection": "preselected",
+          "source_text_sha256": "a3e57954ac8f835650361af813c306535856fe663d7d2e1f08c863c29fefc200",
+          "actual_text_sha256": "a3e57954ac8f835650361af813c306535856fe663d7d2e1f08c863c29fefc200",
+          "previous_text_sha256": "4b14198b9856daa7b31656496721114f0b732db7ef331afbc687d92e76082b20",
+          "next_text_sha256": "10cabc3b13b7ae78e92ce00d22ad4e19fd3463f8ec3d2efbff4ce32f19b26a27",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 514,
+          "start_sec": 5222.06,
+          "selection": "preselected",
+          "source_text_sha256": "3bcebac2564aa983c3fa2d10d45e55928922b3d70c1a994cb50c8c3216afa2a5",
+          "actual_text_sha256": "3bcebac2564aa983c3fa2d10d45e55928922b3d70c1a994cb50c8c3216afa2a5",
+          "previous_text_sha256": "f3b904ca86b0e45f3b8b9819ffbf71ba219f120ccb48facf19c3c2252acd486a",
+          "next_text_sha256": "2b89b58f047fb30bb4b42026f2982aa7f9ce14c9f9d911a6657e87c02c6ce560",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 520,
+          "start_sec": 5275.0,
+          "selection": "preselected",
+          "source_text_sha256": "c6daf7af4a54679deab94661bcb3a25d4510caaf3e2de1355cfae28b04634d33",
+          "actual_text_sha256": "af983ffd136751e8d37aa3327fc11b93cc88cd99faf7a8a1e637e7c1e7aaee12",
+          "previous_text_sha256": "2473b114c7674a98f4db22a7c29042520f4544881e31a436c8a7181c0d895f95",
+          "next_text_sha256": "483f1e1f5b2577fabffb28b555292f2b7a5ba21d47c0496be695b9879ddc3bde",
+          "flags": [],
+          "assessment": "context_supported",
+          "note": "Исправлен регистр начала вопроса, тире и цитата сохранены.",
+          "assessment_origin": "agent_text_context"
+        },
+        {
+          "index": 534,
+          "start_sec": 5419.9,
+          "selection": "preselected",
+          "source_text_sha256": "3e389619aa65450c1441ad0e83130788d067ddfebffe758ed8f312f28fab938e",
+          "actual_text_sha256": "dbc532a784ea243359f52ae8a1940c8c821acc113553975d37a3ad71c0fb86f6",
+          "previous_text_sha256": "6815551606362b5229e9d8b9db8ed9fe8b5309096808ab1b64aac15d4604bcdd",
+          "next_text_sha256": "da325862ee30927adb302be031a4374016c2e84ad08c232767c0380b7289d0f6",
+          "flags": [
+            "lexical"
+          ],
+          "assessment": "context_supported",
+          "note": "Исправлена форма прямого дополнения при вижу; контекст поддерживает форму.",
+          "assessment_origin": "agent_text_context"
+        },
+        {
+          "index": 535,
+          "start_sec": 5426.21,
+          "selection": "preselected",
+          "source_text_sha256": "da325862ee30927adb302be031a4374016c2e84ad08c232767c0380b7289d0f6",
+          "actual_text_sha256": "da325862ee30927adb302be031a4374016c2e84ad08c232767c0380b7289d0f6",
+          "previous_text_sha256": "3e389619aa65450c1441ad0e83130788d067ddfebffe758ed8f312f28fab938e",
+          "next_text_sha256": "0b587b1a6d37e4d4fda2186b8e110f50e7d3c7bbb83e24d23f4cc921438d46c6",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 580,
+          "start_sec": 5896.95,
+          "selection": "supplemental lexical substitution follow-up",
+          "source_text_sha256": "199d74aca79de0968d66cbfd9fcf74057776cc1078cc379d32ffd50aad1625d0",
+          "actual_text_sha256": "e103213f7e18db71becb6ab14c061a5e2fb678798bfc0779baa74215f95b925b",
+          "previous_text_sha256": "32b5a6c21d7c4e59af102aa6146d9d5c1d6262b6e085a3b67cb9a60937f2a87d",
+          "next_text_sha256": "02f8c80e3adf2d9d16a8676df1a918ee90cc82d90f20e8910557f195c4cd7a19",
+          "flags": [
+            "lexical"
+          ],
+          "assessment": "audio_required",
+          "note": "Добавление одной буквы сменило будущее время на настоящее; общий контекст допускает редактуру, но исходное время без аудио не подтверждено.",
+          "assessment_origin": "agent_text_context"
+        },
+        {
+          "index": 585,
+          "start_sec": 5955.24,
+          "selection": "preselected",
+          "source_text_sha256": "758664cf4584dadd7154bee60749598e5337bf1e73b1e10dd401b8e1a90edd7c",
+          "actual_text_sha256": "7a6e3eac09d11346050782607862402fdd0a558a901c94f6e69aa04e9c4b0fbc",
+          "previous_text_sha256": "beb71e0e49a629e953df465ebbc9ae910473f6fd59d1f22d67f8ccd3900b0dfd",
+          "next_text_sha256": "979fec3db15a8ce5b7e954537b80e4fa84866bc06f9721d693a8b5a536bedc28",
+          "flags": [
+            "lexical"
+          ],
+          "assessment": "context_supported",
+          "note": "Сокращён растянутый союз, отрицание и рекомендация сохранены.",
+          "assessment_origin": "agent_text_context"
+        },
+        {
+          "index": 606,
+          "start_sec": 6146.53,
+          "selection": "supplemental lexical substitution follow-up",
+          "source_text_sha256": "46ce901bfba008ba7a1c42e8f31cf7aba4500947c1f1bcdeb90fb4bdddbeeae9",
+          "actual_text_sha256": "46ce901bfba008ba7a1c42e8f31cf7aba4500947c1f1bcdeb90fb4bdddbeeae9",
+          "previous_text_sha256": "2c352ee1f112f01d8c2aad83e2a7682d5f2f6e009e576aa7a6fa306503ef381f",
+          "next_text_sha256": "bfe4f3614a937a6ed970e51923a35a89687c8a416baf479caac93339ca8069c5",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 621,
+          "start_sec": 6303.44,
+          "selection": "preselected",
+          "source_text_sha256": "0116c27c6754c204077be2ace6b5e9d755f7068aee7d524c5977df316595d331",
+          "actual_text_sha256": "0116c27c6754c204077be2ace6b5e9d755f7068aee7d524c5977df316595d331",
+          "previous_text_sha256": "4971c7ca24f8a72e96c1a9847a20a3fb969ced145771969991fea3931ab611c3",
+          "next_text_sha256": "319c09c37a4f08a9da5ac186b032ac438081ad80d2381e12cb5f39d6db3ffec9",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 666,
+          "start_sec": 6744.37,
+          "selection": "preselected",
+          "source_text_sha256": "91fd4b8173f4dad1c6428cb526c94f8312ca1febdca4143da430bde2c77834c7",
+          "actual_text_sha256": "91fd4b8173f4dad1c6428cb526c94f8312ca1febdca4143da430bde2c77834c7",
+          "previous_text_sha256": "8cc6a3abca826dae113345cbf720546af3d8792e4aff48fcbcfefb3a4dbb3c74",
+          "next_text_sha256": "e9f6fed6be8314b19ee7dad9027a88781ccf10ce5d4ccb2466b5e83c49383232",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 668,
+          "start_sec": 6766.44,
+          "selection": "preselected",
+          "source_text_sha256": "ee0cfede80bd888835827fd6c2f7f5bce9bc9cbd73f53fda35834d45516fefb7",
+          "actual_text_sha256": "ee0cfede80bd888835827fd6c2f7f5bce9bc9cbd73f53fda35834d45516fefb7",
+          "previous_text_sha256": "e9f6fed6be8314b19ee7dad9027a88781ccf10ce5d4ccb2466b5e83c49383232",
+          "next_text_sha256": "0b7eff1e6ff14c3d1ce87878cdaf969653211307dd5c834f712e43e6e83bbce5",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 686,
+          "start_sec": 6960.32,
+          "selection": "preselected",
+          "source_text_sha256": "185aad88c6aba741a9006e4916140c705e8fe34f096e0166f1ab4b4241802de1",
+          "actual_text_sha256": "185aad88c6aba741a9006e4916140c705e8fe34f096e0166f1ab4b4241802de1",
+          "previous_text_sha256": "7adb7658102167972eaeb67bb1b5062dcbcc466fb2bec1f454173be54ad1c46f",
+          "next_text_sha256": "b1951fcb1aa36b6aac174aa0b1250db3f992d9bd115245326e2ec7c7a8bab6a0",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 700,
+          "start_sec": 7105.34,
+          "selection": "preselected",
+          "source_text_sha256": "2d171fc605e53fc6062ae820c6af6c680374d2f6d6f9a7b4af2bb198e096cf44",
+          "actual_text_sha256": "e210a9732e2fb36e08b2195939a2ed5ba54a06b4b52d9f2d3b46fa8329ce0d40",
+          "previous_text_sha256": "13d6b20cca5a06cfabd61b8ad395dd264709a9b6dcae00aa3649e4f39bad44a0",
+          "next_text_sha256": "bf6126b4f67bfb1902c6e9e8a05eb84cfed3c44330fcaab37ee215e3c5e3149e",
+          "flags": [
+            "lexical"
+          ],
+          "assessment": "context_supported",
+          "note": "Убрана вокальная пауза; вопрос сохранён.",
+          "assessment_origin": "agent_text_context"
+        },
+        {
+          "index": 702,
+          "start_sec": 7121.25,
+          "selection": "preselected",
+          "source_text_sha256": "ac2cc3cd73a20dcd4b070584b9df26c580c3b5ee8c692db3f5adb888c4a026ac",
+          "actual_text_sha256": "ac2cc3cd73a20dcd4b070584b9df26c580c3b5ee8c692db3f5adb888c4a026ac",
+          "previous_text_sha256": "bf6126b4f67bfb1902c6e9e8a05eb84cfed3c44330fcaab37ee215e3c5e3149e",
+          "next_text_sha256": "78d961d9670bc951016b4f6751c30d3686f8e056d9d38de2444923b688323132",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        }
+      ]
+    },
+    {
+      "model": "gemma4:e4b",
+      "repeat": 2,
+      "report_sha256": "f7bc3f871cf10716573be750941a48452b63402279430877ad024be1a258363d",
+      "preselected_indices": [
+        2,
+        5,
+        6,
+        17,
+        46,
+        89,
+        110,
+        168,
+        215,
+        227,
+        260,
+        278,
+        314,
+        315,
+        356,
+        371,
+        439,
+        443,
+        460,
+        472,
+        496,
+        530,
+        531,
+        579,
+        598,
+        618,
+        644,
+        668,
+        674,
+        700,
+        702
+      ],
+      "supplemental_indices": [
+        50,
+        236,
+        411,
+        580,
+        606
+      ],
+      "review_counts": {
+        "unchanged": 21,
+        "style_review": 1,
+        "context_supported": 13,
+        "meaning_risk": 1
+      },
+      "preselected_counts": {
+        "unchanged": 19,
+        "style_review": 1,
+        "context_supported": 11
+      },
+      "supplemental_counts": {
+        "unchanged": 2,
+        "context_supported": 2,
+        "meaning_risk": 1
+      },
+      "reviews": [
+        {
+          "index": 2,
+          "start_sec": 18.17,
+          "selection": "preselected",
+          "source_text_sha256": "60f16d78dc720a9c5bfa4b70fd6e0422eaaae29fe3c09f35dc5365468ab7c60c",
+          "actual_text_sha256": "60f16d78dc720a9c5bfa4b70fd6e0422eaaae29fe3c09f35dc5365468ab7c60c",
+          "previous_text_sha256": "ee893cdf38e25b6c46d07c18899611b449cfdd2e8a15a277f1e46ed0bcb69a36",
+          "next_text_sha256": "a7ea5a48250b481af0750c907bac6adc3804647858a79902ff24afa541851819",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 5,
+          "start_sec": 48.15,
+          "selection": "preselected",
+          "source_text_sha256": "320eb362b15bbbdeba937dfab47c3127f0da78b8678d16fcb8be79c899e040ba",
+          "actual_text_sha256": "320eb362b15bbbdeba937dfab47c3127f0da78b8678d16fcb8be79c899e040ba",
+          "previous_text_sha256": "84bf51ca679d5db3ceebf5cbdd781775b1ceef9789c3858ea26d19856d3619fc",
+          "next_text_sha256": "1bef930c4fbc627c214b3869bc6595e3651d1db4bc4f9290fe5ce83954a34731",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 6,
+          "start_sec": 60.12,
+          "selection": "preselected",
+          "source_text_sha256": "1bef930c4fbc627c214b3869bc6595e3651d1db4bc4f9290fe5ce83954a34731",
+          "actual_text_sha256": "a985e79a1377a4701149d52b87901828a302a606459c173a08248be444c68ea1",
+          "previous_text_sha256": "320eb362b15bbbdeba937dfab47c3127f0da78b8678d16fcb8be79c899e040ba",
+          "next_text_sha256": "9a69a8332749b92623ddebf26d7f9c406ae0a32d4b57853f4ae5d55076b33e28",
+          "flags": [
+            "lexical"
+          ],
+          "assessment": "style_review",
+          "note": "Удалена вводная пауза, но сглажены тире вопроса и ответа внутри строки; содержание сохранено, оформление диалога требует решения.",
+          "assessment_origin": "same source/actual/context as gemma4:e4b:1"
+        },
+        {
+          "index": 17,
+          "start_sec": 171.57,
+          "selection": "preselected",
+          "source_text_sha256": "b280e593ddbb050b869478bc985072db40904c3e6f242bef752626512b32aad9",
+          "actual_text_sha256": "b280e593ddbb050b869478bc985072db40904c3e6f242bef752626512b32aad9",
+          "previous_text_sha256": "e9c2ce552d3b92a222ab4afdac9a503a3dd6e575b10d497dd15e335e7248a78a",
+          "next_text_sha256": "7284cc7335dd2db5dd91e30106e5d0e241c23d93efd6cdc5a55f92e8c8a1221f",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 46,
+          "start_sec": 467.94,
+          "selection": "preselected",
+          "source_text_sha256": "f357a6a44a7f4c8074530d06945c3c768c334a2b21d39c1b162630cd73e280e7",
+          "actual_text_sha256": "65905ee264c87c5ce132e2b8ea84fba24c07c15a76384b14e02f907f6b4726ad",
+          "previous_text_sha256": "1249820e30c5b4e727dd9757ab090b1a7106f24d32b40701445d7a0994598124",
+          "next_text_sha256": "4c5735d08159bf62fce9708e5ab29e143f50f4d11eaa3b7cf7305abf51658671",
+          "flags": [
+            "qualifier",
+            "lexical"
+          ],
+          "assessment": "context_supported",
+          "note": "Убран соседний повтор союза, условие сохранено.",
+          "assessment_origin": "same source/actual/context as gemma4:e4b:1"
+        },
+        {
+          "index": 50,
+          "start_sec": 505.87,
+          "selection": "supplemental lexical substitution follow-up",
+          "source_text_sha256": "a4cb64924341681b8b7d6da3c80a6a0ecce10e993dc8905a10528b7c0e6c4dda",
+          "actual_text_sha256": "a4cb64924341681b8b7d6da3c80a6a0ecce10e993dc8905a10528b7c0e6c4dda",
+          "previous_text_sha256": "e283461370b7fdbb58df3b62be135b4d483005ba2412922f9d091ff3e0bc0d5e",
+          "next_text_sha256": "251adfb8dd7264b499a7acd39538841c40b9ad66033e1c5cbeaaa7fd8aadaf90",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 89,
+          "start_sec": 901.4,
+          "selection": "preselected",
+          "source_text_sha256": "91e56a408a675c83cee36aa5f6619ac400103c6a868e25817bf55ca5b7b570aa",
+          "actual_text_sha256": "91e56a408a675c83cee36aa5f6619ac400103c6a868e25817bf55ca5b7b570aa",
+          "previous_text_sha256": "b450bce3fe4d73ec1483bf75bc997d689a79f2d13fc910de95fb26653dc06f0f",
+          "next_text_sha256": "4dcab31c89a24cc5e06ce4ec6810d77a0d3fe16ae5467d46fae5138eadcdf2a3",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 110,
+          "start_sec": 1116.47,
+          "selection": "preselected",
+          "source_text_sha256": "c535d9301bc03fc46365fae150947c202db94f6e7d554638ccc62c28b413a837",
+          "actual_text_sha256": "42ab27ad2dcac65b127519168a5b4b1a5e94423582fe5b8df6f34932d1588eae",
+          "previous_text_sha256": "5a28623c362242746d31fc2ee9b297ab15563424609921576a9d9e2d4eba574a",
+          "next_text_sha256": "001fe8f433ca69d635067819e7ff7ec689dca15a6be48e43f7ef14c103c89abf",
+          "flags": [
+            "lexical"
+          ],
+          "assessment": "context_supported",
+          "note": "Убрана вводная пауза, нормализованы точки; отрицание, условность и обрыв остались.",
+          "assessment_origin": "agent_text_context"
+        },
+        {
+          "index": 168,
+          "start_sec": 1700.19,
+          "selection": "preselected",
+          "source_text_sha256": "1f6cf036894f1900a42cf967eecdc0036a71bec9fcdbca6362c5ba6874131649",
+          "actual_text_sha256": "e903e764b74b9959f97c5b88740d680ac32dc5bbb225c1efde3792487572fb34",
+          "previous_text_sha256": "d56d0dd4fc087757417e7bb1432cf402abcb8e77722931b68c474f257c7b542c",
+          "next_text_sha256": "03a7cfd5d290507723be6e7a0e9eb48fbb2503d8e71bb7ac6f079445f5e82c91",
+          "flags": [
+            "lexical"
+          ],
+          "assessment": "context_supported",
+          "note": "Убрано вводное ну; оговорка наверное, вопрос и оборванный хвост сохранены.",
+          "assessment_origin": "same source/actual/context as gemma4:e4b:1"
+        },
+        {
+          "index": 215,
+          "start_sec": 2160.39,
+          "selection": "preselected",
+          "source_text_sha256": "04de69058e171af30ca164233436cdc93861107990af32ca6a492344d8c0fa6a",
+          "actual_text_sha256": "43a13d7e618007186458f97dd6bc7b6e96ff84608a457e405cd22f83888ede20",
+          "previous_text_sha256": "bbbc2204be27c17ee36742470bf01dd07cc544ec3c969af4adae42fc4498c4bb",
+          "next_text_sha256": "0f75e42597a8c031004603e83486c05b376f3092f2995f8f65f13eb7ec5caaaa",
+          "flags": [
+            "lexical"
+          ],
+          "assessment": "context_supported",
+          "note": "Исправлена форма связи с уже данным прилагательным; отрицание и собственная последовательность слов сохранены.",
+          "assessment_origin": "agent_text_context"
+        },
+        {
+          "index": 227,
+          "start_sec": 2276.33,
+          "selection": "preselected",
+          "source_text_sha256": "359e8b10ca59fcac9c8b0ae0c4d391d1b8f3c947b9316922496635108fc19be2",
+          "actual_text_sha256": "359e8b10ca59fcac9c8b0ae0c4d391d1b8f3c947b9316922496635108fc19be2",
+          "previous_text_sha256": "b0b2bb9274da9569085c2d4155732ff014c4694c4530d76c8ec6d92e260e15c1",
+          "next_text_sha256": "2b137d9b715fd3506921defa1f2b3888055818defa8a8d036fbd58064665a5f4",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 236,
+          "start_sec": 2368.0,
+          "selection": "supplemental lexical substitution follow-up",
+          "source_text_sha256": "9bfe7d70921ca54c3724ddbd3d4463a5ad3941f247ef1e509b59edc4a2dda9ef",
+          "actual_text_sha256": "9bfe7d70921ca54c3724ddbd3d4463a5ad3941f247ef1e509b59edc4a2dda9ef",
+          "previous_text_sha256": "57f20ed50a33170c7386f241a47a35b6dd83f388d2291a8fe65ffcacaf74b0ac",
+          "next_text_sha256": "0dcca56f91ece8a61be9b5ac43b7f5980b995041cfdac171b4f48c93549ab45a",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 260,
+          "start_sec": 2614.11,
+          "selection": "preselected",
+          "source_text_sha256": "b9a264dae2fbfbafac590d44dabaa8397f34eb57cfed29a457896b8c533e5009",
+          "actual_text_sha256": "b9a264dae2fbfbafac590d44dabaa8397f34eb57cfed29a457896b8c533e5009",
+          "previous_text_sha256": "0ab80effd55714e794835ca5796f87660bfb512221c43ef906d087757b42813c",
+          "next_text_sha256": "52a7859adfbe97e0ad9c77ee408dacbf332460247d7e009646a82515348f650b",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 278,
+          "start_sec": 2794.5,
+          "selection": "preselected",
+          "source_text_sha256": "c758f09ed58337e36db4de84f8e28c691dd5598e114b7a58353a2b7bfcd3b1cd",
+          "actual_text_sha256": "c758f09ed58337e36db4de84f8e28c691dd5598e114b7a58353a2b7bfcd3b1cd",
+          "previous_text_sha256": "c38623ace71b8107a446a6318f0bc7ae8fbb0fb44f8d59f3b298e0f4630479f1",
+          "next_text_sha256": "14b26905eb8458ae11d00efed5b4ae8bf3fdc19884bf3a1d0cc4414af22cc3a1",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 314,
+          "start_sec": 3166.43,
+          "selection": "preselected",
+          "source_text_sha256": "54ba3c44227a70c1d030763850f6c765e3a3d418c1bf280e4cf90aef25b5ab44",
+          "actual_text_sha256": "18ea39d6fb8467c77b132e7e76695cf7709145c2df158749b9ab49877ed91652",
+          "previous_text_sha256": "8e4dcabcc4e2eedf9e7ab7c18648e6c64b5ad1733e83bf20a95f5f7d2757d4df",
+          "next_text_sha256": "a3ec52b3b9b7d9b1ab58382f6a3b752d8ce5bc5f8c77ac66007e0b42310ade60",
+          "flags": [
+            "lexical"
+          ],
+          "assessment": "context_supported",
+          "note": "Убрана вокальная пауза, вопрос, число и условие сохранены.",
+          "assessment_origin": "same source/actual/context as qwen3.5:4b:1"
+        },
+        {
+          "index": 315,
+          "start_sec": 3178.18,
+          "selection": "preselected",
+          "source_text_sha256": "a3ec52b3b9b7d9b1ab58382f6a3b752d8ce5bc5f8c77ac66007e0b42310ade60",
+          "actual_text_sha256": "a3ec52b3b9b7d9b1ab58382f6a3b752d8ce5bc5f8c77ac66007e0b42310ade60",
+          "previous_text_sha256": "54ba3c44227a70c1d030763850f6c765e3a3d418c1bf280e4cf90aef25b5ab44",
+          "next_text_sha256": "73a0b05241c0b9b51df01adf073ef066ee864f4c149eb7cefd67aa24ebfc3174",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 356,
+          "start_sec": 3616.55,
+          "selection": "preselected",
+          "source_text_sha256": "b0603e5fff4c385b9ae1370449609efb1cd8a60475315e38afa8c6f27a1d6180",
+          "actual_text_sha256": "b0603e5fff4c385b9ae1370449609efb1cd8a60475315e38afa8c6f27a1d6180",
+          "previous_text_sha256": "e3eb7280feb6e62b3cbd15306490410b7acaeb715d12ce134cf5fa0b50d80ce9",
+          "next_text_sha256": "a86288d8ed347be79fb5948b4166993e767305740bf6d9d782575632c24253f1",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 371,
+          "start_sec": 3773.59,
+          "selection": "preselected",
+          "source_text_sha256": "66ea81855331e02bfa36f0d0957bcef8d0a951dbf45b93b6d9a2aa16e82b2723",
+          "actual_text_sha256": "66ea81855331e02bfa36f0d0957bcef8d0a951dbf45b93b6d9a2aa16e82b2723",
+          "previous_text_sha256": "9d19973ef0ba14857eb67aba5a5b83346f1c64437795d86c6373dcf1ad22b63c",
+          "next_text_sha256": "639f8f0b97391c78f29f37abe81ccb708b7a598fa0b3fdc570b752207ff52666",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 411,
+          "start_sec": 4167.19,
+          "selection": "supplemental lexical substitution follow-up",
+          "source_text_sha256": "15f5a060b9d1c2453022c79c6ca3f35fc6f0e2e41d0601f4ceeb28da59541113",
+          "actual_text_sha256": "126ab381742aac3bac12ac2972bf0a4891fcaee2cbe97af5d5cee95df67f4faf",
+          "previous_text_sha256": "e89a6d8a71e6f09d35d6f69ffdb895c37f3f209f90f55dbb2b45462953f6a67d",
+          "next_text_sha256": "f17562b59b7eb772086dd9e2a2653c11349d93b3284f11265a7c5c9def68e6ae",
+          "flags": [
+            "lexical"
+          ],
+          "assessment": "context_supported",
+          "note": "Удалены вокальные паузы, исходный предметный глагол не заменён.",
+          "assessment_origin": "same source/actual/context as gemma4:e4b:1"
+        },
+        {
+          "index": 439,
+          "start_sec": 4442.14,
+          "selection": "preselected",
+          "source_text_sha256": "bd4793112853eefda0ea0833664e153d00aa80115817c2bf387738a8b8ff9221",
+          "actual_text_sha256": "bd4793112853eefda0ea0833664e153d00aa80115817c2bf387738a8b8ff9221",
+          "previous_text_sha256": "f8b662e209dd13ad4642aaba5e9af7bd6d4dafab3567d1cacd937e97d6679793",
+          "next_text_sha256": "4b59bcb19d14ab3700b47758819b0e89cb3bcd57d4681be233928707cdab2d61",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 443,
+          "start_sec": 4479.16,
+          "selection": "preselected",
+          "source_text_sha256": "aa4bcb6d980abe4a197bf50a15b27598e42bc25a70bf281caf3a281a867dbe47",
+          "actual_text_sha256": "cc540fe29adeeba746c1b526e478260b5ec686b308a708792344d9d2213c0e8b",
+          "previous_text_sha256": "baa0a430e08116510dec528bf566909841e3533369cc173b9ac6b41b5731e870",
+          "next_text_sha256": "3c19b3eb67b871bade098740ee5f2c763d335b122daad07244d03f68e2db75d8",
+          "flags": [
+            "lexical"
+          ],
+          "assessment": "context_supported",
+          "note": "Исправлено согласование сказуемого с это; вопрос и условие сохранены.",
+          "assessment_origin": "agent_text_context"
+        },
+        {
+          "index": 460,
+          "start_sec": 4647.51,
+          "selection": "preselected",
+          "source_text_sha256": "19f27112681f5010faac1e9e62b88404a1b7ae12faea63126f4a727ff3cb4580",
+          "actual_text_sha256": "19f27112681f5010faac1e9e62b88404a1b7ae12faea63126f4a727ff3cb4580",
+          "previous_text_sha256": "208a556b58ac1ba0cffc3ecf63003732ae0c1f84ebc49a9ebec7294da242f7ef",
+          "next_text_sha256": "f9683d759f014617f3b04bd36aedf8136fbcb1110d513ba4d1bac47b2eba4a72",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 472,
+          "start_sec": 4772.23,
+          "selection": "preselected",
+          "source_text_sha256": "52274f5d80cf094450f5d7e6bdd521b2de6f92b275257c1753b3bac5ec7afd47",
+          "actual_text_sha256": "52274f5d80cf094450f5d7e6bdd521b2de6f92b275257c1753b3bac5ec7afd47",
+          "previous_text_sha256": "9e1d353f6d17665bc7c6a813cc8be36dda9de165dc76fd59222a845e115dbf68",
+          "next_text_sha256": "2feb8e62a553d63611ae00f0860090e96f5298ed43d1a069a61f2aec4c7f7753",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 496,
+          "start_sec": 5045.7,
+          "selection": "preselected",
+          "source_text_sha256": "7f74ff271ef22ff12a2ac6f73dfee239aaffe6944de3c4552811085331d71502",
+          "actual_text_sha256": "7f74ff271ef22ff12a2ac6f73dfee239aaffe6944de3c4552811085331d71502",
+          "previous_text_sha256": "bd67eee9919e79322e7f2e8e75461b10153adea2ce6dc4405a2d00c212d2d433",
+          "next_text_sha256": "ade6967d422faf75ad1ab08b86d209ed7dddc6f5424108fc6fd65f832a26fdcf",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 530,
+          "start_sec": 5382.52,
+          "selection": "preselected",
+          "source_text_sha256": "d8c4ab25cb15a58e4d7434b1c2a4949b0bfe7eda160360bfdd2aeb62d07a8c3d",
+          "actual_text_sha256": "5ce12756fb0ee9698d9176c098a93491272daab6b71e8405566b2c22f2f3fa68",
+          "previous_text_sha256": "79c0b645515532b806ec35a8fdc8855b669fee1fdd0607f0cd12fa2c4bae9e77",
+          "next_text_sha256": "7af6fb3a7a0017356948f648b37888bac2fcf042809b49707eea9cdc3d3ebbfd",
+          "flags": [
+            "lexical"
+          ],
+          "assessment": "context_supported",
+          "note": "Сокращён соседний повтор подтверждения, цитата и вопрос сохранены.",
+          "assessment_origin": "agent_text_context"
+        },
+        {
+          "index": 531,
+          "start_sec": 5395.98,
+          "selection": "preselected",
+          "source_text_sha256": "7af6fb3a7a0017356948f648b37888bac2fcf042809b49707eea9cdc3d3ebbfd",
+          "actual_text_sha256": "1419ec8fe4c72ace1f95024f6281e67cf7d6be2acb13dbae8dd23a1a7e59ee77",
+          "previous_text_sha256": "d8c4ab25cb15a58e4d7434b1c2a4949b0bfe7eda160360bfdd2aeb62d07a8c3d",
+          "next_text_sha256": "ac9c6e2e2a7fcfd4fb48c75b77ad68483d7b576f4727ae16ffad8728fc2b9ef6",
+          "flags": [
+            "lexical"
+          ],
+          "assessment": "context_supported",
+          "note": "Убраны вокальные паузы, обрыв и собственная формулировка сохранены.",
+          "assessment_origin": "same source/actual/context as gemma4:e4b:1"
+        },
+        {
+          "index": 579,
+          "start_sec": 5886.36,
+          "selection": "preselected",
+          "source_text_sha256": "32b5a6c21d7c4e59af102aa6146d9d5c1d6262b6e085a3b67cb9a60937f2a87d",
+          "actual_text_sha256": "32b5a6c21d7c4e59af102aa6146d9d5c1d6262b6e085a3b67cb9a60937f2a87d",
+          "previous_text_sha256": "e6b7c98e3198f5baf4b1a75acbf0f6e09dcb3b14caa366c08f21190b30a05818",
+          "next_text_sha256": "199d74aca79de0968d66cbfd9fcf74057776cc1078cc379d32ffd50aad1625d0",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 580,
+          "start_sec": 5896.95,
+          "selection": "supplemental lexical substitution follow-up",
+          "source_text_sha256": "199d74aca79de0968d66cbfd9fcf74057776cc1078cc379d32ffd50aad1625d0",
+          "actual_text_sha256": "7bc171aea9f6e1704e24bfef26bb93c5c7cccdf03f8decc2f6484291ead470d1",
+          "previous_text_sha256": "32b5a6c21d7c4e59af102aa6146d9d5c1d6262b6e085a3b67cb9a60937f2a87d",
+          "next_text_sha256": "02f8c80e3adf2d9d16a8676df1a918ee90cc82d90f20e8910557f195c4cd7a19",
+          "flags": [
+            "lexical"
+          ],
+          "assessment": "context_supported",
+          "note": "Удалена вводная пауза, исходное время глагола сохранено.",
+          "assessment_origin": "same source/actual/context as gemma4:e4b:1"
+        },
+        {
+          "index": 598,
+          "start_sec": 6078.88,
+          "selection": "preselected",
+          "source_text_sha256": "1eb1e20abdde27a5aa07e9ac79cdde62da69c5185dbaa41a1cc38880a1363e60",
+          "actual_text_sha256": "ee02ec32fdfcb9cb7ab470bc5c3eb8ca94148dff225f661ed859bc92a9f474c9",
+          "previous_text_sha256": "d79587939bed2f5813bbe731cf6111bec68ec9791fa214d6972d84f1d44e1d68",
+          "next_text_sha256": "e56a5d61ca43dfa7a8c096212aa66dc9d624fddf473f0c17278493998e811821",
+          "flags": [
+            "lexical"
+          ],
+          "assessment": "context_supported",
+          "note": "Исправлено согласование прилагательного со сдачей без изменения события.",
+          "assessment_origin": "agent_text_context"
+        },
+        {
+          "index": 606,
+          "start_sec": 6146.53,
+          "selection": "supplemental lexical substitution follow-up",
+          "source_text_sha256": "46ce901bfba008ba7a1c42e8f31cf7aba4500947c1f1bcdeb90fb4bdddbeeae9",
+          "actual_text_sha256": "a2276fcba68a22294d36e6c084853f2f34b532a033ba698edcf0221f718656ac",
+          "previous_text_sha256": "2c352ee1f112f01d8c2aad83e2a7682d5f2f6e009e576aa7a6fa306503ef381f",
+          "next_text_sha256": "bfe4f3614a937a6ed970e51923a35a89687c8a416baf479caac93339ca8069c5",
+          "flags": [
+            "lexical"
+          ],
+          "assessment": "meaning_risk",
+          "note": "Исходный объект истории после собрал заменён родительным историй после со всех; связь глагола и объекта ухудшена. Это риск ошибочного близкого морфологического исправления.",
+          "assessment_origin": "same source/actual/context as gemma4:e4b:1"
+        },
+        {
+          "index": 618,
+          "start_sec": 6271.13,
+          "selection": "preselected",
+          "source_text_sha256": "162354a8b36606e0f32919dc4a0149052a0d688d409351a724a3c91a5a3672ea",
+          "actual_text_sha256": "162354a8b36606e0f32919dc4a0149052a0d688d409351a724a3c91a5a3672ea",
+          "previous_text_sha256": "2522fc2394ef3c9975911bb1017e2614dc5b3930878003e1ebece425ff196592",
+          "next_text_sha256": "ab992ded0c2ecb875738d8933ae15d70513a60635a92b1b0b51723cd705b773d",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 644,
+          "start_sec": 6529.06,
+          "selection": "preselected",
+          "source_text_sha256": "a4209f354bde4c73fc58260fcd402edce8fc84394bffbdeb825bb566a563a995",
+          "actual_text_sha256": "a4209f354bde4c73fc58260fcd402edce8fc84394bffbdeb825bb566a563a995",
+          "previous_text_sha256": "9de87d006638798327ca359b5fa291636b25156e911084209183d1c591e2b6f7",
+          "next_text_sha256": "0619452a9d939132ee7edfff9a49e5bf5829ecfda20aa7d91d9e353c460dc6b5",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 668,
+          "start_sec": 6766.44,
+          "selection": "preselected",
+          "source_text_sha256": "ee0cfede80bd888835827fd6c2f7f5bce9bc9cbd73f53fda35834d45516fefb7",
+          "actual_text_sha256": "d18d2ab5960b76761f39cb790a5e7e1775d270637993e7325f4351310647155a",
+          "previous_text_sha256": "e9f6fed6be8314b19ee7dad9027a88781ccf10ce5d4ccb2466b5e83c49383232",
+          "next_text_sha256": "0b7eff1e6ff14c3d1ce87878cdaf969653211307dd5c834f712e43e6e83bbce5",
+          "flags": [
+            "literal",
+            "lexical"
+          ],
+          "assessment": "context_supported",
+          "note": "Оформлен регистр названия и убрана вводная пауза; неясный термин сохранён.",
+          "assessment_origin": "same source/actual/context as gemma4:e4b:1"
+        },
+        {
+          "index": 674,
+          "start_sec": 6827.56,
+          "selection": "preselected",
+          "source_text_sha256": "023c01eb86f0089244ba9994ffed797ff204488c5089453af83baec57e87deba",
+          "actual_text_sha256": "023c01eb86f0089244ba9994ffed797ff204488c5089453af83baec57e87deba",
+          "previous_text_sha256": "818fe4e7564b704f0311613ff9fc8e311f6f469f6abb68e3c6cf7f6dd021a608",
+          "next_text_sha256": "2adcae7f747acabe91ece5fe9570864e02fcebfa4c57b8f356e05d32aa0e9cc6",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 700,
+          "start_sec": 7105.34,
+          "selection": "preselected",
+          "source_text_sha256": "2d171fc605e53fc6062ae820c6af6c680374d2f6d6f9a7b4af2bb198e096cf44",
+          "actual_text_sha256": "e210a9732e2fb36e08b2195939a2ed5ba54a06b4b52d9f2d3b46fa8329ce0d40",
+          "previous_text_sha256": "13d6b20cca5a06cfabd61b8ad395dd264709a9b6dcae00aa3649e4f39bad44a0",
+          "next_text_sha256": "bf6126b4f67bfb1902c6e9e8a05eb84cfed3c44330fcaab37ee215e3c5e3149e",
+          "flags": [
+            "lexical"
+          ],
+          "assessment": "context_supported",
+          "note": "Убрана вокальная пауза, вопрос сохранён.",
+          "assessment_origin": "same source/actual/context as gemma4:e4b:1"
+        },
+        {
+          "index": 702,
+          "start_sec": 7121.25,
+          "selection": "preselected",
+          "source_text_sha256": "ac2cc3cd73a20dcd4b070584b9df26c580c3b5ee8c692db3f5adb888c4a026ac",
+          "actual_text_sha256": "ac2cc3cd73a20dcd4b070584b9df26c580c3b5ee8c692db3f5adb888c4a026ac",
+          "previous_text_sha256": "bf6126b4f67bfb1902c6e9e8a05eb84cfed3c44330fcaab37ee215e3c5e3149e",
+          "next_text_sha256": "78d961d9670bc951016b4f6751c30d3686f8e056d9d38de2444923b688323132",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        }
+      ]
+    },
+    {
+      "model": "qwen3.5:4b",
+      "repeat": 2,
+      "report_sha256": "db8d566007d79190e4e38656b62101526275d94aac13114f18d840d2c54f3a2f",
+      "preselected_indices": [
+        4,
+        5,
+        17,
+        46,
+        78,
+        95,
+        99,
+        158,
+        161,
+        177,
+        209,
+        215,
+        245,
+        256,
+        267,
+        278,
+        312,
+        379,
+        413,
+        437,
+        449,
+        514,
+        534,
+        535,
+        598,
+        621,
+        666,
+        668,
+        686,
+        700,
+        702
+      ],
+      "supplemental_indices": [
+        50,
+        236,
+        411,
+        580,
+        606
+      ],
+      "review_counts": {
+        "context_supported": 12,
+        "unchanged": 22,
+        "audio_required": 2
+      },
+      "preselected_counts": {
+        "context_supported": 11,
+        "unchanged": 20
+      },
+      "supplemental_counts": {
+        "context_supported": 1,
+        "audio_required": 2,
+        "unchanged": 2
+      },
+      "reviews": [
+        {
+          "index": 4,
+          "start_sec": 37.93,
+          "selection": "preselected",
+          "source_text_sha256": "84bf51ca679d5db3ceebf5cbdd781775b1ceef9789c3858ea26d19856d3619fc",
+          "actual_text_sha256": "332ba7202e6ec3bae7c7b54e8ef346f69829fb11853d15b8e23d5a66597ef81b",
+          "previous_text_sha256": "a7ea5a48250b481af0750c907bac6adc3804647858a79902ff24afa541851819",
+          "next_text_sha256": "320eb362b15bbbdeba937dfab47c3127f0da78b8678d16fcb8be79c899e040ba",
+          "flags": [
+            "lexical"
+          ],
+          "assessment": "context_supported",
+          "note": "Удалена хвостовая вокальная пауза, оговорки и собственные слова сохранены.",
+          "assessment_origin": "same source/actual/context as qwen3.5:4b:1"
+        },
+        {
+          "index": 5,
+          "start_sec": 48.15,
+          "selection": "preselected",
+          "source_text_sha256": "320eb362b15bbbdeba937dfab47c3127f0da78b8678d16fcb8be79c899e040ba",
+          "actual_text_sha256": "a5c136832909044a2ca1b531d2a793f5145b1c7a4616d41ff4180e902a540a11",
+          "previous_text_sha256": "84bf51ca679d5db3ceebf5cbdd781775b1ceef9789c3858ea26d19856d3619fc",
+          "next_text_sha256": "1bef930c4fbc627c214b3869bc6595e3651d1db4bc4f9290fe5ce83954a34731",
+          "flags": [],
+          "assessment": "context_supported",
+          "note": "Убрано лишнее соседство знаков приветствия, сами приветствия и восклицание сохранены.",
+          "assessment_origin": "agent_text_context"
+        },
+        {
+          "index": 17,
+          "start_sec": 171.57,
+          "selection": "preselected",
+          "source_text_sha256": "b280e593ddbb050b869478bc985072db40904c3e6f242bef752626512b32aad9",
+          "actual_text_sha256": "b280e593ddbb050b869478bc985072db40904c3e6f242bef752626512b32aad9",
+          "previous_text_sha256": "e9c2ce552d3b92a222ab4afdac9a503a3dd6e575b10d497dd15e335e7248a78a",
+          "next_text_sha256": "7284cc7335dd2db5dd91e30106e5d0e241c23d93efd6cdc5a55f92e8c8a1221f",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 46,
+          "start_sec": 467.94,
+          "selection": "preselected",
+          "source_text_sha256": "f357a6a44a7f4c8074530d06945c3c768c334a2b21d39c1b162630cd73e280e7",
+          "actual_text_sha256": "f357a6a44a7f4c8074530d06945c3c768c334a2b21d39c1b162630cd73e280e7",
+          "previous_text_sha256": "1249820e30c5b4e727dd9757ab090b1a7106f24d32b40701445d7a0994598124",
+          "next_text_sha256": "4c5735d08159bf62fce9708e5ab29e143f50f4d11eaa3b7cf7305abf51658671",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 50,
+          "start_sec": 505.87,
+          "selection": "supplemental lexical substitution follow-up",
+          "source_text_sha256": "a4cb64924341681b8b7d6da3c80a6a0ecce10e993dc8905a10528b7c0e6c4dda",
+          "actual_text_sha256": "acb52b5ca79cad27c1b61859aa58b3591ee02e007cf349fd391bd0aadcd5de0a",
+          "previous_text_sha256": "e283461370b7fdbb58df3b62be135b4d483005ba2412922f9d091ff3e0bc0d5e",
+          "next_text_sha256": "251adfb8dd7264b499a7acd39538841c40b9ad66033e1c5cbeaaa7fd8aadaf90",
+          "flags": [],
+          "assessment": "context_supported",
+          "note": "Изменён только регистр; собственные слова и связь с предыдущим предлогом сохранены, исходная ошибка согласования не исправлялась.",
+          "assessment_origin": "same source/actual/context as qwen3.5:4b:1"
+        },
+        {
+          "index": 78,
+          "start_sec": 788.84,
+          "selection": "preselected",
+          "source_text_sha256": "33ef00d624727026ebf489550b1e593fa21a4110eda2e41e0e7f60c413e9a29b",
+          "actual_text_sha256": "33ef00d624727026ebf489550b1e593fa21a4110eda2e41e0e7f60c413e9a29b",
+          "previous_text_sha256": "2de7c625d6b679167749198fd298f309422053a03461e63aae40017418430acc",
+          "next_text_sha256": "9dd7fcdc1f4a99e47d7529f4282e73866f54772fecdd1e984397c2ca3f882afe",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 95,
+          "start_sec": 968.54,
+          "selection": "preselected",
+          "source_text_sha256": "88120d0c07c77754b461dfdd2539face8fd53afa9045346d0f39a7d4d998bca2",
+          "actual_text_sha256": "88120d0c07c77754b461dfdd2539face8fd53afa9045346d0f39a7d4d998bca2",
+          "previous_text_sha256": "93b271e5af21bc0884487aca887b54db59c32623f601ea553b89e8efc4574aa7",
+          "next_text_sha256": "617a87e94491a436fbb3d873a968404c532295936ec6f22d1e49c84c1e84b8b4",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 99,
+          "start_sec": 1009.84,
+          "selection": "preselected",
+          "source_text_sha256": "92db6a51db81616b13a61f1f2af264670e9cbc0fd325abafb7ce0e7f16516104",
+          "actual_text_sha256": "8296d80f7591582b0382b925b9ebb017b66a4224cc9bf806904d8547fc50bbf9",
+          "previous_text_sha256": "5569eb6d654684ebda468e3fc9ecbcb073cbe9c78e6b8245ed4dae349231bf0e",
+          "next_text_sha256": "74ed26301bdd828c585c6ca2c931b0fb0e7eb7d5ae3776462f984cd24e90a2c5",
+          "flags": [
+            "lexical"
+          ],
+          "assessment": "context_supported",
+          "note": "Убрана вводная пауза, отрицание и вопрос сохранены.",
+          "assessment_origin": "same source/actual/context as gemma4:e4b:1"
+        },
+        {
+          "index": 158,
+          "start_sec": 1597.65,
+          "selection": "preselected",
+          "source_text_sha256": "2291fa1cc51aa946c35d6875ffaf77d3e98f249af98a7b0be3bbf969c4e668a5",
+          "actual_text_sha256": "2291fa1cc51aa946c35d6875ffaf77d3e98f249af98a7b0be3bbf969c4e668a5",
+          "previous_text_sha256": "79d254ab846c521e314de46aca845c7c93b5443d473a8853025eb827229791b2",
+          "next_text_sha256": "b06e653094c64885f187fb2041f388e93ea608911d3927612c0c965cff69beb2",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 161,
+          "start_sec": 1628.28,
+          "selection": "preselected",
+          "source_text_sha256": "26806d89d2775d82b29a8bd7abc4df0f71e0e99d963c6a789f2019abc53d5b4b",
+          "actual_text_sha256": "26806d89d2775d82b29a8bd7abc4df0f71e0e99d963c6a789f2019abc53d5b4b",
+          "previous_text_sha256": "cc55975d1562b5ffdd475a19f1598545e36b3aebff1719d709341b5bbdfdc7f5",
+          "next_text_sha256": "318574ede02ce8822cf4c8e61fa5c1329ab104942a77e0a8dbe2dc6457888f92",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 177,
+          "start_sec": 1792.4,
+          "selection": "preselected",
+          "source_text_sha256": "208b874dc3c85a9f24248824aca24ac3d57ea47ec8f5b43e7ad0dc06bfe11290",
+          "actual_text_sha256": "208b874dc3c85a9f24248824aca24ac3d57ea47ec8f5b43e7ad0dc06bfe11290",
+          "previous_text_sha256": "f0afe4ebec9e860388d8a306a3af919e2685e3d59f2c453dd44368c96e28625d",
+          "next_text_sha256": "9e6f01ab4bb1dfff1465b920f2e31856cbd58f4ca73966edeed7f67c3a098644",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 209,
+          "start_sec": 2111.62,
+          "selection": "preselected",
+          "source_text_sha256": "9ae723ca0bd45712e0c83b9d5242a2fd7b3c37ab641392f9e4b23b0aa20fef1a",
+          "actual_text_sha256": "9ae723ca0bd45712e0c83b9d5242a2fd7b3c37ab641392f9e4b23b0aa20fef1a",
+          "previous_text_sha256": "a5a3ada4087589f63ac31ad3dd07677097326eac7daaf337acc96cf73275195e",
+          "next_text_sha256": "9d5d7636b064a94a96ed868737820d4dc872f5f8c34fcf889c986d0bc80e46bb",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 215,
+          "start_sec": 2160.39,
+          "selection": "preselected",
+          "source_text_sha256": "04de69058e171af30ca164233436cdc93861107990af32ca6a492344d8c0fa6a",
+          "actual_text_sha256": "6f6881d93f4efc4c6bb92d9c3ba5f4a7c2e03af0647203a5513ced8c694d21c8",
+          "previous_text_sha256": "bbbc2204be27c17ee36742470bf01dd07cc544ec3c969af4adae42fc4498c4bb",
+          "next_text_sha256": "0f75e42597a8c031004603e83486c05b376f3092f2995f8f65f13eb7ec5caaaa",
+          "flags": [
+            "lexical"
+          ],
+          "assessment": "context_supported",
+          "note": "Исправлено согласование формы причинно-следственных связей; контекст поддерживает множественные связи, остальные слова сохранены.",
+          "assessment_origin": "agent_text_context"
+        },
+        {
+          "index": 236,
+          "start_sec": 2368.0,
+          "selection": "supplemental lexical substitution follow-up",
+          "source_text_sha256": "9bfe7d70921ca54c3724ddbd3d4463a5ad3941f247ef1e509b59edc4a2dda9ef",
+          "actual_text_sha256": "a9e80f73a6f8c596af3df247ccd7672d1b01d9f87f7a1034654ddcbd6ed7f89d",
+          "previous_text_sha256": "57f20ed50a33170c7386f241a47a35b6dd83f388d2291a8fe65ffcacaf74b0ac",
+          "next_text_sha256": "0dcca56f91ece8a61be9b5ac43b7f5980b995041cfdac171b4f48c93549ab45a",
+          "flags": [
+            "lexical"
+          ],
+          "assessment": "audio_required",
+          "note": "Неясное слово заменено другой неясной формой; текст не подтверждает полезность и верность ASR-замены.",
+          "assessment_origin": "agent_text_context"
+        },
+        {
+          "index": 245,
+          "start_sec": 2469.82,
+          "selection": "preselected",
+          "source_text_sha256": "967142540f686418bad74dbd47901ba95ec37a9d5efd8fb798c7ef66b483eb17",
+          "actual_text_sha256": "967142540f686418bad74dbd47901ba95ec37a9d5efd8fb798c7ef66b483eb17",
+          "previous_text_sha256": "003a4e25373318aad8b83a6e40e460314a414fe83244bf295ca8dd3a168fc958",
+          "next_text_sha256": "ba55db9936429ecddf6a13d1a42aa455add3456fe09c6d9e01d35dc4ac507904",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 256,
+          "start_sec": 2575.72,
+          "selection": "preselected",
+          "source_text_sha256": "92c7eb1291cfe2b053c6205dc56b9ab3a1dd8a2cb40ff0632d64e19041ca7d23",
+          "actual_text_sha256": "92c7eb1291cfe2b053c6205dc56b9ab3a1dd8a2cb40ff0632d64e19041ca7d23",
+          "previous_text_sha256": "5ed9fa1d8ab985fb00378db47a8dfa5220aac24c9d1a32c7cfaf820a311731dd",
+          "next_text_sha256": "a3e30839ffc80ef9ab9de1b2053169e29034e13e133d2ca1d916f45d9fd09ba6",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 267,
+          "start_sec": 2682.24,
+          "selection": "preselected",
+          "source_text_sha256": "a3c9d12ad3a161dd13028a73b451f55af1feccd9b73edd212a4add1e7286b5ef",
+          "actual_text_sha256": "a3c9d12ad3a161dd13028a73b451f55af1feccd9b73edd212a4add1e7286b5ef",
+          "previous_text_sha256": "4c16f679166caed8ae8e2b11990cf9ad27a89fa57b14ae94d88db8fb91cc9907",
+          "next_text_sha256": "280cac18a96d67a4cee522804eaf1103990f95728221cda99cac205bc0de7aa9",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 278,
+          "start_sec": 2794.5,
+          "selection": "preselected",
+          "source_text_sha256": "c758f09ed58337e36db4de84f8e28c691dd5598e114b7a58353a2b7bfcd3b1cd",
+          "actual_text_sha256": "c758f09ed58337e36db4de84f8e28c691dd5598e114b7a58353a2b7bfcd3b1cd",
+          "previous_text_sha256": "c38623ace71b8107a446a6318f0bc7ae8fbb0fb44f8d59f3b298e0f4630479f1",
+          "next_text_sha256": "14b26905eb8458ae11d00efed5b4ae8bf3fdc19884bf3a1d0cc4414af22cc3a1",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 312,
+          "start_sec": 3151.18,
+          "selection": "preselected",
+          "source_text_sha256": "99739a658e4e8f3852546f797bec61975f88eed8dbb4acab3ec4091cc5308f30",
+          "actual_text_sha256": "27a6d3e369becd451c4f582219970b35a684c3b0617533c2259d85231b729a87",
+          "previous_text_sha256": "b20db83505ac14bfc64222848382669a9518974fd3f51f91858748720229cb7c",
+          "next_text_sha256": "8e4dcabcc4e2eedf9e7ab7c18648e6c64b5ad1733e83bf20a95f5f7d2757d4df",
+          "flags": [],
+          "assessment": "context_supported",
+          "note": "Оформлены регистр и многоточие без изменения слов и вопроса.",
+          "assessment_origin": "agent_text_context"
+        },
+        {
+          "index": 379,
+          "start_sec": 3855.48,
+          "selection": "preselected",
+          "source_text_sha256": "c4872a9cdf3d1e6a24d6f0b521936c318e0c0576475d81ba78a6069b21041f34",
+          "actual_text_sha256": "c4872a9cdf3d1e6a24d6f0b521936c318e0c0576475d81ba78a6069b21041f34",
+          "previous_text_sha256": "7b0df39213701a62c7d3b80f88296f5b314c6e39f591fa206af01e4782946655",
+          "next_text_sha256": "88c7a3d51a3580f8a8d1b4253633112afab017a3b983bf69a924dbbb2f79d442",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 411,
+          "start_sec": 4167.19,
+          "selection": "supplemental lexical substitution follow-up",
+          "source_text_sha256": "15f5a060b9d1c2453022c79c6ca3f35fc6f0e2e41d0601f4ceeb28da59541113",
+          "actual_text_sha256": "364ed8f0035e4fdf68be906f4c9d196fb96348da7baf76a58eb876656f08c4a2",
+          "previous_text_sha256": "e89a6d8a71e6f09d35d6f69ffdb895c37f3f209f90f55dbb2b45462953f6a67d",
+          "next_text_sha256": "f17562b59b7eb772086dd9e2a2653c11349d93b3284f11265a7c5c9def68e6ae",
+          "flags": [
+            "lexical"
+          ],
+          "assessment": "audio_required",
+          "note": "Предметный термин заменён близким глаголом расширения; без аудио выбор между формами не подтверждён.",
+          "assessment_origin": "agent_text_context"
+        },
+        {
+          "index": 413,
+          "start_sec": 4186.38,
+          "selection": "preselected",
+          "source_text_sha256": "5bc2c4d22b1b53c6f67a375216e2b08bcf50786b3876f44ded823442614ca40d",
+          "actual_text_sha256": "d8d3f63a6bcaac5564188bebecb4dc46fcb828e14d033c8005f304e6be3bda2e",
+          "previous_text_sha256": "f17562b59b7eb772086dd9e2a2653c11349d93b3284f11265a7c5c9def68e6ae",
+          "next_text_sha256": "decc6f32366cdaacdb113e5b96587a2da5fd330e846eec8e4e82f58f8cdeae28",
+          "flags": [
+            "lexical"
+          ],
+          "assessment": "context_supported",
+          "note": "Убрана вводная пауза, оговорки и вопрос сохранены.",
+          "assessment_origin": "agent_text_context"
+        },
+        {
+          "index": 437,
+          "start_sec": 4414.43,
+          "selection": "preselected",
+          "source_text_sha256": "6e5a621581fb2f088750bceb0a3b8fcbc534d80e4ae7b9817255886d220061f6",
+          "actual_text_sha256": "6e5a621581fb2f088750bceb0a3b8fcbc534d80e4ae7b9817255886d220061f6",
+          "previous_text_sha256": "bab6979628654cbcd46b741947cb26ddb7aafe773b27d50ef9f6aa2f5bf59957",
+          "next_text_sha256": "f8b662e209dd13ad4642aaba5e9af7bd6d4dafab3567d1cacd937e97d6679793",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 449,
+          "start_sec": 4538.51,
+          "selection": "preselected",
+          "source_text_sha256": "a3e57954ac8f835650361af813c306535856fe663d7d2e1f08c863c29fefc200",
+          "actual_text_sha256": "a3e57954ac8f835650361af813c306535856fe663d7d2e1f08c863c29fefc200",
+          "previous_text_sha256": "4b14198b9856daa7b31656496721114f0b732db7ef331afbc687d92e76082b20",
+          "next_text_sha256": "10cabc3b13b7ae78e92ce00d22ad4e19fd3463f8ec3d2efbff4ce32f19b26a27",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 514,
+          "start_sec": 5222.06,
+          "selection": "preselected",
+          "source_text_sha256": "3bcebac2564aa983c3fa2d10d45e55928922b3d70c1a994cb50c8c3216afa2a5",
+          "actual_text_sha256": "db273a9be988b9d326da9605d69b463b4aac33520b01745887baeadc3c6a0abe",
+          "previous_text_sha256": "f3b904ca86b0e45f3b8b9819ffbf71ba219f120ccb48facf19c3c2252acd486a",
+          "next_text_sha256": "2b89b58f047fb30bb4b42026f2982aa7f9ce14c9f9d911a6657e87c02c6ce560",
+          "flags": [
+            "lexical"
+          ],
+          "assessment": "context_supported",
+          "note": "Сокращена растянутая вокализация; отрицание и определение стратегии сохранены.",
+          "assessment_origin": "agent_text_context"
+        },
+        {
+          "index": 534,
+          "start_sec": 5419.9,
+          "selection": "preselected",
+          "source_text_sha256": "3e389619aa65450c1441ad0e83130788d067ddfebffe758ed8f312f28fab938e",
+          "actual_text_sha256": "dbc532a784ea243359f52ae8a1940c8c821acc113553975d37a3ad71c0fb86f6",
+          "previous_text_sha256": "6815551606362b5229e9d8b9db8ed9fe8b5309096808ab1b64aac15d4604bcdd",
+          "next_text_sha256": "da325862ee30927adb302be031a4374016c2e84ad08c232767c0380b7289d0f6",
+          "flags": [
+            "lexical"
+          ],
+          "assessment": "context_supported",
+          "note": "Восстановлена форма прямого дополнения при вижу; последующее описание препятствий поддерживает множественное число.",
+          "assessment_origin": "same source/actual/context as gemma4:e4b:1"
+        },
+        {
+          "index": 535,
+          "start_sec": 5426.21,
+          "selection": "preselected",
+          "source_text_sha256": "da325862ee30927adb302be031a4374016c2e84ad08c232767c0380b7289d0f6",
+          "actual_text_sha256": "da325862ee30927adb302be031a4374016c2e84ad08c232767c0380b7289d0f6",
+          "previous_text_sha256": "3e389619aa65450c1441ad0e83130788d067ddfebffe758ed8f312f28fab938e",
+          "next_text_sha256": "0b587b1a6d37e4d4fda2186b8e110f50e7d3c7bbb83e24d23f4cc921438d46c6",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 580,
+          "start_sec": 5896.95,
+          "selection": "supplemental lexical substitution follow-up",
+          "source_text_sha256": "199d74aca79de0968d66cbfd9fcf74057776cc1078cc379d32ffd50aad1625d0",
+          "actual_text_sha256": "199d74aca79de0968d66cbfd9fcf74057776cc1078cc379d32ffd50aad1625d0",
+          "previous_text_sha256": "32b5a6c21d7c4e59af102aa6146d9d5c1d6262b6e085a3b67cb9a60937f2a87d",
+          "next_text_sha256": "02f8c80e3adf2d9d16a8676df1a918ee90cc82d90f20e8910557f195c4cd7a19",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 598,
+          "start_sec": 6078.88,
+          "selection": "preselected",
+          "source_text_sha256": "1eb1e20abdde27a5aa07e9ac79cdde62da69c5185dbaa41a1cc38880a1363e60",
+          "actual_text_sha256": "ee02ec32fdfcb9cb7ab470bc5c3eb8ca94148dff225f661ed859bc92a9f474c9",
+          "previous_text_sha256": "d79587939bed2f5813bbe731cf6111bec68ec9791fa214d6972d84f1d44e1d68",
+          "next_text_sha256": "e56a5d61ca43dfa7a8c096212aa66dc9d624fddf473f0c17278493998e811821",
+          "flags": [
+            "lexical"
+          ],
+          "assessment": "context_supported",
+          "note": "Исправлено согласование прилагательного со сдачей без изменения события.",
+          "assessment_origin": "same source/actual/context as gemma4:e4b:2"
+        },
+        {
+          "index": 606,
+          "start_sec": 6146.53,
+          "selection": "supplemental lexical substitution follow-up",
+          "source_text_sha256": "46ce901bfba008ba7a1c42e8f31cf7aba4500947c1f1bcdeb90fb4bdddbeeae9",
+          "actual_text_sha256": "46ce901bfba008ba7a1c42e8f31cf7aba4500947c1f1bcdeb90fb4bdddbeeae9",
+          "previous_text_sha256": "2c352ee1f112f01d8c2aad83e2a7682d5f2f6e009e576aa7a6fa306503ef381f",
+          "next_text_sha256": "bfe4f3614a937a6ed970e51923a35a89687c8a416baf479caac93339ca8069c5",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 621,
+          "start_sec": 6303.44,
+          "selection": "preselected",
+          "source_text_sha256": "0116c27c6754c204077be2ace6b5e9d755f7068aee7d524c5977df316595d331",
+          "actual_text_sha256": "0116c27c6754c204077be2ace6b5e9d755f7068aee7d524c5977df316595d331",
+          "previous_text_sha256": "4971c7ca24f8a72e96c1a9847a20a3fb969ced145771969991fea3931ab611c3",
+          "next_text_sha256": "319c09c37a4f08a9da5ac186b032ac438081ad80d2381e12cb5f39d6db3ffec9",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 666,
+          "start_sec": 6744.37,
+          "selection": "preselected",
+          "source_text_sha256": "91fd4b8173f4dad1c6428cb526c94f8312ca1febdca4143da430bde2c77834c7",
+          "actual_text_sha256": "91fd4b8173f4dad1c6428cb526c94f8312ca1febdca4143da430bde2c77834c7",
+          "previous_text_sha256": "8cc6a3abca826dae113345cbf720546af3d8792e4aff48fcbcfefb3a4dbb3c74",
+          "next_text_sha256": "e9f6fed6be8314b19ee7dad9027a88781ccf10ce5d4ccb2466b5e83c49383232",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 668,
+          "start_sec": 6766.44,
+          "selection": "preselected",
+          "source_text_sha256": "ee0cfede80bd888835827fd6c2f7f5bce9bc9cbd73f53fda35834d45516fefb7",
+          "actual_text_sha256": "73859cfd6d1bf6b7cb6bf7c75d951b80d93421bf7393e05e3adcd0071828ba79",
+          "previous_text_sha256": "e9f6fed6be8314b19ee7dad9027a88781ccf10ce5d4ccb2466b5e83c49383232",
+          "next_text_sha256": "0b7eff1e6ff14c3d1ce87878cdaf969653211307dd5c834f712e43e6e83bbce5",
+          "flags": [
+            "literal"
+          ],
+          "assessment": "context_supported",
+          "note": "Изменён только регистр названия, цитируемые слова сохранены.",
+          "assessment_origin": "agent_text_context"
+        },
+        {
+          "index": 686,
+          "start_sec": 6960.32,
+          "selection": "preselected",
+          "source_text_sha256": "185aad88c6aba741a9006e4916140c705e8fe34f096e0166f1ab4b4241802de1",
+          "actual_text_sha256": "185aad88c6aba741a9006e4916140c705e8fe34f096e0166f1ab4b4241802de1",
+          "previous_text_sha256": "7adb7658102167972eaeb67bb1b5062dcbcc466fb2bec1f454173be54ad1c46f",
+          "next_text_sha256": "b1951fcb1aa36b6aac174aa0b1250db3f992d9bd115245326e2ec7c7a8bab6a0",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        },
+        {
+          "index": 700,
+          "start_sec": 7105.34,
+          "selection": "preselected",
+          "source_text_sha256": "2d171fc605e53fc6062ae820c6af6c680374d2f6d6f9a7b4af2bb198e096cf44",
+          "actual_text_sha256": "e210a9732e2fb36e08b2195939a2ed5ba54a06b4b52d9f2d3b46fa8329ce0d40",
+          "previous_text_sha256": "13d6b20cca5a06cfabd61b8ad395dd264709a9b6dcae00aa3649e4f39bad44a0",
+          "next_text_sha256": "bf6126b4f67bfb1902c6e9e8a05eb84cfed3c44330fcaab37ee215e3c5e3149e",
+          "flags": [
+            "lexical"
+          ],
+          "assessment": "context_supported",
+          "note": "Убрана вокальная пауза, вопрос сохранён.",
+          "assessment_origin": "same source/actual/context as gemma4:e4b:1"
+        },
+        {
+          "index": 702,
+          "start_sec": 7121.25,
+          "selection": "preselected",
+          "source_text_sha256": "ac2cc3cd73a20dcd4b070584b9df26c580c3b5ee8c692db3f5adb888c4a026ac",
+          "actual_text_sha256": "ac2cc3cd73a20dcd4b070584b9df26c580c3b5ee8c692db3f5adb888c4a026ac",
+          "previous_text_sha256": "bf6126b4f67bfb1902c6e9e8a05eb84cfed3c44330fcaab37ee215e3c5e3149e",
+          "next_text_sha256": "78d961d9670bc951016b4f6751c30d3686f8e056d9d38de2444923b688323132",
+          "flags": [],
+          "assessment": "unchanged",
+          "assessment_origin": "exact_source_equality",
+          "note": "Исходная строка сохранена; это не оценка качества исходного ASR."
+        }
+      ]
+    }
+  ],
+  "near_word_risk_reproduction": {
+    "rv": "RV-020",
+    "checker_sha256": "77481f16a9109d06942361b0a158e03ba0e734546f4f92965e73ef4ad11bfe97",
+    "source_profile": "gemma4:e4b repeat 1",
+    "rows": [
+      {
+        "index": 50,
+        "accepted": true,
+        "elapsed_ns": 380100,
+        "reason": null
+      },
+      {
+        "index": 606,
+        "accepted": true,
+        "elapsed_ns": 69600,
+        "reason": null
+      }
+    ],
+    "note": "Actual accepted worker edits also pass pure guard; contextual morphology remains a known limitation."
+  }
+}
