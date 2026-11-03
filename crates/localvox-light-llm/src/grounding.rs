@@ -72,6 +72,8 @@ use std::collections::BTreeSet;
 use localvox_light_core::lexicon::{self, Lexicon};
 use localvox_light_core::num2words;
 
+pub mod profile;
+
 /// What in the answer does not lean on the input.
 #[derive(Debug, Default, PartialEq)]
 pub struct Ungrounded {
@@ -651,6 +653,45 @@ fn check_all(
     answer: &str,
     ner: Option<&dyn Entities>,
 ) -> Ungrounded {
+    check_observed(
+        lex,
+        words_source,
+        numbers_source,
+        answer,
+        ner,
+        &mut profile::Observer::disabled(),
+    )
+}
+
+/// Engineering instrumentation of the same check; normal APIs do not read the clock.
+pub fn check_profiled(
+    lex: &Lexicon,
+    words_source: &str,
+    numbers_source: &str,
+    answer: &str,
+    ner: Option<&dyn Entities>,
+) -> (Ungrounded, profile::CheckTimings) {
+    let mut observer = profile::Observer::enabled();
+    let result = check_observed(
+        lex,
+        words_source,
+        numbers_source,
+        answer,
+        ner,
+        &mut observer,
+    );
+    (result, observer.finish())
+}
+
+fn check_observed(
+    lex: &Lexicon,
+    words_source: &str,
+    numbers_source: &str,
+    answer: &str,
+    ner: Option<&dyn Entities>,
+    observer: &mut profile::Observer,
+) -> Ungrounded {
+    use profile::Component;
     let source = words_source;
     // The script of the recording is taken from the SPEECH, not from the whole source:
     // the source includes the template, and the template may be in another language (an
@@ -665,6 +706,7 @@ fn check_all(
     let src_keys: BTreeSet<String> = src_words.iter().map(|w| key(w)).collect();
     let src_stems: BTreeSet<String> = src_words.iter().map(|w| stem(w)).collect();
     let src_numbers = source_numbers(numbers_source);
+    observer.lap(Component::SourcePreparation);
 
     let mut out = Ungrounded::default();
     // Numbers written out IN WORDS in the answer are the same facts: «больше ста
@@ -681,6 +723,7 @@ fn check_all(
     // model that tagged nothing would silently switch off the hardest part of the check.
     let mut answer_numbers: BTreeSet<u64> = num2words::parse_spelled(answer).into_iter().collect();
     answer_numbers.extend(answer_digits(answer));
+    observer.lap(Component::AnswerNumbers);
 
     // What to check as a NAME/TITLE.
     //
@@ -709,10 +752,17 @@ fn check_all(
             // hashes throw it off so badly that the name after «## Главное» disappears.
             let src_plain = plain(numbers_source);
             let ans_plain = plain(answer);
+            observer.lap(Component::NerTextPreparation);
 
-            let src_people = entity_words(&ner.people_in_source(&src_plain), lex);
+            let source_entities = ner.people_in_source(&src_plain);
+            observer.lap(Component::SourceEntityRequest);
+            let src_people = entity_words(&source_entities, lex);
             let src_people_keys: BTreeSet<String> = src_people.iter().map(|w| key(w)).collect();
-            let ans_people = entity_words(&ner.people(&ans_plain), lex);
+            observer.lap(Component::SourceEntityNormalization);
+            let answer_entities = ner.people(&ans_plain);
+            observer.lap(Component::AnswerEntityRequest);
+            let ans_people = entity_words(&answer_entities, lex);
+            observer.lap(Component::AnswerEntityNormalization);
 
             // The words OF OUR OWN TEMPLATE are not an invention: we gave them to the
             // model ourselves.
@@ -749,7 +799,9 @@ fn check_all(
                 }
                 out.names.push(w.clone());
             }
-            ans_people.into_iter().collect()
+            let people = ans_people.into_iter().collect();
+            observer.lap(Component::EntityMatching);
+            people
         }
         None => BTreeSet::new(),
     };
@@ -778,6 +830,7 @@ fn check_all(
             out.names.push(w);
         }
     }
+    observer.lap(Component::LexicalMatching);
     out.names.sort();
     out.names.dedup();
     for n in answer_numbers {
@@ -785,6 +838,7 @@ fn check_all(
             out.numbers.push(n.to_string());
         }
     }
+    observer.lap(Component::ResultAssembly);
     out
 }
 

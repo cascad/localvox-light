@@ -78,6 +78,8 @@ jobs:
           python scripts/replay-correction-retention.py --help
           rustfmt --edition 2021 --check crates/localvox-light-llm/src/correction_guard.rs crates/localvox-light-llm/src/correction_guard/russian.rs crates/localvox-light-llm/src/pipeline.rs crates/localvox-light-llm/src/bin/localvox-correction-check.rs
           cargo test --locked -p localvox-light-llm --lib
+          rustfmt --edition 2021 --check crates/localvox-light-llm/src/grounding.rs crates/localvox-light-llm/src/grounding/profile.rs crates/localvox-light-bench/src/bin/localvox-grounding-profile.rs
+          cargo test --locked -p localvox-light-bench --bin localvox-grounding-profile
           cargo test --locked -p localvox-light-bench --bin localvox-queue-profile
           cargo build --locked -p localvox-light-asr --bin localvox-process -p localvox-light-bench --bin localvox-queue-profile
           $env:LOCALVOX_PROFILE_TEST_WORKER = (Resolve-Path target/debug/localvox-process.exe).Path

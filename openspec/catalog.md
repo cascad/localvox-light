@@ -13,9 +13,13 @@
 
 Продолжение BL-003: [release-очередь на двухчасовой публичной речи](changes/benchmark-processing-batch/evidence/queue-benchmark.md),
 reference-бюджет и отдельные model/verification/resource timings. BL-003 завершён
-как измерение, не как обещание скорости/качества для любого материала. Следующий
-[proposal измерения grounding](changes/profile-summary-grounding-cost/proposal.md)
-не принят за реализованную оптимизацию; аппаратная приёмка остаётся открытой.
+как измерение, не как обещание скорости/качества для любого материала.
+[Компоненты grounding измерены 2026-11-03](changes/profile-summary-grounding-cost/evidence/results.md):
+два release процесса с настоящим GLiNER, без генерации LLM. Первый source NER
+54.632/61.785 s, загрузка 1.063/1.055 s; повторная проверка готовой сводки
+3.400/4.643 s с нулём повторных source NER calls. Штатный кеш уже работает;
+108 LLM tests, 4 profiler tests и production receipt check пройдены. Это замер,
+оптимизация/качество сводки и аппаратная приёмка не заявлены.
 
 | Возможность | Связь с историей | Контракт | Граница |
 |---|---|---|---|

@@ -1,0 +1,503 @@
+{
+  "version": 1,
+  "date": "2026-11-03",
+  "scope": "real_GLiNER_saved_summary_probe_no_LLM_no_pipeline_generation",
+  "base_commit": "2a96343",
+  "suite": {
+    "scope": "real_GLiNER_saved_summary_probe_no_LLM_no_pipeline_generation",
+    "complete": true,
+    "success": true,
+    "started_utc": "2026-11-03T08:11:08.218711+00:00",
+    "source_sha256": "09014305b713638301d3cd4693d03e1f7f2920e75bdfc749c7164d0e10034ae8",
+    "answer_file_sha256": "3b44981a9c17877775fbba7ffb81661addc5d93633c4d8e4faf95d4ed520f778",
+    "binary_sha256": "f4f7b3b32b2c9403a2777e58036eadcb38120edc3676837603b115da3dc3cec0",
+    "source_files": {
+      "crates/localvox-light-llm/src/grounding.rs": "a057edcc04cc8f5daeffa967a1375dda19fc50da11215d3e02b7fbd25c44d127",
+      "crates/localvox-light-llm/src/grounding/profile.rs": "b927bad6b916b428d485731c34bc4f83d43125a9efe44b2b12ad0fda720497f4",
+      "crates/localvox-light-bench/src/bin/localvox-grounding-profile.rs": "facc1923c8a01cfd6fc139798c3ba261fb503570a2fd35b267905a6b5bc15ca9"
+    },
+    "runtime_dlls": [],
+    "runs": [
+      {
+        "repeat": 1,
+        "report": "grounding-cost-native-r1.json",
+        "report_sha256": "30867f334a62869a4155a2ad84d602d99343dc1e249f98b12d6a5a2b55c49c23"
+      },
+      {
+        "repeat": 2,
+        "report": "grounding-cost-native-r2.json",
+        "report_sha256": "d7e61153aa1805195e002ff6d0112f47288d59076d0adcf3445a10eb6a020f6c"
+      }
+    ],
+    "ended_utc": "2026-11-03T08:13:35.315031+00:00"
+  },
+  "runs": [
+    {
+      "repeat": 1,
+      "report_sha256": "30867f334a62869a4155a2ad84d602d99343dc1e249f98b12d6a5a2b55c49c23",
+      "report": {
+        "answer_chars": 8523,
+        "answer_file_sha256": "3b44981a9c17877775fbba7ffb81661addc5d93633c4d8e4faf95d4ed520f778",
+        "answer_threshold": 0.5,
+        "backend_count_unit": "Ner.names whole-text calls; separate person/role passes and windowing are inside each call",
+        "binary_sha256": "f4f7b3b32b2c9403a2777e58036eadcb38120edc3676837603b115da3dc3cec0",
+        "checked_answer_sha256": "c4c2b7ea09b43f6b4baa0dce760b93a1070a673bbec5d53909e300e9aa5fd075",
+        "checks": [
+          {
+            "backend": {
+              "answer_calls": 1,
+              "answer_errors": 0,
+              "answer_sec": 3.6071399,
+              "source_calls": 1,
+              "source_errors": 0,
+              "source_sec": 54.6321949
+            },
+            "name_flags": 1,
+            "ner_succeeded": true,
+            "number_flags": 2,
+            "pass": 1,
+            "timings": {
+              "components": [
+                {
+                  "component": "source_preparation",
+                  "elapsed_sec": 0.0302847
+                },
+                {
+                  "component": "answer_numbers",
+                  "elapsed_sec": 0.0006403
+                },
+                {
+                  "component": "ner_text_preparation",
+                  "elapsed_sec": 5.35e-05
+                },
+                {
+                  "component": "source_entity_request",
+                  "elapsed_sec": 54.6322415
+                },
+                {
+                  "component": "source_entity_normalization",
+                  "elapsed_sec": 0.0001202
+                },
+                {
+                  "component": "answer_entity_request",
+                  "elapsed_sec": 3.6071836
+                },
+                {
+                  "component": "answer_entity_normalization",
+                  "elapsed_sec": 6.2e-06
+                },
+                {
+                  "component": "entity_matching",
+                  "elapsed_sec": 0.0091773
+                },
+                {
+                  "component": "lexical_matching",
+                  "elapsed_sec": 0.0011719
+                },
+                {
+                  "component": "result_assembly",
+                  "elapsed_sec": 1.1e-06
+                }
+              ],
+              "total_sec": 58.2814484
+            }
+          },
+          {
+            "backend": {
+              "answer_calls": 1,
+              "answer_errors": 0,
+              "answer_sec": 3.3573382,
+              "source_calls": 0,
+              "source_errors": 0,
+              "source_sec": 0.0
+            },
+            "name_flags": 1,
+            "ner_succeeded": true,
+            "number_flags": 2,
+            "pass": 2,
+            "timings": {
+              "components": [
+                {
+                  "component": "source_preparation",
+                  "elapsed_sec": 0.0311049
+                },
+                {
+                  "component": "answer_numbers",
+                  "elapsed_sec": 0.0005796
+                },
+                {
+                  "component": "ner_text_preparation",
+                  "elapsed_sec": 5.23e-05
+                },
+                {
+                  "component": "source_entity_request",
+                  "elapsed_sec": 1.06e-05
+                },
+                {
+                  "component": "source_entity_normalization",
+                  "elapsed_sec": 9.94e-05
+                },
+                {
+                  "component": "answer_entity_request",
+                  "elapsed_sec": 3.3573686
+                },
+                {
+                  "component": "answer_entity_normalization",
+                  "elapsed_sec": 6.5e-06
+                },
+                {
+                  "component": "entity_matching",
+                  "elapsed_sec": 0.0090369
+                },
+                {
+                  "component": "lexical_matching",
+                  "elapsed_sec": 0.0011986
+                },
+                {
+                  "component": "result_assembly",
+                  "elapsed_sec": 1.2e-06
+                }
+              ],
+              "total_sec": 3.3999353
+            }
+          }
+        ],
+        "complete": true,
+        "filesystem_cache_cleared": false,
+        "final_verification_sec": 0.5119717,
+        "glossary": "empty",
+        "input_and_models_preserved": true,
+        "lexicon": "builtin",
+        "llm_executed": false,
+        "model_files": [
+          {
+            "bytes": 731,
+            "file": "gliner_config.json",
+            "sha256": "1ef59c57fe6816a155697a5670ca8d0faf0babe13f199a2c2b5b65113399ed72"
+          },
+          {
+            "bytes": 579717643,
+            "file": "model_fp16.onnx",
+            "sha256": "9cec3c771bfa7e886e029cd013326b13ad7d18f58fac33824f43c106fbdfe920"
+          },
+          {
+            "bytes": 471795362,
+            "file": "model_q4f16.onnx",
+            "sha256": "11d5f4f5a720931d91429867fc1df22fc507f1878a321ada77a47afa424ff3dc"
+          },
+          {
+            "bytes": 16331948,
+            "file": "tokenizer.json",
+            "sha256": "914bd3c8fb7b525af9e23b60d0ec7b1248ddb2b99014efd9c02ebeb022f8cab7"
+          }
+        ],
+        "model_fingerprinting_is_part_of_preparation": true,
+        "model_fingerprinting_sec": 2.6459726,
+        "model_load_sec": 1.0627294,
+        "name_label_sha256": "76d39e9082095a18e2d5bfd4f7ced67afc1919a516c6aeae6772dc8226c6bf1a",
+        "ordinary_check": {
+          "backend": {
+            "answer_calls": 1,
+            "answer_errors": 0,
+            "answer_sec": 3.2964562000000006,
+            "source_calls": 0,
+            "source_errors": 0,
+            "source_sec": 0.0
+          },
+          "exact_verdict_parity": true,
+          "name_flags": 1,
+          "number_flags": 2,
+          "wall_sec": 3.3389166
+        },
+        "os": "windows",
+        "preparation_sec": 2.661391,
+        "role_label_empty": false,
+        "role_label_sha256": "325a71089a7502e4918187a333df8ecb9ae493a618c0ff39262132f6f453d537",
+        "runner_debug_assertions": false,
+        "scope": "saved_summary_grounding_probe_no_llm",
+        "selected_model": "model_fp16.onnx",
+        "semantic_quality_established": false,
+        "source_lines": 704,
+        "source_sha256": "09014305b713638301d3cd4693d03e1f7f2920e75bdfc749c7164d0e10034ae8",
+        "source_threshold": 0.3,
+        "speech_chars": 104622,
+        "speech_sha256": "f9445e2cd4ad630839ff2d0c22ea307e353b0e0dcda7a78fa4bd1f6f7e97413d",
+        "status": "success",
+        "success": true,
+        "template": "summary-ru",
+        "timings_are_exclusive_backend_is_nested": true,
+        "total_backend": {
+          "answer_calls": 3,
+          "answer_errors": 0,
+          "answer_sec": 10.2609343,
+          "source_calls": 1,
+          "source_errors": 0,
+          "source_sec": 54.6321949
+        },
+        "total_wall_sec": 69.2624837,
+        "unattributed_wall_sec": 0.0060912999999942485,
+        "version": 1,
+        "words_source_sha256": "fe8410e2603ffc3408da44003c5d337d0185312951f4673d932f01a4bb0eb332"
+      }
+    },
+    {
+      "repeat": 2,
+      "report_sha256": "d7e61153aa1805195e002ff6d0112f47288d59076d0adcf3445a10eb6a020f6c",
+      "report": {
+        "answer_chars": 8523,
+        "answer_file_sha256": "3b44981a9c17877775fbba7ffb81661addc5d93633c4d8e4faf95d4ed520f778",
+        "answer_threshold": 0.5,
+        "backend_count_unit": "Ner.names whole-text calls; separate person/role passes and windowing are inside each call",
+        "binary_sha256": "f4f7b3b32b2c9403a2777e58036eadcb38120edc3676837603b115da3dc3cec0",
+        "checked_answer_sha256": "c4c2b7ea09b43f6b4baa0dce760b93a1070a673bbec5d53909e300e9aa5fd075",
+        "checks": [
+          {
+            "backend": {
+              "answer_calls": 1,
+              "answer_errors": 0,
+              "answer_sec": 5.0900115,
+              "source_calls": 1,
+              "source_errors": 0,
+              "source_sec": 61.78469
+            },
+            "name_flags": 1,
+            "ner_succeeded": true,
+            "number_flags": 2,
+            "pass": 1,
+            "timings": {
+              "components": [
+                {
+                  "component": "source_preparation",
+                  "elapsed_sec": 0.0305681
+                },
+                {
+                  "component": "answer_numbers",
+                  "elapsed_sec": 0.0005594
+                },
+                {
+                  "component": "ner_text_preparation",
+                  "elapsed_sec": 5e-05
+                },
+                {
+                  "component": "source_entity_request",
+                  "elapsed_sec": 61.7847356
+                },
+                {
+                  "component": "source_entity_normalization",
+                  "elapsed_sec": 0.0001192
+                },
+                {
+                  "component": "answer_entity_request",
+                  "elapsed_sec": 5.0900477
+                },
+                {
+                  "component": "answer_entity_normalization",
+                  "elapsed_sec": 7.1e-06
+                },
+                {
+                  "component": "entity_matching",
+                  "elapsed_sec": 0.0126796
+                },
+                {
+                  "component": "lexical_matching",
+                  "elapsed_sec": 0.0013194
+                },
+                {
+                  "component": "result_assembly",
+                  "elapsed_sec": 1.5e-06
+                }
+              ],
+              "total_sec": 66.920652
+            }
+          },
+          {
+            "backend": {
+              "answer_calls": 1,
+              "answer_errors": 0,
+              "answer_sec": 4.5948243,
+              "source_calls": 0,
+              "source_errors": 0,
+              "source_sec": 0.0
+            },
+            "name_flags": 1,
+            "ner_succeeded": true,
+            "number_flags": 2,
+            "pass": 2,
+            "timings": {
+              "components": [
+                {
+                  "component": "source_preparation",
+                  "elapsed_sec": 0.0364562
+                },
+                {
+                  "component": "answer_numbers",
+                  "elapsed_sec": 0.0006151
+                },
+                {
+                  "component": "ner_text_preparation",
+                  "elapsed_sec": 5.29e-05
+                },
+                {
+                  "component": "source_entity_request",
+                  "elapsed_sec": 1.21e-05
+                },
+                {
+                  "component": "source_entity_normalization",
+                  "elapsed_sec": 0.0001125
+                },
+                {
+                  "component": "answer_entity_request",
+                  "elapsed_sec": 4.5948476
+                },
+                {
+                  "component": "answer_entity_normalization",
+                  "elapsed_sec": 6.5e-06
+                },
+                {
+                  "component": "entity_matching",
+                  "elapsed_sec": 0.0088026
+                },
+                {
+                  "component": "lexical_matching",
+                  "elapsed_sec": 0.0011834
+                },
+                {
+                  "component": "result_assembly",
+                  "elapsed_sec": 1.2e-06
+                }
+              ],
+              "total_sec": 4.6425742
+            }
+          }
+        ],
+        "complete": true,
+        "filesystem_cache_cleared": false,
+        "final_verification_sec": 0.5113038,
+        "glossary": "empty",
+        "input_and_models_preserved": true,
+        "lexicon": "builtin",
+        "llm_executed": false,
+        "model_files": [
+          {
+            "bytes": 731,
+            "file": "gliner_config.json",
+            "sha256": "1ef59c57fe6816a155697a5670ca8d0faf0babe13f199a2c2b5b65113399ed72"
+          },
+          {
+            "bytes": 579717643,
+            "file": "model_fp16.onnx",
+            "sha256": "9cec3c771bfa7e886e029cd013326b13ad7d18f58fac33824f43c106fbdfe920"
+          },
+          {
+            "bytes": 471795362,
+            "file": "model_q4f16.onnx",
+            "sha256": "11d5f4f5a720931d91429867fc1df22fc507f1878a321ada77a47afa424ff3dc"
+          },
+          {
+            "bytes": 16331948,
+            "file": "tokenizer.json",
+            "sha256": "914bd3c8fb7b525af9e23b60d0ec7b1248ddb2b99014efd9c02ebeb022f8cab7"
+          }
+        ],
+        "model_fingerprinting_is_part_of_preparation": true,
+        "model_fingerprinting_sec": 0.512259,
+        "model_load_sec": 1.0554421999999999,
+        "name_label_sha256": "76d39e9082095a18e2d5bfd4f7ced67afc1919a516c6aeae6772dc8226c6bf1a",
+        "ordinary_check": {
+          "backend": {
+            "answer_calls": 1,
+            "answer_errors": 0,
+            "answer_sec": 3.385262899999999,
+            "source_calls": 0,
+            "source_errors": 0,
+            "source_sec": 0.0
+          },
+          "exact_verdict_parity": true,
+          "name_flags": 1,
+          "number_flags": 2,
+          "wall_sec": 3.4279409
+        },
+        "os": "windows",
+        "preparation_sec": 0.5300652,
+        "role_label_empty": false,
+        "role_label_sha256": "325a71089a7502e4918187a333df8ecb9ae493a618c0ff39262132f6f453d537",
+        "runner_debug_assertions": false,
+        "scope": "saved_summary_grounding_probe_no_llm",
+        "selected_model": "model_fp16.onnx",
+        "semantic_quality_established": false,
+        "source_lines": 704,
+        "source_sha256": "09014305b713638301d3cd4693d03e1f7f2920e75bdfc749c7164d0e10034ae8",
+        "source_threshold": 0.3,
+        "speech_chars": 104622,
+        "speech_sha256": "f9445e2cd4ad630839ff2d0c22ea307e353b0e0dcda7a78fa4bd1f6f7e97413d",
+        "status": "success",
+        "success": true,
+        "template": "summary-ru",
+        "timings_are_exclusive_backend_is_nested": true,
+        "total_backend": {
+          "answer_calls": 3,
+          "answer_errors": 0,
+          "answer_sec": 13.070098699999999,
+          "source_calls": 1,
+          "source_errors": 0,
+          "source_sec": 61.78469
+        },
+        "total_wall_sec": 77.0944753,
+        "unattributed_wall_sec": 0.006496999999995978,
+        "version": 1,
+        "words_source_sha256": "fe8410e2603ffc3408da44003c5d337d0185312951f4673d932f01a4bb0eb332"
+      }
+    }
+  ],
+  "host": {
+    "os": "Windows x86_64",
+    "cpu": "AMD Ryzen 9 9900X3D 12-Core Processor",
+    "logical_processors_reported": 6,
+    "desktop_load_controlled": false
+  },
+  "runtime": {
+    "ort_crate": "2.0.0-rc.12",
+    "session": "existing Ner::open default CPU, optimization Level3",
+    "runtime_static_link_from_build_output": true,
+    "runtime_dll_scan_is_full_dependency_inventory": false,
+    "cargo_lock_sha256": "b8f4f47bd3bd6de061aca854ab27b43f427a5166db3bfdb6c8b4e1a2a6292bb0"
+  },
+  "limits": {
+    "fresh_processes": 2,
+    "profiled_checks_per_process": 2,
+    "ordinary_parity_checks_per_process": 1,
+    "timeout_per_process_sec": 300,
+    "filesystem_cache_cleared": false,
+    "inner_ner_components_separated": false,
+    "llm_executed": false,
+    "model_or_defaults_switched": false,
+    "semantic_quality_established": false,
+    "full_pipeline_benchmark": false,
+    "mac_tested": false,
+    "hardware_acceptance": false
+  },
+  "reference_receipt": {
+    "verified_by": "localvox_light_core::artifacts::verify",
+    "canonical_transcript_sha256": "3bb45041173effd7bf23c8c9611d01cd3487d1fc763a5cf9d3e24af93b28b00c",
+    "canonical_hash_is_raw_file_hash": false,
+    "processing_log_sha256": "018a1e24839c58972eea170bd1adb14b3d5b8e87953529a58583b59e6b4ad0ce"
+  },
+  "working_worker_sha256_unchanged": "85474d4ed43753f3f1bd51217e104825cbdf19991a5fb0b13eaa62886a6e1696",
+  "tests": [
+    {
+      "scope": "llm_unit",
+      "result": "108 passed; 0 failed",
+      "log_sha256": "2872d9595bb6c11bb2252636ed2d5129a1f23ff9e043cefec341555191c77619"
+    },
+    {
+      "scope": "probe_unit",
+      "result": "4 passed; 0 failed; 1 ignored",
+      "log_sha256": "a8676d999c5977e547a112b79fa52c7462680fa07c0367859d67eb09d99d3a2c"
+    },
+    {
+      "scope": "reference_receipt",
+      "result": "1 passed; 0 failed",
+      "log_sha256": "16c47d151bd2299562f570b470cd7ff2fe370232aab6d23e8c44e2100a2301ff"
+    }
+  ]
+}

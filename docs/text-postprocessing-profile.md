@@ -6,6 +6,7 @@
 
 Для сравнения коротких ответов есть [guarded sparse experiment](sparse-edit-experiment.md).
 Для проверки обычной правки — [контрольный набор качества](cleanup-quality.md).
+Для разделения цены проверки сводки — [профиль grounding без LLM](summary-grounding-profile.md).
 
 Manifest (пути относительно его файла):
 
