@@ -297,6 +297,7 @@ struct SessionSettings {
 struct Session {
     params: Arc<ChunkParams>,
     meta: Arc<Mutex<SessionMeta>>,
+    capture: Arc<Mutex<crate::chunks::capture::Writer>>,
 }
 
 /// Recording of session chunks (F8).
@@ -322,6 +323,7 @@ struct ChunkLane {
     armed: bool,
     current: Option<Session>,
     recorders: [Option<ChunkRecorder>; 2],
+    conversions: Arc<crate::chunks::codec::Conversions>,
     /// The last `preroll_cap` samples of each source. Filled always — this is the past we can
     /// still save.
     preroll: [std::collections::VecDeque<i16>; 2],
@@ -366,6 +368,7 @@ impl ChunkLane {
             armed: false,
             current: None,
             recorders: [None, None],
+            conversions: Arc::new(crate::chunks::codec::Conversions::default()),
             preroll: [
                 std::collections::VecDeque::new(),
                 std::collections::VecDeque::new(),
@@ -452,8 +455,11 @@ impl ChunkLane {
         };
         let params = session.params.clone();
         let meta = session.meta.clone();
-        let rec =
-            self.recorders[sid].get_or_insert_with(|| ChunkRecorder::new(source_id, params, meta));
+        let capture = session.capture.clone();
+        let conversions = self.conversions.clone();
+        let rec = self.recorders[sid].get_or_insert_with(|| {
+            ChunkRecorder::for_capture(source_id, params, meta, capture, conversions)
+        });
         if !self.orphan[sid].is_empty() {
             let pending = std::mem::take(&mut self.orphan[sid]);
             rec.feed(&pending);
@@ -512,6 +518,7 @@ impl ChunkLane {
                     started_at: began.to_rfc3339(),
                     sample_rate: 16_000,
                     chunks: Vec::new(),
+                    capture_generation: Some(uuid::Uuid::now_v7().to_string()),
                     title: label.map(str::to_string),
                     meeting: label.is_some(),
                     ..Default::default()
@@ -519,7 +526,28 @@ impl ChunkLane {
                 // The meta is written IMMEDIATELY, not when the first chunk closes: otherwise a
                 // new session looks dead and empty in the archive for minutes, and the human
                 // cannot tell where the sound is going now.
-                crate::chunks::save_meta_public(&meta_path, &meta);
+                if let Err(error) = crate::chunks::save_meta_checked(&meta_path, &meta) {
+                    crate::chunks::capture::report(
+                        meta_path.parent().unwrap(),
+                        "Создание записи",
+                        &error,
+                    );
+                    return;
+                }
+                let capture = match crate::chunks::capture::Writer::begin(
+                    meta_path.parent().unwrap(),
+                    meta.capture_generation.clone().unwrap(),
+                ) {
+                    Ok(writer) => Arc::new(Mutex::new(writer)),
+                    Err(error) => {
+                        crate::chunks::capture::report(
+                            meta_path.parent().unwrap(),
+                            "Владение записью",
+                            &error,
+                        );
+                        return;
+                    }
+                };
                 self.current = Some(Session {
                     params: Arc::new(ChunkParams {
                         audio_dir,
@@ -529,6 +557,7 @@ impl ChunkLane {
                         ffmpeg: s.ffmpeg.clone(),
                     }),
                     meta: Arc::new(Mutex::new(meta)),
+                    capture,
                 });
                 self.recorded_since_open = false;
                 self.sync_marker();
@@ -604,7 +633,13 @@ impl ChunkLane {
             let ring: Vec<i16> = self.preroll[sid].iter().copied().collect();
             let Some(session) = &self.current else { return };
             let rec = self.recorders[sid].get_or_insert_with(|| {
-                ChunkRecorder::new(sid as u8, session.params.clone(), session.meta.clone())
+                ChunkRecorder::for_capture(
+                    sid as u8,
+                    session.params.clone(),
+                    session.meta.clone(),
+                    session.capture.clone(),
+                    self.conversions.clone(),
+                )
             });
             rec.feed(&ring);
             self.recorded_since_open = true;
@@ -663,14 +698,42 @@ impl ChunkLane {
         if self.in_meeting {
             self.close_meeting_mark();
         }
+        for rec in self.recorders.iter_mut().flatten() {
+            rec.finalize_current();
+        }
         if let Some(session) = &self.current {
+            let ends = (0..2)
+                .map(|id| {
+                    (
+                        id as u8,
+                        self.recorders[id]
+                            .as_ref()
+                            .map_or(0, ChunkRecorder::end_samples),
+                    )
+                })
+                .collect();
+            if let Err(error) = session
+                .capture
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .end(reason, false, ends)
+            {
+                crate::chunks::capture::report(
+                    session.params.meta_path.parent().unwrap(),
+                    "Конец записи не подтверждён",
+                    &error,
+                );
+            }
             let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             meta.stopped_at = Some(crate::versions::now_rfc3339());
             meta.stopped_reason = Some(reason.to_string());
-            crate::chunks::save_meta_public(&session.params.meta_path, &meta);
-        }
-        for rec in self.recorders.iter_mut().flatten() {
-            rec.finalize_current();
+            if let Err(error) = crate::chunks::save_meta_checked(&session.params.meta_path, &meta) {
+                crate::chunks::capture::report(
+                    session.params.meta_path.parent().unwrap(),
+                    "Сохранение конца записи",
+                    &error,
+                );
+            }
         }
         self.recorders = [None, None];
         self.current = None;
@@ -713,26 +776,26 @@ impl ChunkLane {
         for rec in self.recorders.iter_mut().flatten() {
             rec.finalize_current();
         }
+        if let Some(session) = &self.current {
+            if let Err(error) = session
+                .capture
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .pause()
+            {
+                crate::chunks::capture::report(
+                    session.params.meta_path.parent().unwrap(),
+                    "Пауза записи",
+                    &error,
+                );
+            }
+        }
     }
 
     /// Process shutdown: the chunks are the primary artifact, we close them cleanly; an open
     /// meeting is closed best-effort (there will be no real CallEnded any more).
     fn finalize_all(&mut self) {
-        if self.in_meeting {
-            self.close_meeting_mark();
-        }
-        // First finish writing, THEN remove the marker — as everywhere else.
-        // The marker is a promise "the session is still being touched": removing it before the
-        // last meta write lets a re-cook and a language change at the session at exactly the
-        // moment we are still writing over it.
-        for rec in self.recorders.iter_mut().flatten() {
-            rec.finalize_current();
-        }
-        // The marker is removed: the session is finished, the auto-cook will finish cooking it
-        // on the next start.
-        if let Some(s) = &self.settings {
-            let _ = std::fs::remove_file(s.work_dir.join(crate::jobs::RECORDING_MARKER));
-        }
+        self.stop("движок остановлен");
     }
 }
 
@@ -1355,6 +1418,71 @@ pub fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn capture_manifest_covers_preroll_pause_both_sources_and_only_true_stop() {
+        let dir = tempfile::tempdir().unwrap();
+        let c = sess_cfg(dir.path(), 1.0, 0.0);
+        let mut lane = ChunkLane::new(&c);
+        lane.feed(0, &vec![1; 16000]);
+        lane.feed(1, &vec![2; 8000]);
+        lane.start("capture proof".into());
+        let session = lane
+            .current
+            .as_ref()
+            .unwrap()
+            .params
+            .meta_path
+            .parent()
+            .unwrap()
+            .to_path_buf();
+        let generation = crate::chunks::capture::read(&session).unwrap().generation;
+        lane.flush_recorders();
+        let paused = crate::chunks::capture::read(&session).unwrap();
+        assert!(paused.paused && paused.terminal.is_none());
+        lane.feed(0, &vec![3; 320]);
+        lane.feed(1, &vec![4; 640]);
+        lane.stop("test stop");
+        let complete = crate::chunks::capture::read(&session).unwrap();
+        assert_eq!(complete.generation, generation);
+        assert_eq!(
+            complete.terminal.as_ref().unwrap().ends,
+            [(0, 16320), (1, 8640)].into()
+        );
+        assert!(!dir.path().join(crate::jobs::RECORDING_MARKER).exists());
+        for source in complete.sources.values() {
+            assert!(source.open.is_none());
+            assert_eq!(source.confirmed_end(), source.end());
+        }
+    }
+
+    #[test]
+    fn failed_audio_close_is_journaled_and_not_discovered_as_full_transcript_input() {
+        let dir = tempfile::tempdir().unwrap();
+        let c = sess_cfg(dir.path(), 0.0, 0.0);
+        let mut lane = ChunkLane::new(&c);
+        lane.start("refused close".into());
+        let session = lane
+            .current
+            .as_ref()
+            .unwrap()
+            .params
+            .meta_path
+            .parent()
+            .unwrap()
+            .to_path_buf();
+        std::fs::create_dir(session.join("audio/src0_chunk0001.wav")).unwrap();
+        lane.feed(0, &vec![3; 320]);
+        lane.stop("test stop");
+        assert!(!crate::chunks::capture::is_finalized(&session).unwrap());
+        assert!(crate::jobs::sessions_needing_cook(dir.path(), 0).is_empty());
+        let journal = std::fs::read_to_string(session.join("progress.jsonl")).unwrap();
+        assert!(journal
+            .lines()
+            .filter_map(|s| serde_json::from_str::<serde_json::Value>(s).ok())
+            .any(|e| e["stage"] == "capture" && e["status"] == "failed"));
+        assert!(session.join("audio/src0_chunk0001.part").is_file());
+    }
 
     #[test]
     fn control_commands_are_serviced_without_new_pcm_and_stop_finalizes_audio() {

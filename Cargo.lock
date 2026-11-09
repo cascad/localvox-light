@@ -3012,6 +3012,7 @@ dependencies = [
  "hound",
  "isolang",
  "libc",
+ "localvox-light-process",
  "ndarray 0.16.1",
  "ort",
  "realfft",

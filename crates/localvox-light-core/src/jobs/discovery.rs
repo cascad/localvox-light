@@ -16,7 +16,7 @@ pub enum Kind {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Revision {
-    metadata: [Option<[u8; 32]>; 3],
+    metadata: [Option<[u8; 32]>; 4],
     audio: Vec<(String, u64, Option<SystemTime>)>,
     created_at: Option<SystemTime>,
 }
@@ -26,10 +26,15 @@ impl Revision {
         if !directory.is_dir() {
             return Err(io::ErrorKind::NotADirectory.into());
         }
-        let mut metadata = [None; 3];
-        for (index, name) in ["meta.json", "versions.json", "processing.json"]
-            .iter()
-            .enumerate()
+        let mut metadata = [None; 4];
+        for (index, name) in [
+            "meta.json",
+            "versions.json",
+            "processing.json",
+            crate::chunks::capture::FILE,
+        ]
+        .iter()
+        .enumerate()
         {
             metadata[index] = match fs::read(dir.join(name)) {
                 Ok(bytes) => Some(Sha256::digest(bytes).into()),

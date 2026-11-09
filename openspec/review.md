@@ -74,7 +74,7 @@
 |---|---|---|
 | RV-001 | CFG-002 | Реальный Live или честный Restart; проверить следующий job после смены настройки |
 | RV-003 | API-002 | Общие Host/Origin для media без токена; тест с существующим синтетическим аудио |
-| RV-005 | STORE-002 | Проверка полного FLAC до удаления WAV, управляемый timeout конвертера |
+| RV-005 | STORE-002 | Исправлено/проверено 2026-11-09: supervised codec, count/PCM SHA перед удалением WAV, timeout/cancel/shutdown/read lease и real FFmpeg; [границы](changes/add-incremental-recording-transcription/evidence/capture-input.md). Аппаратный/power-loss/Unix прогон not-run, установленный release не обновлён. |
 | RV-006 | REC-001 | Отдельное подтверждение фактической записи и ошибки создания аудио |
 | RV-007 / BL-021 | NOTE-002/006, VOICE-004 | Local-first, уникальная заметка, delivery status/retry, честное TTS |
 | RV-008 | SEARCH-002, CHAT-001 | Не превращать двойной отказ поиска в отсутствие данных |

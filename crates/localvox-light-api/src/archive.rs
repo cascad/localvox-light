@@ -337,8 +337,8 @@ fn source_pcm(
         }
         saw_overlap = true;
         let from = emitted_end.saturating_sub(c_start); // do not rewrite what is glued
-        let to = want_end.saturating_sub(c_start);
-        if to == 0 {
+        let to = want_end.min(decl_end).saturating_sub(c_start);
+        if to <= from {
             continue;
         }
         let slice = chunk_pcm_range(&audio, &c.file, from, to).with_context(|| {
@@ -347,6 +347,10 @@ fn source_pcm(
                 c.file
             )
         })?;
+        anyhow::ensure!(
+            slice.len() as u64 == (to - from) * 2,
+            "аудиофрагмент короче подтверждённого диапазона"
+        );
         if !slice.is_empty() {
             emitted_end = c_start + from + (slice.len() / 2) as u64;
             pcm.extend_from_slice(&slice);
@@ -1369,6 +1373,8 @@ impl Archive {
             bail!("удаление не подтверждено: передайте имя сессии в поле confirm");
         }
 
+        let _capture = localvox_light_core::chunks::capture::try_mutation_lock(&dir)?
+            .context("запись ещё сохраняется или конвертируется; файлы не удалены")?;
         let _lease = self.stopped_lease(session, &dir, std::time::Duration::from_secs(5))?;
         std::fs::remove_dir_all(&dir).with_context(|| format!("не удалось удалить {session}"))?;
         // The cancellation tombstone was saved before touching files. A cleanup failure
@@ -3110,64 +3116,16 @@ mod tests {
 /// sake of one piece). `None` — there is no file (or ffmpeg failed): the caller decides
 /// whether that is an error or a skip.
 fn chunk_pcm_range(audio: &Path, file: &str, from: u64, to: u64) -> Option<Vec<u8>> {
-    use std::io::{Read, Seek, SeekFrom};
-    let flac = audio.join(format!("{file}.flac"));
-    if flac.exists() {
-        if to <= from {
-            return Some(Vec::new());
-        }
-        // the same strict decode as the cook's: -xerror — a partial decode of a broken
-        // FLAC MUST NOT silently shift the clip (env → exe-dir → PATH)
-        let ffmpeg = localvox_light_core::chunks::resolve_ffmpeg_for_decode();
-        let mut command = std::process::Command::new(ffmpeg);
-        command
-            .args([
-                "-hide_banner",
-                "-loglevel",
-                "error",
-                "-nostdin",
-                "-xerror",
-                "-ss",
-            ])
-            .arg(format!("{:.9}", from as f64 / SR))
-            .arg("-i")
-            .arg(&flac)
-            .arg("-t")
-            .arg(format!("{:.9}", (to - from) as f64 / SR))
-            .args(["-f", "s16le", "-ac", "1", "-ar", "16000", "-"]);
-        let mut limits = localvox_light_process::Limits::new(std::time::Duration::from_secs(30));
-        limits.background = false;
-        limits.output_bytes = (to - from).saturating_mul(2).saturating_add(1024 * 1024);
-        let out = localvox_light_process::run(command, None, limits, || false, |_, _| {}).ok()?;
-        if !out.termination.success() {
-            tracing::warn!(
-                "ffmpeg failed to decode {}: {}",
-                flac.display(),
-                String::from_utf8_lossy(&out.stderr).trim()
-            );
-            return None;
-        }
-        return Some(
-            out.stdout
-                .into_iter()
-                .take((to - from).saturating_mul(2) as usize)
-                .collect(),
-        );
-    }
-    let mut f = fs::File::open(audio.join(format!("{file}.wav"))).ok()?;
-    let len = f.metadata().ok()?.len();
-    if len <= 44 {
-        return Some(Vec::new());
-    }
-    let total = (len - 44) / 2;
-    let (a, b) = (from.min(total), to.min(total));
-    if b <= a {
-        return Some(Vec::new());
-    }
-    f.seek(SeekFrom::Start(44 + a * 2)).ok()?;
-    let mut buf = vec![0u8; ((b - a) * 2) as usize];
-    f.read_exact(&mut buf).ok()?;
-    Some(buf)
+    localvox_light_core::chunks::codec::with_read(audio, file, |path| {
+        localvox_light_core::chunks::codec::range(
+            path,
+            from,
+            to,
+            Path::new(&localvox_light_core::chunks::resolve_ffmpeg_for_decode()),
+        )
+    })
+    .map_err(|error| tracing::warn!(%error,"audio range unavailable"))
+    .ok()
 }
 
 /// Wraps s16le PCM (16 kHz mono) into a minimal WAV container.

@@ -33,19 +33,28 @@ pub fn try_control_lock(session: &Path) -> std::io::Result<Option<fs::File>> {
 pub struct MutationLease {
     _control: fs::File,
     _execution: fs::File,
+    _capture: Option<fs::File>,
 }
 impl MutationLease {
     pub fn new(control: fs::File, execution: fs::File) -> Self {
         Self {
             _control: control,
             _execution: execution,
+            _capture: None,
         }
     }
     pub fn try_acquire(session: &Path) -> std::io::Result<Option<Self>> {
         let Some(control) = try_control_lock(session)? else {
             return Ok(None);
         };
-        Ok(super::try_execution_lock(session)?.map(|execution| Self::new(control, execution)))
+        let Some(capture) = crate::chunks::capture::try_mutation_lock(session)? else {
+            return Ok(None);
+        };
+        Ok(super::try_execution_lock(session)?.map(|execution| Self {
+            _control: control,
+            _execution: execution,
+            _capture: Some(capture),
+        }))
     }
 }
 
@@ -120,6 +129,17 @@ pub fn managed_owner(session: &Path) -> Option<StopHandle> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn capture_owner_is_part_of_mutation_ownership_even_without_a_processing_worker() {
+        let root = tempfile::tempdir().unwrap();
+        let capture = crate::chunks::capture::try_mutation_lock(root.path())
+            .unwrap()
+            .unwrap();
+        assert!(MutationLease::try_acquire(root.path()).unwrap().is_none());
+        drop(capture);
+        assert!(MutationLease::try_acquire(root.path()).unwrap().is_some());
+    }
     #[test]
     fn stop_handle_matches_one_execution_and_does_not_replace_the_lease() {
         let root = tempfile::tempdir().unwrap();

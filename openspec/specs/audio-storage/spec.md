@@ -49,7 +49,7 @@ recover_orphan_chunks SHALL обрабатывать sessions/*/audio/*.part и�
 
 При включённом FLAC система SHALL конвертировать закрытый WAV, сохраняя исходник до проверки полного результата. Успешный exit и наличие файла сами по себе недостаточны: перед удалением WAV SHALL проверяться читаемость FLAC и соответствие числа аудиосэмплов исходнику. При отказе запуска, конвертации, проверке или превышении конечного лимита WAV SHALL сохраняться; принадлежащий конвертер SHALL управляемо завершаться.
 
-Код: [spawn_flac_convert](../../../crates/localvox-light-core/src/chunks.rs).
+Код: [Conversions/convert](../../../crates/localvox-light-core/src/chunks/codec.rs), [ChunkRecorder](../../../crates/localvox-light-core/src/chunks.rs).
 
 #### Scenario: Нет ffmpeg
 
@@ -114,7 +114,7 @@ run_engine SHALL держать exclusive workspace lock до выхода и в
 
 ## Implementation status
 
-STORE-002 не соответствует контракту проверки FLAC и управляемого timeout (RV-005). STORE-003 исправлен и проверен; установленная release-сборка не обновлялась.
+STORE-002/RV-005 исправлен и проверен 2026-11-09: supervised conversion, count/PCM SHA, concurrent lease, timeout/cancel/shutdown и настоящий FFmpeg; [свидетельства и границы](../../changes/add-incremental-recording-transcription/evidence/capture-input.md). STORE-003 исправлен и проверен; установленная release-сборка не обновлялась.
 
 [Матрица по требованиям](../../evidence/coverage.md#audio-storage) ·
 [Расхождения RV](../../review.md) ·
@@ -123,4 +123,4 @@ STORE-002 не соответствует контракту проверки FL
 
 ## Observed limitations
 
-FLAC запускается прямым subprocess и не наследует гарантии нового phase-supervisor автоматически (RV-005). Retention исправлен по DEC-001 и проверен на временных каталогах; работающая release-сборка этим не обновлена. Ошибки записи ChunkRecorder логируются; обещания «звук не теряется при любом отказе диска» в baseline нет.
+FLAC использует общий process supervisor; аппаратный/power-loss/Unix прогон этого пути not-run. Retention исправлен по DEC-001 и проверен на временных каталогах; работающая release-сборка этим не обновлена. Ошибки закрытия/подтверждения ChunkRecorder видны в журнале; обещания «звук не теряется при любом отказе диска» в baseline нет.

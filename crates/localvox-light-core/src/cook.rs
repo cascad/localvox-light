@@ -24,7 +24,7 @@ use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, ensure, Context, Result};
 use webrtc_vad::{SampleRate, Vad, VadMode};
 
 use crate::asr::onnx::adapters::GigaamV3E2eCtc;
@@ -120,6 +120,10 @@ pub enum CookOutcome {
 /// names, so the order is all the cook needs. That makes the cook resilient to
 /// post-crash sessions, where the recovered chunks are missing from meta.
 pub fn cook_session_asr(session_dir: &Path, p: &CookParams) -> Result<CookOutcome> {
+    ensure!(
+        crate::chunks::capture::is_finalized(session_dir)?,
+        "запись или подтверждение сохранённого аудио ещё не завершены"
+    );
     let store = VersionStore::open(session_dir)?;
 
     // A cross-process lock on cooking this session: the auto-cook daemon and a manual
@@ -235,6 +239,7 @@ pub fn cook_session_asr(session_dir: &Path, p: &CookParams) -> Result<CookOutcom
         }
     }
 
+    crate::chunks::capture::validate_final_input(session_dir)?;
     // An empty session is cut off BEFORE the model is loaded: not an error, nothing to
     // cook. An error (e.g. a FLAC chunk) is propagated — that is not «empty».
     let mut has_chunks = false;
@@ -644,58 +649,39 @@ fn chunk_files_for_source(session_dir: &Path, source_id: u8) -> Result<Vec<PathB
 /// (`duration()` reads no samples), so summing across chunks is cheap even for a long recording.
 /// FLAC: decoded length (the mic path; rarer, and a correct denominator beats a saved decode here).
 fn chunk_seconds(path: &Path) -> Result<f64> {
-    if path.extension().and_then(|x| x.to_str()) == Some("flac") {
-        return Ok(decode_flac_16k_mono(path)?.len() as f64 / f64::from(SAMPLE_RATE));
-    }
-    let reader =
-        hound::WavReader::open(path).with_context(|| format!("opening {}", path.display()))?;
-    Ok(reader.duration() as f64 / f64::from(SAMPLE_RATE))
+    let audio = path.parent().context("audio directory")?;
+    let stem = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .context("chunk stem")?;
+    crate::chunks::codec::with_read(audio, stem, |path| {
+        Ok(crate::chunks::codec::samples(path)? as f64 / f64::from(SAMPLE_RATE))
+    })
 }
 
 fn read_chunk_samples(path: &Path) -> Result<Vec<i16>> {
-    if path.extension().and_then(|x| x.to_str()) == Some("flac") {
-        return decode_flac_16k_mono(path);
-    }
-    let mut reader =
-        hound::WavReader::open(path).with_context(|| format!("opening {}", path.display()))?;
-    let spec = reader.spec();
-    if spec.sample_rate != SAMPLE_RATE || spec.channels != 1 || spec.bits_per_sample != 16 {
-        bail!(
-            "unexpected format of {} (16 kHz mono s16 expected): {:?}",
-            path.display(),
-            spec
-        );
-    }
-    reader
-        .samples::<i16>()
-        .collect::<std::result::Result<Vec<_>, _>>()
-        .with_context(|| format!("reading samples of {}", path.display()))
-}
-
-fn decode_flac_16k_mono(path: &Path) -> Result<Vec<i16>> {
-    let ffmpeg = crate::chunks::resolve_ffmpeg_for_decode();
-    // -xerror: mid-stream decode errors are FATAL. Without it a truncated/corrupted
-    // FLAC decodes partially with exit 0 — a silent loss of audio would shift the
-    // timecodes of every following chunk (verified empirically on ffmpeg 8).
-    let out = std::process::Command::new(&ffmpeg)
-        .args(["-hide_banner", "-loglevel", "error", "-xerror", "-i"])
-        .arg(path)
-        .args(["-f", "s16le", "-ac", "1", "-ar", "16000", "-"])
-        .output()
-        .with_context(|| format!("running {} for {}", ffmpeg.display(), path.display()))?;
-    if !out.status.success() {
-        bail!(
-            "ffmpeg did not decode {} (exit {}): {}",
-            path.display(),
-            out.status,
-            String::from_utf8_lossy(&out.stderr).trim()
-        );
-    }
-    Ok(out
-        .stdout
-        .chunks_exact(2)
-        .map(|c| i16::from_le_bytes([c[0], c[1]]))
-        .collect())
+    let audio = path.parent().context("audio directory")?;
+    let stem = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .context("chunk stem")?;
+    crate::chunks::codec::with_read(audio, stem, |path| {
+        let mut samples = Vec::new();
+        crate::chunks::codec::stream(
+            path,
+            Path::new(&crate::chunks::resolve_ffmpeg_for_decode()),
+            || false,
+            |bytes| {
+                samples.extend(
+                    bytes
+                        .chunks_exact(2)
+                        .map(|b| i16::from_le_bytes([b[0], b[1]])),
+                );
+                Ok(())
+            },
+        )?;
+        Ok(samples)
+    })
 }
 
 fn find_model_file(dir: &Path) -> Result<PathBuf> {

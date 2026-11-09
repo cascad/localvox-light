@@ -2,8 +2,8 @@
 
 ## 1. Confirmed capture input
 
-- [ ] 1.1 Реализовать generation/sealed sample ranges/terminal capture manifest (STORE-004), не публиковать ошибки close/sync/rename; проверить fault injection каждого commit, пустой файл, pre-roll/pause/Stop/две дорожки и interrupted recovery; обновить описание первичных артефактов.
-- [ ] 1.2 Ввести согласованный chunk reader/converter lease и bounded supervised FLAC с sample-count/PCM проверкой до удаления WAV (STORE-002/RV-005); проверить concurrent read/convert, short-success FLAC, timeout/shutdown/no-ffmpeg и сохранение исходника; записать границы проверки RV-005.
+- [x] 1.1 Реализовать generation/sealed sample ranges/terminal capture manifest (STORE-004), не публиковать ошибки close/sync/rename; проверить fault injection каждого commit, пустой файл, pre-roll/pause/Stop/две дорожки и interrupted recovery; обновить описание первичных артефактов.
+- [x] 1.2 Ввести согласованный chunk reader/converter lease и bounded supervised FLAC с sample-count/PCM проверкой до удаления WAV (STORE-002/RV-005); проверить concurrent read/convert, short-success FLAC, timeout/shutdown/no-ffmpeg и сохранение исходника; записать границы проверки RV-005.
 
 ## 2. Continuous window planning
 

@@ -24,6 +24,9 @@ const BYTES_PER_SAMPLE: u64 = 2;
 const WAV_HEADER_LEN: u64 = 44;
 const FSYNC_INTERVAL: Duration = Duration::from_secs(5);
 
+pub mod capture;
+pub mod codec;
+
 // ─────────────────────────── parameters ───────────────────────────
 
 pub struct ChunkParams {
@@ -46,6 +49,10 @@ pub struct SessionMeta {
     pub started_at: String,
     pub sample_rate: u32,
     pub chunks: Vec<ChunkEntry>,
+    /// Present only on new recorder-owned sessions. Missing input ledger is then an error,
+    /// never permission to accept the session as an untracked legacy recording.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capture_generation: Option<String>,
     /// What to call each audio SOURCE when diarization has not named the voice: `0` is the
     /// microphone, `1` is the system sound.
     ///
@@ -238,67 +245,107 @@ pub fn save_meta_checked(meta_path: &Path, meta: &SessionMeta) -> anyhow::Result
 
 // ─────────────────────── streaming WAV writer ───────────────────────
 
-struct StreamingWav {
+trait WavFile: Write + Seek {
+    fn sync_all(&self) -> std::io::Result<()>;
+    fn sync_data(&self) -> std::io::Result<()>;
+}
+impl WavFile for File {
+    fn sync_all(&self) -> std::io::Result<()> {
+        File::sync_all(self)
+    }
+    fn sync_data(&self) -> std::io::Result<()> {
+        File::sync_data(self)
+    }
+}
+
+struct StreamingWav<F: WavFile = File> {
     part_path: PathBuf,
-    file: File,
+    file: F,
     data_bytes: u64,
     last_sync: Instant,
+    failed: bool,
 }
 
 impl StreamingWav {
     fn create(part_path: PathBuf) -> std::io::Result<Self> {
-        let mut file = File::create(&part_path)?;
+        let mut file = OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&part_path)?;
         file.write_all(&wav_header(0))?;
         Ok(Self {
             part_path,
             file,
             data_bytes: 0,
             last_sync: Instant::now(),
+            failed: false,
         })
     }
+}
 
+impl<F: WavFile> StreamingWav<F> {
     fn write(&mut self, samples: &[i16]) -> std::io::Result<()> {
+        if self.failed {
+            return Err(std::io::Error::other("previous WAV write failed"));
+        }
         let mut buf = Vec::with_capacity(samples.len() * 2);
         for s in samples {
             buf.extend_from_slice(&s.to_le_bytes());
         }
-        self.file.write_all(&buf)?;
-        self.data_bytes += buf.len() as u64;
-        if self.last_sync.elapsed() >= FSYNC_INTERVAL {
-            let _ = self.file.sync_data();
-            self.last_sync = Instant::now();
+        let result = (|| {
+            self.file.write_all(&buf)?;
+            self.data_bytes += buf.len() as u64;
+            if self.last_sync.elapsed() >= FSYNC_INTERVAL {
+                self.file.sync_data()?;
+                self.last_sync = Instant::now();
+            }
+            Ok(())
+        })();
+        if result.is_err() {
+            self.failed = true;
         }
-        Ok(())
+        result
     }
 
+    #[cfg(test)]
     fn duration_sec(&self) -> f64 {
         self.data_bytes as f64 / (BYTES_PER_SAMPLE as f64 * SAMPLE_RATE as f64)
     }
 
     /// Patch the header + `.part` → `.wav`. An empty file is deleted and None is returned.
-    fn finalize(mut self) -> Option<PathBuf> {
+    fn finalize(mut self) -> std::io::Result<Option<PathBuf>> {
+        if self.failed {
+            return Err(std::io::Error::other("WAV write not confirmed; kept .part"));
+        }
+        if self.data_bytes > u64::from(u32::MAX) - 36 || self.data_bytes % 2 != 0 {
+            return Err(std::io::Error::other(
+                "PCM exceeds canonical RIFF capacity; kept .part",
+            ));
+        }
         if self.data_bytes == 0 {
             drop(self.file);
-            let _ = fs::remove_file(&self.part_path);
-            return None;
+            fs::remove_file(&self.part_path)?;
+            return Ok(None);
         }
         let patch = (|| -> std::io::Result<()> {
             self.file.seek(SeekFrom::Start(0))?;
             self.file.write_all(&wav_header(self.data_bytes))?;
             self.file.sync_all()
         })();
-        if let Err(e) = patch {
-            tracing::error!("chunk finalize {}: {e}", self.part_path.display());
-        }
+        patch?;
         drop(self.file);
         let final_path = self.part_path.with_extension("wav");
-        match fs::rename(&self.part_path, &final_path) {
-            Ok(()) => Some(final_path),
-            Err(e) => {
-                tracing::error!("chunk rename: {e}");
-                None
-            }
+        // A collision is not permission to replace a previously saved chunk on Unix.
+        if final_path.exists() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::AlreadyExists,
+                "closed chunk already exists",
+            ));
         }
+        fs::rename(&self.part_path, &final_path)?;
+        #[cfg(unix)]
+        File::open(final_path.parent().unwrap())?.sync_all()?;
+        Ok(Some(final_path))
     }
 }
 
@@ -329,6 +376,9 @@ pub struct ChunkRecorder {
     source_id: u8,
     seq: u32,
     wav: Option<StreamingWav>,
+    opened: bool,
+    capture: Option<Arc<Mutex<capture::Writer>>>,
+    conversions: Arc<codec::Conversions>,
     /// The source's audio position from the start of the session in SAMPLES — integral, so
     /// that the offsets in meta do not drift from f64 accumulation.
     timeline_samples: u64,
@@ -402,12 +452,46 @@ impl ChunkRecorder {
             source_id,
             seq: 0,
             wav: None,
+            opened: false,
+            capture: None,
+            conversions: Arc::new(codec::Conversions::default()),
             timeline_samples: 0,
             chunk_start_samples: 0,
             params,
             meta,
             level: LevelStats::default(),
         }
+    }
+
+    pub fn for_capture(
+        source_id: u8,
+        params: Arc<ChunkParams>,
+        meta: Arc<Mutex<SessionMeta>>,
+        capture: Arc<Mutex<capture::Writer>>,
+        conversions: Arc<codec::Conversions>,
+    ) -> Self {
+        let mut recorder = Self::new(source_id, params, meta);
+        recorder.capture = Some(capture);
+        recorder.conversions = conversions;
+        recorder
+    }
+
+    pub fn end_samples(&self) -> u64 {
+        self.timeline_samples
+    }
+
+    fn capture_update(
+        &self,
+        label: &str,
+        update: impl FnOnce(&mut capture::Writer) -> anyhow::Result<()>,
+    ) -> bool {
+        if let Some(capture) = &self.capture {
+            if let Err(error) = update(&mut capture.lock().unwrap_or_else(|e| e.into_inner())) {
+                capture::report(self.params.meta_path.parent().unwrap(), label, &error);
+                return false;
+            }
+        }
+        true
     }
 
     pub fn feed(&mut self, samples: &[i16]) {
@@ -447,10 +531,83 @@ impl ChunkRecorder {
         // (empty file, a rename that fell through), its metrics must not leak into the
         // next one — they would describe audio that is not in it.
         let (rms, voice_ratio) = std::mem::take(&mut self.level).finish();
-        let Some(w) = self.wav.take() else { return };
-        let duration = w.duration_sec();
+        if !std::mem::take(&mut self.opened) {
+            return;
+        }
+        let expected = self.timeline_samples - self.chunk_start_samples;
+        let pending = self.wav.take();
+        if self.capture.is_some()
+            && pending
+                .as_ref()
+                .is_some_and(|w| !w.failed && w.data_bytes == 0 && expected == 0)
+        {
+            // Commit an empty interval BEFORE deleting its only recovery evidence.
+            // An unavailable ledger leaves the zero-length .part for restart verification.
+            let committed = self.capture_update(
+                "Подтверждение пустого аудиодиапазона",
+                |writer| {
+                    writer.close(
+                        self.source_id,
+                        capture::Range {
+                            sequence: self.seq,
+                            start_sample: self.chunk_start_samples,
+                            samples: 0,
+                            kind: capture::Kind::Empty,
+                            problem: None,
+                        },
+                    )
+                },
+            );
+            if committed {
+                if let Err(error) = pending.unwrap().finalize() {
+                    capture::report(
+                        self.params.meta_path.parent().unwrap(),
+                        "Удаление пустого аудиофрагмента",
+                        &error.into(),
+                    );
+                }
+            }
+            return;
+        }
+        let result = match pending {
+            Some(w) if w.data_bytes / 2 == expected => w.finalize(),
+            Some(_) => Err(std::io::Error::other(
+                "missing input samples in chunk; kept .part",
+            )),
+            None => Err(std::io::Error::other(
+                "chunk never opened; input samples not saved",
+            )),
+        };
+        let (kind, problem) = match &result {
+            Ok(Some(_)) => (capture::Kind::Audio, None),
+            Ok(None) => (capture::Kind::Empty, None),
+            Err(error) => (capture::Kind::Unknown, Some(error.to_string())),
+        };
+        if let Err(error) = &result {
+            capture::report(
+                self.params.meta_path.parent().unwrap(),
+                "Аудиофрагмент не подтверждён",
+                &anyhow::anyhow!("src{} chunk{}: {error}", self.source_id, self.seq),
+            );
+        }
+        self.capture_update(
+            "Подтверждение аудиофрагмента",
+            |writer| {
+                writer.close(
+                    self.source_id,
+                    capture::Range {
+                        sequence: self.seq,
+                        start_sample: self.chunk_start_samples,
+                        samples: expected,
+                        kind,
+                        problem,
+                    },
+                )
+            },
+        );
+        let duration = expected as f64 / SAMPLE_RATE as f64;
         let start = self.chunk_start_samples as f64 / SAMPLE_RATE as f64;
-        if let Some(path) = w.finalize() {
+        if let Ok(Some(path)) = result {
             let stem = path
                 .file_stem()
                 .unwrap_or_default()
@@ -475,18 +632,25 @@ impl ChunkRecorder {
                 voice_ratio * 100.0
             );
             if self.params.flac {
-                spawn_flac_convert(self.params.ffmpeg.clone(), path);
+                self.conversions
+                    .spawn(self.params.ffmpeg.clone(), path, self.capture.clone());
             }
         }
     }
 
     fn open_next(&mut self) {
-        self.seq += 1;
+        if !self.opened {
+            self.seq += 1;
+            self.opened = true;
+            self.chunk_start_samples = self.timeline_samples;
+            self.capture_update("Открытие аудиодиапазона", |writer| {
+                writer.open(self.source_id, self.seq, self.chunk_start_samples)
+            });
+        }
         let name = format!("src{}_chunk{:04}.part", self.source_id, self.seq);
         let path = self.params.audio_dir.join(name);
         match StreamingWav::create(path) {
             Ok(w) => {
-                self.chunk_start_samples = self.timeline_samples;
                 self.wav = Some(w);
             }
             Err(e) => tracing::error!("chunk creation src{}: {e}", self.source_id),
@@ -633,6 +797,31 @@ fn translit(c: char) -> String {
 pub fn recover_orphan_chunks(work_dir: &Path) -> usize {
     let sessions = work_dir.join("sessions");
     let mut recovered = 0usize;
+    let mut capture_sessions = std::collections::BTreeSet::new();
+    if let Ok(entries) = fs::read_dir(&sessions) {
+        for entry in entries.flatten() {
+            if !entry
+                .file_type()
+                .is_ok_and(|t| t.is_dir() && !t.is_symlink())
+            {
+                continue;
+            }
+            let dir = entry.path();
+            let declared = fs::read(dir.join("meta.json"))
+                .ok()
+                .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+                .is_some_and(|meta| !meta["capture_generation"].is_null());
+            if declared || dir.join("capture").exists() {
+                capture_sessions.insert(dir.clone());
+                match capture::recover(&dir) {
+                    Ok(count) => recovered += count,
+                    Err(error) => {
+                        capture::report(&dir, "Восстановление записи не подтверждено", &error)
+                    }
+                }
+            }
+        }
+    }
     // The recovery order is deterministic (by session and chunk number): with several
     // orphaned chunks of one source their offsets in meta depend on the registration order,
     // while find_files returns the files in FS order.
@@ -646,6 +835,13 @@ pub fn recover_orphan_chunks(work_dir: &Path) -> usize {
         (p.parent().map(PathBuf::from), seq)
     });
     for part in parts {
+        if part
+            .parent()
+            .and_then(Path::parent)
+            .is_some_and(|p| capture_sessions.contains(p))
+        {
+            continue;
+        }
         match recover_part(&part) {
             Ok(true) => {
                 tracing::info!("chunk recovered after a crash: {}", part.display());
@@ -662,6 +858,13 @@ pub fn recover_orphan_chunks(work_dir: &Path) -> usize {
     // (register_recovered_in_meta deduplicates by name; we do not touch .flac — its duration
     // cannot be derived from the file size).
     for wav in find_files(&sessions, "wav") {
+        if wav
+            .parent()
+            .and_then(Path::parent)
+            .is_some_and(|p| capture_sessions.contains(p))
+        {
+            continue;
+        }
         if wav.parent().and_then(|p| p.file_name()) == Some(std::ffi::OsStr::new("audio")) {
             register_recovered_in_meta(&wav);
         }
@@ -756,16 +959,43 @@ fn wav_level_stats(wav: &Path) -> (u16, f32) {
 
 fn recover_part(part: &Path) -> std::io::Result<bool> {
     let len = fs::metadata(part)?.len();
-    if len <= WAV_HEADER_LEN {
+    if len == 0 {
         fs::remove_file(part)?;
         return Ok(false);
     }
+    if len < WAV_HEADER_LEN || (len - WAV_HEADER_LEN) % 2 != 0 || len - 8 > u64::from(u32::MAX) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "incomplete archive PCM",
+        ));
+    }
     let data_bytes = len - WAV_HEADER_LEN;
     let mut f = OpenOptions::new().read(true).write(true).open(part)?;
-    let mut magic = [0u8; 4];
-    f.read_exact(&mut magic)?;
-    if &magic != b"RIFF" {
-        return Ok(false); // not our file
+    let mut header = [0; 44];
+    f.read_exact(&mut header)?;
+    let expected = wav_header(data_bytes);
+    if header[..4] != expected[..4] || header[8..40] != expected[8..40] {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "not canonical archive WAV",
+        ));
+    }
+    if data_bytes == 0 {
+        if header != expected {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "truncated declared WAV",
+            ));
+        }
+        drop(f);
+        fs::remove_file(part)?;
+        return Ok(false);
+    }
+    if part.with_extension("wav").exists() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            "recovery would replace saved audio",
+        ));
     }
     f.seek(SeekFrom::Start(0))?;
     f.write_all(&wav_header(data_bytes))?;
@@ -810,6 +1040,9 @@ pub fn sweep_audio_retention(work_dir: &Path, days: u32) -> usize {
             {
                 return 0;
             }
+            let Ok(Some(_capture)) = capture::try_mutation_lock(&session) else {
+                return 0;
+            };
             let Ok(Some(_lease)) = crate::jobs::try_execution_lock(&session) else {
                 return 0;
             };
@@ -820,6 +1053,7 @@ pub fn sweep_audio_retention(work_dir: &Path, days: u32) -> usize {
             if files
                 .iter()
                 .any(|p| p.extension().and_then(|x| x.to_str()) == Some("part"))
+                || !capture::is_finalized(&session).unwrap_or(false)
                 || !crate::processing::inspect(&session, crate::processing::TRANSCRIPT).complete()
             {
                 return 0;
@@ -876,27 +1110,6 @@ fn find_files(root: &Path, ext: &str) -> Vec<PathBuf> {
     out
 }
 
-fn spawn_flac_convert(ffmpeg: PathBuf, wav: PathBuf) {
-    std::thread::Builder::new()
-        .name("chunk-flac".into())
-        .spawn(move || {
-            let flac = wav.with_extension("flac");
-            let status = std::process::Command::new(&ffmpeg)
-                .args(["-y", "-v", "quiet", "-i"])
-                .arg(&wav)
-                .arg(&flac)
-                .status();
-            match status {
-                Ok(s) if s.success() && flac.exists() => {
-                    let _ = fs::remove_file(&wav);
-                }
-                Ok(s) => tracing::warn!("ffmpeg flac: status {s}, keeping the WAV"),
-                Err(e) => tracing::warn!("ffmpeg did not start ({e}), keeping the WAV"),
-            }
-        })
-        .ok();
-}
-
 // ─────────────────────────── tests ───────────────────────────
 
 #[cfg(test)]
@@ -930,7 +1143,7 @@ mod tests {
         let samples = vec![7i16; 16000]; // 1 second
         w.write(&samples).unwrap();
         assert!((w.duration_sec() - 1.0).abs() < 1e-9);
-        let path = w.finalize().unwrap();
+        let path = w.finalize().unwrap().unwrap();
         assert_eq!(path.extension().unwrap(), "wav");
         let bytes = fs::read(&path).unwrap();
         assert_eq!(&bytes[..4], b"RIFF");
@@ -944,7 +1157,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let part = dir.path().join("empty.part");
         let w = StreamingWav::create(part.clone()).unwrap();
-        assert!(w.finalize().is_none());
+        assert!(w.finalize().unwrap().is_none());
         assert!(!part.exists() && !part.with_extension("wav").exists());
     }
 

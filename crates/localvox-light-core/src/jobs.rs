@@ -1426,6 +1426,9 @@ pub fn sessions_needing_artifacts(work_dir: &Path, want: &Wanted) -> Vec<String>
 }
 
 fn needs_cook(session_dir: &Path, quiescent_secs: u64) -> bool {
+    if !crate::chunks::capture::is_finalized(session_dir).unwrap_or(false) {
+        return false;
+    }
     let newest = newest_wav_mtime(&session_dir.join("audio"));
     let Some(newest) = newest else {
         return false; // no audio — nothing to cook

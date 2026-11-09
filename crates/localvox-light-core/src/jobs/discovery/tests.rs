@@ -49,6 +49,21 @@ fn unchanged_candidate_is_published_once_with_live_summary_policy() {
 }
 
 #[test]
+fn capture_generation_change_invalidates_a_candidate_before_publication() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = text_session(root.path());
+    let found = candidate(root.path());
+    fs::create_dir(dir.join("capture")).unwrap();
+    fs::write(
+        dir.join(crate::chunks::capture::FILE),
+        b"changed capture generation",
+    )
+    .unwrap();
+    assert!(!publish(root.path(), &found, (true, false, false)));
+    assert!(JobQueue::load(root.path()).jobs().is_empty());
+}
+
+#[test]
 fn new_manual_work_and_completed_attempts_invalidate_discovery() {
     let root = tempfile::tempdir().unwrap();
     let dir = text_session(root.path());

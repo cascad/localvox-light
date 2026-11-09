@@ -39,8 +39,20 @@ impl Read for AudioStream {
             let end = self.end.min(self.position + WINDOW_BYTES as u64);
             let from = (self.position - 44) / 2;
             let to = (end - 44).div_ceil(2);
-            let mic = source_pcm(&self.dir, &self.meta, 0, from, to).unwrap_or_default();
-            let sys = source_pcm(&self.dir, &self.meta, 1, from, to).unwrap_or_default();
+            let read_source = |id| {
+                let overlaps = self.meta.chunks.iter().any(|c| {
+                    c.source_id == id
+                        && c.start_offset_sec < to as f64 / SR
+                        && c.start_offset_sec + c.duration_sec > from as f64 / SR
+                });
+                if overlaps {
+                    source_pcm(&self.dir, &self.meta, id, from, to).map_err(io::Error::other)
+                } else {
+                    Ok(Vec::new())
+                }
+            };
+            let mic = read_source(0)?;
+            let sys = read_source(1)?;
             let mixed = mix(&mic, &sys);
             let skip = ((self.position - 44) % 2) as usize;
             let count = (end - self.position) as usize;
@@ -112,7 +124,12 @@ mod tests {
     fn open_ended_hour_is_lazy_and_pcm_windows_are_bounded() {
         let directory = tempfile::tempdir().unwrap();
         let session = directory.path().join("sessions/hour");
-        fs::create_dir_all(&session).unwrap();
+        fs::create_dir_all(session.join("audio")).unwrap();
+        // A real sparse PCM file keeps the memory test honest without faking missing audio.
+        let mut pcm = fs::File::create(session.join("audio/missing.wav")).unwrap();
+        std::io::Write::write_all(&mut pcm, &wav_header(3600 * 32000)).unwrap();
+        pcm.set_len(44 + 3600 * 32000).unwrap();
+        drop(pcm);
         fs::write(session.join("meta.json"), json!({"started_at":"t", "sample_rate":16000,"chunks":[{"file":"missing","source_id":0,"start_offset_sec":0,"duration_sec":3600}]}).to_string()).unwrap();
         let archive = Archive::new(directory.path().into());
         let mut stream = archive
@@ -125,6 +142,27 @@ mod tests {
         assert_eq!(out, [0; 100]);
         assert!(stream.buffer.len() <= WINDOW_BYTES);
         assert_eq!(stream.position, stream.start + 100);
+    }
+
+    #[test]
+    fn unreadable_or_short_declared_audio_is_not_fabricated_as_silence() {
+        for short in [false, true] {
+            let root = tempfile::tempdir().unwrap();
+            let session = root.path().join("sessions/broken");
+            fs::create_dir_all(session.join("audio")).unwrap();
+            fs::write(session.join("meta.json"),json!({"started_at":"t","sample_rate":16000,"chunks":[{"file":"declared","source_id":0,"start_offset_sec":0,"duration_sec":1.0}]}).to_string()).unwrap();
+            if short {
+                fs::write(
+                    session.join("audio/declared.wav"),
+                    wav_16k_mono(&[1, 0, 2, 0]),
+                )
+                .unwrap();
+            }
+            let archive = Archive::new(root.path().into());
+            let mut stream = archive.audio_wav("broken", None).unwrap();
+            let mut bytes = Vec::new();
+            assert!(stream.read_to_end(&mut bytes).is_err());
+        }
     }
     #[test]
     fn odd_byte_ranges_and_small_reads_equal_the_full_wav_across_chunk_boundaries() {

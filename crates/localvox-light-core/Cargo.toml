@@ -10,6 +10,7 @@ path = "src/lib.rs"
 
 [dependencies]
 anyhow.workspace = true
+localvox-light-process.workspace = true
 chrono.workspace = true
 clap.workspace = true
 crossbeam-channel.workspace = true

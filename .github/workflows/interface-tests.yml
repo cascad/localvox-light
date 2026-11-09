@@ -91,6 +91,11 @@ jobs:
           cargo test --locked -p localvox-light-bench --bin localvox-profile -- --ignored --exact text::tests::sparse_lines_real_worker_keeps_bad_edits_and_malformed_answers_as_originals
           cargo test --locked -p localvox-light-bench --bin localvox-profile -- --ignored --exact text::tests::retention_real_worker_preserves_semantics_and_line_ownership_in_both_modes
           cargo test --locked -p localvox-light-bench --bin localvox-queue-profile -- --ignored --exact tests::real_coordinator_empty_timeout_and_preflight_failure_are_bounded
+      - name: Confirmed capture input and owned codecs (no devices/models)
+        run: |
+          rustfmt --edition 2021 --check crates/localvox-light-core/src/chunks.rs crates/localvox-light-core/src/pipeline.rs
+          cargo test --locked -p localvox-light-core chunks:: --lib
+          cargo test --locked -p localvox-light-core pipeline:: --lib
       - name: Real worker cancellation and standalone CLI ownership (local HTTP, no models/devices)
         run: cargo test --locked -p localvox-light --lib autocook::cancellation_tests -- --ignored --nocapture
       - name: Background indexes and search (local HTTP, no models/devices)
@@ -106,12 +111,14 @@ jobs:
         run: choco install ffmpeg --yes --no-progress
       - name: Real archive HTTP media and sample-accurate FLAC
         run: |
+          cargo test --locked -p localvox-light-core --lib chunks::codec::tests::real_ -- --ignored --nocapture
           cargo test --locked -p localvox-light-api media_http_range_plays --lib -- --ignored --nocapture
           cargo test --locked -p localvox-light-api flac_range_is_sample_accurate --lib -- --ignored --nocapture
       - name: Specification checks
         run: |
           npx --yes @fission-ai/openspec@1.13.2 validate --specs --strict --no-interactive
           npx --yes @fission-ai/openspec@1.13.2 validate add-technical-journal-workspace --type change --strict --no-interactive
+          npx --yes @fission-ai/openspec@1.13.2 validate add-incremental-recording-transcription --type change --strict --no-interactive
           npx --yes @fission-ai/openspec@1.13.2 validate control-postprocessing-and-terminal-player --type change --strict --no-interactive
           npx --yes @fission-ai/openspec@1.13.2 validate refactor-terminal-command-dispatch --type change --strict --no-interactive
           npx --yes @fission-ai/openspec@1.13.2 validate fix-browser-artifact-refresh --type change --strict --no-interactive

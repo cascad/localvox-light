@@ -82,6 +82,18 @@ mod tests {
     use super::*;
     use std::sync::atomic::{AtomicBool, Ordering};
 
+    #[test]
+    fn deletion_refuses_a_remaining_capture_writer_after_marker_disappears() {
+        let (root, archive, session) = fixture();
+        let before = fs::read(root.path().join("jobs.json")).unwrap();
+        let _capture = localvox_light_core::chunks::capture::try_mutation_lock(&session)
+            .unwrap()
+            .unwrap();
+        assert!(archive.delete_session("fixture", "fixture").is_err());
+        assert!(session.join("retained.txt").is_file());
+        assert_eq!(fs::read(root.path().join("jobs.json")).unwrap(), before);
+    }
+
     fn fixture() -> (tempfile::TempDir, Archive, PathBuf) {
         let root = tempfile::tempdir().unwrap();
         let session = root.path().join("sessions/fixture");
