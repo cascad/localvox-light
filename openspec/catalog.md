@@ -36,6 +36,15 @@ role окон с сохранением контекста/результато�
 verdict/cache. 9 core/6 probe/108 LLM unit и native synthetic пройдены. Рабочая
 установка не обновлялась, общая точность summary и Mac не приняты.
 
+[Свежий release и полный маршрут 2026-11-09](changes/verify-current-release-pipeline/evidence/results.md):
+UI/desktop/daemon/worker/TUI собраны вместе; 704 Rust, 10 UI unit и 76 browser e2e
+пройдены. На публичном PCM 1 ч 59 мин STT-only batch 93.221 s, STT+summary
+208.275 s; две STT дали прежние 704 строки/тот же SHA. Summary ready/unverified,
+refine/cleanup не запускались, события/receipts проверены. Использована текущая
+Ollama/qwen3.5:9b без смены настроек; Native HTTP counters не измерены, URI proxy
+не включался. Комплект в target/release готов для ручной проверки, daemon/capture
+не запускались, аппаратная и смысловая приёмка остаются not-run.
+
 | Возможность | Связь с историей | Контракт | Граница |
 |---|---|---|---|
 | [recording](specs/recording/spec.md) | F3/F9 | Команда записи, pre-roll, pause/stop, детект, watchdog | Кнопки/голос → PCM и meta; аппаратная приёмка открыта |

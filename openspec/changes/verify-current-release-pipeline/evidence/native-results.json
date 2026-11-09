@@ -1,0 +1,1167 @@
+{
+  "version": 1,
+  "date": "2026-11-09",
+  "scope": "fresh_release_build_and_isolated_real_audio_pipeline",
+  "source_commit": "4b2e059",
+  "build_inputs": {
+    "version": 1,
+    "started_utc": "2026-11-09T16:00:18.874326+00:00",
+    "base_commit": "4b2e059",
+    "audio": {
+      "file": "target\\public-profile-source-20261101\\podlodka-109.wav",
+      "bytes": 228688954,
+      "sha256": "96e50ce45af3988b3b069c0ebd4363842eb06b3fe5b536490a8dc9d81f02cd46",
+      "seconds": 7146.527375
+    },
+    "model_files": {
+      "models\\gigaam-v3-e2e-ctc\\v3_e2e_ctc.int8.onnx": {
+        "bytes": 224893347,
+        "sha256": "2e3fcb7a7b66030336fd10c2fcfb033bd1dc7e1bf238fe5cfd83b1d0cfc9d28e"
+      },
+      "models\\gigaam-v3-e2e-ctc\\v3_e2e_ctc.yaml": {
+        "bytes": 899,
+        "sha256": "e67eca3a311ad7c8813d36dff6b8eeba7ad3459fd811d6faea2a26535754a358"
+      },
+      "models\\gigaam-v3-e2e-ctc\\v3_e2e_ctc_vocab.txt": {
+        "bytes": 2007,
+        "sha256": "142de7570b3de5b3035ce111a89c228e80e6085273731d944093ddf24fa539cd"
+      },
+      "models\\ner-gliner\\gliner_config.json": {
+        "bytes": 731,
+        "sha256": "1ef59c57fe6816a155697a5670ca8d0faf0babe13f199a2c2b5b65113399ed72"
+      },
+      "models\\ner-gliner\\model_fp16.onnx": {
+        "bytes": 579717643,
+        "sha256": "9cec3c771bfa7e886e029cd013326b13ad7d18f58fac33824f43c106fbdfe920"
+      },
+      "models\\ner-gliner\\model_q4f16.onnx": {
+        "bytes": 471795362,
+        "sha256": "11d5f4f5a720931d91429867fc1df22fc507f1878a321ada77a47afa424ff3dc"
+      },
+      "models\\ner-gliner\\tokenizer.json": {
+        "bytes": 16331948,
+        "sha256": "914bd3c8fb7b525af9e23b60d0ec7b1248ddb2b99014efd9c02ebeb022f8cab7"
+      }
+    },
+    "ui_dist": {
+      "assets\\ibm-plex-mono-cyrillic-400-normal-BSMlKf0J.woff2": {
+        "bytes": 8356,
+        "sha256": "7635422bd10ddbbcb0e0caa1154b928298f5c8319b8c00b30978d4395f4783ce"
+      },
+      "assets\\ibm-plex-mono-cyrillic-400-normal-CEL4l2ZJ.woff": {
+        "bytes": 7204,
+        "sha256": "42da81a28bbcddda6768a25a4b3105ee291e69d5fa6c74747bc51bbc6718c538"
+      },
+      "assets\\ibm-plex-mono-cyrillic-500-normal-Ael50iVv.woff": {
+        "bytes": 7208,
+        "sha256": "55a3af5e5ba0f565b4e66149cfe077ba88ac42cc3f68650a901d58eadbf9cd9b"
+      },
+      "assets\\ibm-plex-mono-cyrillic-500-normal-Bq9vWWag.woff2": {
+        "bytes": 8460,
+        "sha256": "1d89462e86cb8e87e7e9d6f6635605bd7c3081baca6caaecee84916bf7b60edc"
+      },
+      "assets\\ibm-plex-mono-cyrillic-ext-400-normal-DMdlQ8Kv.woff": {
+        "bytes": 5820,
+        "sha256": "0e4a2393e8ed3185ae300e4a202b6d9149d47d8a0e5bb8f1d1db33e76b86ecd1"
+      },
+      "assets\\ibm-plex-mono-cyrillic-ext-400-normal-xuaO2J-f.woff2": {
+        "bytes": 6912,
+        "sha256": "f8c22ec1804bd6966b70f43ac7c327025645b4c09597117fca2a5a6c750106fe"
+      },
+      "assets\\ibm-plex-mono-cyrillic-ext-500-normal-BIfNGwUT.woff": {
+        "bytes": 5772,
+        "sha256": "eadb2c427859b185761380143d1f42187fd7cbd94704b543e4c76c6368fbab52"
+      },
+      "assets\\ibm-plex-mono-cyrillic-ext-500-normal-BqneJy0T.woff2": {
+        "bytes": 6972,
+        "sha256": "3febe5c7f22e4b07b4552738673c3dbe8bced2dc5f48b866edf7ccd9552d109a"
+      },
+      "assets\\ibm-plex-mono-latin-400-normal-CvHOgSBP.woff": {
+        "bytes": 13144,
+        "sha256": "328d50b6ece9ca25c46eea3e885ba497f6237f2fb84ef7b92f88e14a1a25e381"
+      },
+      "assets\\ibm-plex-mono-latin-400-normal-DMJ8VG8y.woff2": {
+        "bytes": 14708,
+        "sha256": "08949f728dc52d528e69b1667d15c89a5686a4ee9a296ff90983985f99c380f7"
+      },
+      "assets\\ibm-plex-mono-latin-500-normal-CB9ihrfo.woff": {
+        "bytes": 13156,
+        "sha256": "09f018c58556e5801ecc49d5b5275dcff4c73311c2af6b88e31c51d76d076a9d"
+      },
+      "assets\\ibm-plex-mono-latin-500-normal-DSY6xOcd.woff2": {
+        "bytes": 14888,
+        "sha256": "01d285447409c8a588692162439a038b8cbd7871309ee20267b0d2d91c6e8e22"
+      },
+      "assets\\ibm-plex-mono-latin-ext-400-normal-BmRBH3aV.woff2": {
+        "bytes": 13348,
+        "sha256": "6bc0f226a5b7884a8170e3f62c63d7675609d4631bdc5931b5cdab81821f00eb"
+      },
+      "assets\\ibm-plex-mono-latin-ext-400-normal-D3D2R8hC.woff": {
+        "bytes": 11768,
+        "sha256": "f8ddaa0ab9d3c052c9fe035751c8214b7e0d59e6e7b69b045f8659c2fe4dced2"
+      },
+      "assets\\ibm-plex-mono-latin-ext-500-normal-CAhNIIs5.woff2": {
+        "bytes": 13432,
+        "sha256": "6bb06407c97584b0867a959e05e8874693bfeb8c317de190811c51598f2d99ea"
+      },
+      "assets\\ibm-plex-mono-latin-ext-500-normal-CZ70TYgx.woff": {
+        "bytes": 11768,
+        "sha256": "ff5da89c3ee20d38359943b61a7aae9200d2a0f61cf95ca10a7cccef81da2ff5"
+      },
+      "assets\\ibm-plex-mono-vietnamese-400-normal-BulugwFq.woff2": {
+        "bytes": 5868,
+        "sha256": "62632b6375305e70ddcafdd895218e6ae41a184fcd280a69c739460604ca00a9"
+      },
+      "assets\\ibm-plex-mono-vietnamese-400-normal-DDuiU_S-.woff": {
+        "bytes": 5620,
+        "sha256": "bced561d991e3f81c150c08e71f7fa849fcbff523560f6059245f2edce19b600"
+      },
+      "assets\\ibm-plex-mono-vietnamese-500-normal-C8zxqsMH.woff": {
+        "bytes": 5616,
+        "sha256": "755f62b418df17518aa0ea16b4232e546ce949a4ab7acc577071fa9be9e3dc88"
+      },
+      "assets\\ibm-plex-mono-vietnamese-500-normal-DZ4AoWbu.woff2": {
+        "bytes": 6040,
+        "sha256": "781633d95de88040fb77141d1e65d928c87c0144691fbc74da5a64d137a7e910"
+      },
+      "assets\\index-BoaEn2bU.js": {
+        "bytes": 351386,
+        "sha256": "f52c57fa7a3e0dc5b692310746d5963ab73fadb3b822df299871d1853651136d"
+      },
+      "assets\\index-RoCd6nSq.css": {
+        "bytes": 37425,
+        "sha256": "717a70fe1a06674e00330e18a7d3483b0e62cc16b98ad893a8d51f61b6cd0c19"
+      },
+      "font-licenses\\ibm-plex-mono.txt": {
+        "bytes": 5299,
+        "sha256": "23b0a9d0c6d3f140a0b77e483c5cfa6bba574325ef5cb189ed9f2fec4884533f"
+      },
+      "index.html": {
+        "bytes": 500,
+        "sha256": "a8170b9961fffff70635d7c23dd9b12dcee21ad6f8e4b84e01bf9f7fedbfb91b"
+      }
+    },
+    "cargo_lock_sha256": "b8f4f47bd3bd6de061aca854ab27b43f427a5166db3bfdb6c8b4e1a2a6292bb0",
+    "npm_lock_sha256": "4216fdd2361ab6e45b120250fc972a3716b1be8114b8919580847005fdfb4e5b",
+    "ollama_version": "0.40.14",
+    "llm": {
+      "name": "qwen3.5:9b",
+      "digest": "6488c96fa5faab64bb65cbd30d4289e20e6130ef535a93ef9a49f42eda893ea7",
+      "bytes": 6594474711
+    },
+    "ollama_models_before": []
+  },
+  "suite": {
+    "version": 1,
+    "scope": "fresh_release_full_audio_route_no_capture",
+    "base_commit": "4b2e059",
+    "complete": true,
+    "success": true,
+    "started_utc": "2026-11-09T16:09:35.810853+00:00",
+    "binaries": {
+      "localvox-light": {
+        "bytes": 38349824,
+        "sha256": "09e052b4a41b883078e100a72b34ba5e4e28cdce62805bb1964e07542b978af8"
+      },
+      "localvox-process": {
+        "bytes": 44997120,
+        "sha256": "9c1599ae80e7c29f55928b4c79251834fb359dedb28c3c531aa3d2d6923eb3fd"
+      },
+      "localvox-tui": {
+        "bytes": 5578240,
+        "sha256": "33378873a409b3e30b7356ecaf52086424ce4a39d7bdebfb28d01b59d9a647f8"
+      },
+      "localvox-desktop": {
+        "bytes": 8811520,
+        "sha256": "6b525069091ba5711083c807360e388490b108f77548dd76eb767146905bf526"
+      },
+      "localvox-profile": {
+        "bytes": 25607680,
+        "sha256": "259dfa7e7d5b257504e6b5438195a4cc3c94957f5461252d54671965e720ed02"
+      },
+      "localvox-queue-profile": {
+        "bytes": 23033856,
+        "sha256": "1636b5391a1da1b4ee0ef08955e33f8924eb452e0c0c67055ab91302f2d59410"
+      }
+    },
+    "runtime_dlls": {
+      "DirectML.dll": {
+        "bytes": 18527776,
+        "sha256": "9c9e6d822561c6c41b90e6994b3e8857cf1d66dbfb1e0c4c799c7c89b4e92da1"
+      },
+      "libgcc_s_seh-1.dll": {
+        "bytes": 1266641,
+        "sha256": "e16de83d48247cde2581ec36279102dda00b7d7b36558cad72164e3c4caae0a4"
+      },
+      "libstdc++-6.dll": {
+        "bytes": 19442799,
+        "sha256": "1766f6e252410086c26400ab085e017e7ad5e8993f3d19dda87a13a1e978f0a2"
+      },
+      "libvosk.dll": {
+        "bytes": 25989632,
+        "sha256": "7a242909fe36436a7660037d85c75eb18eefbd963455cd4ab1b665cb9b0074bc"
+      },
+      "libwinpthread-1.dll": {
+        "bytes": 592104,
+        "sha256": "5b60907df42009f1ba437e7f2a6278651be97f4993869105d8a31086138e4570"
+      },
+      "localvox_desktop.dll": {
+        "bytes": 115200,
+        "sha256": "dcd9d9d4720f4d4138e022c731d357827ad952a0c982f3e5477838bf3292946a"
+      }
+    },
+    "llm": {
+      "name": "qwen3.5:9b",
+      "digest": "6488c96fa5faab64bb65cbd30d4289e20e6130ef535a93ef9a49f42eda893ea7",
+      "bytes": 6594474711
+    },
+    "ollama_version": "0.40.14",
+    "runs": [
+      {
+        "case": "stt",
+        "summary_requested": false,
+        "output": "target\\profile-current-release-20261109-stt",
+        "started_utc": "2026-11-09T16:09:35.812662+00:00",
+        "ollama_models_before": [],
+        "exit_code": 0,
+        "ended_utc": "2026-11-09T16:11:11.641636+00:00",
+        "report_sha256": "2e2ee389949b9eecd81aa5aa1c731893e3dd9eefe091e5572627135e84e02557",
+        "ollama_models_after": [],
+        "input_models_executables_config_preserved": true
+      },
+      {
+        "case": "summary",
+        "summary_requested": true,
+        "output": "target\\profile-current-release-20261109-summary",
+        "started_utc": "2026-11-09T16:11:12.892781+00:00",
+        "ollama_models_before": [],
+        "exit_code": 0,
+        "ended_utc": "2026-11-09T16:14:43.478491+00:00",
+        "report_sha256": "820ec384f71ca77e12b13bda91d4ec3ee3dde131a35cd861e4dedce0612609ec",
+        "ollama_models_after": [
+          {
+            "name": "qwen3.5:9b",
+            "digest": "6488c96fa5faab64bb65cbd30d4289e20e6130ef535a93ef9a49f42eda893ea7",
+            "size": 6618370538,
+            "size_vram": 6618370538,
+            "context_length": 32768
+          }
+        ],
+        "input_models_executables_config_preserved": true
+      }
+    ],
+    "ended_utc": "2026-11-09T16:14:45.636647+00:00"
+  },
+  "runs": [
+    {
+      "case": "stt",
+      "report_sha256": "2e2ee389949b9eecd81aa5aa1c731893e3dd9eefe091e5572627135e84e02557",
+      "artifacts": {
+        "transcript_rows": 704,
+        "transcript_raw_sha256": "09014305b713638301d3cd4693d03e1f7f2920e75bdfc749c7164d0e10034ae8",
+        "summary_file_present": false,
+        "processed_file_present": false
+      },
+      "report": {
+        "all_success": true,
+        "arch": "x86_64",
+        "batch_wall_sec": 93.2206903,
+        "complete": true,
+        "configuration": {
+          "cleanup": false,
+          "coordinator_interval_sec": 5,
+          "diarization": false,
+          "llm_base_url": "http://127.0.0.1:11434/v1",
+          "llm_model": "qwen3.5:9b",
+          "prepare_input": "preconverted_pcm_with_verified_receipt; download_conversion_excluded",
+          "profile_asr_loading": true,
+          "refine": false,
+          "summary_provider": "ollama",
+          "timeout_sec": 900,
+          "trace_ollama": false
+        },
+        "coordinator_process": {
+          "diagnostic_content_omitted": true,
+          "exit_code": 0,
+          "ner_loaded_worker_diagnostic": null,
+          "resources": {
+            "availability": "observed",
+            "cpu_sec_observed": 32.609375,
+            "limits": "short-lived descendants may be missed; simultaneous sampled totals are not sums of individual peaks; external Ollama excluded",
+            "partial_memory_samples": 0,
+            "peak_sampled_commit_bytes": 618352640,
+            "peak_sampled_working_set_bytes": 609472512,
+            "processes": [
+              {
+                "cpu_sec": 0.03125,
+                "peak_commit_bytes": 232759296,
+                "peak_working_set_bytes": 239464448,
+                "pid": 1484
+              },
+              {
+                "cpu_sec": 0.0,
+                "peak_commit_bytes": 5668864,
+                "peak_working_set_bytes": 11874304,
+                "pid": 1732
+              },
+              {
+                "cpu_sec": 0.0,
+                "peak_commit_bytes": 5652480,
+                "peak_working_set_bytes": 11767808,
+                "pid": 24360
+              },
+              {
+                "cpu_sec": 32.578125,
+                "peak_commit_bytes": 668774400,
+                "peak_working_set_bytes": 575520768,
+                "pid": 24988
+              }
+            ],
+            "processes_discovered": 4,
+            "processes_queried": 4,
+            "samples": 891,
+            "sampling_interval_ms": 100,
+            "scope": "coordinator_and_observed_descendants"
+          },
+          "status": "success",
+          "stderr_bytes": 0,
+          "stdout_bytes": 94,
+          "wall_sec": 93.1198675
+        },
+        "executables_unchanged": true,
+        "external_llm_resources": null,
+        "fingerprints_pre_read_inputs_and_models": true,
+        "inputs": [
+          {
+            "audio_sec": 7146.527375,
+            "audio_sha256": "96e50ce45af3988b3b069c0ebd4363842eb06b3fe5b536490a8dc9d81f02cd46",
+            "name": "podlodka-109",
+            "summary": false
+          }
+        ],
+        "label": "Fresh current release on public 1h59m PCM; no user archive",
+        "llm_trace": null,
+        "logical_cpus": 6,
+        "manifest_sha256": "683d30a20a1a2bae9f5497e4cb9be647266d2eaa8820b0f7000b1434c6179bb7",
+        "model_files": [
+          {
+            "file": "v3_e2e_ctc.int8.onnx",
+            "sha256": "2e3fcb7a7b66030336fd10c2fcfb033bd1dc7e1bf238fe5cfd83b1d0cfc9d28e"
+          },
+          {
+            "file": "v3_e2e_ctc.yaml",
+            "sha256": "e67eca3a311ad7c8813d36dff6b8eeba7ad3459fd811d6faea2a26535754a358"
+          },
+          {
+            "file": "v3_e2e_ctc_vocab.txt",
+            "sha256": "142de7570b3de5b3035ce111a89c228e80e6085273731d944093ddf24fa539cd"
+          }
+        ],
+        "ner_model_files": [
+          {
+            "file": "gliner_config.json",
+            "sha256": "1ef59c57fe6816a155697a5670ca8d0faf0babe13f199a2c2b5b65113399ed72"
+          },
+          {
+            "file": "model_fp16.onnx",
+            "sha256": "9cec3c771bfa7e886e029cd013326b13ad7d18f58fac33824f43c106fbdfe920"
+          },
+          {
+            "file": "model_q4f16.onnx",
+            "sha256": "11d5f4f5a720931d91429867fc1df22fc507f1878a321ada77a47afa424ff3dc"
+          },
+          {
+            "file": "tokenizer.json",
+            "sha256": "914bd3c8fb7b525af9e23b60d0ec7b1248ddb2b99014efd9c02ebeb022f8cab7"
+          }
+        ],
+        "os": "windows",
+        "preflight_sec": 1.7610983,
+        "process_policy": "production resource lanes; fresh worker per phase; auto discovery unchanged; disk cache uncontrolled",
+        "queue": {
+          "all_success": true,
+          "complete": true,
+          "coordinator_joined": true,
+          "elapsed_sec": 92.9983413,
+          "events": [
+            {
+              "after_has_error": false,
+              "attempt": 1,
+              "ended_at": null,
+              "execution_id": "01a1c112-83ee-7310-8e0a-8028cb741860",
+              "job_id": 0,
+              "kind": "claimed",
+              "phase": "prepare",
+              "phase_after": "prepare",
+              "phase_wall_sec": null,
+              "queue_wait_sec": 0.169,
+              "queued_at": "2026-11-09T19:09:38.372546800+03:00",
+              "session": "podlodka-109-r1",
+              "started_at": "2026-11-09T19:09:38.542242+03:00",
+              "state_after": "Running"
+            },
+            {
+              "after_has_error": false,
+              "attempt": 1,
+              "ended_at": "2026-11-09T19:09:38.822170+03:00",
+              "execution_id": "01a1c112-83ee-7310-8e0a-8028cb741860",
+              "job_id": 0,
+              "kind": "accepted",
+              "phase": "prepare",
+              "phase_after": "transcribe",
+              "phase_wall_sec": 0.279,
+              "queue_wait_sec": 0.169,
+              "queued_at": "2026-11-09T19:09:38.372546800+03:00",
+              "session": "podlodka-109-r1",
+              "started_at": "2026-11-09T19:09:38.542242+03:00",
+              "state_after": "Pending"
+            },
+            {
+              "after_has_error": false,
+              "attempt": 1,
+              "ended_at": null,
+              "execution_id": "01a1c112-97a7-75d2-9ea0-accea222f08c",
+              "job_id": 0,
+              "kind": "claimed",
+              "phase": "transcribe",
+              "phase_after": "transcribe",
+              "phase_wall_sec": null,
+              "queue_wait_sec": 4.768,
+              "queued_at": "2026-11-09T19:09:38.822170+03:00",
+              "session": "podlodka-109-r1",
+              "started_at": "2026-11-09T19:09:43.590994400+03:00",
+              "state_after": "Running"
+            },
+            {
+              "after_has_error": false,
+              "attempt": 1,
+              "ended_at": "2026-11-09T19:11:11.302064500+03:00",
+              "execution_id": "01a1c112-97a7-75d2-9ea0-accea222f08c",
+              "job_id": 0,
+              "kind": "accepted",
+              "phase": "transcribe",
+              "phase_after": "transcribe",
+              "phase_wall_sec": 87.711,
+              "queue_wait_sec": 4.768,
+              "queued_at": "2026-11-09T19:09:38.822170+03:00",
+              "session": "podlodka-109-r1",
+              "started_at": "2026-11-09T19:09:43.590994400+03:00",
+              "state_after": "Done"
+            }
+          ],
+          "events_lost": 0,
+          "initial_jobs": [
+            {
+              "attempt": 0,
+              "created_at": "2026-11-09T19:09:38.372541300+03:00",
+              "enqueued_at": null,
+              "execution_id": null,
+              "finished_at": null,
+              "has_error": false,
+              "id": 0,
+              "kind": "cook",
+              "phase": "prepare",
+              "phase_started_at": null,
+              "queued_at": "2026-11-09T19:09:38.372546800+03:00",
+              "session": "podlodka-109-r1",
+              "started_at": null,
+              "state": "Pending"
+            }
+          ],
+          "jobs": [
+            {
+              "attempt": 1,
+              "created_at": "2026-11-09T19:09:38.372541300+03:00",
+              "enqueued_at": null,
+              "execution_id": "01a1c112-97a7-75d2-9ea0-accea222f08c",
+              "finished_at": "2026-11-09T19:11:11.302064500+03:00",
+              "has_error": false,
+              "id": 0,
+              "kind": "cook",
+              "phase": "transcribe",
+              "phase_started_at": "2026-11-09T19:09:43.590994400+03:00",
+              "queued_at": "2026-11-09T19:09:38.822170+03:00",
+              "session": "podlodka-109-r1",
+              "started_at": "2026-11-09T19:09:38.542295200+03:00",
+              "state": "Done"
+            }
+          ],
+          "reason": "terminal",
+          "scope": "isolated_production_coordinator",
+          "version": 1
+        },
+        "queue_runner_sha256": "1636b5391a1da1b4ee0ef08955e33f8924eb452e0c0c67055ab91302f2d59410",
+        "queue_runner_sha256_after": "1636b5391a1da1b4ee0ef08955e33f8924eb452e0c0c67055ab91302f2d59410",
+        "queue_wait_sec": null,
+        "repeats": 1,
+        "runner_debug_assertions": false,
+        "runner_sha256": "259dfa7e7d5b257504e6b5438195a4cc3c94957f5461252d54671965e720ed02",
+        "runs": [
+          {
+            "audio_sec": 7146.527375,
+            "case": "podlodka-109",
+            "complete": true,
+            "content_unverified": false,
+            "repeat": 1,
+            "rtf": null,
+            "session": "podlodka-109-r1",
+            "setup_sec": 0.7644206,
+            "success": true,
+            "summary_state": "missing",
+            "timeline": {
+              "generation_sec": null,
+              "history_status": "available",
+              "incomplete_tail": false,
+              "malformed_records": 0,
+              "model_load_sec": null,
+              "operation_durations_are_nested_not_additive": true,
+              "operations": [
+                {
+                  "category": "asr_model_load",
+                  "elapsed_sec": 0.793815,
+                  "operation": "01a1c112-97ec-7ee0-be76-20dc1962b0e3",
+                  "stage": "transcribe"
+                },
+                {
+                  "category": "operation",
+                  "elapsed_sec": 87.6224798,
+                  "operation": "01a1c112-97e5-7661-8091-1b243beff4d4",
+                  "stage": "transcribe"
+                },
+                {
+                  "category": "operation",
+                  "elapsed_sec": 87.7077445,
+                  "operation": "01a1c112-97ab-7f12-94f5-59567f558f5c",
+                  "stage": "transcribe"
+                }
+              ],
+              "stages": [
+                {
+                  "artifact": null,
+                  "done": 7147,
+                  "elapsed_sec": 87.683,
+                  "ended_at": "2026-11-09T19:11:11.279092500+03:00",
+                  "stage": "transcribe",
+                  "started_at": "2026-11-09T19:09:43.595497900+03:00",
+                  "state": "done",
+                  "total": 7147,
+                  "updated_at": "2026-11-09T19:11:11.279092500+03:00"
+                }
+              ],
+              "verification_sec": null
+            },
+            "transcript_state": "ready"
+          }
+        ],
+        "scope": "isolated_production_coordinator_batch",
+        "total_wall_sec": 95.7999441,
+        "version": 1,
+        "worker_sha256": "9c1599ae80e7c29f55928b4c79251834fb359dedb28c3c531aa3d2d6923eb3fd",
+        "worker_sha256_after": "9c1599ae80e7c29f55928b4c79251834fb359dedb28c3c531aa3d2d6923eb3fd"
+      }
+    },
+    {
+      "case": "summary",
+      "report_sha256": "820ec384f71ca77e12b13bda91d4ec3ee3dde131a35cd861e4dedce0612609ec",
+      "artifacts": {
+        "transcript_rows": 704,
+        "transcript_raw_sha256": "09014305b713638301d3cd4693d03e1f7f2920e75bdfc749c7164d0e10034ae8",
+        "summary_file_present": true,
+        "processed_file_present": false,
+        "summary_sha256": "bd179b72659e9e981e1fcb4643e8eff551bf2f301d7e8639f856e6bae17046e1"
+      },
+      "report": {
+        "all_success": true,
+        "arch": "x86_64",
+        "batch_wall_sec": 208.2753505,
+        "complete": true,
+        "configuration": {
+          "cleanup": false,
+          "coordinator_interval_sec": 5,
+          "diarization": false,
+          "llm_base_url": "http://127.0.0.1:11434/v1",
+          "llm_model": "qwen3.5:9b",
+          "prepare_input": "preconverted_pcm_with_verified_receipt; download_conversion_excluded",
+          "profile_asr_loading": true,
+          "refine": false,
+          "summary_provider": "ollama",
+          "timeout_sec": 900,
+          "trace_ollama": false
+        },
+        "coordinator_process": {
+          "diagnostic_content_omitted": true,
+          "exit_code": 0,
+          "ner_loaded_worker_diagnostic": null,
+          "resources": {
+            "availability": "observed",
+            "cpu_sec_observed": 58.578125,
+            "limits": "short-lived descendants may be missed; simultaneous sampled totals are not sums of individual peaks; external Ollama excluded",
+            "partial_memory_samples": 0,
+            "peak_sampled_commit_bytes": 1946918912,
+            "peak_sampled_working_set_bytes": 1557995520,
+            "processes": [
+              {
+                "cpu_sec": 0.0,
+                "peak_commit_bytes": 5652480,
+                "peak_working_set_bytes": 11767808,
+                "pid": 18304
+              },
+              {
+                "cpu_sec": 0.0,
+                "peak_commit_bytes": 5652480,
+                "peak_working_set_bytes": 11771904,
+                "pid": 18372
+              },
+              {
+                "cpu_sec": 0.0,
+                "peak_commit_bytes": 232751104,
+                "peak_working_set_bytes": 239460352,
+                "pid": 21556
+              },
+              {
+                "cpu_sec": 29.21875,
+                "peak_commit_bytes": 1930383360,
+                "peak_working_set_bytes": 1523355648,
+                "pid": 23492
+              },
+              {
+                "cpu_sec": 0.0,
+                "peak_commit_bytes": 5668864,
+                "peak_working_set_bytes": 11866112,
+                "pid": 24912
+              },
+              {
+                "cpu_sec": 29.359375,
+                "peak_commit_bytes": 669601792,
+                "peak_working_set_bytes": 574963712,
+                "pid": 25392
+              }
+            ],
+            "processes_discovered": 6,
+            "processes_queried": 6,
+            "samples": 2008,
+            "sampling_interval_ms": 100,
+            "scope": "coordinator_and_observed_descendants"
+          },
+          "status": "success",
+          "stderr_bytes": 0,
+          "stdout_bytes": 98,
+          "wall_sec": 208.2224496
+        },
+        "executables_unchanged": true,
+        "external_llm_resources": null,
+        "fingerprints_pre_read_inputs_and_models": true,
+        "inputs": [
+          {
+            "audio_sec": 7146.527375,
+            "audio_sha256": "96e50ce45af3988b3b069c0ebd4363842eb06b3fe5b536490a8dc9d81f02cd46",
+            "name": "podlodka-109",
+            "summary": true
+          }
+        ],
+        "label": "Fresh current release on public 1h59m PCM; no user archive",
+        "llm_trace": null,
+        "logical_cpus": 6,
+        "manifest_sha256": "0e6b6a0ad2fbcf3fa43b065881cf69d185bc7ce80c1bebbc3dc1ee68b890c128",
+        "model_files": [
+          {
+            "file": "v3_e2e_ctc.int8.onnx",
+            "sha256": "2e3fcb7a7b66030336fd10c2fcfb033bd1dc7e1bf238fe5cfd83b1d0cfc9d28e"
+          },
+          {
+            "file": "v3_e2e_ctc.yaml",
+            "sha256": "e67eca3a311ad7c8813d36dff6b8eeba7ad3459fd811d6faea2a26535754a358"
+          },
+          {
+            "file": "v3_e2e_ctc_vocab.txt",
+            "sha256": "142de7570b3de5b3035ce111a89c228e80e6085273731d944093ddf24fa539cd"
+          }
+        ],
+        "ner_model_files": [
+          {
+            "file": "gliner_config.json",
+            "sha256": "1ef59c57fe6816a155697a5670ca8d0faf0babe13f199a2c2b5b65113399ed72"
+          },
+          {
+            "file": "model_fp16.onnx",
+            "sha256": "9cec3c771bfa7e886e029cd013326b13ad7d18f58fac33824f43c106fbdfe920"
+          },
+          {
+            "file": "model_q4f16.onnx",
+            "sha256": "11d5f4f5a720931d91429867fc1df22fc507f1878a321ada77a47afa424ff3dc"
+          },
+          {
+            "file": "tokenizer.json",
+            "sha256": "914bd3c8fb7b525af9e23b60d0ec7b1248ddb2b99014efd9c02ebeb022f8cab7"
+          }
+        ],
+        "os": "windows",
+        "preflight_sec": 1.5449521000000002,
+        "process_policy": "production resource lanes; fresh worker per phase; auto discovery unchanged; disk cache uncontrolled",
+        "queue": {
+          "all_success": true,
+          "complete": true,
+          "coordinator_joined": true,
+          "elapsed_sec": 208.1465775,
+          "events": [
+            {
+              "after_has_error": false,
+              "attempt": 1,
+              "ended_at": null,
+              "execution_id": "01a1c113-fdfd-7f30-bbae-3594fbb99dbc",
+              "job_id": 0,
+              "kind": "claimed",
+              "phase": "prepare",
+              "phase_after": "prepare",
+              "phase_wall_sec": null,
+              "queue_wait_sec": 0.168,
+              "queued_at": "2026-11-09T19:11:15.156912700+03:00",
+              "session": "podlodka-109-r1",
+              "started_at": "2026-11-09T19:11:15.325061700+03:00",
+              "state_after": "Running"
+            },
+            {
+              "after_has_error": false,
+              "attempt": 1,
+              "ended_at": "2026-11-09T19:11:15.581687500+03:00",
+              "execution_id": "01a1c113-fdfd-7f30-bbae-3594fbb99dbc",
+              "job_id": 0,
+              "kind": "accepted",
+              "phase": "prepare",
+              "phase_after": "transcribe",
+              "phase_wall_sec": 0.256,
+              "queue_wait_sec": 0.168,
+              "queued_at": "2026-11-09T19:11:15.156912700+03:00",
+              "session": "podlodka-109-r1",
+              "started_at": "2026-11-09T19:11:15.325061700+03:00",
+              "state_after": "Pending"
+            },
+            {
+              "after_has_error": false,
+              "attempt": 1,
+              "ended_at": null,
+              "execution_id": "01a1c114-1195-7cc1-9217-043aedff6cad",
+              "job_id": 0,
+              "kind": "claimed",
+              "phase": "transcribe",
+              "phase_after": "transcribe",
+              "phase_wall_sec": null,
+              "queue_wait_sec": 4.759,
+              "queued_at": "2026-11-09T19:11:15.581687500+03:00",
+              "session": "podlodka-109-r1",
+              "started_at": "2026-11-09T19:11:20.341237700+03:00",
+              "state_after": "Running"
+            },
+            {
+              "after_has_error": false,
+              "attempt": 1,
+              "ended_at": "2026-11-09T19:12:39.277203700+03:00",
+              "execution_id": "01a1c114-1195-7cc1-9217-043aedff6cad",
+              "job_id": 0,
+              "kind": "accepted",
+              "phase": "transcribe",
+              "phase_after": "summary",
+              "phase_wall_sec": 78.935,
+              "queue_wait_sec": 4.759,
+              "queued_at": "2026-11-09T19:11:15.581687500+03:00",
+              "session": "podlodka-109-r1",
+              "started_at": "2026-11-09T19:11:20.341237700+03:00",
+              "state_after": "Pending"
+            },
+            {
+              "after_has_error": false,
+              "attempt": 1,
+              "ended_at": null,
+              "execution_id": "01a1c115-4b03-7681-ad16-0fcfa04dd039",
+              "job_id": 0,
+              "kind": "claimed",
+              "phase": "summary",
+              "phase_after": "summary",
+              "phase_wall_sec": null,
+              "queue_wait_sec": 1.301,
+              "queued_at": "2026-11-09T19:12:39.277203700+03:00",
+              "session": "podlodka-109-r1",
+              "started_at": "2026-11-09T19:12:40.579183300+03:00",
+              "state_after": "Running"
+            },
+            {
+              "after_has_error": false,
+              "attempt": 1,
+              "ended_at": "2026-11-09T19:14:43.231377700+03:00",
+              "execution_id": "01a1c115-4b03-7681-ad16-0fcfa04dd039",
+              "job_id": 0,
+              "kind": "accepted",
+              "phase": "summary",
+              "phase_after": "summary",
+              "phase_wall_sec": 122.652,
+              "queue_wait_sec": 1.301,
+              "queued_at": "2026-11-09T19:12:39.277203700+03:00",
+              "session": "podlodka-109-r1",
+              "started_at": "2026-11-09T19:12:40.579183300+03:00",
+              "state_after": "Done"
+            }
+          ],
+          "events_lost": 0,
+          "initial_jobs": [
+            {
+              "attempt": 0,
+              "created_at": "2026-11-09T19:11:15.156908200+03:00",
+              "enqueued_at": null,
+              "execution_id": null,
+              "finished_at": null,
+              "has_error": false,
+              "id": 0,
+              "kind": "cook",
+              "phase": "prepare",
+              "phase_started_at": null,
+              "queued_at": "2026-11-09T19:11:15.156912700+03:00",
+              "session": "podlodka-109-r1",
+              "started_at": null,
+              "state": "Pending"
+            }
+          ],
+          "jobs": [
+            {
+              "attempt": 1,
+              "created_at": "2026-11-09T19:11:15.156908200+03:00",
+              "enqueued_at": null,
+              "execution_id": "01a1c115-4b03-7681-ad16-0fcfa04dd039",
+              "finished_at": "2026-11-09T19:14:43.231377700+03:00",
+              "has_error": false,
+              "id": 0,
+              "kind": "cook",
+              "phase": "summary",
+              "phase_started_at": "2026-11-09T19:12:40.579183300+03:00",
+              "queued_at": "2026-11-09T19:12:39.277203700+03:00",
+              "session": "podlodka-109-r1",
+              "started_at": "2026-11-09T19:11:15.325113900+03:00",
+              "state": "Done"
+            }
+          ],
+          "reason": "terminal",
+          "scope": "isolated_production_coordinator",
+          "version": 1
+        },
+        "queue_runner_sha256": "1636b5391a1da1b4ee0ef08955e33f8924eb452e0c0c67055ab91302f2d59410",
+        "queue_runner_sha256_after": "1636b5391a1da1b4ee0ef08955e33f8924eb452e0c0c67055ab91302f2d59410",
+        "queue_wait_sec": null,
+        "repeats": 1,
+        "runner_debug_assertions": false,
+        "runner_sha256": "259dfa7e7d5b257504e6b5438195a4cc3c94957f5461252d54671965e720ed02",
+        "runs": [
+          {
+            "audio_sec": 7146.527375,
+            "case": "podlodka-109",
+            "complete": true,
+            "content_unverified": true,
+            "repeat": 1,
+            "rtf": null,
+            "session": "podlodka-109-r1",
+            "setup_sec": 0.6970422,
+            "success": true,
+            "summary_state": "ready",
+            "timeline": {
+              "generation_sec": null,
+              "history_status": "available",
+              "incomplete_tail": false,
+              "malformed_records": 0,
+              "model_load_sec": null,
+              "operation_durations_are_nested_not_additive": true,
+              "operations": [
+                {
+                  "category": "asr_model_load",
+                  "elapsed_sec": 0.5871901,
+                  "operation": "01a1c114-11bf-7b60-bdec-d3efdbf51c80",
+                  "stage": "transcribe"
+                },
+                {
+                  "category": "operation",
+                  "elapsed_sec": 78.7935669,
+                  "operation": "01a1c114-11b9-75f1-b614-5b66d178b417",
+                  "stage": "transcribe"
+                },
+                {
+                  "category": "operation",
+                  "elapsed_sec": 78.9367804,
+                  "operation": "01a1c114-1196-7e62-98d2-3bf95809fd83",
+                  "stage": "transcribe"
+                },
+                {
+                  "category": "ner_model_load",
+                  "elapsed_sec": 1.0364982,
+                  "operation": "01a1c115-4b2c-7b03-ac6c-2abe4350f860",
+                  "stage": "summary"
+                },
+                {
+                  "category": "llm_request",
+                  "elapsed_sec": 8.1590527,
+                  "operation": "01a1c115-4f42-76c0-bc42-f2b9f376d174",
+                  "stage": "summary"
+                },
+                {
+                  "category": "grounding_check",
+                  "elapsed_sec": 45.2285256,
+                  "operation": "01a1c115-6f25-7581-bd41-0058a99a5b12",
+                  "stage": "summary"
+                },
+                {
+                  "category": "llm_retry",
+                  "elapsed_sec": 2.6507607,
+                  "operation": "01a1c116-1fd7-7131-baae-0789f90e1707",
+                  "stage": "summary"
+                },
+                {
+                  "category": "grounding_check",
+                  "elapsed_sec": 0.4059889,
+                  "operation": "01a1c116-2a3c-7921-b9d8-7193eb90c838",
+                  "stage": "summary"
+                },
+                {
+                  "category": "llm_request",
+                  "elapsed_sec": 3.9542659,
+                  "operation": "01a1c116-2bd7-75b1-bc6f-0f1d057421e2",
+                  "stage": "summary"
+                },
+                {
+                  "category": "grounding_check",
+                  "elapsed_sec": 0.5094297,
+                  "operation": "01a1c116-3b4e-7a91-af18-27ddc2b0bda1",
+                  "stage": "summary"
+                },
+                {
+                  "category": "llm_request",
+                  "elapsed_sec": 3.3396711,
+                  "operation": "01a1c116-3d50-7fa0-ad16-b2dc8b6323c3",
+                  "stage": "summary"
+                },
+                {
+                  "category": "grounding_check",
+                  "elapsed_sec": 0.4114066,
+                  "operation": "01a1c116-4a60-71d2-aae9-61d066c1a288",
+                  "stage": "summary"
+                },
+                {
+                  "category": "llm_request",
+                  "elapsed_sec": 3.9984813,
+                  "operation": "01a1c116-4c00-7bd0-af5a-2ff0c11e4f0e",
+                  "stage": "summary"
+                },
+                {
+                  "category": "grounding_check",
+                  "elapsed_sec": 0.4165802,
+                  "operation": "01a1c116-5ba3-7ff0-a56c-896675ee21a2",
+                  "stage": "summary"
+                },
+                {
+                  "category": "llm_request",
+                  "elapsed_sec": 3.9512155,
+                  "operation": "01a1c116-5d48-7701-92af-e0ef475bc92f",
+                  "stage": "summary"
+                },
+                {
+                  "category": "grounding_check",
+                  "elapsed_sec": 0.289875,
+                  "operation": "01a1c116-6cbc-7d41-9590-4239b650686f",
+                  "stage": "summary"
+                },
+                {
+                  "category": "llm_request",
+                  "elapsed_sec": 2.7077522,
+                  "operation": "01a1c116-6de3-7dd2-a891-e3555b7cc5d1",
+                  "stage": "summary"
+                },
+                {
+                  "category": "grounding_check",
+                  "elapsed_sec": 0.2593989,
+                  "operation": "01a1c116-787a-7011-86d2-5bbcabc0025f",
+                  "stage": "summary"
+                },
+                {
+                  "category": "llm_request",
+                  "elapsed_sec": 5.1188025,
+                  "operation": "01a1c116-7982-75a3-85fa-9aa661c2c457",
+                  "stage": "summary"
+                },
+                {
+                  "category": "grounding_check",
+                  "elapsed_sec": 0.4980439,
+                  "operation": "01a1c116-8d85-75c0-8383-f899991a2056",
+                  "stage": "summary"
+                },
+                {
+                  "category": "llm_retry",
+                  "elapsed_sec": 4.1692008,
+                  "operation": "01a1c116-8f7b-7c22-8624-f36c317c4a55",
+                  "stage": "summary"
+                },
+                {
+                  "category": "grounding_check",
+                  "elapsed_sec": 0.7852219,
+                  "operation": "01a1c116-9fcf-7710-96ac-50be9eae87ab",
+                  "stage": "summary"
+                },
+                {
+                  "category": "llm_request",
+                  "elapsed_sec": 3.4645406,
+                  "operation": "01a1c116-a2e6-74a1-99d0-c23314b5d6b5",
+                  "stage": "summary"
+                },
+                {
+                  "category": "grounding_check",
+                  "elapsed_sec": 0.392002,
+                  "operation": "01a1c116-b072-71f3-ac3f-f4efed933863",
+                  "stage": "summary"
+                },
+                {
+                  "category": "llm_request",
+                  "elapsed_sec": 4.3225006,
+                  "operation": "01a1c116-b1ff-7ed2-98c5-6064d833b6ec",
+                  "stage": "summary"
+                },
+                {
+                  "category": "grounding_check",
+                  "elapsed_sec": 0.4956716,
+                  "operation": "01a1c116-c2e6-7191-8964-a419b21826bb",
+                  "stage": "summary"
+                },
+                {
+                  "category": "summary_reduce",
+                  "elapsed_sec": 23.0770252,
+                  "operation": "01a1c116-c4db-7220-a517-feccc60300aa",
+                  "stage": "summary"
+                },
+                {
+                  "category": "operation",
+                  "elapsed_sec": 2.5787896,
+                  "operation": "01a1c117-1f1b-7a13-81e8-ee597770bc6b",
+                  "stage": "summary"
+                },
+                {
+                  "category": "operation",
+                  "elapsed_sec": 122.649615,
+                  "operation": "01a1c115-4b06-7db2-90ad-79e823dae6f6",
+                  "stage": "summary"
+                }
+              ],
+              "stages": [
+                {
+                  "artifact": null,
+                  "done": 7147,
+                  "elapsed_sec": 78.832,
+                  "ended_at": "2026-11-09T19:12:39.174821300+03:00",
+                  "stage": "transcribe",
+                  "started_at": "2026-11-09T19:11:20.342711800+03:00",
+                  "state": "done",
+                  "total": 7147,
+                  "updated_at": "2026-11-09T19:12:39.174821300+03:00"
+                },
+                {
+                  "artifact": null,
+                  "done": 11,
+                  "elapsed_sec": 122.418,
+                  "ended_at": "2026-11-09T19:14:43.001153800+03:00",
+                  "stage": "summary",
+                  "started_at": "2026-11-09T19:12:40.582878+03:00",
+                  "state": "done",
+                  "total": 11,
+                  "updated_at": "2026-11-09T19:14:43.001153800+03:00"
+                }
+              ],
+              "verification_sec": null
+            },
+            "transcript_state": "ready"
+          }
+        ],
+        "scope": "isolated_production_coordinator_batch",
+        "total_wall_sec": 210.5705899,
+        "version": 1,
+        "worker_sha256": "9c1599ae80e7c29f55928b4c79251834fb359dedb28c3c531aa3d2d6923eb3fd",
+        "worker_sha256_after": "9c1599ae80e7c29f55928b4c79251834fb359dedb28c3c531aa3d2d6923eb3fd"
+      }
+    }
+  ],
+  "tests": [
+    {
+      "scope": "clients_terminal_process",
+      "passed": 154,
+      "ignored_in_that_invocation": 4,
+      "log_sha256": "5866d0f6ef8e16b815ca767d8f83207d33b063ecaa4eb83c501afac5bbba972e"
+    },
+    {
+      "scope": "core",
+      "passed": 390,
+      "ignored_in_that_invocation": 3,
+      "log_sha256": "83c92079051cf0d5d93f1ade2527fdcf8ce994bd5d79e5ff34b285899ade8384"
+    },
+    {
+      "scope": "llm",
+      "passed": 108,
+      "ignored_in_that_invocation": 0,
+      "log_sha256": "48a9c4f14501cc430b6d6f9113069dfc88f67c10c9ea221b7a95e3149623b97d"
+    },
+    {
+      "scope": "coordinator",
+      "passed": 15,
+      "ignored_in_that_invocation": 9,
+      "log_sha256": "00261187346b61f6a22291bb4efd24b9db2ded72b2634141b15a6b7067ff1131"
+    },
+    {
+      "scope": "profilers",
+      "passed": 35,
+      "ignored_in_that_invocation": 6,
+      "log_sha256": "bdc0bd3b009726418261be10ee92951b54ae62cc6f5c534bcf995a703f526858"
+    },
+    {
+      "scope": "release_queue_fault_fixture",
+      "passed": 1,
+      "ignored_in_that_invocation": 0,
+      "log_sha256": "0bc74e552a065819f0c8f002dcd18b4a42f696890465a2e080278b36c6042e98"
+    },
+    {
+      "scope": "real_http_both_clients",
+      "passed": 1,
+      "ignored_in_that_invocation": 0,
+      "log_sha256": "4f9fbc700a1f0446ef6facdb0cbd7a0abd3643fcce91983b7e48f996d2952a59"
+    }
+  ],
+  "post_run_hardware_snapshot": {
+    "cpu": {
+      "Name": "AMD Ryzen 9 9900X3D 12-Core Processor          ",
+      "NumberOfLogicalProcessors": 6
+    },
+    "physical_ram_bytes": 66157793280,
+    "gpu_after_run": "NVIDIA GeForce RTX 5080, 16303",
+    "captured_at": "2026-11-09T16:25:22.0220926Z"
+  },
+  "frontend": {
+    "unit_passed": 10,
+    "e2e_passed": 76,
+    "workers": 1,
+    "negative_visual_controls_expected": true,
+    "unit_log_sha256": "effea8bd4f71a979d893296949fa5f0b35282a72d35311972a6de637e710283a",
+    "e2e_log_sha256": "69a037ca192469b6379d1ebe579c4cd39c8c7502080342aefb8650fe1d27ffdf"
+  },
+  "preservation": {
+    "user_config_unchanged": true,
+    "model_files_unchanged": true,
+    "audio_unchanged": true,
+    "executables_unchanged": true,
+    "cargo_and_npm_locks_unchanged": true,
+    "ui_dist_unchanged": true,
+    "llm_digest_unchanged": true
+  },
+  "limits": {
+    "real_capture": false,
+    "desktop_runtime_acceptance": false,
+    "mac_tested": false,
+    "owner_audio_acceptance": false,
+    "semantic_quality_accepted": false,
+    "full_download_conversion_tested": false,
+    "diarization": false,
+    "native_ollama_request_counters": null,
+    "proxy_used": false,
+    "models_force_unloaded": false,
+    "exclusive_gpu_or_ollama_ownership": false,
+    "working_daemon_started": false
+  }
+}

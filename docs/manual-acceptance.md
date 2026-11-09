@@ -5,6 +5,9 @@
 длинная запись. **Пока все пункты ниже — `not-run`: документ подготовлен, приёмка не выполнена.**
 
 Все доступные действия описаны в [справочнике пользователя](user-guide.md).
+Свежий комплект от 2026-11-09 собран и программно проверен:
+[состав, результаты и hashes](../openspec/changes/verify-current-release-pipeline/evidence/results.md).
+Рабочий daemon не запускался; ручные пункты ниже остаются `not-run`.
 Этот чек-лист закрывает оставшуюся [задачу 10.2](../openspec/changes/add-technical-journal-workspace/tasks.md),
 а также проверяет отмену из [BL-002](../openspec/changes/archive/2026-11-01-serialize-session-mutations/evidence/implementation.md).
 
