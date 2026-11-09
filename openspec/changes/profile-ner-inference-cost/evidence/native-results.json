@@ -1,0 +1,1458 @@
+{
+  "version": 1,
+  "date": "2026-11-09",
+  "scope": "real_GLiNER_components_on_saved_summary_no_LLM",
+  "suite": {
+    "scope": "real_GLiNER_component_profiles_no_LLM",
+    "complete": true,
+    "success": true,
+    "started_utc": "2026-11-09T07:59:32.534163+00:00",
+    "base_commit": "19af3d6",
+    "source_files": {
+      "crates/localvox-light-core/src/ner.rs": "bbd6553352005a89959b5ceee5a2282c74ce47af4ef59130680568689e1da52b",
+      "crates/localvox-light-core/src/ner/profile.rs": "ae1e427a2b0f5641199a4d2e9b08c2752112a52b71ad85eb6e2db662527282a2",
+      "crates/localvox-light-llm/src/grounding.rs": "a057edcc04cc8f5daeffa967a1375dda19fc50da11215d3e02b7fbd25c44d127",
+      "crates/localvox-light-llm/src/grounding/profile.rs": "b927bad6b916b428d485731c34bc4f83d43125a9efe44b2b12ad0fda720497f4",
+      "crates/localvox-light-bench/src/bin/localvox-grounding-profile.rs": "095a4c4d8bafca9e7c62768e70ffbc2c6df1ddf43399e94b17179ff75b2cd781"
+    },
+    "binary_sha256": "862e66a0133fd7736aa52eea09ebec78f5193396f24ff8ca604c299bd5045ff4",
+    "source_sha256": "09014305b713638301d3cd4693d03e1f7f2920e75bdfc749c7164d0e10034ae8",
+    "answer_file_sha256": "3b44981a9c17877775fbba7ffb81661addc5d93633c4d8e4faf95d4ed520f778",
+    "working_worker_sha256": "85474d4ed43753f3f1bd51217e104825cbdf19991a5fb0b13eaa62886a6e1696",
+    "host": {
+      "os": "Windows",
+      "machine": "AMD64",
+      "logical_processors_reported": 6
+    },
+    "timeout_per_process_sec": 300,
+    "filesystem_cache_cleared": false,
+    "runs": [
+      {
+        "repeat": 1,
+        "report": "ner-components-native-r1.json",
+        "report_sha256": "9847a8d2ba21130e32945861bcdd688d006a72f81fba2503ab940b1638f70d62"
+      },
+      {
+        "repeat": 2,
+        "report": "ner-components-native-r2.json",
+        "report_sha256": "5cb7b1e2098429388cadcc77ec338f8f786a7ffdc1de388411b811b7cbb96e5b"
+      }
+    ],
+    "ended_utc": "2026-11-09T08:01:59.173579+00:00"
+  },
+  "common_inputs": {
+    "source_sha256": "09014305b713638301d3cd4693d03e1f7f2920e75bdfc749c7164d0e10034ae8",
+    "answer_file_sha256": "3b44981a9c17877775fbba7ffb81661addc5d93633c4d8e4faf95d4ed520f778",
+    "source_lines": 704,
+    "speech_chars": 104622,
+    "answer_chars": 8523,
+    "speech_sha256": "f9445e2cd4ad630839ff2d0c22ea307e353b0e0dcda7a78fa4bd1f6f7e97413d",
+    "words_source_sha256": "fe8410e2603ffc3408da44003c5d337d0185312951f4673d932f01a4bb0eb332",
+    "checked_answer_sha256": "c4c2b7ea09b43f6b4baa0dce760b93a1070a673bbec5d53909e300e9aa5fd075",
+    "model_files": [
+      {
+        "bytes": 731,
+        "file": "gliner_config.json",
+        "sha256": "1ef59c57fe6816a155697a5670ca8d0faf0babe13f199a2c2b5b65113399ed72"
+      },
+      {
+        "bytes": 579717643,
+        "file": "model_fp16.onnx",
+        "sha256": "9cec3c771bfa7e886e029cd013326b13ad7d18f58fac33824f43c106fbdfe920"
+      },
+      {
+        "bytes": 471795362,
+        "file": "model_q4f16.onnx",
+        "sha256": "11d5f4f5a720931d91429867fc1df22fc507f1878a321ada77a47afa424ff3dc"
+      },
+      {
+        "bytes": 16331948,
+        "file": "tokenizer.json",
+        "sha256": "914bd3c8fb7b525af9e23b60d0ec7b1248ddb2b99014efd9c02ebeb022f8cab7"
+      }
+    ],
+    "selected_model": "model_fp16.onnx",
+    "source_threshold": 0.3,
+    "answer_threshold": 0.5,
+    "name_label_sha256": "76d39e9082095a18e2d5bfd4f7ced67afc1919a516c6aeae6772dc8226c6bf1a",
+    "role_label_sha256": "325a71089a7502e4918187a333df8ecb9ae493a618c0ff39262132f6f453d537",
+    "role_label_empty": false,
+    "template": "summary-ru",
+    "lexicon": "builtin",
+    "glossary": "empty",
+    "binary_sha256": "862e66a0133fd7736aa52eea09ebec78f5193396f24ff8ca604c299bd5045ff4"
+  },
+  "runs": [
+    {
+      "repeat": 1,
+      "report_sha256": "9847a8d2ba21130e32945861bcdd688d006a72f81fba2503ab940b1638f70d62",
+      "report": {
+        "checks": [
+          {
+            "backend": {
+              "answer_calls": 1,
+              "answer_errors": 0,
+              "answer_sec": 3.3797346,
+              "source_calls": 1,
+              "source_errors": 0,
+              "source_sec": 49.2302536
+            },
+            "name_flags": 1,
+            "ner_components": [
+              {
+                "source": true,
+                "timings": {
+                  "complete": true,
+                  "passes": [
+                    {
+                      "components": [
+                        {
+                          "calls": 1,
+                          "component": "split_words",
+                          "elapsed_sec": 0.0028664,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 221,
+                          "component": "window_input",
+                          "elapsed_sec": 0.0013344999999999997,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 221,
+                          "component": "tokenization",
+                          "elapsed_sec": 0.14124360000000002,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 221,
+                          "component": "tensor_preparation",
+                          "elapsed_sec": 0.0007360999999999998,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 221,
+                          "component": "session_lock",
+                          "elapsed_sec": 1.1900000000000025e-05,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 221,
+                          "component": "tensor_creation",
+                          "elapsed_sec": 0.0010367999999999992,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 221,
+                          "component": "inference",
+                          "elapsed_sec": 24.455962099999994,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 221,
+                          "component": "logits_copy",
+                          "elapsed_sec": 0.0004624999999999994,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 221,
+                          "component": "span_decode",
+                          "elapsed_sec": 0.001455399999999999,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 1,
+                          "component": "window_dedup",
+                          "elapsed_sec": 2.52e-05,
+                          "errors": 0
+                        }
+                      ],
+                      "pass": "name",
+                      "tokens_max": 251,
+                      "tokens_total": 50336,
+                      "windows_completed": 221,
+                      "windows_started": 221,
+                      "words": 22088
+                    },
+                    {
+                      "components": [
+                        {
+                          "calls": 1,
+                          "component": "split_words",
+                          "elapsed_sec": 0.002893,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 221,
+                          "component": "window_input",
+                          "elapsed_sec": 0.001431100000000001,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 221,
+                          "component": "tokenization",
+                          "elapsed_sec": 0.10218230000000006,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 221,
+                          "component": "tensor_preparation",
+                          "elapsed_sec": 0.0007124000000000004,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 221,
+                          "component": "session_lock",
+                          "elapsed_sec": 1.1600000000000023e-05,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 221,
+                          "component": "tensor_creation",
+                          "elapsed_sec": 0.0010099999999999996,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 221,
+                          "component": "inference",
+                          "elapsed_sec": 24.507039499999994,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 221,
+                          "component": "logits_copy",
+                          "elapsed_sec": 0.00045919999999999945,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 221,
+                          "component": "span_decode",
+                          "elapsed_sec": 0.0017053000000000003,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 1,
+                          "component": "window_dedup",
+                          "elapsed_sec": 3.37e-05,
+                          "errors": 0
+                        }
+                      ],
+                      "pass": "role",
+                      "tokens_max": 253,
+                      "tokens_total": 50778,
+                      "windows_completed": 221,
+                      "windows_started": 221,
+                      "words": 22088
+                    },
+                    {
+                      "components": [
+                        {
+                          "calls": 1,
+                          "component": "role_comparison",
+                          "elapsed_sec": 5.46e-05,
+                          "errors": 0
+                        }
+                      ],
+                      "pass": "comparison",
+                      "tokens_max": 0,
+                      "tokens_total": 0,
+                      "windows_completed": 0,
+                      "windows_started": 0,
+                      "words": 0
+                    }
+                  ],
+                  "total_sec": 49.2302429,
+                  "unattributed_sec": 0.007575700000003849
+                }
+              },
+              {
+                "source": false,
+                "timings": {
+                  "complete": true,
+                  "passes": [
+                    {
+                      "components": [
+                        {
+                          "calls": 1,
+                          "component": "split_words",
+                          "elapsed_sec": 0.0002162,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "window_input",
+                          "elapsed_sec": 8.34e-05,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "tokenization",
+                          "elapsed_sec": 0.0098963,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "tensor_preparation",
+                          "elapsed_sec": 4.590000000000001e-05,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "session_lock",
+                          "elapsed_sec": 8e-07,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "tensor_creation",
+                          "elapsed_sec": 6.759999999999999e-05,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "inference",
+                          "elapsed_sec": 1.7050501999999998,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "logits_copy",
+                          "elapsed_sec": 2.7299999999999996e-05,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "span_decode",
+                          "elapsed_sec": 8.68e-05,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 1,
+                          "component": "window_dedup",
+                          "elapsed_sec": 7e-07,
+                          "errors": 0
+                        }
+                      ],
+                      "pass": "name",
+                      "tokens_max": 248,
+                      "tokens_total": 3317,
+                      "windows_completed": 14,
+                      "windows_started": 14,
+                      "words": 1414
+                    },
+                    {
+                      "components": [
+                        {
+                          "calls": 1,
+                          "component": "split_words",
+                          "elapsed_sec": 0.0002303,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "window_input",
+                          "elapsed_sec": 8.64e-05,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "tokenization",
+                          "elapsed_sec": 0.0068229,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "tensor_preparation",
+                          "elapsed_sec": 4.49e-05,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "session_lock",
+                          "elapsed_sec": 1e-06,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "tensor_creation",
+                          "elapsed_sec": 6.61e-05,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "inference",
+                          "elapsed_sec": 1.6564078,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "logits_copy",
+                          "elapsed_sec": 2.81e-05,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "span_decode",
+                          "elapsed_sec": 9.660000000000002e-05,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 1,
+                          "component": "window_dedup",
+                          "elapsed_sec": 2.1e-06,
+                          "errors": 0
+                        }
+                      ],
+                      "pass": "role",
+                      "tokens_max": 250,
+                      "tokens_total": 3345,
+                      "windows_completed": 14,
+                      "windows_started": 14,
+                      "words": 1414
+                    },
+                    {
+                      "components": [
+                        {
+                          "calls": 1,
+                          "component": "role_comparison",
+                          "elapsed_sec": 9e-07,
+                          "errors": 0
+                        }
+                      ],
+                      "pass": "comparison",
+                      "tokens_max": 0,
+                      "tokens_total": 0,
+                      "windows_completed": 0,
+                      "windows_started": 0,
+                      "words": 0
+                    }
+                  ],
+                  "total_sec": 3.3797337,
+                  "unattributed_sec": 0.00047140000000034377
+                }
+              }
+            ],
+            "ner_succeeded": true,
+            "number_flags": 2,
+            "pass": 1,
+            "timings": {
+              "components": [
+                {
+                  "component": "source_preparation",
+                  "elapsed_sec": 0.0304761
+                },
+                {
+                  "component": "answer_numbers",
+                  "elapsed_sec": 0.0005601
+                },
+                {
+                  "component": "ner_text_preparation",
+                  "elapsed_sec": 4.78e-05
+                },
+                {
+                  "component": "source_entity_request",
+                  "elapsed_sec": 49.2302976
+                },
+                {
+                  "component": "source_entity_normalization",
+                  "elapsed_sec": 0.0001113
+                },
+                {
+                  "component": "answer_entity_request",
+                  "elapsed_sec": 3.3797763
+                },
+                {
+                  "component": "answer_entity_normalization",
+                  "elapsed_sec": 6.2e-06
+                },
+                {
+                  "component": "entity_matching",
+                  "elapsed_sec": 0.0088569
+                },
+                {
+                  "component": "lexical_matching",
+                  "elapsed_sec": 0.0011771
+                },
+                {
+                  "component": "result_assembly",
+                  "elapsed_sec": 1.3e-06
+                }
+              ],
+              "total_sec": 52.6518823
+            }
+          },
+          {
+            "backend": {
+              "answer_calls": 1,
+              "answer_errors": 0,
+              "answer_sec": 3.3973081,
+              "source_calls": 0,
+              "source_errors": 0,
+              "source_sec": 0.0
+            },
+            "name_flags": 1,
+            "ner_components": [
+              {
+                "source": false,
+                "timings": {
+                  "complete": true,
+                  "passes": [
+                    {
+                      "components": [
+                        {
+                          "calls": 1,
+                          "component": "split_words",
+                          "elapsed_sec": 0.0002044,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "window_input",
+                          "elapsed_sec": 9.229999999999998e-05,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "tokenization",
+                          "elapsed_sec": 0.0068611,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "tensor_preparation",
+                          "elapsed_sec": 4.44e-05,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "session_lock",
+                          "elapsed_sec": 8e-07,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "tensor_creation",
+                          "elapsed_sec": 6.45e-05,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "inference",
+                          "elapsed_sec": 1.7232550999999998,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "logits_copy",
+                          "elapsed_sec": 2.87e-05,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "span_decode",
+                          "elapsed_sec": 8.750000000000001e-05,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 1,
+                          "component": "window_dedup",
+                          "elapsed_sec": 8e-07,
+                          "errors": 0
+                        }
+                      ],
+                      "pass": "name",
+                      "tokens_max": 248,
+                      "tokens_total": 3317,
+                      "windows_completed": 14,
+                      "windows_started": 14,
+                      "words": 1414
+                    },
+                    {
+                      "components": [
+                        {
+                          "calls": 1,
+                          "component": "split_words",
+                          "elapsed_sec": 0.0002222,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "window_input",
+                          "elapsed_sec": 9.35e-05,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "tokenization",
+                          "elapsed_sec": 0.0069694000000000015,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "tensor_preparation",
+                          "elapsed_sec": 4.569999999999999e-05,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "session_lock",
+                          "elapsed_sec": 8e-07,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "tensor_creation",
+                          "elapsed_sec": 6.250000000000001e-05,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "inference",
+                          "elapsed_sec": 1.6586299,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "logits_copy",
+                          "elapsed_sec": 2.8800000000000002e-05,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "span_decode",
+                          "elapsed_sec": 9.71e-05,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 1,
+                          "component": "window_dedup",
+                          "elapsed_sec": 2.2e-06,
+                          "errors": 0
+                        }
+                      ],
+                      "pass": "role",
+                      "tokens_max": 250,
+                      "tokens_total": 3345,
+                      "windows_completed": 14,
+                      "windows_started": 14,
+                      "words": 1414
+                    },
+                    {
+                      "components": [
+                        {
+                          "calls": 1,
+                          "component": "role_comparison",
+                          "elapsed_sec": 1.5e-06,
+                          "errors": 0
+                        }
+                      ],
+                      "pass": "comparison",
+                      "tokens_max": 0,
+                      "tokens_total": 0,
+                      "windows_completed": 0,
+                      "windows_started": 0,
+                      "words": 0
+                    }
+                  ],
+                  "total_sec": 3.3973073,
+                  "unattributed_sec": 0.0005140999999997398
+                }
+              }
+            ],
+            "ner_succeeded": true,
+            "number_flags": 2,
+            "pass": 2,
+            "timings": {
+              "components": [
+                {
+                  "component": "source_preparation",
+                  "elapsed_sec": 0.0309226
+                },
+                {
+                  "component": "answer_numbers",
+                  "elapsed_sec": 0.0005757
+                },
+                {
+                  "component": "ner_text_preparation",
+                  "elapsed_sec": 5.49e-05
+                },
+                {
+                  "component": "source_entity_request",
+                  "elapsed_sec": 9.2e-06
+                },
+                {
+                  "component": "source_entity_normalization",
+                  "elapsed_sec": 9.92e-05
+                },
+                {
+                  "component": "answer_entity_request",
+                  "elapsed_sec": 3.3973379
+                },
+                {
+                  "component": "answer_entity_normalization",
+                  "elapsed_sec": 6.3e-06
+                },
+                {
+                  "component": "entity_matching",
+                  "elapsed_sec": 0.0087732
+                },
+                {
+                  "component": "lexical_matching",
+                  "elapsed_sec": 0.0011653
+                },
+                {
+                  "component": "result_assembly",
+                  "elapsed_sec": 1e-06
+                }
+              ],
+              "total_sec": 3.4394036
+            }
+          }
+        ],
+        "ordinary_check": {
+          "backend": {
+            "answer_calls": 1,
+            "answer_errors": 0,
+            "answer_sec": 3.1766619,
+            "source_calls": 0,
+            "source_errors": 0,
+            "source_sec": 0.0
+          },
+          "exact_verdict_parity": true,
+          "name_flags": 1,
+          "ner_components": [],
+          "number_flags": 2,
+          "wall_sec": 3.2190203
+        },
+        "total_backend": {
+          "answer_calls": 3,
+          "answer_errors": 0,
+          "answer_sec": 9.9537046,
+          "source_calls": 1,
+          "source_errors": 0,
+          "source_sec": 49.2302536
+        },
+        "model_load_sec": 1.0536985,
+        "model_fingerprinting_sec": 22.262238,
+        "preparation_sec": 22.2777275,
+        "final_verification_sec": 0.5213768,
+        "total_wall_sec": 83.3697316,
+        "unattributed_wall_sec": 0.20662260000000288,
+        "input_and_models_preserved": true,
+        "runner_debug_assertions": false,
+        "complete": true,
+        "success": true,
+        "llm_executed": false,
+        "semantic_quality_established": false
+      }
+    },
+    {
+      "repeat": 2,
+      "report_sha256": "5cb7b1e2098429388cadcc77ec338f8f786a7ffdc1de388411b811b7cbb96e5b",
+      "report": {
+        "checks": [
+          {
+            "backend": {
+              "answer_calls": 1,
+              "answer_errors": 0,
+              "answer_sec": 3.7875841,
+              "source_calls": 1,
+              "source_errors": 0,
+              "source_sec": 50.3790286
+            },
+            "name_flags": 1,
+            "ner_components": [
+              {
+                "source": true,
+                "timings": {
+                  "complete": true,
+                  "passes": [
+                    {
+                      "components": [
+                        {
+                          "calls": 1,
+                          "component": "split_words",
+                          "elapsed_sec": 0.0026107,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 221,
+                          "component": "window_input",
+                          "elapsed_sec": 0.0014042000000000008,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 221,
+                          "component": "tokenization",
+                          "elapsed_sec": 0.1428897,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 221,
+                          "component": "tensor_preparation",
+                          "elapsed_sec": 0.0007320000000000003,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 221,
+                          "component": "session_lock",
+                          "elapsed_sec": 1.2000000000000024e-05,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 221,
+                          "component": "tensor_creation",
+                          "elapsed_sec": 0.0010371,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 221,
+                          "component": "inference",
+                          "elapsed_sec": 25.071259699999995,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 221,
+                          "component": "logits_copy",
+                          "elapsed_sec": 0.0004603999999999995,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 221,
+                          "component": "span_decode",
+                          "elapsed_sec": 0.0014299999999999992,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 1,
+                          "component": "window_dedup",
+                          "elapsed_sec": 1.53e-05,
+                          "errors": 0
+                        }
+                      ],
+                      "pass": "name",
+                      "tokens_max": 251,
+                      "tokens_total": 50336,
+                      "windows_completed": 221,
+                      "windows_started": 221,
+                      "words": 22088
+                    },
+                    {
+                      "components": [
+                        {
+                          "calls": 1,
+                          "component": "split_words",
+                          "elapsed_sec": 0.002874,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 221,
+                          "component": "window_input",
+                          "elapsed_sec": 0.0012646999999999997,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 221,
+                          "component": "tokenization",
+                          "elapsed_sec": 0.10313750000000008,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 221,
+                          "component": "tensor_preparation",
+                          "elapsed_sec": 0.0007920000000000003,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 221,
+                          "component": "session_lock",
+                          "elapsed_sec": 1.290000000000003e-05,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 221,
+                          "component": "tensor_creation",
+                          "elapsed_sec": 0.0009816000000000004,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 221,
+                          "component": "inference",
+                          "elapsed_sec": 25.038324700000018,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 221,
+                          "component": "logits_copy",
+                          "elapsed_sec": 0.0004604999999999994,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 221,
+                          "component": "span_decode",
+                          "elapsed_sec": 0.0017213999999999981,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 1,
+                          "component": "window_dedup",
+                          "elapsed_sec": 3.26e-05,
+                          "errors": 0
+                        }
+                      ],
+                      "pass": "role",
+                      "tokens_max": 253,
+                      "tokens_total": 50778,
+                      "windows_completed": 221,
+                      "windows_started": 221,
+                      "words": 22088
+                    },
+                    {
+                      "components": [
+                        {
+                          "calls": 1,
+                          "component": "role_comparison",
+                          "elapsed_sec": 5.32e-05,
+                          "errors": 0
+                        }
+                      ],
+                      "pass": "comparison",
+                      "tokens_max": 0,
+                      "tokens_total": 0,
+                      "windows_completed": 0,
+                      "windows_started": 0,
+                      "words": 0
+                    }
+                  ],
+                  "total_sec": 50.3790198,
+                  "unattributed_sec": 0.0075135999999815795
+                }
+              },
+              {
+                "source": false,
+                "timings": {
+                  "complete": true,
+                  "passes": [
+                    {
+                      "components": [
+                        {
+                          "calls": 1,
+                          "component": "split_words",
+                          "elapsed_sec": 0.0004939,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "window_input",
+                          "elapsed_sec": 9.109999999999998e-05,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "tokenization",
+                          "elapsed_sec": 0.0099976,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "tensor_preparation",
+                          "elapsed_sec": 4.910000000000001e-05,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "session_lock",
+                          "elapsed_sec": 7e-07,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "tensor_creation",
+                          "elapsed_sec": 6.72e-05,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "inference",
+                          "elapsed_sec": 1.8607522,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "logits_copy",
+                          "elapsed_sec": 2.9399999999999996e-05,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "span_decode",
+                          "elapsed_sec": 8.850000000000001e-05,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 1,
+                          "component": "window_dedup",
+                          "elapsed_sec": 8e-07,
+                          "errors": 0
+                        }
+                      ],
+                      "pass": "name",
+                      "tokens_max": 248,
+                      "tokens_total": 3317,
+                      "windows_completed": 14,
+                      "windows_started": 14,
+                      "words": 1414
+                    },
+                    {
+                      "components": [
+                        {
+                          "calls": 1,
+                          "component": "split_words",
+                          "elapsed_sec": 0.0002174,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "window_input",
+                          "elapsed_sec": 8.64e-05,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "tokenization",
+                          "elapsed_sec": 0.007147799999999999,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "tensor_preparation",
+                          "elapsed_sec": 4.919999999999999e-05,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "session_lock",
+                          "elapsed_sec": 4e-07,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "tensor_creation",
+                          "elapsed_sec": 6.43e-05,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "inference",
+                          "elapsed_sec": 1.9078324999999998,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "logits_copy",
+                          "elapsed_sec": 2.91e-05,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "span_decode",
+                          "elapsed_sec": 9.860000000000002e-05,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 1,
+                          "component": "window_dedup",
+                          "elapsed_sec": 2e-06,
+                          "errors": 0
+                        }
+                      ],
+                      "pass": "role",
+                      "tokens_max": 250,
+                      "tokens_total": 3345,
+                      "windows_completed": 14,
+                      "windows_started": 14,
+                      "words": 1414
+                    },
+                    {
+                      "components": [
+                        {
+                          "calls": 1,
+                          "component": "role_comparison",
+                          "elapsed_sec": 1.4e-06,
+                          "errors": 0
+                        }
+                      ],
+                      "pass": "comparison",
+                      "tokens_max": 0,
+                      "tokens_total": 0,
+                      "windows_completed": 0,
+                      "windows_started": 0,
+                      "words": 0
+                    }
+                  ],
+                  "total_sec": 3.7875833,
+                  "unattributed_sec": 0.00048370000000064195
+                }
+              }
+            ],
+            "ner_succeeded": true,
+            "number_flags": 2,
+            "pass": 1,
+            "timings": {
+              "components": [
+                {
+                  "component": "source_preparation",
+                  "elapsed_sec": 0.0305609
+                },
+                {
+                  "component": "answer_numbers",
+                  "elapsed_sec": 0.0005624
+                },
+                {
+                  "component": "ner_text_preparation",
+                  "elapsed_sec": 5.02e-05
+                },
+                {
+                  "component": "source_entity_request",
+                  "elapsed_sec": 50.3790721
+                },
+                {
+                  "component": "source_entity_normalization",
+                  "elapsed_sec": 0.0001103
+                },
+                {
+                  "component": "answer_entity_request",
+                  "elapsed_sec": 3.7876244999999997
+                },
+                {
+                  "component": "answer_entity_normalization",
+                  "elapsed_sec": 6.1e-06
+                },
+                {
+                  "component": "entity_matching",
+                  "elapsed_sec": 0.0089077
+                },
+                {
+                  "component": "lexical_matching",
+                  "elapsed_sec": 0.0011868
+                },
+                {
+                  "component": "result_assembly",
+                  "elapsed_sec": 1.3e-06
+                }
+              ],
+              "total_sec": 54.2086593
+            }
+          },
+          {
+            "backend": {
+              "answer_calls": 1,
+              "answer_errors": 0,
+              "answer_sec": 2.9846373,
+              "source_calls": 0,
+              "source_errors": 0,
+              "source_sec": 0.0
+            },
+            "name_flags": 1,
+            "ner_components": [
+              {
+                "source": false,
+                "timings": {
+                  "complete": true,
+                  "passes": [
+                    {
+                      "components": [
+                        {
+                          "calls": 1,
+                          "component": "split_words",
+                          "elapsed_sec": 0.0002054,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "window_input",
+                          "elapsed_sec": 7.95e-05,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "tokenization",
+                          "elapsed_sec": 0.0066466,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "tensor_preparation",
+                          "elapsed_sec": 4.76e-05,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "session_lock",
+                          "elapsed_sec": 1e-06,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "tensor_creation",
+                          "elapsed_sec": 7.850000000000001e-05,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "inference",
+                          "elapsed_sec": 1.5183454999999997,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "logits_copy",
+                          "elapsed_sec": 2.9e-05,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "span_decode",
+                          "elapsed_sec": 8.729999999999998e-05,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 1,
+                          "component": "window_dedup",
+                          "elapsed_sec": 7e-07,
+                          "errors": 0
+                        }
+                      ],
+                      "pass": "name",
+                      "tokens_max": 248,
+                      "tokens_total": 3317,
+                      "windows_completed": 14,
+                      "windows_started": 14,
+                      "words": 1414
+                    },
+                    {
+                      "components": [
+                        {
+                          "calls": 1,
+                          "component": "split_words",
+                          "elapsed_sec": 0.0002329,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "window_input",
+                          "elapsed_sec": 8.679999999999998e-05,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "tokenization",
+                          "elapsed_sec": 0.0067645,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "tensor_preparation",
+                          "elapsed_sec": 4.67e-05,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "session_lock",
+                          "elapsed_sec": 8e-07,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "tensor_creation",
+                          "elapsed_sec": 6.149999999999999e-05,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "inference",
+                          "elapsed_sec": 1.451315,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "logits_copy",
+                          "elapsed_sec": 2.98e-05,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 14,
+                          "component": "span_decode",
+                          "elapsed_sec": 9.760000000000001e-05,
+                          "errors": 0
+                        },
+                        {
+                          "calls": 1,
+                          "component": "window_dedup",
+                          "elapsed_sec": 2.1e-06,
+                          "errors": 0
+                        }
+                      ],
+                      "pass": "role",
+                      "tokens_max": 250,
+                      "tokens_total": 3345,
+                      "windows_completed": 14,
+                      "windows_started": 14,
+                      "words": 1414
+                    },
+                    {
+                      "components": [
+                        {
+                          "calls": 1,
+                          "component": "role_comparison",
+                          "elapsed_sec": 1.5e-06,
+                          "errors": 0
+                        }
+                      ],
+                      "pass": "comparison",
+                      "tokens_max": 0,
+                      "tokens_total": 0,
+                      "windows_completed": 0,
+                      "windows_started": 0,
+                      "words": 0
+                    }
+                  ],
+                  "total_sec": 2.9846365,
+                  "unattributed_sec": 0.0004762000000000377
+                }
+              }
+            ],
+            "ner_succeeded": true,
+            "number_flags": 2,
+            "pass": 2,
+            "timings": {
+              "components": [
+                {
+                  "component": "source_preparation",
+                  "elapsed_sec": 0.0312771
+                },
+                {
+                  "component": "answer_numbers",
+                  "elapsed_sec": 0.0005789
+                },
+                {
+                  "component": "ner_text_preparation",
+                  "elapsed_sec": 5.2e-05
+                },
+                {
+                  "component": "source_entity_request",
+                  "elapsed_sec": 1.02e-05
+                },
+                {
+                  "component": "source_entity_normalization",
+                  "elapsed_sec": 9.96e-05
+                },
+                {
+                  "component": "answer_entity_request",
+                  "elapsed_sec": 2.9846669
+                },
+                {
+                  "component": "answer_entity_normalization",
+                  "elapsed_sec": 6.2e-06
+                },
+                {
+                  "component": "entity_matching",
+                  "elapsed_sec": 0.00947
+                },
+                {
+                  "component": "lexical_matching",
+                  "elapsed_sec": 0.0012188
+                },
+                {
+                  "component": "result_assembly",
+                  "elapsed_sec": 1.1e-06
+                }
+              ],
+              "total_sec": 3.0278249
+            }
+          }
+        ],
+        "ordinary_check": {
+          "backend": {
+            "answer_calls": 1,
+            "answer_errors": 0,
+            "answer_sec": 3.044951,
+            "source_calls": 0,
+            "source_errors": 0,
+            "source_sec": 0.0
+          },
+          "exact_verdict_parity": true,
+          "name_flags": 1,
+          "ner_components": [],
+          "number_flags": 2,
+          "wall_sec": 3.08767
+        },
+        "total_backend": {
+          "answer_calls": 3,
+          "answer_errors": 0,
+          "answer_sec": 9.8171724,
+          "source_calls": 1,
+          "source_errors": 0,
+          "source_sec": 50.3790286
+        },
+        "model_load_sec": 1.0181167,
+        "model_fingerprinting_sec": 0.5185675,
+        "preparation_sec": 0.5486241,
+        "final_verification_sec": 0.5219524,
+        "total_wall_sec": 62.4398032,
+        "unattributed_wall_sec": 0.026955800000003194,
+        "input_and_models_preserved": true,
+        "runner_debug_assertions": false,
+        "complete": true,
+        "success": true,
+        "llm_executed": false,
+        "semantic_quality_established": false
+      }
+    }
+  ],
+  "tests": [
+    {
+      "scope": "core_unit",
+      "result": "4 passed; 0 failed; 1 ignored",
+      "detail": null,
+      "log_sha256": "956c60829a1631598d205da3cd9330651aac28c4b208f8c84b3bf1687e3bff96"
+    },
+    {
+      "scope": "probe_unit",
+      "result": "6 passed; 0 failed; 1 ignored",
+      "detail": null,
+      "log_sha256": "7783a92ee37b157ea8c7049b7e87b3bde2e9a725e4a496577f959dc1dbfb78f6"
+    },
+    {
+      "scope": "llm_unit",
+      "result": "108 passed; 0 failed",
+      "detail": null,
+      "log_sha256": "4ef4722f1a46d840d42ca1b2a459e5b67ec53e8d1eff21bd7ac1c6c1c2c31ed8"
+    },
+    {
+      "scope": "native_entity_parity",
+      "result": "1 passed; 0 failed",
+      "detail": "native entity parity: 8 cases, 26 returned entities, exact scores and byte spans",
+      "log_sha256": "a2e2aee647f1a1d336250681edc9b04718b7128a26f8e1abf09269519df392f1"
+    }
+  ],
+  "runtime": {
+    "ort_crate": "2.0.0-rc.12",
+    "session": "unchanged default CPU, graph optimization Level3",
+    "threads": "unchanged automatic runtime defaults; effective scheduling not measured",
+    "cargo_lock_sha256": "b8f4f47bd3bd6de061aca854ab27b43f427a5166db3bfdb6c8b4e1a2a6292bb0"
+  },
+  "limits": {
+    "fresh_processes": 2,
+    "desktop_load_controlled": false,
+    "filesystem_cache_cleared": false,
+    "entity_parity_scope": "8 synthetic cases: short/overlap/empty text/no role, thresholds 0.3 and 0.5",
+    "kernel_operator_breakdown": false,
+    "model_or_defaults_switched": false,
+    "llm_generation": false,
+    "semantic_quality_established": false,
+    "mac_tested": false,
+    "full_pipeline_benchmark": false,
+    "hardware_acceptance": false
+  }
+}

@@ -29,11 +29,13 @@ use anyhow::{Context, Result};
 use ort::session::{builder::GraphOptimizationLevel, Session};
 use ort::value::Tensor;
 
+pub mod profile;
+use profile::{Component, Observer, Pass};
+
 /// `ort` errors are not Send+Sync, so they do not go into anyhow directly.
 fn ort_err<E: std::fmt::Display>(ctx: &'static str) -> impl FnOnce(E) -> anyhow::Error {
     move |e| anyhow::anyhow!("{ctx}: {e}")
 }
-
 
 /// The maximum number of words in a window. The model's limit is 384 tokens including the
 /// label prompt; on Cyrillic, mDeBERTa gives ~2 tokens per word, so 120 words + the labels
@@ -223,22 +225,62 @@ impl Ner {
         role_label: &str,
         threshold: f32,
     ) -> Result<Vec<Entity>> {
-        let names = self.extract_at(text, &[name_label.to_string()], threshold)?;
+        self.names_observed(
+            text,
+            name_label,
+            role_label,
+            threshold,
+            &mut Observer::disabled(),
+        )
+    }
+
+    /// Numeric-only engineering profile of the same computation. Errors retain partial timings.
+    pub fn names_profiled(
+        &self,
+        text: &str,
+        name_label: &str,
+        role_label: &str,
+        threshold: f32,
+    ) -> (Result<Vec<Entity>>, profile::Timings) {
+        let mut observer = Observer::enabled();
+        let result = self.names_observed(text, name_label, role_label, threshold, &mut observer);
+        let timings = observer.finish(result.is_ok());
+        (result, timings)
+    }
+
+    fn names_observed(
+        &self,
+        text: &str,
+        name_label: &str,
+        role_label: &str,
+        threshold: f32,
+        observer: &mut Observer,
+    ) -> Result<Vec<Entity>> {
+        let names = self.extract_observed(
+            text,
+            &[name_label.to_string()],
+            threshold,
+            Pass::Name,
+            observer,
+        )?;
         if role_label.trim().is_empty() {
             return Ok(names);
         }
         // We collect the roles GENEROUSLY: what matters is their score for the comparison,
         // not the fact itself.
-        let roles = self.extract_at(text, &[role_label.to_string()], 0.1)?;
-        Ok(names
-            .into_iter()
-            .filter(|n| {
-                roles
-                    .iter()
-                    .filter(|r| r.start < n.end && n.start < r.end)
-                    .all(|r| n.score > r.score)
-            })
-            .collect())
+        let roles =
+            self.extract_observed(text, &[role_label.to_string()], 0.1, Pass::Role, observer)?;
+        observer.measure(Pass::Comparison, Component::RoleComparison, || {
+            Ok(names
+                .into_iter()
+                .filter(|n| {
+                    roles
+                        .iter()
+                        .filter(|r| r.start < n.end && n.start < r.end)
+                        .all(|r| n.score > r.score)
+                })
+                .collect())
+        })
     }
 
     /// The same, but with an explicit threshold.
@@ -249,7 +291,25 @@ impl Ner {
     /// the ANSWER is a false accusation and the quarantine of honest minutes. So we read the
     /// record generously and the answer strictly.
     pub fn extract_at(&self, text: &str, labels: &[String], threshold: f32) -> Result<Vec<Entity>> {
-        let words = split_words(text);
+        self.extract_observed(
+            text,
+            labels,
+            threshold,
+            Pass::Name,
+            &mut Observer::disabled(),
+        )
+    }
+
+    fn extract_observed(
+        &self,
+        text: &str,
+        labels: &[String],
+        threshold: f32,
+        pass: Pass,
+        observer: &mut Observer,
+    ) -> Result<Vec<Entity>> {
+        let words = observer.measure(pass, Component::SplitWords, || Ok(split_words(text)))?;
+        observer.words(pass, words.len());
         if words.is_empty() || labels.is_empty() {
             return Ok(Vec::new());
         }
@@ -258,7 +318,11 @@ impl Ner {
         let mut start = 0usize;
         while start < words.len() {
             let end = (start + WINDOW_WORDS).min(words.len());
-            out.extend(self.extract_window(text, &words[start..end], labels, threshold)?);
+            observer.window_started(pass);
+            let result =
+                self.extract_window(text, &words[start..end], labels, threshold, pass, observer);
+            observer.window_completed(pass, result.is_ok());
+            out.extend(result?);
             if end == words.len() {
                 break;
             }
@@ -266,9 +330,11 @@ impl Ner {
         }
 
         // The windows overlap — one and the same entity arrives twice.
-        out.sort_by(|a, b| a.start.cmp(&b.start).then(a.end.cmp(&b.end)));
-        out.dedup_by(|a, b| a.start == b.start && a.end == b.end && a.label == b.label);
-        Ok(out)
+        observer.measure(pass, Component::WindowDedup, || {
+            out.sort_by(|a, b| a.start.cmp(&b.start).then(a.end.cmp(&b.end)));
+            out.dedup_by(|a, b| a.start == b.start && a.end == b.end && a.label == b.label);
+            Ok(out)
+        })
     }
 
     fn extract_window(
@@ -277,144 +343,169 @@ impl Ner {
         words: &[Word],
         labels: &[String],
         threshold: f32,
+        pass: Pass,
+        observer: &mut Observer,
     ) -> Result<Vec<Entity>> {
         // GLiNER's input: [CLS] <<ENT>> label <<ENT>> label <<SEP>> word word … [SEP]
         // The prompt made of the labels comes FIRST, so the indices of the text words are
         // shifted.
-        let mut pieces: Vec<String> = Vec::with_capacity(labels.len() * 2 + 1 + words.len());
-        for l in labels {
-            pieces.push("<<ENT>>".to_string());
-            pieces.push(l.clone());
-        }
-        pieces.push("<<SEP>>".to_string());
-        let prompt_len = pieces.len();
-        pieces.extend(words.iter().map(|w| w.text.clone()));
+        let (pieces, prompt_len) = observer.measure(pass, Component::WindowInput, || {
+            let mut pieces: Vec<String> = Vec::with_capacity(labels.len() * 2 + 1 + words.len());
+            for l in labels {
+                pieces.push("<<ENT>>".to_string());
+                pieces.push(l.clone());
+            }
+            pieces.push("<<SEP>>".to_string());
+            let prompt_len = pieces.len();
+            pieces.extend(words.iter().map(|w| w.text.clone()));
+            Ok((pieces, prompt_len))
+        })?;
 
-        let enc = self
-            .tokenizer
-            .encode(tokenizers::EncodeInput::Single(pieces.clone().into()), true)
-            .map_err(|e| anyhow::anyhow!("tokenization: {e}"))?;
+        let enc = observer.measure(pass, Component::Tokenization, || {
+            self.tokenizer
+                .encode(tokenizers::EncodeInput::Single(pieces.clone().into()), true)
+                .map_err(|e| anyhow::anyhow!("tokenization: {e}"))
+        })?;
+        observer.tokens(pass, enc.get_ids().len());
 
-        let ids: Vec<i64> = enc.get_ids().iter().map(|&x| i64::from(x)).collect();
-        let attn: Vec<i64> = enc
-            .get_attention_mask()
-            .iter()
-            .map(|&x| i64::from(x))
-            .collect();
+        let (ids, attn, words_mask, span_idx, span_mask, n_words, n_spans) =
+            observer.measure(pass, Component::TensorPreparation, || {
+                let ids: Vec<i64> = enc.get_ids().iter().map(|&x| i64::from(x)).collect();
+                let attn: Vec<i64> = enc
+                    .get_attention_mask()
+                    .iter()
+                    .map(|&x| i64::from(x))
+                    .collect();
 
-        // words_mask: the FIRST subtoken of every word of the text carries its number
-        // (starting from one), everything else carries 0. That is how the model learns where
-        // the prompt ends and the record begins.
-        let mut words_mask: Vec<i64> = Vec::with_capacity(ids.len());
-        let mut prev: Option<u32> = None;
-        for wid in enc.get_word_ids() {
-            match wid {
-                Some(w) if Some(*w) != prev && (*w as usize) >= prompt_len => {
-                    words_mask.push((*w as usize - prompt_len + 1) as i64);
+                // words_mask: the FIRST subtoken of every word of the text carries its number
+                // (starting from one), everything else carries 0. That is how the model learns where
+                // the prompt ends and the record begins.
+                let mut words_mask: Vec<i64> = Vec::with_capacity(ids.len());
+                let mut prev: Option<u32> = None;
+                for wid in enc.get_word_ids() {
+                    match wid {
+                        Some(w) if Some(*w) != prev && (*w as usize) >= prompt_len => {
+                            words_mask.push((*w as usize - prompt_len + 1) as i64);
+                        }
+                        _ => words_mask.push(0),
+                    }
+                    prev = *wid;
                 }
-                _ => words_mask.push(0),
-            }
-            prev = *wid;
-        }
 
-        let n_words = words.len();
-        let n_spans = n_words * self.max_width;
-        let mut span_idx: Vec<i64> = Vec::with_capacity(n_spans * 2);
-        let mut span_mask: Vec<bool> = Vec::with_capacity(n_spans);
-        for i in 0..n_words {
-            for w in 0..self.max_width {
-                span_idx.push(i as i64);
-                span_idx.push((i + w) as i64);
-                span_mask.push(i + w < n_words);
-            }
-        }
+                let n_words = words.len();
+                let n_spans = n_words * self.max_width;
+                let mut span_idx: Vec<i64> = Vec::with_capacity(n_spans * 2);
+                let mut span_mask: Vec<bool> = Vec::with_capacity(n_spans);
+                for i in 0..n_words {
+                    for w in 0..self.max_width {
+                        span_idx.push(i as i64);
+                        span_idx.push((i + w) as i64);
+                        span_mask.push(i + w < n_words);
+                    }
+                }
+                Ok((ids, attn, words_mask, span_idx, span_mask, n_words, n_spans))
+            })?;
 
         let seq = ids.len();
         let (shape, flat) = {
-            let mut session = self
-                .session
-                .lock()
-                .map_err(|_| anyhow::anyhow!("the NER session is poisoned"))?;
-            let t_ids =
-                Tensor::<i64>::from_array(([1usize, seq], ids)).map_err(ort_err("input_ids"))?;
-            let t_attn = Tensor::<i64>::from_array(([1usize, seq], attn))
-                .map_err(ort_err("attention_mask"))?;
-            let t_wm = Tensor::<i64>::from_array(([1usize, seq], words_mask))
-                .map_err(ort_err("words_mask"))?;
-            let t_len = Tensor::<i64>::from_array(([1usize, 1usize], vec![n_words as i64]))
-                .map_err(ort_err("text_lengths"))?;
-            let t_span = Tensor::<i64>::from_array(([1usize, n_spans, 2usize], span_idx))
-                .map_err(ort_err("span_idx"))?;
-            let t_smask = Tensor::<bool>::from_array(([1usize, n_spans], span_mask))
-                .map_err(ort_err("span_mask"))?;
-            let outputs = session
-                .run(ort::inputs![
-                    "input_ids" => t_ids,
-                    "attention_mask" => t_attn,
-                    "words_mask" => t_wm,
-                    "text_lengths" => t_len,
-                    "span_idx" => t_span,
-                    "span_mask" => t_smask,
-                ])
-                .map_err(ort_err("session.run"))?;
-            let logits = outputs
-                .get("logits")
-                .context("there is no «logits» among the NER outputs")?
-                .try_extract_array::<f32>()
-                .map_err(ort_err("extracting the logits"))?;
-            let shape: Vec<usize> = logits.shape().to_vec();
-            let flat: Vec<f32> = logits.as_slice().context("the logits are not contiguous")?.to_vec();
-            (shape, flat)
+            let mut session = observer.measure(pass, Component::SessionLock, || {
+                self.session
+                    .lock()
+                    .map_err(|_| anyhow::anyhow!("the NER session is poisoned"))
+            })?;
+            let (t_ids, t_attn, t_wm, t_len, t_span, t_smask) =
+                observer.measure(pass, Component::TensorCreation, || {
+                    let t_ids = Tensor::<i64>::from_array(([1usize, seq], ids))
+                        .map_err(ort_err("input_ids"))?;
+                    let t_attn = Tensor::<i64>::from_array(([1usize, seq], attn))
+                        .map_err(ort_err("attention_mask"))?;
+                    let t_wm = Tensor::<i64>::from_array(([1usize, seq], words_mask))
+                        .map_err(ort_err("words_mask"))?;
+                    let t_len = Tensor::<i64>::from_array(([1usize, 1usize], vec![n_words as i64]))
+                        .map_err(ort_err("text_lengths"))?;
+                    let t_span = Tensor::<i64>::from_array(([1usize, n_spans, 2usize], span_idx))
+                        .map_err(ort_err("span_idx"))?;
+                    let t_smask = Tensor::<bool>::from_array(([1usize, n_spans], span_mask))
+                        .map_err(ort_err("span_mask"))?;
+                    Ok((t_ids, t_attn, t_wm, t_len, t_span, t_smask))
+                })?;
+            let outputs = observer.measure(pass, Component::Inference, || {
+                session
+                    .run(ort::inputs![
+                        "input_ids" => t_ids,
+                        "attention_mask" => t_attn,
+                        "words_mask" => t_wm,
+                        "text_lengths" => t_len,
+                        "span_idx" => t_span,
+                        "span_mask" => t_smask,
+                    ])
+                    .map_err(ort_err("session.run"))
+            })?;
+            observer.measure(pass, Component::LogitsCopy, || {
+                let logits = outputs
+                    .get("logits")
+                    .context("there is no «logits» among the NER outputs")?
+                    .try_extract_array::<f32>()
+                    .map_err(ort_err("extracting the logits"))?;
+                let shape: Vec<usize> = logits.shape().to_vec();
+                let flat: Vec<f32> = logits
+                    .as_slice()
+                    .context("the logits are not contiguous")?
+                    .to_vec();
+                Ok((shape, flat))
+            })?
         };
         // [1, words, width, labels] — we check against the shape instead of taking it on
         // trust: mixed-up axes would give plausible but wrong entities, and that would not
         // crash, it would quietly lie.
-        anyhow::ensure!(
-            shape.len() == 4
-                && shape[1] == n_words
-                && shape[2] == self.max_width
-                && shape[3] == labels.len(),
-            "unexpected shape of the logits: {shape:?} (expected [1, {n_words}, {}, {}])",
-            self.max_width,
-            labels.len()
-        );
-        let mut found: Vec<Entity> = Vec::new();
-        for i in 0..n_words {
-            for w in 0..self.max_width {
-                if i + w >= n_words {
-                    continue;
-                }
-                for (k, label) in labels.iter().enumerate() {
-                    let idx = ((i * self.max_width) + w) * labels.len() + k;
-                    let score = sigmoid(flat[idx]);
-                    if score < threshold {
+        observer.measure(pass, Component::SpanDecode, || {
+            anyhow::ensure!(
+                shape.len() == 4
+                    && shape[1] == n_words
+                    && shape[2] == self.max_width
+                    && shape[3] == labels.len(),
+                "unexpected shape of the logits: {shape:?} (expected [1, {n_words}, {}, {}])",
+                self.max_width,
+                labels.len()
+            );
+            let mut found: Vec<Entity> = Vec::new();
+            for i in 0..n_words {
+                for w in 0..self.max_width {
+                    if i + w >= n_words {
                         continue;
                     }
-                    let (b, e) = (words[i].start, words[i + w].end);
-                    found.push(Entity {
-                        // The surface form is A PIECE OF THE INPUT, cut out along word
-                        // boundaries. Not «what the model wrote» (it cannot write anything),
-                        // but exactly what stands in the text.
-                        text: text[b..e].to_string(),
-                        label: label.clone(),
-                        score,
-                        start: b,
-                        end: e,
-                    });
+                    for (k, label) in labels.iter().enumerate() {
+                        let idx = ((i * self.max_width) + w) * labels.len() + k;
+                        let score = sigmoid(flat[idx]);
+                        if score < threshold {
+                            continue;
+                        }
+                        let (b, e) = (words[i].start, words[i + w].end);
+                        found.push(Entity {
+                            // The surface form is A PIECE OF THE INPUT, cut out along word
+                            // boundaries. Not «what the model wrote» (it cannot write anything),
+                            // but exactly what stands in the text.
+                            text: text[b..e].to_string(),
+                            label: label.clone(),
+                            score,
+                            start: b,
+                            end: e,
+                        });
+                    }
                 }
             }
-        }
 
-        // Intersecting spans: we keep the confident ones, greedily.
-        found.sort_by(|a, b| b.score.total_cmp(&a.score));
-        let mut kept: Vec<Entity> = Vec::new();
-        for e in found {
-            if kept.iter().any(|k| e.start < k.end && k.start < e.end) {
-                continue;
+            // Intersecting spans: we keep the confident ones, greedily.
+            found.sort_by(|a, b| b.score.total_cmp(&a.score));
+            let mut kept: Vec<Entity> = Vec::new();
+            for e in found {
+                if kept.iter().any(|k| e.start < k.end && k.start < e.end) {
+                    continue;
+                }
+                kept.push(e);
             }
-            kept.push(e);
-        }
-        Ok(kept)
+            Ok(kept)
+        })
     }
 }
 

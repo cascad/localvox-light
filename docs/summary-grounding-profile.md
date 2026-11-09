@@ -15,6 +15,37 @@ cargo build --release --locked -j 2 -p localvox-light-bench --bin localvox-groun
 .\target\release\localvox-grounding-profile.exe --source D:\bench\source.jsonl --answer D:\bench\summary.md --ner-model-dir models\ner-gliner --output target\grounding-new.json --lang ru --passes 2
 ```
 
+Добавьте `--ner-components`, чтобы разобрать сам NER: отдельно name/role passes,
+разбиение на слова, сборка окон, tokenizer, masks/tensors, ожидание session mutex,
+`session.run`, копирование logits, декодирование, оконные дубли и сравнение ролей.
+В `checks[].ner_components` — агрегаты времени, calls/errors, начатые/завершённые
+окна и tokens total/max (включают prompt и overlap), без текста/labels/entities.
+Эти интервалы **вложены** в backend NER, не прибавляйте их к backend/request/total.
+Остаток `unattributed_sec` включает код вне границ категорий и инструментирование.
+`complete=false` сохраняет частичные данные при отказе. Нулевые inference calls
+при пустом тексте и отсутствующий role pass при пустом role label не подменяются
+фиктивными измерениями. Для ordinary parity core instrumentation выключается.
+Без флага core clocks не включаются. Формат инженерного отчёта — version 2.
+
+[Измерение 2026-11-09](../openspec/changes/profile-ner-inference-cost/evidence/results.md):
+source NER 49.230/50.379 s, 99.46% в session.run, по 221 name/role окну.
+Оба прохода стоят примерно поровну; ускорение не вносилось.
+
+Core API `Ner::names_profiled` возвращает `(Result<Vec<Entity>>, profile::Timings)`;
+результат/ошибка и численный профиль доступны отдельно. Обычные `names`/`extract_at`
+используют те же вычисления с disabled observer, без clocks/логов/нового кеша.
+
+Явная проверка точного совпадения entities, scores и byte spans на синтетической
+речи с настоящим NER (включая overlap/пустой текст/отключённый role pass):
+
+```powershell
+$env:LOCALVOX_NER_PROFILE_TEST_MODEL_DIR=(Resolve-Path models\ner-gliner).Path
+cargo test --release --locked -j 2 -p localvox-light-core --features onnx --lib -- --ignored --exact ner::profile::tests::real_model_profile_preserves_entities_scores_and_byte_spans --nocapture
+```
+
+Это проверка совпадения реализации; качество распознавания новых имён и summary
+не оценивается. Для моделей используется та же конфигурация окружения `Ner::open`.
+
 Output должен быть новым файлом. При отказе NER сохраняется частичный численный
 отчёт с `success=false`; пустой ответ при ошибке не считается успешной проверкой.
 Если входы неверны до запуска профиля, создание отчёта не гарантируется.

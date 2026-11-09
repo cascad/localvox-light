@@ -13,7 +13,10 @@ use std::{
     fs::{self, File, OpenOptions},
     io::{Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
-    sync::Mutex,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Mutex,
+    },
     time::Instant,
 };
 
@@ -32,6 +35,9 @@ struct Args {
     lang: String,
     #[arg(long, default_value_t = 2, value_parser = clap::value_parser!(u8).range(2..=8))]
     passes: u8,
+    /// Include numeric name/role/window/tokenizer/inference timings; ordinary parity stays unprofiled.
+    #[arg(long)]
+    ner_components: bool,
 }
 
 #[derive(Clone, Copy, Default, Serialize)]
@@ -60,16 +66,46 @@ impl BackendStats {
 }
 
 #[derive(Default)]
-struct Stats(Mutex<BackendStats>);
+struct Stats {
+    totals: Mutex<BackendStats>,
+    profile_enabled: AtomicBool,
+    profiles: Mutex<Vec<NerProfile>>,
+}
+
+#[derive(Serialize)]
+struct NerProfile {
+    source: bool,
+    timings: localvox_light_core::ner::profile::Timings,
+}
 impl Stats {
     fn snapshot(&self) -> BackendStats {
-        *self.0.lock().unwrap_or_else(|e| e.into_inner())
+        *self.totals.lock().unwrap_or_else(|e| e.into_inner())
+    }
+    fn take_profiles(&self) -> Vec<NerProfile> {
+        std::mem::take(&mut *self.profiles.lock().unwrap_or_else(|e| e.into_inner()))
+    }
+    fn ner_call<T>(
+        &self,
+        source: bool,
+        profiled: impl FnOnce() -> (Result<T>, localvox_light_core::ner::profile::Timings),
+        ordinary: impl FnOnce() -> Result<T>,
+    ) -> Result<T> {
+        if self.profile_enabled.load(Ordering::Relaxed) {
+            let (result, timings) = profiled();
+            self.profiles
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push(NerProfile { source, timings });
+            result
+        } else {
+            ordinary()
+        }
     }
     fn request(&self, source: bool, call: impl FnOnce() -> Result<Vec<String>>) -> Vec<String> {
         let started = Instant::now();
         let result = call();
         let elapsed = started.elapsed().as_secs_f64();
-        let mut stats = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        let mut stats = self.totals.lock().unwrap_or_else(|e| e.into_inner());
         if source {
             stats.source_calls += 1;
             stats.source_sec += elapsed;
@@ -99,8 +135,15 @@ impl ObservedNer {
             if source { "source" } else { "answer" }
         );
         self.stats.request(source, || {
-            self.ner
-                .names(text, &self.name, &self.role, threshold)
+            self.stats
+                .ner_call(
+                    source,
+                    || {
+                        self.ner
+                            .names_profiled(text, &self.name, &self.role, threshold)
+                    },
+                    || self.ner.names(text, &self.name, &self.role, threshold),
+                )
                 .map(|entities| entities.into_iter().map(|e| e.text).collect())
         })
     }
@@ -196,7 +239,7 @@ fn run_checks(
             .as_array_mut()
             .context("checks array missing")?
             .push(json!({
-                "pass":pass,"timings":timings,"backend":backend,
+                "pass":pass,"timings":timings,"backend":backend,"ner_components":stats.take_profiles(),
                 "number_flags":verdict.numbers.len(),
                 "name_flags":backend.succeeded().then_some(verdict.names.len()),
                 "ner_succeeded":backend.succeeded()
@@ -209,13 +252,14 @@ fn run_checks(
         }
         verdicts.push(verdict);
     }
+    stats.profile_enabled.store(false, Ordering::Relaxed);
     let before = stats.snapshot();
     let started = Instant::now();
     let ordinary = grounding::check_with_entities(&lex, words, speech, answer, &cached);
     let wall_sec = started.elapsed().as_secs_f64();
     let backend = stats.snapshot().since(before);
     let parity = backend.succeeded() && verdicts.iter().all(|v| v == &ordinary);
-    report["ordinary_check"] = json!({"wall_sec":wall_sec,"backend":backend,
+    report["ordinary_check"] = json!({"wall_sec":wall_sec,"backend":backend,"ner_components":stats.take_profiles(),
         "exact_verdict_parity":parity,"number_flags":ordinary.numbers.len(),
         "name_flags":backend.succeeded().then_some(ordinary.names.len())});
     save(output, report)?;
@@ -272,7 +316,7 @@ fn run(args: Args) -> Result<()> {
             .starts_with(args.ner_model_dir.canonicalize()?),
         "selected model must be within the fingerprinted directory"
     );
-    let mut report = json!({"version":1,"scope":"saved_summary_grounding_probe_no_llm",
+    let mut report = json!({"version":2,"scope":"saved_summary_grounding_probe_no_llm",
         "complete":false,"success":false,"status":"starting","llm_executed":false,
         "semantic_quality_established":false,"runner_debug_assertions":cfg!(debug_assertions),
         "os":std::env::consts::OS,"binary_sha256":file_sha(&std::env::current_exe()?)?,
@@ -285,7 +329,8 @@ fn run(args: Args) -> Result<()> {
         "backend_count_unit":"Ner.names whole-text calls; separate person/role passes and windowing are inside each call",
         "name_label_sha256":sha(name.as_bytes()),"role_label_sha256":sha(role.as_bytes()),"role_label_empty":role.trim().is_empty(),
         "lexicon":"builtin","glossary":"empty","filesystem_cache_cleared":false,
-        "timings_are_exclusive_backend_is_nested":true,"checks":[]});
+        "timings_are_exclusive_backend_is_nested":true,
+        "ner_components_enabled":args.ner_components,"ner_components_are_nested_in_backend":true,"checks":[]});
     let mut output = create_report(&args.output)?;
     save(&mut output, &report)?;
     report["preparation_sec"] = json!(started.elapsed().as_secs_f64());
@@ -316,6 +361,10 @@ fn run(args: Args) -> Result<()> {
         role,
         stats: Stats::default(),
     };
+    observed
+        .stats
+        .profile_enabled
+        .store(args.ner_components, Ordering::Relaxed);
     run_checks(
         &words,
         &speech,
@@ -378,24 +427,39 @@ mod tests {
         stats: Stats,
         fail: bool,
     }
-    impl Entities for Fake {
-        fn people(&self, _: &str) -> Vec<String> {
-            self.stats.request(false, || {
+    impl Fake {
+        fn call(&self, source: bool) -> Vec<String> {
+            let answer = || -> Result<Vec<String>> {
                 if self.fail {
                     bail!("PRIVATE_ERROR")
-                } else {
-                    Ok(vec!["PRIVATE_ENTITY".into()])
                 }
+                Ok(vec!["PRIVATE_ENTITY".into()])
+            };
+            self.stats.request(source, || {
+                self.stats.ner_call(
+                    source,
+                    || {
+                        (
+                            answer(),
+                            localvox_light_core::ner::profile::Timings {
+                                total_sec: 0.0,
+                                unattributed_sec: 0.0,
+                                complete: !self.fail,
+                                passes: Vec::new(),
+                            },
+                        )
+                    },
+                    answer,
+                )
             })
         }
+    }
+    impl Entities for Fake {
+        fn people(&self, _: &str) -> Vec<String> {
+            self.call(false)
+        }
         fn people_in_source(&self, _: &str) -> Vec<String> {
-            self.stats.request(true, || {
-                if self.fail {
-                    bail!("PRIVATE_ERROR")
-                } else {
-                    Ok(vec!["PRIVATE_ENTITY".into()])
-                }
-            })
+            self.call(true)
         }
     }
     #[test]
@@ -424,10 +488,75 @@ mod tests {
         assert_eq!(report["ordinary_check"]["exact_verdict_parity"], true);
         assert_eq!(report["checks"][0]["number_flags"], 1);
         assert_eq!(report["checks"][1]["backend"]["source_calls"], 0);
+        assert_eq!(report["checks"][0]["ner_components"], json!([]));
         let before = fs::read(&path).unwrap();
         assert!(!String::from_utf8_lossy(&before).contains("PRIVATE_"));
         assert!(create_report(&path).is_err());
         assert_eq!(fs::read(&path).unwrap(), before);
+    }
+
+    #[test]
+    fn core_profiling_is_opt_in_and_disabled_before_ordinary_parity() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut output = create_report(&dir.path().join("report.json")).unwrap();
+        let fake = Fake {
+            stats: Stats::default(),
+            fail: false,
+        };
+        fake.stats.profile_enabled.store(true, Ordering::Relaxed);
+        let mut report = json!({"checks":[]});
+        run_checks(
+            "PRIVATE_SOURCE",
+            "PRIVATE_SOURCE",
+            "PRIVATE_ANSWER",
+            &fake,
+            &fake.stats,
+            2,
+            &mut report,
+            &mut output,
+        )
+        .unwrap();
+        assert_eq!(
+            report["checks"][0]["ner_components"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+        assert_eq!(report["checks"][0]["ner_components"][0]["source"], true);
+        assert_eq!(
+            report["checks"][1]["ner_components"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(report["checks"][1]["ner_components"][0]["source"], false);
+        assert_eq!(report["ordinary_check"]["ner_components"], json!([]));
+        assert_eq!(report["ordinary_check"]["exact_verdict_parity"], true);
+        assert!(!fake.stats.profile_enabled.load(Ordering::Relaxed));
+        assert!(!serde_json::to_string(&report).unwrap().contains("PRIVATE_"));
+    }
+
+    #[test]
+    fn cli_keeps_core_instrumentation_disabled_until_requested() {
+        let args = [
+            "probe",
+            "--source",
+            "s",
+            "--answer",
+            "a",
+            "--ner-model-dir",
+            "n",
+            "--output",
+            "o",
+        ];
+        assert!(!Args::try_parse_from(args).unwrap().ner_components);
+        assert!(
+            Args::try_parse_from(args.into_iter().chain(["--ner-components"]))
+                .unwrap()
+                .ner_components
+        );
     }
     #[test]
     fn ner_failure_is_incomplete_and_never_a_successful_empty_tagging() {
@@ -438,6 +567,7 @@ mod tests {
             stats: Stats::default(),
             fail: true,
         };
+        fake.stats.profile_enabled.store(true, Ordering::Relaxed);
         let mut report = json!({"complete":false,"success":false,"checks":[]});
         assert!(run_checks(
             "PRIVATE_SOURCE 150 задач",
@@ -455,6 +585,17 @@ mod tests {
         assert_eq!(report["checks"][0]["name_flags"], Value::Null);
         assert_eq!(report["checks"][0]["number_flags"], 1);
         assert_eq!(report["status"], "ner_request_failed");
+        assert_eq!(
+            report["checks"][0]["ner_components"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+        assert_eq!(
+            report["checks"][0]["ner_components"][0]["timings"]["complete"],
+            false
+        );
         assert!(!fs::read_to_string(path).unwrap().contains("PRIVATE_"));
     }
     #[test]
@@ -482,6 +623,7 @@ mod tests {
             output: output.clone(),
             lang: "ru".into(),
             passes: 2,
+            ner_components: false,
         });
         assert!(result.is_err());
         let raw = fs::read_to_string(output).unwrap();

@@ -79,6 +79,8 @@ jobs:
           rustfmt --edition 2021 --check crates/localvox-light-llm/src/correction_guard.rs crates/localvox-light-llm/src/correction_guard/russian.rs crates/localvox-light-llm/src/pipeline.rs crates/localvox-light-llm/src/bin/localvox-correction-check.rs
           cargo test --locked -p localvox-light-llm --lib
           rustfmt --edition 2021 --check crates/localvox-light-llm/src/grounding.rs crates/localvox-light-llm/src/grounding/profile.rs crates/localvox-light-bench/src/bin/localvox-grounding-profile.rs
+          rustfmt --edition 2021 --check crates/localvox-light-core/src/ner.rs crates/localvox-light-core/src/ner/profile.rs
+          cargo test --locked -p localvox-light-core --features onnx ner:: --lib
           cargo test --locked -p localvox-light-bench --bin localvox-grounding-profile
           cargo test --locked -p localvox-light-bench --bin localvox-queue-profile
           cargo build --locked -p localvox-light-asr --bin localvox-process -p localvox-light-bench --bin localvox-queue-profile
@@ -122,6 +124,7 @@ jobs:
           npx --yes @fission-ai/openspec@1.13.2 validate persist-worker-outcomes --type change --strict --no-interactive
           npx --yes @fission-ai/openspec@1.13.2 validate benchmark-processing-batch --type change --strict --no-interactive
           npx --yes @fission-ai/openspec@1.13.2 validate profile-summary-grounding-cost --type change --strict --no-interactive
+          npx --yes @fission-ai/openspec@1.13.2 validate profile-ner-inference-cost --type change --strict --no-interactive
           npx --yes @fission-ai/openspec@1.13.2 validate extract-headless-processing-coordinator --type change --strict --no-interactive
           npx --yes @fission-ai/openspec@1.13.2 validate verify-background-indexing --type change --strict --no-interactive
           npx --yes @fission-ai/openspec@1.13.2 validate fix-empty-semantic-index-failure --type change --strict --no-interactive

@@ -21,6 +21,13 @@ reference-бюджет и отдельные model/verification/resource timings
 108 LLM tests, 4 profiler tests и production receipt check пройдены. Это замер,
 оптимизация/качество сводки и аппаратная приёмка не заявлены.
 
+[Внутренние NER components 2026-11-09](changes/profile-ner-inference-cost/evidence/results.md):
+два свежих release процесса, 99.46% source NER занимает session.run,
+по 221 окну для name/role (442 inference). Проходы стоят примерно поровну;
+tokenizer обоих — 0.243/0.246 s. Native Entity parity: 8 случаев/26 entities,
+4 core/6 probe/108 LLM unit пройдены. Следующий кандидат — сокращение нерелевантных
+role окон с сохранением контекста/результатов; ускорение ещё не реализовано.
+
 | Возможность | Связь с историей | Контракт | Граница |
 |---|---|---|---|
 | [recording](specs/recording/spec.md) | F3/F9 | Команда записи, pre-roll, pause/stop, детект, watchdog | Кнопки/голос → PCM и meta; аппаратная приёмка открыта |
