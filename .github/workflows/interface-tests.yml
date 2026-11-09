@@ -86,6 +86,7 @@ jobs:
           cargo build --locked -p localvox-light-asr --bin localvox-process -p localvox-light-bench --bin localvox-queue-profile
           $env:LOCALVOX_PROFILE_TEST_WORKER = (Resolve-Path target/debug/localvox-process.exe).Path
           cargo test --locked -p localvox-light-bench --bin localvox-profile -- --ignored --exact text::tests::text_profile_roundtrip_uses_real_workers_and_a_numeric_only_local_llm_fixture
+          cargo test --locked -p localvox-light-bench --bin localvox-profile -- --ignored --exact text::tests::text_profile_direct_endpoint_preserves_all_modes_without_trace
           cargo test --locked -p localvox-light-bench --bin localvox-profile -- --ignored --exact text::tests::sparse_real_worker_keeps_bad_edits_and_malformed_answers_as_originals
           cargo test --locked -p localvox-light-bench --bin localvox-profile -- --ignored --exact text::tests::sparse_lines_real_worker_keeps_bad_edits_and_malformed_answers_as_originals
           cargo test --locked -p localvox-light-bench --bin localvox-profile -- --ignored --exact text::tests::retention_real_worker_preserves_semantics_and_line_ownership_in_both_modes
@@ -127,6 +128,7 @@ jobs:
           npx --yes @fission-ai/openspec@1.13.2 validate profile-ner-inference-cost --type change --strict --no-interactive
           npx --yes @fission-ai/openspec@1.13.2 validate skip-irrelevant-role-windows --type change --strict --no-interactive
           npx --yes @fission-ai/openspec@1.13.2 validate verify-current-release-pipeline --type change --strict --no-interactive
+          npx --yes @fission-ai/openspec@1.13.2 validate recheck-native-cleanup-after-word-guard --type change --strict --no-interactive
           npx --yes @fission-ai/openspec@1.13.2 validate extract-headless-processing-coordinator --type change --strict --no-interactive
           npx --yes @fission-ai/openspec@1.13.2 validate verify-background-indexing --type change --strict --no-interactive
           npx --yes @fission-ai/openspec@1.13.2 validate fix-empty-semantic-index-failure --type change --strict --no-interactive

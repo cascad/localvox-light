@@ -6,6 +6,9 @@
 
 Нужны собранные [profiler/worker и локальная Ollama](text-postprocessing-profile.md).
 Каждый output — новый каталог на D:; STT не запускается.
+Обычный запуск подключается напрямую; `llm_trace=null` означает, что native
+счётчики не измерялись. Качество проверяется по результату и receipts независимо
+от телеметрии; wall не равен чистому времени генерации.
 
 ```powershell
 python scripts/check-cleanup-quality.py --prepare target/quality-input-new
@@ -43,3 +46,8 @@ python scripts/check-cleanup-quality.py --scan target/public-cleanup-profile --w
 по два запуска Gemma/Qwen на публичной двухчасовой STT. Скорость и целевая оценка
 содержания приведены отдельно; обнаружен RV-020 с неподтверждёнными заменами
 словоформ. Короткий успешный corpus не является приёмкой всех длинных встреч.
+
+[Свежие native прогоны после словарного fix, 2026-11-09](../openspec/changes/recheck-native-cleanup-after-word-guard/evidence/results.md):
+короткие проверки прошли у обеих моделей; на длинной записи остаются неоднозначные
+замены неизвестных слов и спорная пунктуация. Скорость desktop не является приёмкой
+качества или проверкой Mac; настройки приложения не переключались.

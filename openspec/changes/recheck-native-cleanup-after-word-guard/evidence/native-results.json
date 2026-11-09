@@ -1,0 +1,1311 @@
+{
+  "version": 1,
+  "date": "2026-11-09",
+  "scope": "fresh_native_ordinary_cleanup_after_dictionary_guard",
+  "semantic_quality_established": false,
+  "default_model_changed": false,
+  "trace_enabled": false,
+  "started_utc": "2026-11-09T17:23:16.102556+00:00",
+  "ended_utc": "2026-11-09T17:32:22.431152+00:00",
+  "complete": true,
+  "source_commit": "a744f9c93627dc024c5b34597b2a71835918084b",
+  "frozen_utc": "2026-11-09T17:23:07.266973+00:00",
+  "files": {
+    "target/release/localvox-process.exe": {
+      "bytes": 44997120,
+      "sha256": "9c1599ae80e7c29f55928b4c79251834fb359dedb28c3c531aa3d2d6923eb3fd"
+    },
+    "target/release/localvox-profile.exe": {
+      "bytes": 25462784,
+      "sha256": "bf83fdd6d9dc5051d059ba495b905f1328787a76838193ddc4249aa2583ed547"
+    },
+    "scripts/check-cleanup-quality.py": {
+      "bytes": 12576,
+      "sha256": "bb7a1395f2293e07d1323df37d34596dc4886bc6456fc74b722798834f97f95c"
+    },
+    "scripts/fixtures/cleanup-quality-ru.json": {
+      "bytes": 12726,
+      "sha256": "391c6474183b32207c3bf01a965164c24c8e171a7deec3382b92a444e6940462"
+    },
+    "scripts/fixtures/cleanup-boundaries-ru.json": {
+      "bytes": 6793,
+      "sha256": "797b3971037968b6e9840d1b9815c5e80d57eaccfff55f75e2c0802b60604dcd"
+    },
+    "crates/localvox-light-llm/src/pipeline.rs": {
+      "bytes": 110814,
+      "sha256": "e65523a728e5bfc556b960c3195a6b71938b44476655fb2e00ab9d07ce37417d"
+    },
+    "crates/localvox-light-llm/src/lib.rs": {
+      "bytes": 18217,
+      "sha256": "835c13e0ee92447400fcf06c72f0262549dca467ec5f664c839fecc360f7684a"
+    },
+    "crates/localvox-light-llm/src/correction_guard.rs": {
+      "bytes": 24572,
+      "sha256": "fe5b97f4062eb7d889114867d2630086e3ed536b68604bc8f3ddb08d18b814d8"
+    },
+    "crates/localvox-light-llm/src/correction_guard/russian.rs": {
+      "bytes": 3188,
+      "sha256": "189d5f5fce9db5fca99a681ff3e16f0d4c6da984489e25037accb8687f8a57f9"
+    },
+    "Cargo.lock": {
+      "bytes": 198793,
+      "sha256": "b8f4f47bd3bd6de061aca854ab27b43f427a5166db3bfdb6c8b4e1a2a6292bb0"
+    },
+    "target\\profile-text-postprocessing-20261102-a\\sessions\\podlodka-109-summary-r1\\transcripts\\v001-profile-source.jsonl": {
+      "bytes": 232493,
+      "sha256": "09014305b713638301d3cd4693d03e1f7f2920e75bdfc749c7164d0e10034ae8"
+    },
+    "openspec\\changes\\recheck-native-cleanup-after-word-guard\\evidence\\selection.json": {
+      "bytes": 1922,
+      "sha256": "3bf974b318b933ac2b89cf33a4a5d04d1f5a5b5e4cbd3fd81c44eb0cd6023a28"
+    },
+    "target\\cleanup-recheck-20261109-a\\long-manifest.json": {
+      "bytes": 331,
+      "sha256": "67b1ce441d935c89d11eb100fff0ef8b97a2f540f6cee8107cc8ead28c86315a"
+    },
+    "target\\cleanup-recheck-20261109-a\\boundary-input\\manifest.json": {
+      "bytes": 113,
+      "sha256": "3b810d61f07058c6b71931bacbd8e312bea6e5c09f2bf302ca2f51f4e0b7d91d"
+    },
+    "target\\cleanup-recheck-20261109-a\\boundary-input\\source.jsonl": {
+      "bytes": 3543,
+      "sha256": "d4fbf16f71ccd655ff555a3ee4695d21858782092b021e90cf985391ff833d1b"
+    },
+    "target\\cleanup-recheck-20261109-a\\quality-input\\manifest.json": {
+      "bytes": 113,
+      "sha256": "3b810d61f07058c6b71931bacbd8e312bea6e5c09f2bf302ca2f51f4e0b7d91d"
+    },
+    "target\\cleanup-recheck-20261109-a\\quality-input\\source.jsonl": {
+      "bytes": 8222,
+      "sha256": "388489239ef279ad87bd0bb62d7844e2df2702cb3444363e217a5e6edbe57c05"
+    }
+  },
+  "preserved": {
+    "target/release/localvox-process.exe": true,
+    "target/release/localvox-profile.exe": true,
+    "scripts/check-cleanup-quality.py": true,
+    "scripts/fixtures/cleanup-quality-ru.json": true,
+    "scripts/fixtures/cleanup-boundaries-ru.json": true,
+    "crates/localvox-light-llm/src/pipeline.rs": true,
+    "crates/localvox-light-llm/src/lib.rs": true,
+    "crates/localvox-light-llm/src/correction_guard.rs": true,
+    "crates/localvox-light-llm/src/correction_guard/russian.rs": true,
+    ".env": true,
+    ".env.defaults": true,
+    "Cargo.lock": true,
+    "target\\profile-text-postprocessing-20261102-a\\sessions\\podlodka-109-summary-r1\\transcripts\\v001-profile-source.jsonl": true,
+    "openspec\\changes\\recheck-native-cleanup-after-word-guard\\evidence\\selection.json": true,
+    "target\\cleanup-recheck-20261109-a\\long-manifest.json": true,
+    "target\\cleanup-recheck-20261109-a\\boundary-input\\manifest.json": true,
+    "target\\cleanup-recheck-20261109-a\\boundary-input\\source.jsonl": true,
+    "target\\cleanup-recheck-20261109-a\\quality-input\\manifest.json": true,
+    "target\\cleanup-recheck-20261109-a\\quality-input\\source.jsonl": true
+  },
+  "models": [
+    {
+      "name": "gemma4:e4b",
+      "model": "gemma4:e4b",
+      "modified_at": "2026-11-02T17:15:52.5105249+03:00",
+      "size": 6583656505,
+      "digest": "dc35e8d9c6061baa6f0fa870975ab6932e2542b579b13ea0f199fa4bb7300c9c",
+      "details": {
+        "parent_model": "gemma4-validation-20260929:e4b-imatrix-attention-q6-q8-draft2",
+        "format": "gguf",
+        "family": "gemma4",
+        "families": [
+          "gemma4"
+        ],
+        "parameter_size": "7.5B",
+        "quantization_level": "Q4_K_M",
+        "context_length": 131072,
+        "embedding_length": 2560,
+        "runner": "llamacpp"
+      },
+      "capabilities": [
+        "completion",
+        "vision",
+        "audio",
+        "tools",
+        "thinking"
+      ]
+    },
+    {
+      "name": "qwen3.5:4b",
+      "model": "qwen3.5:4b",
+      "modified_at": "2026-03-13T12:34:34.912937+03:00",
+      "size": 3389983735,
+      "digest": "2a654d98e6fba55d452b7043684e9b57a947e393bbffa62485a7aac05ee4eefd",
+      "details": {
+        "parent_model": "",
+        "format": "gguf",
+        "family": "qwen35",
+        "families": [
+          "qwen35"
+        ],
+        "parameter_size": "4.7B",
+        "quantization_level": "Q4_K_M",
+        "context_length": 262144,
+        "embedding_length": 2560,
+        "runner": "ggml"
+      },
+      "capabilities": [
+        "completion",
+        "vision",
+        "tools",
+        "thinking"
+      ]
+    },
+    {
+      "name": "qwen3.5:9b",
+      "model": "qwen3.5:9b",
+      "modified_at": "2026-03-12T21:19:17.8684338+03:00",
+      "size": 6594474711,
+      "digest": "6488c96fa5faab64bb65cbd30d4289e20e6130ef535a93ef9a49f42eda893ea7",
+      "details": {
+        "parent_model": "",
+        "format": "gguf",
+        "family": "qwen35",
+        "families": [
+          "qwen35"
+        ],
+        "parameter_size": "9.7B",
+        "quantization_level": "Q4_K_M",
+        "context_length": 262144,
+        "embedding_length": 4096,
+        "runner": "ggml"
+      },
+      "capabilities": [
+        "completion",
+        "vision",
+        "tools",
+        "thinking"
+      ]
+    }
+  ],
+  "model_digests_preserved": {
+    "gemma4:e4b": true,
+    "qwen3.5:4b": true,
+    "qwen3.5:9b": true
+  },
+  "ollama_version": {
+    "version": "0.40.14"
+  },
+  "residency_before": {
+    "models": []
+  },
+  "residency_after": {
+    "models": [
+      {
+        "name": "qwen3.5:4b",
+        "model": "qwen3.5:4b",
+        "size": 3138524281,
+        "digest": "2a654d98e6fba55d452b7043684e9b57a947e393bbffa62485a7aac05ee4eefd",
+        "details": {
+          "parent_model": "",
+          "format": "gguf",
+          "family": "qwen35",
+          "families": [
+            "qwen35"
+          ],
+          "parameter_size": "4.7B",
+          "quantization_level": "Q4_K_M"
+        },
+        "expires_at": "2026-11-09T20:37:22.1104198+03:00",
+        "size_vram": 3138524281,
+        "context_length": 4096,
+        "runner": "llamacpp"
+      },
+      {
+        "name": "gemma4:e4b",
+        "model": "gemma4:e4b",
+        "size": 369371380,
+        "digest": "dc35e8d9c6061baa6f0fa870975ab6932e2542b579b13ea0f199fa4bb7300c9c",
+        "details": {
+          "parent_model": "",
+          "format": "gguf",
+          "family": "gemma4",
+          "families": [
+            "gemma4"
+          ],
+          "parameter_size": "7.5B",
+          "quantization_level": "Q4_K_M"
+        },
+        "expires_at": "2026-11-09T20:34:37.0193821+03:00",
+        "size_vram": 369371380,
+        "context_length": 4096,
+        "runner": "llamacpp"
+      }
+    ]
+  },
+  "environment": {
+    "os": "Windows-11-10.0.22631-SP0",
+    "gpu": "NVIDIA GeForce RTX 5080, 16303 MiB, 610.88"
+  },
+  "native_tokens": null,
+  "native_durations": null,
+  "http_request_count": null,
+  "done_reason": null,
+  "runs": [
+    {
+      "kind": "quality",
+      "model": "gemma4:e4b",
+      "series": "r1-3",
+      "started_utc": "2026-11-09T17:23:16.102839+00:00",
+      "ended_utc": "2026-11-09T17:23:29.645695+00:00",
+      "output": "target\\cleanup-recheck-20261109-a\\quality-gemma4-e4b-r1-3",
+      "profiler_exit": 0,
+      "evaluator_exit": 0,
+      "report": {
+        "bytes": 10140,
+        "sha256": "2ce3f33aa9aa28ddd1461f5ef6cdb0324b38d797c2cffb99067b70ef9138b41d"
+      },
+      "quality": {
+        "bytes": 70892,
+        "sha256": "431e0f42d81ff10852e28ffb3bdab21d98b0feb480bb7ed257522ad3119ebcf8"
+      },
+      "wall_sec": [
+        7.6713467,
+        2.6253121,
+        2.5261679
+      ],
+      "statuses": [
+        {
+          "repeat": 1,
+          "statuses": {
+            "expected": 72
+          },
+          "useful_expected": 24,
+          "repair_total": 24
+        },
+        {
+          "repeat": 2,
+          "statuses": {
+            "expected": 72
+          },
+          "useful_expected": 24,
+          "repair_total": 24
+        },
+        {
+          "repeat": 3,
+          "statuses": {
+            "expected": 72
+          },
+          "useful_expected": 24,
+          "repair_total": 24
+        }
+      ],
+      "worker_runs": [
+        {
+          "artifacts_verified": true,
+          "corrections": {
+            "cleanup_edits": 24,
+            "cleanup_omitted": 0,
+            "cleanup_rejected": 5,
+            "counts_do_not_establish_semantic_quality": true,
+            "refined_changed_lines": null,
+            "refined_lines": null
+          },
+          "llm_trace": null,
+          "repeat": 1,
+          "status": "success",
+          "wall_sec": 7.6713467
+        },
+        {
+          "artifacts_verified": true,
+          "corrections": {
+            "cleanup_edits": 24,
+            "cleanup_omitted": 0,
+            "cleanup_rejected": 5,
+            "counts_do_not_establish_semantic_quality": true,
+            "refined_changed_lines": null,
+            "refined_lines": null
+          },
+          "llm_trace": null,
+          "repeat": 2,
+          "status": "success",
+          "wall_sec": 2.6253121
+        },
+        {
+          "artifacts_verified": true,
+          "corrections": {
+            "cleanup_edits": 24,
+            "cleanup_omitted": 0,
+            "cleanup_rejected": 4,
+            "counts_do_not_establish_semantic_quality": true,
+            "refined_changed_lines": null,
+            "refined_lines": null
+          },
+          "llm_trace": null,
+          "repeat": 3,
+          "status": "success",
+          "wall_sec": 2.5261679
+        }
+      ],
+      "worker_receipts": [
+        {
+          "session": "quality-cleanup-r1",
+          "file": {
+            "bytes": 688,
+            "sha256": "6dfe9229543327265f37a550b1b3ee42c10b1a00a6fa4a46c0f4fcfec8f2a1c5"
+          },
+          "processed": {
+            "recipe": "processed/ru/gemma4:e4b/p2",
+            "outcome": "ok",
+            "at": "2026-11-09T20:23:24.321817100+03:00",
+            "source": 1,
+            "receipt": {
+              "outputs": [
+                {
+                  "path": "processed.json",
+                  "bytes": 1450,
+                  "sha256": "edf61c03c935c44e2e88593428bfd1c3005c34b8f47f1c953be7ae7f18355edc",
+                  "transcript": false
+                }
+              ],
+              "input": {
+                "path": "transcripts/v001-profile-source.jsonl",
+                "bytes": 8222,
+                "sha256": "be7b7fcd9dafb061798cb4dbd01b6073d480a6bf0ab671bfb40fda5201c0857e",
+                "transcript": true
+              }
+            }
+          }
+        },
+        {
+          "session": "quality-cleanup-r2",
+          "file": {
+            "bytes": 688,
+            "sha256": "367c24e10212d1665d5c2adabc9de1f935c9c26ca7f53bef1a54370a4d39dbb2"
+          },
+          "processed": {
+            "recipe": "processed/ru/gemma4:e4b/p2",
+            "outcome": "ok",
+            "at": "2026-11-09T20:23:26.903540900+03:00",
+            "source": 1,
+            "receipt": {
+              "outputs": [
+                {
+                  "path": "processed.json",
+                  "bytes": 1447,
+                  "sha256": "94271c13c0541b11485330e4e705ba40f5ade2bc8a22f5a900a7f07e692ecc9c",
+                  "transcript": false
+                }
+              ],
+              "input": {
+                "path": "transcripts/v001-profile-source.jsonl",
+                "bytes": 8222,
+                "sha256": "be7b7fcd9dafb061798cb4dbd01b6073d480a6bf0ab671bfb40fda5201c0857e",
+                "transcript": true
+              }
+            }
+          }
+        },
+        {
+          "session": "quality-cleanup-r3",
+          "file": {
+            "bytes": 688,
+            "sha256": "5634a72dd0acf7b0e01f551c848ecbdac83840d04b75ca6914b452dff2b798f1"
+          },
+          "processed": {
+            "recipe": "processed/ru/gemma4:e4b/p2",
+            "outcome": "ok",
+            "at": "2026-11-09T20:23:29.509587400+03:00",
+            "source": 1,
+            "receipt": {
+              "outputs": [
+                {
+                  "path": "processed.json",
+                  "bytes": 1450,
+                  "sha256": "73aca9a448ca900be31fcf563e6481a5ee3cd42ad20134cb27170b90f4baa520",
+                  "transcript": false
+                }
+              ],
+              "input": {
+                "path": "transcripts/v001-profile-source.jsonl",
+                "bytes": 8222,
+                "sha256": "be7b7fcd9dafb061798cb4dbd01b6073d480a6bf0ab671bfb40fda5201c0857e",
+                "transcript": true
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "kind": "quality",
+      "model": "qwen3.5:4b",
+      "series": "r1-3",
+      "started_utc": "2026-11-09T17:23:29.649294+00:00",
+      "ended_utc": "2026-11-09T17:23:47.917396+00:00",
+      "output": "target\\cleanup-recheck-20261109-a\\quality-qwen3_5-4b-r1-3",
+      "profiler_exit": 0,
+      "evaluator_exit": 0,
+      "report": {
+        "bytes": 10146,
+        "sha256": "48ecbe2d76b6e02841a1dd6bdd8c61ed00c00cc35368777a361c23f9bda0a68c"
+      },
+      "quality": {
+        "bytes": 70892,
+        "sha256": "cd3d6e90e33967e982621993e2e1e1bbadfb90764e3997588220149852832cbd"
+      },
+      "wall_sec": [
+        7.5092592,
+        5.0331195,
+        5.0182771
+      ],
+      "statuses": [
+        {
+          "repeat": 1,
+          "statuses": {
+            "expected": 72
+          },
+          "useful_expected": 24,
+          "repair_total": 24
+        },
+        {
+          "repeat": 2,
+          "statuses": {
+            "expected": 72
+          },
+          "useful_expected": 24,
+          "repair_total": 24
+        },
+        {
+          "repeat": 3,
+          "statuses": {
+            "expected": 72
+          },
+          "useful_expected": 24,
+          "repair_total": 24
+        }
+      ],
+      "worker_runs": [
+        {
+          "artifacts_verified": true,
+          "corrections": {
+            "cleanup_edits": 24,
+            "cleanup_omitted": 0,
+            "cleanup_rejected": 1,
+            "counts_do_not_establish_semantic_quality": true,
+            "refined_changed_lines": null,
+            "refined_lines": null
+          },
+          "llm_trace": null,
+          "repeat": 1,
+          "status": "success",
+          "wall_sec": 7.5092592
+        },
+        {
+          "artifacts_verified": true,
+          "corrections": {
+            "cleanup_edits": 24,
+            "cleanup_omitted": 0,
+            "cleanup_rejected": 1,
+            "counts_do_not_establish_semantic_quality": true,
+            "refined_changed_lines": null,
+            "refined_lines": null
+          },
+          "llm_trace": null,
+          "repeat": 2,
+          "status": "success",
+          "wall_sec": 5.0331195
+        },
+        {
+          "artifacts_verified": true,
+          "corrections": {
+            "cleanup_edits": 24,
+            "cleanup_omitted": 0,
+            "cleanup_rejected": 2,
+            "counts_do_not_establish_semantic_quality": true,
+            "refined_changed_lines": null,
+            "refined_lines": null
+          },
+          "llm_trace": null,
+          "repeat": 3,
+          "status": "success",
+          "wall_sec": 5.0182771
+        }
+      ],
+      "worker_receipts": [
+        {
+          "session": "quality-cleanup-r1",
+          "file": {
+            "bytes": 688,
+            "sha256": "f284c39e18a6bbfafffbe125b02469d1448b652eda4cbb70b9bdf3f36e478348"
+          },
+          "processed": {
+            "recipe": "processed/ru/qwen3.5:4b/p2",
+            "outcome": "ok",
+            "at": "2026-11-09T20:23:37.623413700+03:00",
+            "source": 1,
+            "receipt": {
+              "outputs": [
+                {
+                  "path": "processed.json",
+                  "bytes": 1450,
+                  "sha256": "8eed47630b6ffe7fb2f3382150c47bcfffba239a79ed960837da0a27710b89b0",
+                  "transcript": false
+                }
+              ],
+              "input": {
+                "path": "transcripts/v001-profile-source.jsonl",
+                "bytes": 8222,
+                "sha256": "be7b7fcd9dafb061798cb4dbd01b6073d480a6bf0ab671bfb40fda5201c0857e",
+                "transcript": true
+              }
+            }
+          }
+        },
+        {
+          "session": "quality-cleanup-r2",
+          "file": {
+            "bytes": 688,
+            "sha256": "7cae452e7c74487d747a9453a6c278b6d3c0d35f914bfe3b3fa952c380c23eea"
+          },
+          "processed": {
+            "recipe": "processed/ru/qwen3.5:4b/p2",
+            "outcome": "ok",
+            "at": "2026-11-09T20:23:42.703597200+03:00",
+            "source": 1,
+            "receipt": {
+              "outputs": [
+                {
+                  "path": "processed.json",
+                  "bytes": 1450,
+                  "sha256": "83b9a370959242e0ea3195acd8acae8d4af488a17c3a7273577b17904422f88e",
+                  "transcript": false
+                }
+              ],
+              "input": {
+                "path": "transcripts/v001-profile-source.jsonl",
+                "bytes": 8222,
+                "sha256": "be7b7fcd9dafb061798cb4dbd01b6073d480a6bf0ab671bfb40fda5201c0857e",
+                "transcript": true
+              }
+            }
+          }
+        },
+        {
+          "session": "quality-cleanup-r3",
+          "file": {
+            "bytes": 688,
+            "sha256": "b4bc5f58b09ce0a8892449888e13d5e49469b7adef1392a9207cda293031f611"
+          },
+          "processed": {
+            "recipe": "processed/ru/qwen3.5:4b/p2",
+            "outcome": "ok",
+            "at": "2026-11-09T20:23:47.757940400+03:00",
+            "source": 1,
+            "receipt": {
+              "outputs": [
+                {
+                  "path": "processed.json",
+                  "bytes": 1450,
+                  "sha256": "fcda258250e1787204a82323010fd7b3af9e7b7db5264c4823a10fa6e2eefbc8",
+                  "transcript": false
+                }
+              ],
+              "input": {
+                "path": "transcripts/v001-profile-source.jsonl",
+                "bytes": 8222,
+                "sha256": "be7b7fcd9dafb061798cb4dbd01b6073d480a6bf0ab671bfb40fda5201c0857e",
+                "transcript": true
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "kind": "boundary",
+      "model": "gemma4:e4b",
+      "series": "r1-3",
+      "started_utc": "2026-11-09T17:23:47.921163+00:00",
+      "ended_utc": "2026-11-09T17:23:52.041667+00:00",
+      "output": "target\\cleanup-recheck-20261109-a\\boundary-gemma4-e4b-r1-3",
+      "profiler_exit": 0,
+      "evaluator_exit": 0,
+      "report": {
+        "bytes": 7768,
+        "sha256": "4fefc2e21fe03a2ce57057dcc003193dae81e37494e55d92ca1626f605756611"
+      },
+      "quality": {
+        "bytes": 30197,
+        "sha256": "00457c460be2525c2b2e9e5857b0848d01522d5ea434f6c6abf69470cfeffdf7"
+      },
+      "wall_sec": [
+        1.2181171,
+        1.1114741,
+        1.1102742
+      ],
+      "statuses": [
+        {
+          "repeat": 1,
+          "statuses": {
+            "expected": 24
+          },
+          "useful_expected": 0,
+          "repair_total": 0
+        },
+        {
+          "repeat": 2,
+          "statuses": {
+            "expected": 24
+          },
+          "useful_expected": 0,
+          "repair_total": 0
+        },
+        {
+          "repeat": 3,
+          "statuses": {
+            "expected": 24
+          },
+          "useful_expected": 0,
+          "repair_total": 0
+        }
+      ],
+      "worker_runs": [
+        {
+          "artifacts_verified": true,
+          "corrections": {
+            "cleanup_edits": 0,
+            "cleanup_omitted": 0,
+            "cleanup_rejected": 2,
+            "counts_do_not_establish_semantic_quality": true,
+            "refined_changed_lines": null,
+            "refined_lines": null
+          },
+          "llm_trace": null,
+          "repeat": 1,
+          "status": "success",
+          "wall_sec": 1.2181171
+        },
+        {
+          "artifacts_verified": true,
+          "corrections": {
+            "cleanup_edits": 0,
+            "cleanup_omitted": 0,
+            "cleanup_rejected": 2,
+            "counts_do_not_establish_semantic_quality": true,
+            "refined_changed_lines": null,
+            "refined_lines": null
+          },
+          "llm_trace": null,
+          "repeat": 2,
+          "status": "success",
+          "wall_sec": 1.1114741
+        },
+        {
+          "artifacts_verified": true,
+          "corrections": {
+            "cleanup_edits": 0,
+            "cleanup_omitted": 0,
+            "cleanup_rejected": 2,
+            "counts_do_not_establish_semantic_quality": true,
+            "refined_changed_lines": null,
+            "refined_lines": null
+          },
+          "llm_trace": null,
+          "repeat": 3,
+          "status": "success",
+          "wall_sec": 1.1102742
+        }
+      ],
+      "worker_receipts": [
+        {
+          "session": "quality-cleanup-r1",
+          "file": {
+            "bytes": 687,
+            "sha256": "e34e3970ffab8fd3b4f3fd58bf0f8c1ab37ca8ace1de0ea36a16678c453bae61"
+          },
+          "processed": {
+            "recipe": "processed/ru/gemma4:e4b/p2",
+            "outcome": "ok",
+            "at": "2026-11-09T20:23:49.602354100+03:00",
+            "source": 1,
+            "receipt": {
+              "outputs": [
+                {
+                  "path": "processed.json",
+                  "bytes": 239,
+                  "sha256": "02146a77f5b157cadf6e8ad8e7a43393718a8eb533a0845accf6449d8fbbfa77",
+                  "transcript": false
+                }
+              ],
+              "input": {
+                "path": "transcripts/v001-profile-source.jsonl",
+                "bytes": 3543,
+                "sha256": "9a24a779781264b338ec28d0d08284e0a948572232bf4d4379c0f76ec40664af",
+                "transcript": true
+              }
+            }
+          }
+        },
+        {
+          "session": "quality-cleanup-r2",
+          "file": {
+            "bytes": 687,
+            "sha256": "e802c37ee12f937de7b235a58ca1b82245636485058c183f061de96a164d8aff"
+          },
+          "processed": {
+            "recipe": "processed/ru/gemma4:e4b/p2",
+            "outcome": "ok",
+            "at": "2026-11-09T20:23:50.773936800+03:00",
+            "source": 1,
+            "receipt": {
+              "outputs": [
+                {
+                  "path": "processed.json",
+                  "bytes": 239,
+                  "sha256": "86341d63bf911bbab45617ec022044b63562f4897b743cffdb895324437b4dc6",
+                  "transcript": false
+                }
+              ],
+              "input": {
+                "path": "transcripts/v001-profile-source.jsonl",
+                "bytes": 3543,
+                "sha256": "9a24a779781264b338ec28d0d08284e0a948572232bf4d4379c0f76ec40664af",
+                "transcript": true
+              }
+            }
+          }
+        },
+        {
+          "session": "quality-cleanup-r3",
+          "file": {
+            "bytes": 684,
+            "sha256": "5b5c2d2e35659927c170dd6a23534a06cf4cc2620abd08f632af8844048fd9f1"
+          },
+          "processed": {
+            "recipe": "processed/ru/gemma4:e4b/p2",
+            "outcome": "ok",
+            "at": "2026-11-09T20:23:51.916948+03:00",
+            "source": 1,
+            "receipt": {
+              "outputs": [
+                {
+                  "path": "processed.json",
+                  "bytes": 239,
+                  "sha256": "4f1029f916682812fa4ab86e17452751f6e9baba26a537e4c52f1ec4c7f2799b",
+                  "transcript": false
+                }
+              ],
+              "input": {
+                "path": "transcripts/v001-profile-source.jsonl",
+                "bytes": 3543,
+                "sha256": "9a24a779781264b338ec28d0d08284e0a948572232bf4d4379c0f76ec40664af",
+                "transcript": true
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "kind": "boundary",
+      "model": "qwen3.5:4b",
+      "series": "r1-3",
+      "started_utc": "2026-11-09T17:23:52.045019+00:00",
+      "ended_utc": "2026-11-09T17:23:59.330228+00:00",
+      "output": "target\\cleanup-recheck-20261109-a\\boundary-qwen3_5-4b-r1-3",
+      "profiler_exit": 0,
+      "evaluator_exit": 0,
+      "report": {
+        "bytes": 7765,
+        "sha256": "b3d32cc0294abdfcfbf49a19389fab30e3d8d5ade3d855f8fc111650c585e32a"
+      },
+      "quality": {
+        "bytes": 30197,
+        "sha256": "2a95a860fae297bb80f7854b31b8da5004c4943b48176e8efeca603c8db550f4"
+      },
+      "wall_sec": [
+        2.1893351,
+        2.2024253,
+        2.1920733
+      ],
+      "statuses": [
+        {
+          "repeat": 1,
+          "statuses": {
+            "expected": 24
+          },
+          "useful_expected": 0,
+          "repair_total": 0
+        },
+        {
+          "repeat": 2,
+          "statuses": {
+            "expected": 24
+          },
+          "useful_expected": 0,
+          "repair_total": 0
+        },
+        {
+          "repeat": 3,
+          "statuses": {
+            "expected": 24
+          },
+          "useful_expected": 0,
+          "repair_total": 0
+        }
+      ],
+      "worker_runs": [
+        {
+          "artifacts_verified": true,
+          "corrections": {
+            "cleanup_edits": 0,
+            "cleanup_omitted": 0,
+            "cleanup_rejected": 1,
+            "counts_do_not_establish_semantic_quality": true,
+            "refined_changed_lines": null,
+            "refined_lines": null
+          },
+          "llm_trace": null,
+          "repeat": 1,
+          "status": "success",
+          "wall_sec": 2.1893351
+        },
+        {
+          "artifacts_verified": true,
+          "corrections": {
+            "cleanup_edits": 0,
+            "cleanup_omitted": 0,
+            "cleanup_rejected": 1,
+            "counts_do_not_establish_semantic_quality": true,
+            "refined_changed_lines": null,
+            "refined_lines": null
+          },
+          "llm_trace": null,
+          "repeat": 2,
+          "status": "success",
+          "wall_sec": 2.2024253
+        },
+        {
+          "artifacts_verified": true,
+          "corrections": {
+            "cleanup_edits": 0,
+            "cleanup_omitted": 0,
+            "cleanup_rejected": 1,
+            "counts_do_not_establish_semantic_quality": true,
+            "refined_changed_lines": null,
+            "refined_lines": null
+          },
+          "llm_trace": null,
+          "repeat": 3,
+          "status": "success",
+          "wall_sec": 2.1920733
+        }
+      ],
+      "worker_receipts": [
+        {
+          "session": "quality-cleanup-r1",
+          "file": {
+            "bytes": 687,
+            "sha256": "716d6edc13a37c4de3bdda98c85a1503ee34fd86e4755351d76152097abc9277"
+          },
+          "processed": {
+            "recipe": "processed/ru/qwen3.5:4b/p2",
+            "outcome": "ok",
+            "at": "2026-11-09T20:23:54.760729100+03:00",
+            "source": 1,
+            "receipt": {
+              "outputs": [
+                {
+                  "path": "processed.json",
+                  "bytes": 239,
+                  "sha256": "35123b522065bf5f49fb113dc4c6db8e7d11b38b549a26d626d9bcb7d5e0d6d1",
+                  "transcript": false
+                }
+              ],
+              "input": {
+                "path": "transcripts/v001-profile-source.jsonl",
+                "bytes": 3543,
+                "sha256": "9a24a779781264b338ec28d0d08284e0a948572232bf4d4379c0f76ec40664af",
+                "transcript": true
+              }
+            }
+          }
+        },
+        {
+          "session": "quality-cleanup-r2",
+          "file": {
+            "bytes": 687,
+            "sha256": "532dedff7d6cbb0881247ff9384d80496356c2a815b7e85a12a3ac96fce81a1e"
+          },
+          "processed": {
+            "recipe": "processed/ru/qwen3.5:4b/p2",
+            "outcome": "ok",
+            "at": "2026-11-09T20:23:56.928138200+03:00",
+            "source": 1,
+            "receipt": {
+              "outputs": [
+                {
+                  "path": "processed.json",
+                  "bytes": 239,
+                  "sha256": "0f3e26f793e517da813a413ee17029b5bfddb481ae7aa278d4c7b57ccff5fe49",
+                  "transcript": false
+                }
+              ],
+              "input": {
+                "path": "transcripts/v001-profile-source.jsonl",
+                "bytes": 3543,
+                "sha256": "9a24a779781264b338ec28d0d08284e0a948572232bf4d4379c0f76ec40664af",
+                "transcript": true
+              }
+            }
+          }
+        },
+        {
+          "session": "quality-cleanup-r3",
+          "file": {
+            "bytes": 687,
+            "sha256": "f35d09d5e9ed9bd721591735159f4a0e45ae1882653e3d34d9de9580cb823e01"
+          },
+          "processed": {
+            "recipe": "processed/ru/qwen3.5:4b/p2",
+            "outcome": "ok",
+            "at": "2026-11-09T20:23:59.137031400+03:00",
+            "source": 1,
+            "receipt": {
+              "outputs": [
+                {
+                  "path": "processed.json",
+                  "bytes": 239,
+                  "sha256": "d2079650ca8907420c2fa9a0ce7111e869fe768893ee04fca81b733357f7a734",
+                  "transcript": false
+                }
+              ],
+              "input": {
+                "path": "transcripts/v001-profile-source.jsonl",
+                "bytes": 3543,
+                "sha256": "9a24a779781264b338ec28d0d08284e0a948572232bf4d4379c0f76ec40664af",
+                "transcript": true
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "kind": "long",
+      "model": "gemma4:e4b",
+      "series": "r1",
+      "started_utc": "2026-11-09T17:23:59.333784+00:00",
+      "ended_utc": "2026-11-09T17:25:26.660209+00:00",
+      "output": "target\\cleanup-recheck-20261109-a\\long-gemma4-e4b-r1",
+      "profiler_exit": 0,
+      "evaluator_exit": 0,
+      "report": {
+        "bytes": 38606,
+        "sha256": "a6ea92251c728fc22193349fda71eb5df95ac2c0df9060f0f87dd199dd1c8273"
+      },
+      "quality": {
+        "bytes": 183711,
+        "sha256": "1dd199063ef3194e26a2585c04402a169f0e6c7cf820852e399f014f99062b2a"
+      },
+      "wall_sec": [
+        86.6464143
+      ],
+      "statuses": [
+        {
+          "repeat": 1,
+          "flag_counts": {
+            "lexical": 112,
+            "qualifier": 1,
+            "literal": 2
+          }
+        }
+      ],
+      "worker_runs": [
+        {
+          "artifacts_verified": true,
+          "corrections": {
+            "cleanup_edits": 148,
+            "cleanup_omitted": 1,
+            "cleanup_rejected": 432,
+            "counts_do_not_establish_semantic_quality": true,
+            "refined_changed_lines": null,
+            "refined_lines": null
+          },
+          "llm_trace": null,
+          "repeat": 1,
+          "status": "success",
+          "wall_sec": 86.6464143
+        }
+      ],
+      "worker_receipts": [
+        {
+          "session": "podlodka-109-cleanup-r1",
+          "file": {
+            "bytes": 691,
+            "sha256": "edd8fa3d270293508f6bf46ccda42fbde4c10c5f0f61002d556bda76177d1de7"
+          },
+          "processed": {
+            "recipe": "processed/ru/gemma4:e4b/p2",
+            "outcome": "ok",
+            "at": "2026-11-09T20:25:26.474382500+03:00",
+            "source": 1,
+            "receipt": {
+              "outputs": [
+                {
+                  "path": "processed.json",
+                  "bytes": 37723,
+                  "sha256": "9f96e740b6442add4c30d2d81719fc9e97bc690a2c4169dd1d67eac8dd520443",
+                  "transcript": false
+                }
+              ],
+              "input": {
+                "path": "transcripts/v001-profile-source.jsonl",
+                "bytes": 232493,
+                "sha256": "3bb45041173effd7bf23c8c9611d01cd3487d1fc763a5cf9d3e24af93b28b00c",
+                "transcript": true
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "kind": "long",
+      "model": "qwen3.5:4b",
+      "series": "r1",
+      "started_utc": "2026-11-09T17:25:26.660850+00:00",
+      "ended_utc": "2026-11-09T17:28:11.364670+00:00",
+      "output": "target\\cleanup-recheck-20261109-a\\long-qwen3_5-4b-r1",
+      "profiler_exit": 0,
+      "evaluator_exit": 0,
+      "report": {
+        "bytes": 38623,
+        "sha256": "ab8017b178557dd532ce054e473aaf97e5259f62e747940ebc90b66f8b9e430f"
+      },
+      "quality": {
+        "bytes": 157017,
+        "sha256": "1c7eef4b4a10c651f5b1a6820db078d5a092a3cbc43fc138c01409aa36cfd080"
+      },
+      "wall_sec": [
+        164.0404152
+      ],
+      "statuses": [
+        {
+          "repeat": 1,
+          "flag_counts": {
+            "lexical": 63,
+            "qualifier": 1,
+            "literal": 4
+          }
+        }
+      ],
+      "worker_runs": [
+        {
+          "artifacts_verified": true,
+          "corrections": {
+            "cleanup_edits": 126,
+            "cleanup_omitted": 3,
+            "cleanup_rejected": 413,
+            "counts_do_not_establish_semantic_quality": true,
+            "refined_changed_lines": null,
+            "refined_lines": null
+          },
+          "llm_trace": null,
+          "repeat": 1,
+          "status": "success",
+          "wall_sec": 164.0404152
+        }
+      ],
+      "worker_receipts": [
+        {
+          "session": "podlodka-109-cleanup-r1",
+          "file": {
+            "bytes": 691,
+            "sha256": "36e548613aca591619a7b1eba29b085220bded9773452e53b5fd134a3cb36de0"
+          },
+          "processed": {
+            "recipe": "processed/ru/qwen3.5:4b/p2",
+            "outcome": "ok",
+            "at": "2026-11-09T20:28:11.159303900+03:00",
+            "source": 1,
+            "receipt": {
+              "outputs": [
+                {
+                  "path": "processed.json",
+                  "bytes": 33098,
+                  "sha256": "7cd9d460a258e6606d9e506865e5642e136eaffaf197508d1447d97f1405ee25",
+                  "transcript": false
+                }
+              ],
+              "input": {
+                "path": "transcripts/v001-profile-source.jsonl",
+                "bytes": 232493,
+                "sha256": "3bb45041173effd7bf23c8c9611d01cd3487d1fc763a5cf9d3e24af93b28b00c",
+                "transcript": true
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "kind": "long",
+      "model": "gemma4:e4b",
+      "series": "r2",
+      "started_utc": "2026-11-09T17:28:11.365299+00:00",
+      "ended_utc": "2026-11-09T17:29:37.321296+00:00",
+      "output": "target\\cleanup-recheck-20261109-a\\long-gemma4-e4b-r2",
+      "profiler_exit": 0,
+      "evaluator_exit": 0,
+      "report": {
+        "bytes": 38606,
+        "sha256": "f4f4397b418f2ec7ad39516b278ab695801b786df985f1751428f0781a3f62d5"
+      },
+      "quality": {
+        "bytes": 180339,
+        "sha256": "c3cda2340a620cfaf03bdc3f1e38bd916568449f1ae0e17d516892af7521a5fc"
+      },
+      "wall_sec": [
+        85.2867196
+      ],
+      "statuses": [
+        {
+          "repeat": 1,
+          "flag_counts": {
+            "lexical": 114,
+            "qualifier": 1,
+            "literal": 2
+          }
+        }
+      ],
+      "worker_runs": [
+        {
+          "artifacts_verified": true,
+          "corrections": {
+            "cleanup_edits": 145,
+            "cleanup_omitted": 0,
+            "cleanup_rejected": 433,
+            "counts_do_not_establish_semantic_quality": true,
+            "refined_changed_lines": null,
+            "refined_lines": null
+          },
+          "llm_trace": null,
+          "repeat": 1,
+          "status": "success",
+          "wall_sec": 85.2867196
+        }
+      ],
+      "worker_receipts": [
+        {
+          "session": "podlodka-109-cleanup-r1",
+          "file": {
+            "bytes": 691,
+            "sha256": "4b815982899b227fc1a4796ab5806a57f82c5f174b68ad9d90ac5298aac9f845"
+          },
+          "processed": {
+            "recipe": "processed/ru/gemma4:e4b/p2",
+            "outcome": "ok",
+            "at": "2026-11-09T20:29:37.110979600+03:00",
+            "source": 1,
+            "receipt": {
+              "outputs": [
+                {
+                  "path": "processed.json",
+                  "bytes": 36372,
+                  "sha256": "2360e0bff7ba2bff6c25e090134675703eb1ef5505c46a9a969739a53a1e6979",
+                  "transcript": false
+                }
+              ],
+              "input": {
+                "path": "transcripts/v001-profile-source.jsonl",
+                "bytes": 232493,
+                "sha256": "3bb45041173effd7bf23c8c9611d01cd3487d1fc763a5cf9d3e24af93b28b00c",
+                "transcript": true
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "kind": "long",
+      "model": "qwen3.5:4b",
+      "series": "r2",
+      "started_utc": "2026-11-09T17:29:37.321971+00:00",
+      "ended_utc": "2026-11-09T17:32:22.348125+00:00",
+      "output": "target\\cleanup-recheck-20261109-a\\long-qwen3_5-4b-r2",
+      "profiler_exit": 0,
+      "evaluator_exit": 0,
+      "report": {
+        "bytes": 38619,
+        "sha256": "e75b42ad3c503d3718ca4f545ea844a72edd1c4319c48030bb67740b717090d9"
+      },
+      "quality": {
+        "bytes": 141174,
+        "sha256": "6e81d5d7354bcac1afbf6bb9d178a7c74c404e18c8bb133e2360932af34fdb9c"
+      },
+      "wall_sec": [
+        164.3474433
+      ],
+      "statuses": [
+        {
+          "repeat": 1,
+          "flag_counts": {
+            "lexical": 55,
+            "qualifier": 1,
+            "literal": 4
+          }
+        }
+      ],
+      "worker_runs": [
+        {
+          "artifacts_verified": true,
+          "corrections": {
+            "cleanup_edits": 114,
+            "cleanup_omitted": 3,
+            "cleanup_rejected": 414,
+            "counts_do_not_establish_semantic_quality": true,
+            "refined_changed_lines": null,
+            "refined_lines": null
+          },
+          "llm_trace": null,
+          "repeat": 1,
+          "status": "success",
+          "wall_sec": 164.3474433
+        }
+      ],
+      "worker_receipts": [
+        {
+          "session": "podlodka-109-cleanup-r1",
+          "file": {
+            "bytes": 691,
+            "sha256": "06ab43de97df8937a458947a157741e01a4ff7b7133c6d7f3c957de86cb85215"
+          },
+          "processed": {
+            "recipe": "processed/ru/qwen3.5:4b/p2",
+            "outcome": "ok",
+            "at": "2026-11-09T20:32:22.202974600+03:00",
+            "source": 1,
+            "receipt": {
+              "outputs": [
+                {
+                  "path": "processed.json",
+                  "bytes": 29719,
+                  "sha256": "6abd829d819548ae6cc0291e805c61346b1a503b090d26f2ea2d23c2a8a41282",
+                  "transcript": false
+                }
+              ],
+              "input": {
+                "path": "transcripts/v001-profile-source.jsonl",
+                "bytes": 232493,
+                "sha256": "3bb45041173effd7bf23c8c9611d01cd3487d1fc763a5cf9d3e24af93b28b00c",
+                "transcript": true
+              }
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "audio_review": "not-run",
+  "owner_acceptance": "not-run",
+  "mac": "not-run",
+  "native_refine": "not-run",
+  "summary_quality": "not-run"
+}

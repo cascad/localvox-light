@@ -187,3 +187,10 @@ Mac и качество summary не проверены.
 106 LLM tests, настоящий worker с fake provider, 4800 replay решений; короткие useful
 24/24 сохранены. Словарь встроен в Rust, без LLM-вызовов/нового сервиса; часть полезной
 длинной правки отклоняется. Модели, настройки и рабочая установка не переключались.
+
+Новая native проверка после словарного fix: [recheck-native-cleanup-after-word-guard](changes/recheck-native-cleanup-after-word-guard/proposal.md).
+[12 коротких и 4 длинных запуска 2026-11-09](changes/recheck-native-cleanup-after-word-guard/evidence/results.md):
+576/576 коротких ожиданий; cleanup двухчасовой STT — Gemma 85–87 s, Qwen 4B около
+164 s на RTX 5080. Прежние опасные controls сохранены, но 5 audio_required и
+16 style_review row-visits не дают общей приёмки. Прямой profiler без скрытого
+proxy; native counters неизвестны. Default модели, Mac/audio приёмка не менялись.

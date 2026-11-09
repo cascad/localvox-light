@@ -64,6 +64,7 @@ fn args_for(args: &Args) -> Args {
     .unwrap();
     result.experimental_sparse_edits = args.experimental_sparse_edits;
     result.experimental_sparse_lines = args.experimental_sparse_lines;
+    result.trace_ollama = args.trace_ollama;
     result
 }
 
@@ -112,6 +113,8 @@ fn failed_text_worker_retains_a_redacted_checkpoint_and_never_reuses_output() {
     assert_eq!(report["complete"], false);
     assert_eq!(report["input_preserved"], true);
     assert_eq!(report["runs"].as_array().unwrap().len(), 1);
+    assert_eq!(report["trace_enabled"], false);
+    assert!(report["runs"][0]["llm_trace"].is_null());
     assert!(report["runs"][0]["status"] != "success");
     assert!(!raw.contains("PRIVATE_SPEAKER") && !raw.contains("Обсудили"));
     assert!(crate::run(args_for(&args), &AtomicBool::new(false)).is_err());
@@ -125,6 +128,16 @@ fn failed_text_worker_retains_a_redacted_checkpoint_and_never_reuses_output() {
 #[test]
 #[ignore = "requires LOCALVOX_PROFILE_TEST_WORKER pointing to a built worker; no models/devices"]
 fn text_profile_roundtrip_uses_real_workers_and_a_numeric_only_local_llm_fixture() {
+    text_worker_roundtrip(true);
+}
+
+#[test]
+#[ignore = "requires LOCALVOX_PROFILE_TEST_WORKER; direct local HTTP, no models/devices"]
+fn text_profile_direct_endpoint_preserves_all_modes_without_trace() {
+    text_worker_roundtrip(false);
+}
+
+fn text_worker_roundtrip(traced: bool) {
     use tiny_http::{Response, Server};
     let root = tempfile::tempdir().unwrap();
     let mut args = fixture(root.path());
@@ -132,13 +145,17 @@ fn text_profile_roundtrip_uses_real_workers_and_a_numeric_only_local_llm_fixture
         .expect("built worker required")
         .into();
     args.timeout_sec = 20;
+    args.trace_ollama = traced;
     let server = Server::http("127.0.0.1:0").unwrap();
     args.llm_base_url = format!("http://{}/v1", server.server_addr().to_ip().unwrap());
     let stop = Arc::new(AtomicBool::new(false));
     let stopped = stop.clone();
+    let paths = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let requested_paths = paths.clone();
     let handle = std::thread::spawn(move || {
         while !stopped.load(Ordering::Relaxed) {
             if let Some(mut req) = server.recv_timeout(Duration::from_millis(50)).unwrap() {
+                requested_paths.lock().unwrap().push(req.url().to_owned());
                 let body: Value = serde_json::from_reader(req.as_reader()).unwrap();
                 let prompt = body["messages"][0]["content"].as_str().unwrap();
                 let answer = if prompt.contains("[1] Обсудили") {
@@ -146,29 +163,50 @@ fn text_profile_roundtrip_uses_real_workers_and_a_numeric_only_local_llm_fixture
                 } else {
                     "Обсудили задачу."
                 };
-                let reply = json!({"message":{"content":answer},"done":true,"done_reason":"stop",
+                let reply = if traced {
+                    json!({"message":{"content":answer},"done":true,"done_reason":"stop",
                     "load_duration":0,"prompt_eval_duration":1,"eval_duration":1,"total_duration":2,
-                    "prompt_eval_count":20,"eval_count":10});
+                    "prompt_eval_count":20,"eval_count":10})
+                } else {
+                    json!({"choices":[{"message":{"role":"assistant","content":answer}}]})
+                };
                 req.respond(Response::from_string(reply.to_string()))
                     .unwrap();
             }
         }
     });
-    let result = crate::run(args_for_endpoint(&args), &AtomicBool::new(false));
+    let mut configured = args_for_endpoint(&args);
+    let result = run(&mut configured, &AtomicBool::new(false));
     stop.store(true, Ordering::Relaxed);
     handle.join().unwrap();
     result.unwrap();
+    assert_eq!(configured.llm_base_url, args.llm_base_url);
+    let paths = paths.lock().unwrap();
+    assert_eq!(paths.len(), 5);
+    assert!(paths.iter().all(|path| path
+        == if traced {
+            "/api/chat"
+        } else {
+            "/v1/chat/completions"
+        }));
     let raw = fs::read_to_string(args.output.join("report.json")).unwrap();
     let report: Value = serde_json::from_str(&raw).unwrap();
     assert_eq!(report["success"], true);
     assert_eq!(report["input_preserved"], true);
+    assert_eq!(report["trace_enabled"], traced);
     let runs = report["runs"].as_array().unwrap();
     assert_eq!(runs.len(), 4);
     for run in runs {
         assert_eq!(run["artifacts_verified"], true);
-        assert!(run["llm_trace"]["request_count"].as_u64().unwrap() > 0);
+        if traced {
+            assert!(run["llm_trace"]["request_count"].as_u64().unwrap() > 0);
+        } else {
+            assert!(run["llm_trace"].is_null());
+        }
     }
-    assert_eq!(runs[2]["llm_trace"]["request_count"], 2);
+    if traced {
+        assert_eq!(runs[2]["llm_trace"]["request_count"], 2);
+    }
     assert!(!raw.contains("PRIVATE_SPEAKER") && !raw.contains("Обсудили"));
 }
 
@@ -297,6 +335,7 @@ fn retention_real_worker_preserves_semantics_and_line_ownership_in_both_modes() 
         .expect("built worker required")
         .into();
     args.timeout_sec = 30;
+    args.trace_ollama = true;
     let texts = [
         "Эээ, проект готов.",
         "Проект почти готов.",

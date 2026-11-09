@@ -198,16 +198,31 @@ pub(super) fn run(args: &mut Args, cancelled: &AtomicBool) -> Result<PathBuf> {
         "ner_model_files":args.ner_model_dir.as_deref().map(model_fingerprints).transpose()?,
         "asr_executed":false,"experimental_sparse_edits":args.experimental_sparse_edits,
         "experimental_sparse_lines":args.experimental_sparse_lines,
+        "trace_enabled":args.trace_ollama || experimental,
         "semantic_quality_established":false,"input_preserved":null,"inputs":inputs,"runs":[],"complete":false,"success":false});
     checkpoint(&root, &report)?;
     let trace = if args.experimental_sparse_lines {
-        ollama::Trace::sparse_lines(&args.llm_base_url, Duration::from_secs(args.timeout_sec))?
+        Some(ollama::Trace::sparse_lines(
+            &args.llm_base_url,
+            Duration::from_secs(args.timeout_sec),
+        )?)
     } else if args.experimental_sparse_edits {
-        ollama::Trace::sparse_experiment(&args.llm_base_url, Duration::from_secs(args.timeout_sec))?
+        Some(ollama::Trace::sparse_experiment(
+            &args.llm_base_url,
+            Duration::from_secs(args.timeout_sec),
+        )?)
+    } else if args.trace_ollama {
+        Some(ollama::Trace::start(
+            &args.llm_base_url,
+            Duration::from_secs(args.timeout_sec),
+        )?)
     } else {
-        ollama::Trace::start(&args.llm_base_url, Duration::from_secs(args.timeout_sec))?
+        None
     };
-    let original_endpoint = std::mem::replace(&mut args.llm_base_url, trace.base_url().into());
+    let original_endpoint = args.llm_base_url.clone();
+    if let Some(trace) = &trace {
+        args.llm_base_url = trace.base_url().into();
+    }
     let started = Instant::now();
     let mut all_ok = true;
     'batch: for repeat in 1..=args.repeats {
@@ -227,7 +242,7 @@ pub(super) fn run(args: &mut Args, cancelled: &AtomicBool) -> Result<PathBuf> {
                     root.join("sessions")
                         .join(format!("{}-{}-r{repeat}", case.name, mode.name()));
                 seed(&session, &bytes, &case.lang)?;
-                let index = trace.count();
+                let index = trace.as_ref().map_or(0, ollama::Trace::count);
                 // Checkpoint pending work so a long LLM call is never reported as completed.
                 let ri = report["runs"].as_array().unwrap().len();
                 report["runs"]
@@ -245,7 +260,7 @@ pub(super) fn run(args: &mut Args, cancelled: &AtomicBool) -> Result<PathBuf> {
                 result["case"] = json!(case.name);
                 result["mode"] = json!(mode);
                 result["repeat"] = json!(repeat);
-                let rows = trace.since(index);
+                let rows = trace.as_ref().map(|trace| trace.since(index));
                 if experimental {
                     let fields = [
                         "input_lines",
@@ -262,6 +277,8 @@ pub(super) fn run(args: &mut Args, cancelled: &AtomicBool) -> Result<PathBuf> {
                         totals.insert(
                             field.into(),
                             json!(rows
+                                .as_ref()
+                                .expect("sparse adapter is enabled")
                                 .iter()
                                 .filter_map(|r| r["sparse"][field].as_u64())
                                 .sum::<u64>()),
@@ -273,7 +290,9 @@ pub(super) fn run(args: &mut Args, cancelled: &AtomicBool) -> Result<PathBuf> {
                     );
                     result["sparse"] = json!(totals);
                 }
-                result["llm_trace"] = ollama::summarize(rows, result["wall_sec"].as_f64());
+                result["llm_trace"] = rows
+                    .map(|rows| ollama::summarize(rows, result["wall_sec"].as_f64()))
+                    .unwrap_or(Value::Null);
                 let ledger = processing::load(&session);
                 let verified = mode.artifacts().iter().all(|key| {
                     ledger.artifacts.get(*key).is_some_and(|record| {
