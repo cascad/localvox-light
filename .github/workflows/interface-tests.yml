@@ -93,9 +93,10 @@ jobs:
           cargo test --locked -p localvox-light-bench --bin localvox-queue-profile -- --ignored --exact tests::real_coordinator_empty_timeout_and_preflight_failure_are_bounded
       - name: Confirmed capture input and owned codecs (no devices/models)
         run: |
-          rustfmt --edition 2021 --check crates/localvox-light-core/src/chunks.rs crates/localvox-light-core/src/pipeline.rs
+          rustfmt --edition 2021 --check crates/localvox-light-core/src/chunks.rs crates/localvox-light-core/src/pipeline.rs crates/localvox-light-core/src/windowing.rs
           cargo test --locked -p localvox-light-core chunks:: --lib
           cargo test --locked -p localvox-light-core pipeline:: --lib
+          cargo test --locked -p localvox-light-core windowing:: --lib
       - name: Real worker cancellation and standalone CLI ownership (local HTTP, no models/devices)
         run: cargo test --locked -p localvox-light --lib autocook::cancellation_tests -- --ignored --nocapture
       - name: Background indexes and search (local HTTP, no models/devices)

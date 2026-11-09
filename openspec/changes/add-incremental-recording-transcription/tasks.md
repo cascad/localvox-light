@@ -7,7 +7,7 @@
 
 ## 2. Continuous window planning
 
-- [ ] 2.1 Выделить общий offline/incremental planner без изменения рецепта разрезания; property/fixture проверками доказать одинаковые PCM windows при случайной нарезке, слове на стыке файлов, тишине, forced cut, неполном frame и только настоящем EOF.
+- [x] 2.1 Выделить общий offline/incremental planner без изменения рецепта разрезания; property/fixture проверками доказать одинаковые PCM windows при случайной нарезке, слове на стыке файлов, тишине, forced cut, неполном frame и только настоящем EOF.
 - [ ] 2.2 Подключить capture-owned лёгкий planner вне callback: только новые sealed ranges, coalesced disk notifications, bounded decoder/RAM, capture lease до окончания всех писателей; проверить отказ planner, pause/Stop/shutdown без новых PCM, delete после Stop, uneven/отключённые/поздние источники и safe blocking общей границы; обновить архитектуру ownership/времени.
 
 ## 3. Durable ASR work and finalization

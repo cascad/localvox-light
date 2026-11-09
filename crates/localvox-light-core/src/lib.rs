@@ -50,6 +50,7 @@ pub mod settings;
 pub mod transcript;
 pub mod versions;
 pub mod voice_note;
+pub mod windowing;
 pub mod workflow;
 
 pub use cli::{

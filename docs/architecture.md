@@ -155,6 +155,14 @@ sync FLAC и атомарная квитанция `audio-codecs/` с generation
 PCM читается блоками 64 KiB; для FLAC декодирование ограничено временем/размером и
 использует временный PCM на диске аудио, без полной копии чанка в памяти.
 Проверки и границы — [capture evidence](../openspec/changes/add-incremental-recording-transcription/evidence/capture-input.md).
+
+Общий `core/windowing.rs` доступен capture без ONNX. Offline cook и benchmark
+используют тот же `Windower` через совместимый re-export. `feed_all` выдаёт закрытые
+speech/silence диапазоны, `feed` — прежний speech-only ASR вход; переносимая
+граница файла не flush. В памяти остаются только текущее окно и неполный 20 ms frame,
+`finish_all` вызывается только для EOF и повторяется без дублирования. Отказ sink
+требует replay сохранённого PCM; повреждённый planner не продолжает с догадками.
+Рецепт VAD/quietest cut не менялся: [побайтовые проверки](../openspec/changes/add-incremental-recording-transcription/evidence/window-planner.md).
 Остановка внешнего Ollama и общая crash-транзакция нескольких файлов не обещаются.
 [Проверки](../openspec/changes/archive/2026-11-01-serialize-session-mutations/evidence/implementation.md).
 
