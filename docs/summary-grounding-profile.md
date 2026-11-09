@@ -35,6 +35,35 @@ Core API `Ner::names_profiled` возвращает `(Result<Vec<Entity>>, profi
 результат/ошибка и численный профиль доступны отдельно. Обычные `names`/`extract_at`
 используют те же вычисления с disabled observer, без clocks/логов/нового кеша.
 
+Поиск имён обрабатывает все прежние окна. Для ролей выполняются только полные
+исходные окна, которые пересекают найденные имена. Индекс объединённых byte spans
+не зависит от слов, labels или scores; контекст и модель оставшихся окон прежние.
+Role span всегда внутри своего окна, поэтому отброшенное окно не может изменить
+сравнение с именем. `windows_skipped` отдельно от started/completed/inference calls.
+При плотных именах выигрыш может отсутствовать. Ошибка необходимого вызова остаётся
+ошибкой; автоматического перехода на full scan или ослабления проверки нет.
+
+`ner::profile::names_full_scan_profiled` — явный инженерный эталон того же
+decoder/comparison с выполнением всех role окон. Для сохранённой публичной STT
+есть read-only exact Entity comparison (в JSON только counts/times/SHA):
+
+```powershell
+$env:LOCALVOX_NER_PROFILE_TEST_MODEL_DIR=(Resolve-Path models\ner-gliner).Path
+$env:LOCALVOX_NER_ROLE_COMPARE_SOURCE='D:\bench\source.jsonl'
+$env:LOCALVOX_NER_ROLE_COMPARE_OUTPUT='D:\bench\compare-new.json'
+$env:LOCALVOX_NER_ROLE_COMPARE_ORDER='full-first'
+cargo test --release --locked -j 2 -p localvox-light-core --features onnx --lib -- --ignored --exact ner::profile::tests::saved_source_full_and_relevant_scans_are_exactly_equal --nocapture
+```
+
+Для второго свежего процесса задайте **новый** output и `relevant-first`.
+Не запускайте сборки параллельно с измерениями; внешний timeout ограничивает процесс.
+Это сравнение source NER на joined speech, без генерации LLM и без изменения архива.
+
+[Проверенный результат отбора окон](../openspec/changes/skip-irrelevant-role-windows/evidence/results.md):
+два сравнения дали 22–24% ускорения source NER при exact Entity parity;
+обычный grounding сохранил verdict/cache. Raw joined speech и `grounding::plain`
+имеют разное число слов/окон: счётчики сравниваются с full plan того же входа.
+
 Явная проверка точного совпадения entities, scores и byte spans на синтетической
 речи с настоящим NER (включая overlap/пустой текст/отключённый role pass):
 

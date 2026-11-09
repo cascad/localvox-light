@@ -15,6 +15,7 @@ pub enum Pass {
 #[serde(rename_all = "snake_case")]
 pub enum Component {
     SplitWords,
+    WindowSelection,
     WindowInput,
     Tokenization,
     TensorPreparation,
@@ -41,6 +42,7 @@ pub struct PassTimings {
     pub words: usize,
     pub windows_started: u64,
     pub windows_completed: u64,
+    pub windows_skipped: u64,
     /// Sum/max of tokenized window lengths, including prompt and overlap.
     pub tokens_total: usize,
     pub tokens_max: usize,
@@ -87,6 +89,7 @@ impl Observer {
                     words: 0,
                     windows_started: 0,
                     windows_completed: 0,
+                    windows_skipped: 0,
                     tokens_total: 0,
                     tokens_max: 0,
                     components: Vec::new(),
@@ -147,6 +150,12 @@ impl Observer {
         }
     }
 
+    pub(super) fn window_skipped(&mut self, pass: Pass) {
+        if self.started.is_some() {
+            self.pass(pass).windows_skipped += 1;
+        }
+    }
+
     pub(super) fn tokens(&mut self, pass: Pass, count: usize) {
         if self.started.is_some() {
             let timings = self.pass(pass);
@@ -174,6 +183,24 @@ impl Observer {
             passes: self.passes,
         }
     }
+}
+
+/// Full-scan engineering reference on the same decoder/comparison implementation.
+/// Never used as an automatic runtime fallback.
+pub fn names_full_scan_profiled(
+    ner: &super::Ner,
+    text: &str,
+    name_label: &str,
+    role_label: &str,
+    threshold: f32,
+) -> (Result<Vec<super::Entity>>, Timings) {
+    ner.names_profiled_with_role_windows(
+        text,
+        name_label,
+        role_label,
+        threshold,
+        super::RoleWindows::Full,
+    )
 }
 
 #[cfg(test)]
@@ -289,6 +316,9 @@ mod tests {
                 let ordinary = ner.names(text, "имя человека", role, threshold).unwrap();
                 let (profiled, timings) = ner.names_profiled(text, "имя человека", role, threshold);
                 let profiled = profiled.unwrap();
+                let (full, _) =
+                    names_full_scan_profiled(&ner, text, "имя человека", role, threshold);
+                assert_eq!(profiled, full.unwrap());
                 assert_eq!(ordinary, profiled);
                 assert!(timings.complete);
                 let sum: f64 = timings
@@ -312,7 +342,7 @@ mod tests {
                         .components
                         .iter()
                         .all(|c| c.errors == 0 && c.elapsed_sec.is_finite()));
-                    if text == long {
+                    if text == long && pass.pass == Pass::Name {
                         assert!(pass.windows_completed > 1);
                     }
                     if text.is_empty() {
@@ -334,5 +364,110 @@ mod tests {
             "nonempty positive control required for meaningful entity parity"
         );
         eprintln!("native entity parity: {cases} cases, {found} returned entities, exact scores and byte spans");
+    }
+
+    #[test]
+    #[ignore = "explicit NER model/source/output/order required; saved public source, numeric report only"]
+    fn saved_source_full_and_relevant_scans_are_exactly_equal() {
+        use sha2::{Digest, Sha256};
+        use std::{
+            fs,
+            io::{Seek, SeekFrom, Write},
+            path::PathBuf,
+        };
+        let path =
+            |name| PathBuf::from(std::env::var_os(name).expect("explicit reference path required"));
+        let source = path("LOCALVOX_NER_ROLE_COMPARE_SOURCE");
+        let output = path("LOCALVOX_NER_ROLE_COMPARE_OUTPUT");
+        let models = path("LOCALVOX_NER_PROFILE_TEST_MODEL_DIR");
+        let full_first = match std::env::var("LOCALVOX_NER_ROLE_COMPARE_ORDER")
+            .unwrap()
+            .as_str()
+        {
+            "full-first" => true,
+            "relevant-first" => false,
+            _ => panic!("explicit known order required"),
+        };
+        assert!(fs::metadata(&source).unwrap().len() <= 32 * 1024 * 1024);
+        let bytes = fs::read(&source).unwrap();
+        let source_sha = format!("{:x}", Sha256::digest(&bytes));
+        let mut rows = crate::artifacts::transcript(&bytes).unwrap();
+        assert!(!rows.is_empty());
+        rows.sort_by(|a, b| a.start_sec.total_cmp(&b.start_sec));
+        let speech = rows
+            .iter()
+            .map(|r| r.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        let mut report = serde_json::json!({"version":1,"scope":"saved_source_full_relevant_entity_parity_no_LLM",
+            "source_sha256":source_sha,"speech_chars":speech.chars().count(),"source_lines":rows.len(),
+            "full_first":full_first,"complete":false,"exact_entity_parity":false,
+            "threshold":0.3,"status":"starting","runner_debug_assertions":cfg!(debug_assertions),"runs":[]});
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&output)
+            .unwrap();
+        let mut save = |report: &serde_json::Value| {
+            file.seek(SeekFrom::Start(0)).unwrap();
+            file.set_len(0).unwrap();
+            serde_json::to_writer_pretty(&mut file, report).unwrap();
+            file.write_all(b"\n").unwrap();
+            file.flush().unwrap();
+        };
+        save(&report);
+        let load = Instant::now();
+        let ner = match crate::ner::Ner::open(&models) {
+            Ok(ner) => ner,
+            Err(_) => {
+                report["status"] = serde_json::json!("model_load_failed");
+                save(&report);
+                panic!("NER load failed; numeric report retained");
+            }
+        };
+        report["model_load_sec"] = serde_json::json!(load.elapsed().as_secs_f64());
+        let mut results = Vec::new();
+        for full in [full_first, !full_first] {
+            let (result, timings) = if full {
+                names_full_scan_profiled(&ner, &speech, "имя человека", "говорящий или роль", 0.3)
+            } else {
+                ner.names_profiled(&speech, "имя человека", "говорящий или роль", 0.3)
+            };
+            report["runs"]
+                .as_array_mut()
+                .unwrap()
+                .push(serde_json::json!({"full_scan":full,"timings":timings,
+                "entity_count":result.as_ref().ok().map(|r|r.len())}));
+            report["status"] = serde_json::json!(if result.is_ok() {
+                "checking"
+            } else {
+                "ner_failed"
+            });
+            save(&report);
+            results.push(
+                result.unwrap_or_else(|_| panic!("NER call failed; numeric report retained")),
+            );
+        }
+        let equal = results[0] == results[1];
+        let preserved = fs::read(&source).unwrap() == bytes;
+        let positive = !results[0].is_empty();
+        report["exact_entity_parity"] = serde_json::json!(equal);
+        report["input_preserved"] = serde_json::json!(preserved);
+        report["positive_control"] = serde_json::json!(positive);
+        report["complete"] = serde_json::json!(equal && preserved && positive);
+        report["status"] = serde_json::json!(if equal && preserved && positive {
+            "success"
+        } else {
+            "mismatch_or_input_changed"
+        });
+        save(&report);
+        assert!(
+            equal && preserved && positive,
+            "Entity parity or input preservation failed; numeric report retained"
+        );
+        eprintln!(
+            "saved source exact Entity parity: {} entities, inverse order supported",
+            results[0].len()
+        );
     }
 }

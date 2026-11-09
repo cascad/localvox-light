@@ -30,7 +30,15 @@ use ort::session::{builder::GraphOptimizationLevel, Session};
 use ort::value::Tensor;
 
 pub mod profile;
+mod windows;
 use profile::{Component, Observer, Pass};
+use windows::SpanIndex;
+
+#[derive(Clone, Copy)]
+enum RoleWindows {
+    Relevant,
+    Full,
+}
 
 /// `ort` errors are not Send+Sync, so they do not go into anyhow directly.
 fn ort_err<E: std::fmt::Display>(ctx: &'static str) -> impl FnOnce(E) -> anyhow::Error {
@@ -231,6 +239,7 @@ impl Ner {
             role_label,
             threshold,
             &mut Observer::disabled(),
+            RoleWindows::Relevant,
         )
     }
 
@@ -242,8 +251,32 @@ impl Ner {
         role_label: &str,
         threshold: f32,
     ) -> (Result<Vec<Entity>>, profile::Timings) {
+        self.names_profiled_with_role_windows(
+            text,
+            name_label,
+            role_label,
+            threshold,
+            RoleWindows::Relevant,
+        )
+    }
+
+    fn names_profiled_with_role_windows(
+        &self,
+        text: &str,
+        name_label: &str,
+        role_label: &str,
+        threshold: f32,
+        role_windows: RoleWindows,
+    ) -> (Result<Vec<Entity>>, profile::Timings) {
         let mut observer = Observer::enabled();
-        let result = self.names_observed(text, name_label, role_label, threshold, &mut observer);
+        let result = self.names_observed(
+            text,
+            name_label,
+            role_label,
+            threshold,
+            &mut observer,
+            role_windows,
+        );
         let timings = observer.finish(result.is_ok());
         (result, timings)
     }
@@ -255,6 +288,7 @@ impl Ner {
         role_label: &str,
         threshold: f32,
         observer: &mut Observer,
+        role_windows: RoleWindows,
     ) -> Result<Vec<Entity>> {
         let names = self.extract_observed(
             text,
@@ -262,24 +296,27 @@ impl Ner {
             threshold,
             Pass::Name,
             observer,
+            None,
         )?;
         if role_label.trim().is_empty() {
             return Ok(names);
         }
         // We collect the roles GENEROUSLY: what matters is their score for the comparison,
         // not the fact itself.
-        let roles =
-            self.extract_observed(text, &[role_label.to_string()], 0.1, Pass::Role, observer)?;
+        let relevant = match role_windows {
+            RoleWindows::Relevant => Some(SpanIndex::new(&names)),
+            RoleWindows::Full => None,
+        };
+        let roles = self.extract_observed(
+            text,
+            &[role_label.to_string()],
+            0.1,
+            Pass::Role,
+            observer,
+            relevant.as_ref(),
+        )?;
         observer.measure(Pass::Comparison, Component::RoleComparison, || {
-            Ok(names
-                .into_iter()
-                .filter(|n| {
-                    roles
-                        .iter()
-                        .filter(|r| r.start < n.end && n.start < r.end)
-                        .all(|r| n.score > r.score)
-                })
-                .collect())
+            Ok(names_beating_roles(names, &roles))
         })
     }
 
@@ -297,6 +334,7 @@ impl Ner {
             threshold,
             Pass::Name,
             &mut Observer::disabled(),
+            None,
         )
     }
 
@@ -307,6 +345,7 @@ impl Ner {
         threshold: f32,
         pass: Pass,
         observer: &mut Observer,
+        relevant: Option<&SpanIndex>,
     ) -> Result<Vec<Entity>> {
         let words = observer.measure(pass, Component::SplitWords, || Ok(split_words(text)))?;
         observer.words(pass, words.len());
@@ -314,27 +353,12 @@ impl Ner {
             return Ok(Vec::new());
         }
 
-        let mut out: Vec<Entity> = Vec::new();
-        let mut start = 0usize;
-        while start < words.len() {
-            let end = (start + WINDOW_WORDS).min(words.len());
-            observer.window_started(pass);
-            let result =
-                self.extract_window(text, &words[start..end], labels, threshold, pass, observer);
-            observer.window_completed(pass, result.is_ok());
-            out.extend(result?);
-            if end == words.len() {
-                break;
-            }
-            start = end.saturating_sub(WINDOW_OVERLAP);
-        }
+        let out = windows::collect(&words, relevant, pass, observer, |window, observer| {
+            self.extract_window(text, window, labels, threshold, pass, observer)
+        })?;
 
         // The windows overlap — one and the same entity arrives twice.
-        observer.measure(pass, Component::WindowDedup, || {
-            out.sort_by(|a, b| a.start.cmp(&b.start).then(a.end.cmp(&b.end)));
-            out.dedup_by(|a, b| a.start == b.start && a.end == b.end && a.label == b.label);
-            Ok(out)
-        })
+        observer.measure(pass, Component::WindowDedup, || Ok(dedup_entities(out)))
     }
 
     fn extract_window(
@@ -507,6 +531,24 @@ impl Ner {
             Ok(kept)
         })
     }
+}
+
+fn dedup_entities(mut out: Vec<Entity>) -> Vec<Entity> {
+    out.sort_by(|a, b| a.start.cmp(&b.start).then(a.end.cmp(&b.end)));
+    out.dedup_by(|a, b| a.start == b.start && a.end == b.end && a.label == b.label);
+    out
+}
+
+fn names_beating_roles(names: Vec<Entity>, roles: &[Entity]) -> Vec<Entity> {
+    names
+        .into_iter()
+        .filter(|n| {
+            roles
+                .iter()
+                .filter(|r| r.start < n.end && n.start < r.end)
+                .all(|r| n.score > r.score)
+        })
+        .collect()
 }
 
 fn sigmoid(x: f32) -> f32 {
