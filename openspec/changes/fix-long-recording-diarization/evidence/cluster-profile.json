@@ -1,0 +1,47 @@
+{
+  "date": "2026-11-10",
+  "profile": "release",
+  "input": "deterministic synthetic voice embeddings; seed=42",
+  "results": [
+    {
+      "dimensions": 256,
+      "matrix_bytes": 159200,
+      "reference_seconds": 0.8501089,
+      "seconds": 0.0023525,
+      "vectors": 200,
+      "voices": 6
+    },
+    {
+      "dimensions": 256,
+      "matrix_bytes": 638400,
+      "reference_seconds": 6.9704057,
+      "seconds": 0.0092499,
+      "vectors": 400,
+      "voices": 6
+    },
+    {
+      "dimensions": 256,
+      "matrix_bytes": 15992000,
+      "reference_seconds": null,
+      "seconds": 0.2324813,
+      "vectors": 2000,
+      "voices": 6
+    },
+    {
+      "dimensions": 256,
+      "matrix_bytes": 63984000,
+      "reference_seconds": null,
+      "seconds": 0.9309253,
+      "vectors": 4000,
+      "voices": 6
+    },
+    {
+      "dimensions": 256,
+      "matrix_bytes": 255968000,
+      "reference_seconds": null,
+      "seconds": 3.8565305,
+      "vectors": 8000,
+      "voices": 6
+    }
+  ]
+}

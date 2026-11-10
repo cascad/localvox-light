@@ -1292,7 +1292,12 @@ fn journal_projection(a: &App, t: Theme) -> JournalProjection {
                         .run
                         .as_ref()
                         .zip(execution.operation.as_ref())
-                        .is_some_and(|(run, op)| g.id == format!("{run}/{op}"))
+                        .is_some_and(|(run, op)| {
+                            g.run == *run
+                                && (g.id == format!("{run}/{op}")
+                                    || g.parent.as_ref() == Some(op)
+                                        && execution.current.as_deref() == Some(g.stage.as_str()))
+                        })
             });
         let state = if g.state() == "running" && !active {
             "unconfirmed"
@@ -1352,7 +1357,9 @@ fn journal_projection(a: &App, t: Theme) -> JournalProjection {
         spans.push(Span::styled(
             format!(
                 " · {} · {} {}",
-                if g.ended {
+                if state == "failed" {
+                    "ошибка"
+                } else if g.ended {
                     "операция завершилась"
                 } else {
                     if state == "unconfirmed" {
@@ -1976,6 +1983,74 @@ mod tests {
     #[test]
     fn snapshot_wide_dark() {
         workspace_snapshot(160, 48, false);
+    }
+
+    #[test]
+    fn grouping_operation_is_live_only_under_its_current_worker() {
+        let mut app = App::default();
+        app.wall_ms = chrono::DateTime::parse_from_rfc3339("2026-10-31T07:00:25Z")
+            .unwrap()
+            .timestamp_millis();
+        app.progress.at = Some("2026-10-31T07:00:25Z".into());
+        app.progress.execution = Some(localvox_light_client::Execution {
+            state: "running".into(),
+            run: Some("r1".into()),
+            operation: Some("worker".into()),
+            current: Some("transcribe".into()),
+            ..Default::default()
+        });
+        app.journal
+            .entries
+            .push(localvox_light_client::JournalEntry {
+                id: "start".into(),
+                run: "r1".into(),
+                operation: Some("group".into()),
+                parent: Some("worker".into()),
+                stage: "transcribe".into(),
+                kind: "operation_start".into(),
+                at: "2026-10-31T07:00:20Z".into(),
+                label: "Группировка голосов".into(),
+                ..Default::default()
+            });
+        let text = |app: &App| {
+            journal_lines(app, Theme::for_app(app))
+                .iter()
+                .map(|line| {
+                    line.spans
+                        .iter()
+                        .map(|span| span.content.as_ref())
+                        .collect::<String>()
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        let current = text(&app);
+        assert!(
+            current.contains("Группировка голосов") && current.contains("00:05"),
+            "{current}"
+        );
+        app.progress.execution.as_mut().unwrap().operation = Some("retry".into());
+        let stale = text(&app);
+        assert!(stale.contains("завершение не зафиксировано"), "{stale}");
+        app.journal
+            .entries
+            .push(localvox_light_client::JournalEntry {
+                id: "end".into(),
+                run: "r1".into(),
+                operation: Some("group".into()),
+                parent: Some("worker".into()),
+                stage: "transcribe".into(),
+                kind: "operation_end".into(),
+                status: Some("failed".into()),
+                elapsed_sec: Some(3.5),
+                label: "Группировка голосов".into(),
+                ..Default::default()
+            });
+        let failed = text(&app);
+        assert!(
+            failed.contains("ошибка") && failed.contains("00:03"),
+            "{failed}"
+        );
     }
     #[test]
     fn snapshot_wide_light() {

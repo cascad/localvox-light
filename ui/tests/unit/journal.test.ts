@@ -1,10 +1,26 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { groupJournal, journalState, mergeJournal, type JournalEntry, type JournalPage } from "../../src/journal-model.ts";
+import { groupJournal, journalActive, journalState, mergeJournal, type JournalEntry, type JournalPage } from "../../src/journal-model.ts";
 
 const entry = (id: string, extra: Partial<JournalEntry> = {}): JournalEntry => ({ id, run: "r1", stage: "summary", kind: "log", at: "2026-10-31T07:00:00Z", label: "summary", ...extra });
 const page = (events: JournalEntry[], reset = false): JournalPage => ({ events, reset, next_cursor: "next", previous_cursor: "previous", has_more: false, truncated: false, discarded: 0, read_bytes: 0 });
+
+test("grouping belongs to the current worker and keeps its own time and error", () => {
+  const events = [entry("start", {stage:"transcribe",operation:"group",parent:"worker",kind:"operation_start",label:"Группировка голосов"})];
+  let group = groupJournal(events)[0];
+  const execution = {state:"running",run:"r1",operation:"worker",current:"transcribe"};
+  assert.equal(journalActive(group,execution),true);
+  for (const change of [{run:"old"},{operation:"retry"},{state:"failed"},{current:"summary"}]) {
+    assert.equal(journalActive(group,{...execution,...change}),false);
+  }
+  events.push(entry("error",{stage:"transcribe",operation:"group",parent:"worker",kind:"log",status:"failed",text:"invalid voice embedding"}));
+  events.push(entry("end",{stage:"transcribe",operation:"group",parent:"worker",kind:"operation_end",status:"failed",elapsed_sec:3.5}));
+  group=groupJournal(events)[0];
+  assert.equal(group.elapsed,3.5);
+  assert.equal(journalState(group,false).label,"ошибка");
+  assert.equal(group.details[0].text,"invalid voice embedding");
+});
 
 test("cancelled operations retain their terminal reason without becoming successful or failed", () => {
   const group = groupJournal([

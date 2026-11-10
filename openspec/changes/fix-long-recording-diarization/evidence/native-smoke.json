@@ -1,0 +1,30 @@
+{
+  "date": "2026-11-10",
+  "source": "first 180 s of existing public Podlodka-109 benchmark PCM",
+  "audio_seconds": 180,
+  "input_sha256": "eb4a728d08ae76c9ed23d63b1b26bf8d580b82ca65f34fc28a801338f0fe9cf7",
+  "worker_sha256": "8dad832a8665012814f10d8ecf5446f38556e6a8f99ea4adff7d62e7104986aa",
+  "asr": "GigaAM v3 e2e CTC int8",
+  "diarization": "real segmentation.onnx and embedding.onnx",
+  "transcript_lines": 18,
+  "labeled_lines": 15,
+  "cook_wall_seconds_rounded": 7.6,
+  "operations": [
+    {
+      "label": "Распознавание и выделение голосов · дорожка 0",
+      "status": null,
+      "elapsed_sec": 5.6259864
+    },
+    {
+      "label": "Группировка голосов · дорожка 0",
+      "status": null,
+      "elapsed_sec": 0.1662015
+    },
+    {
+      "label": "Объединение голосов дорожек",
+      "status": null,
+      "elapsed_sec": 0.1265501
+    }
+  ],
+  "transcribe_state": "done"
+}

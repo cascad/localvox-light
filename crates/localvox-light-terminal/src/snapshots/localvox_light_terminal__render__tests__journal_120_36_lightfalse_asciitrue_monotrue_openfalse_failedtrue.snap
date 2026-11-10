@@ -30,7 +30,7 @@ Buffer {
         "|                          |Журнал · Enter раскрыть · / фильтр · End хвост · o раньше                                   ",
         "|                          |run r1                                                                                      ",
         "|                          |+ summary                                                                                   ",
-        "|                          |  + ! localvox-process --worker-phase summary --llm-model test-model · failed · время       ",
+        "|                          |  + ! localvox-process --worker-phase summary --llm-model test-model · ошибка · время       ",
         "|                          |неизвестно                                                                                  ",
         "|                          |      ! Причина отказа · ~ консоль                                                          ",
         "|                          |      + 35 lines                                                                            ",

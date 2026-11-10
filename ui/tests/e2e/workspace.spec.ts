@@ -230,6 +230,31 @@ async function watchReadAborts(page: Page, resources = ["summary", "processed", 
   return aborted;
 }
 
+test("voice grouping stays active after all audio was read and retains its measured time", async ({ page }) => {
+  await workspace(page);
+  let ended = false;
+  const start = {id:"group-start",run:"r1",operation:"group",parent:"worker",stage:"transcribe",kind:"operation_start",at:"2026-10-31T07:00:20Z",label:"Группировка голосов · дорожка 1"};
+  await page.route("**/progress", route => route.fulfill({json:{
+    running:true,stages:[{stage:"transcribe",state:"running",started_at:"2026-10-31T07:00:00Z",done:18240,total:18240}],
+    execution:{run:"r1",operation:"worker",state:"running",phase:"transcribe",current:"transcribe",since:"2026-10-31T07:00:00Z",next:["summary"],message:"Этап выполняется"}
+  }}));
+  await page.route("**/journal**", route => route.fulfill({json:{...journalFixture,
+    events:ended ? [start,{...start,id:"group-end",kind:"operation_end",at:"2026-10-31T07:00:23Z",elapsed_sec:3.5}] : [start],
+    next_cursor:ended ? "group-ended" : "group-running",previous_cursor:"",has_more:false,reset:true
+  }}));
+  await page.getByRole("button",{name:"Ход",exact:true}).click();
+  const row=page.locator(".journal-row").filter({hasText:"Группировка голосов"});
+  await expect(row.locator(".journal-state").first()).toHaveText("идёт");
+  await expect(row).toContainText("0:05");
+  await expect(page.locator(".step.running")).toHaveCount(1);
+  await page.clock.runFor(2100);
+  await expect(row).toContainText("0:07");
+  ended=true;
+  await page.clock.runFor(3100);
+  await expect(row.locator(".journal-state").first()).toHaveText("операция завершилась");
+  await expect(row).toContainText("0:03");
+});
+
 test("journal folds exactly 35 lines and command arguments have separate styles", async ({ page }) => {
   await workspace(page);
   await page.getByRole("button", { name: "Ход", exact: true }).click();

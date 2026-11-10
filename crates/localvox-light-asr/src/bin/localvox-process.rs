@@ -623,20 +623,17 @@ fn main() -> Result<()> {
             true
         } else {
             mark(session, Stage::Transcribe, StageState::Running, None);
-            let cooked = match localvox_light_core::progress::activity(
-                session,
-                Stage::Transcribe,
-                "Распознавание и разметка говорящих",
-                || {
-                    #[cfg(feature = "asr-fixtures")]
-                    if let Some(spec) = &cli.fixture_asr {
-                        return localvox_light_core::cook::cook_session_asr_fixture(
-                            session, &params, spec,
-                        );
-                    }
-                    cook_session_asr(session, &params)
-                },
-            ) {
+            // Cook owns the concrete ASR/grouping operations and their heartbeats.
+            // An enclosing activity would overwrite their labels every five seconds.
+            let cooked = match (|| {
+                #[cfg(feature = "asr-fixtures")]
+                if let Some(spec) = &cli.fixture_asr {
+                    return localvox_light_core::cook::cook_session_asr_fixture(
+                        session, &params, spec,
+                    );
+                }
+                cook_session_asr(session, &params)
+            })() {
                 Ok(CookOutcome::Done {
                     version_id,
                     file,

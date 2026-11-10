@@ -366,3 +366,10 @@ attempt/revival и не дописывают recovery progress до сохран
 [BL-002: отмена и владение](../changes/archive/2026-11-01-serialize-session-mutations/evidence/implementation.md).
 Остановка и отмена отделены от Failed/Done; finished clocks не растут, готовый текст
 сохраняется. Это не аппаратная приёмка и не закрытие остальных RV/BL.
+
+## Длинная запись и группировка голосов · 2026-11-10
+
+| ID | Delta / код | Свидетельство | Граница |
+|---|---|---|---|
+| SPK-001 / SPK-004 | [speaker delta](../changes/fix-long-recording-diarization/specs/speakers/spec.md), [cluster](../../crates/localvox-light-core/src/diarize/cluster.rs), [cook](../../crates/localvox-light-core/src/cook.rs) | [test-run и release замер](../changes/fix-long-recording-diarization/evidence/implementation.md): 480 сравнений с эталоном, граничные/ошибочные входы, 2048/8000 векторов, native 180 s PCM | Новая delta не синхронизирована; 304-минутная запись новым worker и аппаратная приёмка not-run |
+| PIPE-011 | [pipeline delta](../changes/fix-long-recording-diarization/specs/processing-pipeline/spec.md), [journal](../../crates/localvox-light-core/src/journal.rs), [UI](../../ui/src/Journal.tsx), [TUI](../../crates/localvox-light-terminal/src/render.rs) | [test-run](../changes/fix-long-recording-diarization/evidence/implementation.md): отдельные grouping/error/elapsed/parent, UI/TUI и общий HTTP, полный UI e2e | Текущий старый процесс не обновлён; полная пользовательская повторная обработка not-run |

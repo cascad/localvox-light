@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api, type Progress } from "./api";
-import { groupJournal, journalState, mergeJournal, type JournalEntry } from "./journal-model";
+import { groupJournal, journalActive, journalState, mergeJournal, type JournalEntry } from "./journal-model";
 
 function readingAnchor(box: HTMLDivElement | null) {
   if (!box) return null;
@@ -183,8 +183,7 @@ export function Journal({ session, execution, uncertain, now = Date.now() }: { s
       {older && <button className="tool journal-older" disabled={loadingOlder} onClick={() => void loadOlder()}>{loadingOlder ? "Загрузка предыдущих…" : "↑ Предыдущие события"}</button>}
       {!groups.length && !error && <p className="hint">Подробные события ещё не поступили. Состояние этапов показано выше.</p>}
       {visible.map((group, index) => {
-        const active = uncertain ? false : execution ? execution.state === "running"
-          && !!execution.operation && group.id === `${execution.run}/${execution.operation}` : false;
+        const active = !uncertain && journalActive(group, execution);
         const state = journalState(group, active);
         const elapsed = group.elapsed ?? (group.startedAt && (group.endedAt || active === true)
           ? ((group.endedAt ? new Date(group.endedAt).getTime() : now) - new Date(group.startedAt).getTime()) / 1000 : NaN);

@@ -1,8 +1,7 @@
 //! Clustering of voice embeddings: «how many people are here and who is who».
 //!
-//! This is the only part of diarization that depends neither on a model nor on a library
-//! — pure arithmetic over vectors. That is why it was written and covered by tests first:
-//! it can be proven without a single model on disk.
+//! Model-independent cosine distances and average-linkage clustering. Correctness and
+//! scaling can be checked without a weights file or an audio device.
 //!
 //! **Agglomerative clustering by cosine, average-linkage.** We start with every stretch
 //! of speech being its own person, and merge the two nearest clusters over and over until
@@ -12,7 +11,14 @@
 //!
 //! Why average-linkage and not single: single-linkage glues clusters together in a chain
 //! (the «chaining effect») — one borderline stretch joins two different people into one.
-//! Average is robust to that and is cheap on a few dozen stretches.
+//! Average is robust to that. A condensed distance matrix and nearest-neighbor chain
+//! keep the work quadratic even when a long recording contains thousands of stretches.
+
+use anyhow::{ensure, Context, Result};
+
+/// Bound the additional quadratic workspace, independently of recording duration.
+/// A larger input is an ordinary diarization error; the caller can still save ASR.
+const MAX_DISTANCE_BYTES: usize = 256 * 1024 * 1024;
 
 /// Cosine distance: 0 — the same, 2 — the opposite.
 /// The embedding vectors are not normalised, so we normalise here.
@@ -34,42 +40,137 @@ fn cosine_distance(a: &[f32], b: &[f32]) -> f32 {
 ///
 /// `max_speakers` — the cap: a call never has forty people, but forty false clusters from
 /// noise — that does happen. Zero or `None` — no cap.
-pub fn agglomerative(embeddings: &[Vec<f32>], threshold: f32, max_speakers: Option<usize>) -> Vec<usize> {
+pub fn agglomerative(
+    embeddings: &[Vec<f32>],
+    threshold: f32,
+    max_speakers: Option<usize>,
+) -> Result<Vec<usize>> {
     let n = embeddings.len();
+    let pairs = distance_pairs(n, MAX_DISTANCE_BYTES)?;
+    ensure!(
+        threshold.is_finite(),
+        "non-finite speaker distance threshold"
+    );
+    let dimensions = embeddings.first().map_or(0, Vec::len);
+    let norms: Vec<f64> = embeddings
+        .iter()
+        .map(|v| {
+            ensure!(
+                !v.is_empty() && v.len() == dimensions && v.iter().all(|x| x.is_finite()),
+                "invalid voice embedding: dimensions or non-finite values"
+            );
+            Ok(v.iter().map(|&x| f64::from(x).powi(2)).sum::<f64>().sqrt())
+        })
+        .collect::<Result<_>>()?;
     if n == 0 {
-        return Vec::new();
+        return Ok(Vec::new());
     }
     if n == 1 {
-        return vec![0];
+        return Ok(vec![0]);
     }
 
-    // Every stretch is its own cluster.
-    let mut members: Vec<Vec<usize>> = (0..n).map(|i| vec![i]).collect();
+    let mut distances = Vec::new();
+    distances
+        .try_reserve_exact(pairs)
+        .context("allocating speaker distance matrix")?;
+    for i in 0..n - 1 {
+        for j in i + 1..n {
+            let distance = if norms[i] == 0.0 || norms[j] == 0.0 {
+                1.0
+            } else {
+                let dot: f64 = embeddings[i]
+                    .iter()
+                    .zip(&embeddings[j])
+                    .map(|(&a, &b)| f64::from(a) * f64::from(b))
+                    .sum();
+                1.0 - dot / (norms[i] * norms[j])
+            };
+            distances.push(distance);
+        }
+    }
+    // Average linkage admits an exact O(n²) nearest-neighbor-chain algorithm.
+    // Kodama sorts/relabels its dendrogram before returning it; cuts must be applied
+    // to that ordered hierarchy, never to the out-of-order reciprocal merges.
+    let tree = kodama::linkage(&mut distances, n, kodama::Method::Average);
+    let mut parents: Vec<usize> = (0..n).collect();
+    let mut representatives = vec![0; 2 * n - 1];
+    for (i, item) in representatives.iter_mut().take(n).enumerate() {
+        *item = i;
+    }
+    let mut groups = n;
+    for (index, step) in tree.steps().iter().enumerate() {
+        let over_cap = max_speakers.is_some_and(|m| m > 0 && groups > m);
+        if step.dissimilarity > f64::from(threshold) && !over_cap {
+            break;
+        }
+        let a = root(&mut parents, representatives[step.cluster1]);
+        let b = root(&mut parents, representatives[step.cluster2]);
+        // Minimum input index determines the public local label, independently of
+        // the library's internal cluster numbering and merge scheduling.
+        parents[a.max(b)] = a.min(b);
+        representatives[n + index] = a.min(b);
+        groups -= 1;
+    }
+    let mut labels = Vec::with_capacity(n);
+    let mut local = vec![usize::MAX; n];
+    let mut next = 0;
+    for i in 0..n {
+        let r = root(&mut parents, i);
+        if local[r] == usize::MAX {
+            local[r] = next;
+            next += 1;
+        }
+        labels.push(local[r]);
+    }
+    Ok(labels)
+}
 
+fn distance_pairs(n: usize, budget: usize) -> Result<usize> {
+    let pairs = n
+        .checked_mul(n.saturating_sub(1))
+        .map(|v| v / 2)
+        .context("speaker distance matrix size overflow")?;
+    let bytes = pairs
+        .checked_mul(std::mem::size_of::<f64>())
+        .context("speaker distance matrix byte size overflow")?;
+    ensure!(bytes <= budget,
+        "speaker distance matrix needs {bytes} bytes for {n} fragments; budget is {budget} bytes; transcript remains available without speaker labels");
+    Ok(pairs)
+}
+
+fn root(parents: &mut [usize], mut item: usize) -> usize {
+    while parents[item] != item {
+        parents[item] = parents[parents[item]];
+        item = parents[item];
+    }
+    item
+}
+
+#[cfg(test)]
+fn reference(embeddings: &[Vec<f32>], threshold: f32, max_speakers: Option<usize>) -> Vec<usize> {
+    let n = embeddings.len();
+    let mut members: Vec<Vec<usize>> = (0..n).map(|i| vec![i]).collect();
     loop {
-        // The nearest pair of clusters (average-linkage).
         let mut best: Option<(usize, usize, f32)> = None;
         for i in 0..members.len() {
-            for j in (i + 1)..members.len() {
-                let d = average_linkage(embeddings, &members[i], &members[j]);
-                if best.is_none_or(|(_, _, bd)| d < bd) {
-                    best = Some((i, j, d));
+            for j in i + 1..members.len() {
+                let mut sum = 0.0;
+                for &a in &members[i] {
+                    for &b in &members[j] {
+                        sum += cosine_distance(&embeddings[a], &embeddings[b]);
+                    }
+                }
+                let distance = sum / (members[i].len() * members[j].len()) as f32;
+                if best.is_none_or(|(_, _, previous)| distance < previous) {
+                    best = Some((i, j, distance));
                 }
             }
         }
         let Some((i, j, d)) = best else { break };
-
-        // We stop when the nearest ones are already farther apart than the threshold — OR
-        // when there are already more clusters than there can be people in the room.
         let over_cap = max_speakers.is_some_and(|m| m > 0 && members.len() > m);
         if d > threshold && !over_cap {
             break;
         }
-        if members.len() == 1 {
-            break;
-        }
-
-        // Merge j into i (j is always to the right — remove it first).
         let moved = members.remove(j);
         members[i].extend(moved);
     }
@@ -81,17 +182,6 @@ pub fn agglomerative(embeddings: &[Vec<f32>], threshold: f32, max_speakers: Opti
         }
     }
     labels
-}
-
-/// The mean distance between all pairs of two clusters.
-fn average_linkage(emb: &[Vec<f32>], a: &[usize], b: &[usize]) -> f32 {
-    let mut sum = 0.0;
-    for &i in a {
-        for &j in b {
-            sum += cosine_distance(&emb[i], &emb[j]);
-        }
-    }
-    sum / (a.len() * b.len()) as f32
 }
 
 /// A cluster centroid — the averaged and NORMALISED vector.
@@ -127,6 +217,120 @@ pub fn similarity(a: &[f32], b: &[f32]) -> f32 {
 mod tests {
     use super::*;
 
+    fn vectors(n: usize, dimensions: usize, seed: u64) -> Vec<Vec<f32>> {
+        let mut state = seed;
+        (0..n)
+            .map(|i| {
+                (0..dimensions)
+                    .map(|d| {
+                        state ^= state << 13;
+                        state ^= state >> 7;
+                        state ^= state << 17;
+                        let jitter = (state >> 40) as f32 / (1u32 << 24) as f32 - 0.5;
+                        if d == i % 6 {
+                            1.0 + jitter * 0.15
+                        } else {
+                            jitter * 0.15
+                        }
+                    })
+                    .collect()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn average_linkage_matches_original_partitions() {
+        for seed in 1..=24 {
+            let input = vectors(36, 12, seed);
+            for threshold in [0.001, 0.4, 0.95, 1.1] {
+                for cap in [None, Some(0), Some(1), Some(3), Some(8)] {
+                    assert_eq!(
+                        agglomerative(&input, threshold, cap).unwrap(),
+                        reference(&input, threshold, cap),
+                        "seed={seed} threshold={threshold} cap={cap:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn zero_vectors_ties_and_threshold_boundary_are_deterministic() {
+        let input = vec![vec![0.0; 3]; 8];
+        assert_eq!(
+            agglomerative(&input, 0.99, None).unwrap(),
+            (0..8).collect::<Vec<_>>()
+        );
+        assert_eq!(agglomerative(&input, 1.0, None).unwrap(), vec![0; 8]);
+        let capped = agglomerative(&input, 0.5, Some(3)).unwrap();
+        assert_eq!(capped.iter().max(), Some(&2));
+        for _ in 0..10 {
+            assert_eq!(agglomerative(&input, 0.5, Some(3)).unwrap(), capped);
+        }
+        assert_eq!(
+            agglomerative(&[vec![1.0, 0.0], vec![0.0, 1.0]], 1.0, None).unwrap(),
+            vec![0, 0]
+        );
+    }
+
+    #[test]
+    fn invalid_inputs_and_oversize_matrix_return_errors() {
+        for input in [
+            vec![vec![]],
+            vec![vec![1.0], vec![1.0, 2.0]],
+            vec![vec![f32::NAN]],
+            vec![vec![f32::INFINITY]],
+        ] {
+            assert!(agglomerative(&input, 0.4, Some(8)).is_err());
+        }
+        assert!(agglomerative(&[vec![1.0]], f32::NAN, None).is_err());
+        assert!(distance_pairs(8192, MAX_DISTANCE_BYTES).is_ok());
+        assert!(distance_pairs(8193, MAX_DISTANCE_BYTES).is_err());
+        assert!(distance_pairs(usize::MAX, MAX_DISTANCE_BYTES).is_err());
+        // Budget check precedes inspecting/allocating any matrix from the input.
+        assert!(agglomerative(&vec![vec![]; 8193], 0.4, None)
+            .unwrap_err()
+            .to_string()
+            .contains("budget"));
+        assert_eq!(
+            agglomerative(&[vec![f32::MAX], vec![f32::MAX]], 0.4, None).unwrap(),
+            vec![0, 0]
+        );
+    }
+
+    #[test]
+    fn thousands_of_fragments_keep_six_distinct_voices() {
+        let input = vectors(2048, 32, 42);
+        let labels = agglomerative(&input, 0.4, Some(8)).unwrap();
+        for (i, &label) in labels.iter().enumerate() {
+            assert_eq!(label, i % 6);
+        }
+    }
+
+    /// Explicit release measurement, excluded from normal CI and never touches an archive/model.
+    #[test]
+    #[ignore = "release clustering cost measurement"]
+    fn profile_long_recording_cluster() {
+        for n in [200, 400, 2000, 4000, 8000] {
+            let input = vectors(n, 256, 42);
+            let start = std::time::Instant::now();
+            let labels = agglomerative(&input, 0.4, Some(8)).unwrap();
+            let seconds = start.elapsed().as_secs_f64();
+            assert!(labels.iter().enumerate().all(|(i, &label)| label == i % 6));
+            let reference_seconds = if n <= 400 {
+                let start = std::time::Instant::now();
+                assert_eq!(labels, reference(&input, 0.4, Some(8)));
+                Some(start.elapsed().as_secs_f64())
+            } else {
+                None
+            };
+            println!(
+                "{}",
+                serde_json::json!({"vectors":n,"dimensions":256,"matrix_bytes":distance_pairs(n,MAX_DISTANCE_BYTES).unwrap()*8,"seconds":seconds,"reference_seconds":reference_seconds,"voices":6})
+            );
+        }
+    }
+
     /// Three stretches of one voice and two of another — they MUST split into TWO people.
     /// We do not know the number of speakers in advance: it is found by the threshold, not
     /// by a hint.
@@ -146,12 +350,15 @@ mod tests {
             jitter(&alice, 0.02),
             jitter(&bob, -0.05),
         ];
-        let labels = agglomerative(&emb, 0.5, Some(6));
+        let labels = agglomerative(&emb, 0.5, Some(6)).unwrap();
 
         assert_eq!(labels[0], labels[2], "two of Alice's phrases came apart");
         assert_eq!(labels[0], labels[3]);
         assert_eq!(labels[1], labels[4], "two of Bob's phrases came apart");
-        assert_ne!(labels[0], labels[1], "Alice and Bob stuck together into one");
+        assert_ne!(
+            labels[0], labels[1],
+            "Alice and Bob stuck together into one"
+        );
 
         let n: std::collections::BTreeSet<_> = labels.iter().collect();
         assert_eq!(n.len(), 2, "{} people found instead of two", n.len());
@@ -170,9 +377,14 @@ mod tests {
                 v
             })
             .collect();
-        let labels = agglomerative(&emb, 0.5, Some(6));
+        let labels = agglomerative(&emb, 0.5, Some(6)).unwrap();
         let n: std::collections::BTreeSet<_> = labels.iter().collect();
-        assert_eq!(n.len(), 1, "the monologue was split into {} people", n.len());
+        assert_eq!(
+            n.len(),
+            1,
+            "the monologue was split into {} people",
+            n.len()
+        );
     }
 
     /// The cap on participants: a call never has forty people, but forty false clusters
@@ -187,7 +399,7 @@ mod tests {
                 v
             })
             .collect();
-        let labels = agglomerative(&emb, 0.5, Some(3));
+        let labels = agglomerative(&emb, 0.5, Some(3)).unwrap();
         let n: std::collections::BTreeSet<_> = labels.iter().collect();
         assert!(n.len() <= 3, "the cap did not work: {} clusters", n.len());
     }
@@ -219,7 +431,10 @@ mod tests {
 
     #[test]
     fn an_empty_input_is_not_a_crash() {
-        assert!(agglomerative(&[], 0.5, None).is_empty());
-        assert_eq!(agglomerative(&[vec![1.0, 0.0]], 0.5, None), vec![0]);
+        assert!(agglomerative(&[], 0.5, None).unwrap().is_empty());
+        assert_eq!(
+            agglomerative(&[vec![1.0, 0.0]], 0.5, None).unwrap(),
+            vec![0]
+        );
     }
 }

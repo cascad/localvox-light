@@ -183,7 +183,32 @@ pub fn step<T, E: std::fmt::Display>(
 /// The heartbeat means the worker is alive and waiting, not that the model made progress.
 /// Joining before return ensures no late Running can overwrite the terminal event.
 pub fn activity<T>(session: &Path, stage: Stage, note: &str, work: impl FnOnce() -> T) -> T {
-    let _operation =
+    activity_checked(session, stage, note, work, |_, _| {})
+}
+
+/// A failed optional operation remains visible even when the caller retains its other output.
+pub fn activity_result<T, E: std::fmt::Display>(
+    session: &Path,
+    stage: Stage,
+    note: &str,
+    work: impl FnOnce() -> Result<T, E>,
+) -> Result<T, E> {
+    activity_checked(session, stage, note, work, |operation, result| {
+        if let Err(error) = result {
+            operation.failed();
+            operation.log(&error.to_string());
+        }
+    })
+}
+
+fn activity_checked<T>(
+    session: &Path,
+    stage: Stage,
+    note: &str,
+    work: impl FnOnce() -> T,
+    finished: impl FnOnce(&mut crate::journal::Operation<'_>, &T),
+) -> T {
+    let mut operation =
         crate::journal::Operation::start(session, &format!("{stage:?}").to_lowercase(), note, None);
     use std::sync::mpsc;
     use std::time::{Duration, Instant};
@@ -216,6 +241,7 @@ pub fn activity<T>(session: &Path, stage: Stage, note: &str, work: impl FnOnce()
         });
         let _stop = Stop(tx);
         let result = work();
+        finished(&mut operation, &result);
         tracing::info!(
             ?stage,
             operation = note,
@@ -355,6 +381,50 @@ pub fn fold(events: &[StageEvent]) -> Vec<StageStatus> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn grouping_error_has_its_own_duration_and_worker_parent_without_finishing_asr() {
+        let dir = tempfile::tempdir().unwrap();
+        new_run(dir.path());
+        let worker = crate::journal::Operation::start(dir.path(), "transcribe", "worker", None);
+        worker.bind_execution("attempt").unwrap();
+        let (_, parent) = crate::journal::execution_identity(dir.path(), Some("attempt"));
+        progress(dir.path(), Stage::Transcribe, 18240, 18240);
+        let result: anyhow::Result<()> = activity_result(
+            dir.path(),
+            Stage::Transcribe,
+            "Группировка голосов",
+            || anyhow::bail!("invalid voice embedding"),
+        );
+        assert!(result.is_err());
+        let page = crate::journal::read(
+            dir.path(),
+            &crate::journal::Query {
+                limit: 200,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let end = page
+            .events
+            .iter()
+            .find(|e| e.kind == "operation_end" && e.label == "Группировка голосов")
+            .unwrap();
+        assert_eq!(end.status.as_deref(), Some("failed"));
+        assert_eq!(end.parent, parent);
+        assert!(end.elapsed_sec.is_some_and(|v| v >= 0.0));
+        assert!(page
+            .events
+            .iter()
+            .any(|e| e.text.as_deref() == Some("invalid voice embedding")
+                && e.status.as_deref() == Some("failed")));
+        assert_eq!(fold(&read(dir.path()))[0].state, StageState::Running);
+        assert_eq!(
+            crate::journal::execution_identity(dir.path(), Some("attempt")).1,
+            parent
+        );
+        drop(worker);
+    }
 
     #[test]
     fn journal_operations_do_not_erase_stage_events_or_hide_an_interruption() {

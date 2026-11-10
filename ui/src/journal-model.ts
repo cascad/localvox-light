@@ -12,7 +12,7 @@ export interface JournalPage {
 }
 export interface JournalGroup {
   startedAt?: string; endedAt?: string; elapsed?: number | null;
-  id: string; run: string; stage: string; label: string;
+  id: string; run: string; stage: string; label: string; parent?: string | null;
   command?: JournalEntry["command"]; ended: boolean; state?: string | null;
   details: JournalEntry[]; lastAt: string;
 }
@@ -51,11 +51,12 @@ export function groupJournal(events: JournalEntry[]): JournalGroup[] {
     const id = `${entry.run}/${entry.operation ?? `stage:${entry.stage}`}`;
     let group = groups.get(id);
     if (!group) {
-      group = { id, run: entry.run, stage: entry.stage, label: entry.label || entry.stage,
+      group = { id, run: entry.run, stage: entry.stage, label: entry.label || entry.stage, parent: entry.parent,
         ended: false, details: [], lastAt: entry.at };
       groups.set(id, group);
     }
     if (entry.command) group.command = entry.command;
+    if (entry.parent) group.parent = entry.parent;
     if (entry.kind === "operation_start") { group.label = entry.label; group.state = "running"; group.startedAt = entry.at; }
     if (entry.kind === "operation_end") { group.ended = true; group.endedAt = entry.at; group.elapsed = entry.elapsed_sec; }
     if (entry.status) group.state = entry.status;
@@ -63,6 +64,15 @@ export function groupJournal(events: JournalEntry[]): JournalGroup[] {
     group.lastAt = entry.at;
   }
   return [...groups.values()];
+}
+
+export function journalActive(group: JournalGroup, execution?: {
+  state: string; run?: string | null; operation?: string | null; current?: string | null;
+} | null) {
+  return execution?.state === "running" && !!execution.run && !!execution.operation
+    && group.run === execution.run
+    && (group.id === `${execution.run}/${execution.operation}`
+      || group.parent === execution.operation && group.stage === execution.current);
 }
 
 export function journalState(group: JournalGroup, active?: boolean) {

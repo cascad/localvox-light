@@ -23,6 +23,7 @@ pub struct Journal {
 }
 #[derive(Clone, Default)]
 pub struct Group {
+    pub parent: Option<String>,
     pub started_at: Option<String>,
     pub ended_at: Option<String>,
     pub elapsed_sec: Option<f64>,
@@ -159,6 +160,7 @@ impl Journal {
             let index = *indices.entry(id.clone()).or_insert_with(|| {
                 groups.push(Group {
                     id,
+                    parent: e.parent.clone(),
                     run: e.run.clone(),
                     stage: safe_text(&e.stage),
                     label: safe_text(&e.label),
@@ -167,6 +169,9 @@ impl Journal {
                 groups.len() - 1
             });
             let g = &mut groups[index];
+            if e.parent.is_some() {
+                g.parent = e.parent.clone();
+            }
             if let Some(command) = &e.command {
                 g.command = Some(command.clone());
             }

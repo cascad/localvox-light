@@ -453,67 +453,84 @@ fn cook_session_impl(
             crate::diarize::Runner::new(&m.seg, &m.emb, crate::diarize::Options::default())
         });
 
-        let mut last_report = processed_sec;
-        for path in &chunks {
-            let stem = path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .context("chunk stem")?;
-            crate::chunks::codec::with_read(
-                path.parent().context("audio directory")?,
-                stem,
-                |selected| {
-                    crate::chunks::codec::stream(
-                        selected,
-                        Path::new(&crate::chunks::resolve_ffmpeg_for_decode()),
-                        || false,
-                        |bytes| {
-                            let samples: Vec<i16> = bytes
-                                .chunks_exact(2)
-                                .map(|b| i16::from_le_bytes([b[0], b[1]]))
-                                .collect();
-                            audio_sec += samples.len() as f64 / SAMPLE_RATE as f64;
-                            if let Some(d) = &mut diar {
-                                let pcm: Vec<f32> =
-                                    samples.iter().map(|s| f32::from(*s) / 32768.0).collect();
-                                d.push(&pcm)?;
-                            }
-                            windower.feed_all(&samples, &mut classify, &mut emit)?;
-                            processed_sec += samples.len() as f64 / SAMPLE_RATE as f64;
-                            if processed_sec - last_report
-                                >= slice_samples as f64 / SAMPLE_RATE as f64
-                            {
-                                crate::progress::progress(
-                                    session_dir,
-                                    crate::progress::Stage::Transcribe,
-                                    processed_sec.round() as u32,
-                                    total_sec,
-                                );
-                                last_report = processed_sec;
-                            }
-                            Ok(())
+        crate::progress::activity_result(
+            session_dir,
+            crate::progress::Stage::Transcribe,
+            &format!("Распознавание и выделение голосов · дорожка {source_id}"),
+            || -> Result<()> {
+                let mut last_report = processed_sec;
+                for path in &chunks {
+                    let stem = path
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .context("chunk stem")?;
+                    crate::chunks::codec::with_read(
+                        path.parent().context("audio directory")?,
+                        stem,
+                        |selected| {
+                            crate::chunks::codec::stream(
+                                selected,
+                                Path::new(&crate::chunks::resolve_ffmpeg_for_decode()),
+                                || false,
+                                |bytes| {
+                                    let samples: Vec<i16> = bytes
+                                        .chunks_exact(2)
+                                        .map(|b| i16::from_le_bytes([b[0], b[1]]))
+                                        .collect();
+                                    audio_sec += samples.len() as f64 / SAMPLE_RATE as f64;
+                                    if let Some(d) = &mut diar {
+                                        let pcm: Vec<f32> = samples
+                                            .iter()
+                                            .map(|s| f32::from(*s) / 32768.0)
+                                            .collect();
+                                        d.push(&pcm)?;
+                                    }
+                                    windower.feed_all(&samples, &mut classify, &mut emit)?;
+                                    processed_sec += samples.len() as f64 / SAMPLE_RATE as f64;
+                                    if processed_sec - last_report
+                                        >= slice_samples as f64 / SAMPLE_RATE as f64
+                                    {
+                                        crate::progress::progress(
+                                            session_dir,
+                                            crate::progress::Stage::Transcribe,
+                                            processed_sec.round() as u32,
+                                            total_sec,
+                                        );
+                                        last_report = processed_sec;
+                                    }
+                                    Ok(())
+                                },
+                            )
                         },
-                    )
-                },
-            )?;
-            crate::progress::progress(
-                session_dir,
-                crate::progress::Stage::Transcribe,
-                processed_sec.round() as u32,
-                total_sec,
-            );
-        }
-        windower.finish_all(&mut emit)?;
-        if let Some(capture) = &capture {
-            ensure!(
-                windower.input_end() == capture.sources[&source_id].end()
-                    && windower.closed_end() == capture.sources[&source_id].end(),
-                "final ASR did not cover the sealed source EOF"
-            );
-        }
+                    )?;
+                    crate::progress::progress(
+                        session_dir,
+                        crate::progress::Stage::Transcribe,
+                        processed_sec.round() as u32,
+                        total_sec,
+                    );
+                }
+                windower.finish_all(&mut emit)?;
+                if let Some(capture) = &capture {
+                    ensure!(
+                        windower.input_end() == capture.sources[&source_id].end()
+                            && windower.closed_end() == capture.sources[&source_id].end(),
+                        "final ASR did not cover the sealed source EOF"
+                    );
+                }
+
+                Ok(())
+            },
+        )?;
 
         if let Some(d) = diar {
-            match d.finish() {
+            let note = format!("Группировка голосов · дорожка {source_id}");
+            match crate::progress::activity_result(
+                session_dir,
+                crate::progress::Stage::Transcribe,
+                &note,
+                || d.finish(),
+            ) {
                 Ok(diarization) => tracks.push(crate::diarize::Track {
                     source_id,
                     diarization,
@@ -661,7 +678,18 @@ fn speakers_for_lines(
     if tracks.is_empty() {
         return vec![None; lines.len()];
     }
-    let merged = merge(tracks, Options::default());
+    let merged = match crate::progress::activity_result(
+        session_dir,
+        crate::progress::Stage::Transcribe,
+        "Объединение голосов дорожек",
+        || merge(tracks, Options::default()),
+    ) {
+        Ok(merged) => merged,
+        Err(e) => {
+            tracing::error!("merging track speakers failed ({e:#}); preserving ASR text");
+            return vec![None; lines.len()];
+        }
+    };
     if merged.participants.is_empty() {
         return vec![None; lines.len()];
     }
@@ -776,6 +804,40 @@ fn find_model_file(dir: &Path) -> Result<PathBuf> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn invalid_speaker_vectors_leave_recognized_lines_unattributed() {
+        use super::*;
+        let dir = tempfile::tempdir().unwrap();
+        let lines = vec![(
+            1,
+            0.0,
+            4.0,
+            "Исходная расшифровка остаётся доступна".to_string(),
+        )];
+        let tracks = vec![crate::diarize::Track {
+            source_id: 1,
+            diarization: crate::diarize::Diarization {
+                speakers: vec![crate::diarize::Speaker {
+                    id: 0,
+                    embedding: vec![f32::NAN],
+                    speech_sec: 4.0,
+                }],
+                ..Default::default()
+            },
+        }];
+        assert_eq!(
+            speakers_for_lines(dir.path(), tracks, &lines, "ru"),
+            vec![None]
+        );
+        assert_eq!(lines[0].3, "Исходная расшифровка остаётся доступна");
+        let events = crate::journal::read(dir.path(), &Default::default())
+            .unwrap()
+            .events;
+        assert!(events
+            .iter()
+            .any(|e| e.kind == "operation_end" && e.status.as_deref() == Some("failed")));
+        assert!(!dir.path().join("speakers.json").exists());
+    }
     /// THE SPLIT WORD, measured on the owner's downloaded video: 72 of its 76 windows were
     /// exactly 15.0 seconds because a monologue never offers the half-second of silence the soft
     /// cut wants, so the ceiling cut straight through «Топ-три | ри качества».

@@ -252,6 +252,7 @@ pub struct Operation<'a> {
     id: String,
     run: String,
     stage: String,
+    parent: String,
     label: String,
     started: std::time::Instant,
     outcome: Option<&'static str>,
@@ -263,11 +264,15 @@ impl<'a> Operation<'a> {
         label: &str,
         command: Option<DisplayCommand>,
     ) -> Self {
+        let meta = metadata(session);
         let op = Self {
             session,
             id: uuid::Uuid::now_v7().to_string(),
-            run: metadata(session).run,
+            run: meta.run,
             stage: stage.into(),
+            parent: meta
+                .active_operation
+                .unwrap_or_else(|| format!("stage:{stage}")),
             label: label.into(),
             started: std::time::Instant::now(),
             outcome: None,
@@ -278,14 +283,14 @@ impl<'a> Operation<'a> {
     fn emit(&self, kind: &str, command: Option<DisplayCommand>, text: Option<String>) {
         let e = Entry {
             elapsed_sec: (kind == "operation_end").then(|| self.started.elapsed().as_secs_f64()),
-            status: if kind == "operation_end" {
+            status: if kind == "operation_end" || self.outcome == Some("failed") {
                 self.outcome.map(str::to_owned)
             } else {
                 None
             },
             run: self.run.clone(),
             operation: Some(self.id.clone()),
-            parent: Some(format!("stage:{}", self.stage)),
+            parent: Some(self.parent.clone()),
             stage: self.stage.clone(),
             kind: kind.into(),
             at: crate::versions::now_rfc3339(),
@@ -304,6 +309,9 @@ impl<'a> Operation<'a> {
     pub fn cancelled(&mut self) {
         self.outcome = Some("cancelled");
     }
+    pub fn failed(&mut self) {
+        self.outcome = Some("failed");
+    }
     /// Bind to the supervisor's durable phase attempt; a start record alone
     /// never proves that an old operation is still running.
     pub fn bind_execution(&self, execution: &str) -> io::Result<()> {
@@ -321,10 +329,10 @@ impl Drop for Operation<'_> {
             None,
             Some(format!(
                 "Выполнение {} за {:.3} с; результат проверяется отдельно",
-                if self.outcome == Some("cancelled") {
-                    "отменено"
-                } else {
-                    "завершено"
+                match self.outcome {
+                    Some("cancelled") => "отменено",
+                    Some("failed") => "завершилось ошибкой",
+                    _ => "завершено",
                 },
                 self.started.elapsed().as_secs_f64()
             )),

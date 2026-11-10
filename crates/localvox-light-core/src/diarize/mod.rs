@@ -328,7 +328,7 @@ impl<'a> Runner<'a> {
             return Ok(Diarization::default());
         }
         let clusters =
-            cluster::agglomerative(&self.embeddings, self.opts.distance, self.opts.max_speakers);
+            cluster::agglomerative(&self.embeddings, self.opts.distance, self.opts.max_speakers)?;
 
         let mut labels: Vec<Option<usize>> = vec![None; self.segments.len()];
         for (v, &seg) in self.of_segment.iter().enumerate() {
@@ -463,7 +463,7 @@ pub fn names(participants: &[Participant], lang: &str) -> Vec<String> {
 /// dominates. The rule can be wrong at an in-person meeting where the laptop listens to
 /// the whole room — and then the human renames the voice by hand ([`profiles`]). What
 /// MUST NOT happen is silently declaring everyone who got into the microphone to be «me».
-pub fn merge(tracks: Vec<Track>, opts: Options) -> Merged {
+pub fn merge(tracks: Vec<Track>, opts: Options) -> Result<Merged> {
     let mut centroids: Vec<Vec<f32>> = Vec::new();
     // Where each centroid came from: (track, local participant number).
     let mut origin: Vec<(usize, usize)> = Vec::new();
@@ -477,10 +477,10 @@ pub fn merge(tracks: Vec<Track>, opts: Options) -> Merged {
         }
     }
     if centroids.is_empty() {
-        return Merged::default();
+        return Ok(Merged::default());
     }
 
-    let global = cluster::agglomerative(&centroids, opts.distance, opts.max_speakers);
+    let global = cluster::agglomerative(&centroids, opts.distance, opts.max_speakers)?;
     let n = global.iter().copied().max().map_or(0, |m| m + 1);
 
     let mut of_local: std::collections::HashMap<(usize, usize), usize> = Default::default();
@@ -634,10 +634,10 @@ pub fn merge(tracks: Vec<Track>, opts: Options) -> Merged {
     }
     turns.sort_by(|a, b| a.1.start_sec.total_cmp(&b.1.start_sec));
 
-    Merged {
+    Ok(Merged {
         turns,
         participants,
-    }
+    })
 }
 
 #[cfg(test)]
@@ -801,7 +801,8 @@ mod tests {
                 track(1, vec![voice(1.0)]),        // speakers: the interlocutor
             ],
             Options::default(),
-        );
+        )
+        .unwrap();
         assert_eq!(m.participants.len(), 2, "the echo became a third person");
         let owner: Vec<_> = m.participants.iter().filter(|p| p.owner).collect();
         assert_eq!(owner.len(), 1, "there must be exactly one owner");
@@ -877,7 +878,8 @@ mod tests {
                 track(1, vec![voice(0, 1.0, 55.0)]),
             ],
             Options::default(),
-        );
+        )
+        .unwrap();
         let owner: Vec<_> = m.participants.iter().filter(|p| p.owner).collect();
         assert_eq!(owner.len(), 1, "there must be exactly one owner");
         assert!(
@@ -914,7 +916,8 @@ mod tests {
         let m = merge(
             vec![track(0, vec![s(0, 1.0)]), track(1, vec![s(0, 1.0)])],
             Options::default(),
-        );
+        )
+        .unwrap();
         assert!(
             m.participants.iter().all(|p| !p.owner),
             "the owner became someone who never spoke into the microphone at all"
@@ -956,7 +959,8 @@ mod tests {
                 },
             }],
             Options::default(),
-        );
+        )
+        .unwrap();
         assert_eq!(m.participants.len(), 1, "the scrap became a participant");
         assert!(
             m.participants[0].owner,
@@ -1000,7 +1004,8 @@ mod tests {
                 },
             }],
             Options::default(),
-        );
+        )
+        .unwrap();
         assert_eq!(m.participants.len(), 1, "the scrap became a participant");
         assert!(
             timeline::who_said(

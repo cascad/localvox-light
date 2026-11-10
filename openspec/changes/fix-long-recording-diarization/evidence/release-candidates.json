@@ -1,0 +1,14 @@
+{
+  "date": "2026-11-10",
+  "candidate_dir": "target/review/diarization",
+  "sha256": {
+    "localvox-light.exe": "50c210014a7b672a7a42785838ff58d5d1174d6772d280ced85f4f87c70d211f",
+    "localvox-process.exe": "8dad832a8665012814f10d8ecf5446f38556e6a8f99ea4adff7d62e7104986aa",
+    "localvox-tui.exe": "17a09fc3986e9a59bb3245ff2f8b9699330aeb3267f9fe98b13822223ed114c5"
+  },
+  "install_status": {
+    "worker": "blocked by running executable",
+    "daemon": "blocked by running executable",
+    "tui": "cargo build release succeeded"
+  }
+}
