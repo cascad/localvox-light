@@ -1,0 +1,45 @@
+{
+  "date": "2026-11-10",
+  "input": "owner-provided archived 304-minute recording; content and identifier omitted",
+  "audio_seconds": 18240.4935,
+  "transcribe_started_at": "2026-11-10T22:13:42.016688100+03:00",
+  "transcribe_ended_at": "2026-11-10T22:21:43.358177300+03:00",
+  "transcribe_wall_seconds": 481.341489,
+  "transcribe_state": "done",
+  "transcript_lines": 1582,
+  "nonempty_and_finite_ordered_bounds": true,
+  "labeled_lines": 1581,
+  "speaker_labels_count": 1,
+  "readable_from_transcript": true,
+  "operations": [
+    {
+      "label": "Распознавание и выделение голосов · дорожка 0",
+      "status": null,
+      "elapsed_sec": 477.928171
+    },
+    {
+      "label": "Группировка голосов · дорожка 0",
+      "status": null,
+      "elapsed_sec": 1.6781609
+    },
+    {
+      "label": "Объединение голосов дорожек",
+      "status": null,
+      "elapsed_sec": 0.0027499
+    },
+    {
+      "label": "localvox-process",
+      "status": null,
+      "elapsed_sec": 481.364628
+    }
+  ],
+  "after_transcribe_current": "summary",
+  "postprocessing": {
+    "summary": true,
+    "cleanup": false,
+    "refine": false
+  },
+  "roster_members_count": 3,
+  "readable_matches_transcript_text": true,
+  "transcript_artifact_ready": true
+}
