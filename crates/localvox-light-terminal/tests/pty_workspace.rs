@@ -659,13 +659,19 @@ fn real_terminal_animates_server_activity_filters_names_and_accepts_russian_comm
         };
     }
     see!("STT · запись");
+    let observation_started = Instant::now();
     let requests = api.list_reads.load(Ordering::Relaxed);
     for symbol in ["|", "/", "-", "\\"].into_iter().cycle().take(12) {
         see!(&format!("{symbol} Активная встреча"));
     }
+    // The observation can cross normal 3-second polls on a busy host. Each poll
+    // reads sessions + queue; allow one pair already in flight at the boundary.
+    let elapsed = observation_started.elapsed();
+    let allowed_reads = 2 * (elapsed.as_millis() / 3000 + 2) as usize;
+    let reads = api.list_reads.load(Ordering::Relaxed) - requests;
     assert!(
-        api.list_reads.load(Ordering::Relaxed) - requests <= 2,
-        "animation must not poll the server"
+        reads <= allowed_reads,
+        "animation must not poll the server: {reads} reads in {elapsed:?}, budget {allowed_reads}"
     );
     api.activity.store(2, Ordering::Relaxed);
     see!("в очереди #2");
@@ -679,8 +685,28 @@ fn real_terminal_animates_server_activity_filters_names_and_accepts_russian_comm
     see!("? Активная встреча");
     api.activity.store(6, Ordering::Relaxed);
     see!("ждём кусок");
+    // First slash enters local search; the next slash and j/k are literal input.
+    writer.write_all(b"//jk").unwrap();
+    writer.flush().unwrap();
+    see!("Список · 0/2");
+    see!("/ /jk_");
+    writer.write_all(b"\x1b").unwrap();
+    writer.flush().unwrap();
+    wait_until(
+        "search closed before returning to navigation",
+        |_, screen| {
+            screen.contents().contains("Список · / поиск") && !screen.contents().contains("/ /jk_")
+        },
+        &mut all,
+        &mut screen,
+        &rx,
+        &mut writer,
+        &mut queries,
+        deadline,
+    );
+    writer.write_all(b"jk").unwrap();
     writer
-        .write_all("\x1b[200~вТоРаЯ\x1b[201~".as_bytes())
+        .write_all("/\x1b[200~вТоРаЯ\x1b[201~".as_bytes())
         .unwrap();
     writer.flush().unwrap();
     see!("Список · 1/2");

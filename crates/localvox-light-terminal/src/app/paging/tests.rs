@@ -97,6 +97,7 @@ fn archive_page_moves_the_whole_window_and_filtered_selection_without_opening() 
         assert_eq!((a.selected, a.list_scroll), (page + 1, page));
         key(&mut a, KeyCode::PageUp);
         assert_eq!((a.selected, a.list_scroll), (1, 0));
+        key(&mut a, KeyCode::Char('/'));
         a.paste("Встреча 1");
         let filtered = crate::render::list_metrics(&a).0;
         assert_eq!(filtered, if size.1 == 24 { page } else { page - 1 });

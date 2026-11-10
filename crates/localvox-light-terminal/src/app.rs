@@ -103,6 +103,7 @@ pub struct App {
     pub epoch: u64,
     pub sessions: Vec<Session>,
     pub archive_filter: String,
+    pub archive_filter_editing: bool,
     pub current: Option<String>,
     pub record: RecordState,
     pub jobs: Jobs,
@@ -189,6 +190,7 @@ impl Default for App {
             epoch: 1,
             sessions: vec![],
             archive_filter: String::new(),
+            archive_filter_editing: false,
             current: None,
             record: RecordState::default(),
             jobs: Jobs::default(),
@@ -388,6 +390,7 @@ impl App {
         self.refresh_view();
     }
     pub fn select_session(&mut self, name: String) {
+        self.archive_filter_editing = false;
         if self.current.as_ref() != Some(&name) {
             self.player_effects
                 .push(crate::player::PlaybackCommand::Stop);
@@ -999,6 +1002,9 @@ impl App {
         }
     }
     pub fn key(&mut self, mut key: KeyEvent) {
+        if self.view != View::Archive || self.focus != 1 {
+            self.archive_filter_editing = false;
+        }
         if self.archive_filter_key(key) {
             return;
         }

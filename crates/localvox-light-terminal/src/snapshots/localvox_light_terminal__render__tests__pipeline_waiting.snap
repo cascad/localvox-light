@@ -20,7 +20,7 @@ Buffer {
         "│   Поиск                  │Ожидает свободного обработчика · 00:07                                                      ",
         "│   Чат с архивом          │Далее: summary                                                                              ",
         "│                          │├ ✓ transcribe  done  00:04                                                                 ",
-        "┌ Список · печатай имя ────│├ - refine  skipped  —                                                                      ",
+        "┌ Список · / поиск ────────│├ - refine  skipped  —                                                                      ",
         "│Загрузка…                 │├ - cleanup  skipped  —                                                                     ",
         "│                          │├ · summary  queued  —                                                                      ",
         "│                          │                                                                                            ",

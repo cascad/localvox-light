@@ -28,13 +28,16 @@ impl App {
             .and_then(|id| self.visible_sessions().iter().position(|s| s.name == id))
             .unwrap_or(0);
     }
-    pub(super) fn archive_filter_input(&self) -> bool {
+    fn archive_list_context(&self) -> bool {
         self.view == View::Archive
             && self.focus == 1
             && self.form.is_none()
             && !self.help
             && !self.palette
             && !self.console.open
+    }
+    pub(super) fn archive_filter_input(&self) -> bool {
+        self.archive_filter_editing && self.archive_list_context()
     }
     pub(super) fn append_archive_filter(&mut self, text: &str) {
         let left = 256usize.saturating_sub(self.archive_filter.chars().count());
@@ -46,7 +49,22 @@ impl App {
         self.set_archive_filter(format!("{}{added}", self.archive_filter));
     }
     pub(super) fn archive_filter_key(&mut self, key: KeyEvent) -> bool {
-        if !self.archive_filter_input() {
+        if !self.archive_list_context() {
+            return false;
+        }
+        if !self.archive_filter_editing {
+            if !key
+                .modifiers
+                .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+                && command_key(key).code == KeyCode::Char('/')
+            {
+                self.archive_filter_editing = true;
+                return true;
+            }
+            if key.code == KeyCode::Esc && !self.archive_filter.is_empty() {
+                self.set_archive_filter(String::new());
+                return true;
+            }
             return false;
         }
         if key.modifiers.contains(KeyModifiers::CONTROL) {
@@ -60,7 +78,7 @@ impl App {
             return false;
         }
         match key.code {
-            KeyCode::Char(c) if !c.is_control() && !matches!(c, ':' | '?') => {
+            KeyCode::Char(c) if !c.is_control() => {
                 self.append_archive_filter(&c.to_string());
             }
             KeyCode::Backspace => {
@@ -68,7 +86,20 @@ impl App {
                 query.pop();
                 self.set_archive_filter(query);
             }
-            KeyCode::Esc => self.set_archive_filter(String::new()),
+            KeyCode::Esc => {
+                self.set_archive_filter(String::new());
+                self.archive_filter_editing = false;
+            }
+            KeyCode::Enter => {
+                if !self.visible_sessions().is_empty() {
+                    self.archive_filter_editing = false;
+                }
+                return false;
+            }
+            KeyCode::Tab | KeyCode::BackTab | KeyCode::F(6) => {
+                self.archive_filter_editing = false;
+                return false;
+            }
             _ => return false,
         }
         true

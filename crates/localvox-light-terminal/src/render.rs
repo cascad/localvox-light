@@ -228,7 +228,11 @@ pub fn draw(f: &mut Frame, a: &App) {
                 format!(
                     " {}   {}",
                     if a.view == View::Archive && a.focus == 1 {
-                        "печатай имя · Esc сброс · F2 действия"
+                        if a.archive_filter_editing {
+                            "ввод имени · ↑↓ выбор · Esc сброс"
+                        } else {
+                            "j/k ↑↓ · / поиск · F2 действия"
+                        }
                     } else {
                         "i добавить YouTube / URL"
                     },
@@ -343,7 +347,7 @@ pub fn draw(f: &mut Frame, a: &App) {
     if a.help {
         let rect = modal(area, 78, 26);
         f.render_widget(Clear, rect);
-        f.render_widget(Paragraph::new("УПРАВЛЕНИЕ\nSpace play/pause; p fragment; g/п time; Alt+Left/Right +/-15s\nF6 — стрелки плееру; повтор — к документу\n\nTab / Shift+Tab — фокус панели\n↑↓ — выбрать строку; Enter — открыть\nСписок архива: печатай имя, Backspace, Esc сброс\nБуквы здесь вводят фильтр; F2 — действия\n1–5 — вкладка документа; y / Ctrl+Y — копировать всё\n/ или точка в RU — поиск; : / F2 — действия; n — создать; i — URL → Enter\nF8 — остановить запись; F9 — начать запись\nX — отменить обработку; R — продолжить этап\nPgUp / PgDn, Home / End — чтение документа\n← / → — свернуть / раскрыть подробности\n\nВ форме: Tab — поле; Enter — новая строка\nCtrl+Enter — отправить; Esc — отменить\nURL, настройка, время: Enter — подтвердить\nВставка остаётся текстом, команды не исполняются.\nI — сведения в «Ход»; A / S — все настройки / сохранить\n~ / ё — консоль ошибок; F12 — также из формы\n\nF10 / Ctrl+Q — выход; q — вне ввода фильтра/формы.\nДемон и запись продолжают работать.\n\nЛюбая клавиша — закрыть справку").block(borders(a.ascii).title(" Помощь ").style(Style::default().bg(t.bg).fg(t.ink))).wrap(Wrap{trim:false}),rect);
+        f.render_widget(Paragraph::new("УПРАВЛЕНИЕ\nSpace play/pause; p fragment; g/п time; Alt+Left/Right +/-15s\nF6 — стрелки плееру; повтор — к документу\n\nTab / Shift+Tab — фокус панели\n↑↓ — выбрать строку; Enter — открыть\nСписок архива: j/k или ↑↓, / — ввод поиска\nВ поиске буквы и / — текст; Esc — сброс и выход\n1–5 — вкладка документа; y / Ctrl+Y — копировать всё\n/ или точка в RU — поиск в выбранной панели; : / F2 — действия; n — создать; i — URL → Enter\nF8 — остановить запись; F9 — начать запись\nX — отменить обработку; R — продолжить этап\nPgUp / PgDn, Home / End — чтение документа\n← / → — свернуть / раскрыть подробности\n\nВ форме: Tab — поле; Enter — новая строка\nCtrl+Enter — отправить; Esc — отменить\nURL, настройка, время: Enter — подтвердить\nВставка остаётся текстом, команды не исполняются.\nI — сведения в «Ход»; A / S — все настройки / сохранить\n~ / ё — консоль ошибок; F12 — также из формы\n\nF10 / Ctrl+Q — выход; q — вне ввода фильтра/формы.\nДемон и запись продолжают работать.\n\nЛюбая клавиша — закрыть справку").block(borders(a.ascii).title(" Помощь ").style(Style::default().bg(t.bg).fg(t.ink))).wrap(Wrap{trim:false}),rect);
     }
     if let Some(form) = &a.form {
         let desired = match &form.kind {
@@ -680,10 +684,22 @@ fn nav(f: &mut Frame, a: &App, area: Rect, t: Theme) {
 }
 fn list_block(a: &App, t: Theme, title: &str) -> Block<'static> {
     let mut block = panel(title, a.focus == 1, t);
-    if a.view == View::Archive && !a.archive_filter.is_empty() {
+    if a.view == View::Archive && (a.archive_filter_editing || !a.archive_filter.is_empty()) {
         block = block.title_bottom(Line::from(vec![
             Span::styled(" / ", Style::default().fg(t.command)),
             Span::styled(safe_label(&a.archive_filter), Style::default().fg(t.value)),
+            Span::styled(
+                if a.archive_filter_editing {
+                    if a.ascii {
+                        "_"
+                    } else {
+                        "▏"
+                    }
+                } else {
+                    ""
+                },
+                Style::default().fg(t.command),
+            ),
             Span::styled(" · Esc ", Style::default().fg(t.dim)),
         ]));
     }
@@ -776,10 +792,11 @@ fn items(f: &mut Frame, a: &App, area: Rect, t: Theme) {
     let error = resource.and_then(|resource| a.errors.get(&resource));
     let title = if error.is_some() {
         "Список · ошибка обновления".to_string()
-    } else if a.view == View::Archive && !a.archive_filter.is_empty() {
+    } else if a.view == View::Archive && (a.archive_filter_editing || !a.archive_filter.is_empty())
+    {
         format!("Список · {}/{}", archive.len(), a.sessions.len())
     } else if a.view == View::Archive {
-        "Список · печатай имя".to_string()
+        "Список · / поиск".to_string()
     } else {
         "Список · Enter открыть".to_string()
     };
@@ -1983,6 +2000,50 @@ mod tests {
     #[test]
     fn snapshot_wide_dark() {
         workspace_snapshot(160, 48, false);
+    }
+
+    fn archive_search_snapshot(mode: u8) {
+        let mut app = App {
+            focus: 1,
+            viewport: (120, 36),
+            ..Default::default()
+        };
+        app.sessions = [("first", "План команды"), ("second", "j/k встреча")]
+            .into_iter()
+            .map(|(name, title)| localvox_light_client::Session {
+                name: name.into(),
+                title: Some(title.into()),
+                ..Default::default()
+            })
+            .collect();
+        app.current = Some("first".into());
+        if mode > 0 {
+            app.key(crossterm::event::KeyEvent::new(
+                crossterm::event::KeyCode::Char('/'),
+                crossterm::event::KeyModifiers::NONE,
+            ));
+        }
+        if mode > 1 {
+            app.paste("j/k");
+        }
+        let mut terminal = Terminal::new(TestBackend::new(120, 36)).unwrap();
+        terminal.draw(|frame| draw(frame, &app)).unwrap();
+        insta::assert_debug_snapshot!(
+            format!("archive_search_{mode}"),
+            terminal.backend().buffer()
+        );
+    }
+    #[test]
+    fn snapshot_archive_search_idle() {
+        archive_search_snapshot(0);
+    }
+    #[test]
+    fn snapshot_archive_search_empty_input() {
+        archive_search_snapshot(1);
+    }
+    #[test]
+    fn snapshot_archive_search_literal_query() {
+        archive_search_snapshot(2);
     }
 
     #[test]

@@ -218,6 +218,10 @@ fn filtered_and_empty_archive_are_visible_without_hiding_the_open_document() {
         cooked: true,
         ..Default::default()
     });
+    a.key(crossterm::event::KeyEvent::new(
+        crossterm::event::KeyCode::Char('/'),
+        crossterm::event::KeyModifiers::NONE,
+    ));
     a.paste("другая");
     assert!(
         animation_frame(&a).is_none(),
