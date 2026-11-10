@@ -120,3 +120,30 @@ mod tests {
         assert_eq!(t.len(), s.len());
     }
 }
+
+/// Whether the text contains at least one real word.
+///
+/// Real is not the same as «non-empty»: «.», «Т.», «э-э», «а-а» consist of punctuation,
+/// of one letter, or of a repetition of one letter. That is recognition noise, not
+/// speech.
+///
+/// DIGITS are always real. GigaAM v3 writes numbers as digits and separates the groups
+/// with a space («1 000 000», «9 472 824»), so the rule «≥2 different characters in a
+/// token» killed them: «1» is a single digit, «000» is a repetition. The note
+/// «Миллион.» disappeared entirely and silently (caught by review). The model's
+/// hallucinations on silence are punctuation and vowel fillers, but not numbers: it
+/// does not pull a sum or a deadline out of thin air — and losing those is
+/// categorically unacceptable for a secretary.
+pub fn has_real_word(text: &str) -> bool {
+    if text.chars().any(|c| c.is_ascii_digit()) {
+        return true;
+    }
+    text.split_whitespace().any(|w| {
+        let letters: Vec<char> = w
+            .chars()
+            .filter(|c| c.is_alphanumeric())
+            .flat_map(char::to_lowercase)
+            .collect();
+        letters.len() >= 2 && letters.iter().any(|c| *c != letters[0])
+    })
+}

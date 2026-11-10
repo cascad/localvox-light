@@ -1,0 +1,592 @@
+use super::*;
+use crate::chunks::{ChunkParams, ChunkRecorder, SessionMeta};
+use std::sync::{Arc, Mutex};
+
+struct Fixture {
+    root: tempfile::TempDir,
+    session: PathBuf,
+    horizon: Horizon,
+    pcm: BTreeMap<u8, Vec<i16>>,
+    identity: Identity,
+}
+impl Fixture {
+    fn new(ends: [&[u64]; 2], terminal: bool) -> Self {
+        let root = tempfile::tempdir().unwrap();
+        let session = root.path().join("session");
+        fs::create_dir_all(session.join("audio")).unwrap();
+        let generation = uuid::Uuid::now_v7().to_string();
+        let meta = SessionMeta {
+            capture_generation: Some(generation.clone()),
+            sample_rate: 16000,
+            ..Default::default()
+        };
+        fs::write(
+            session.join("meta.json"),
+            serde_json::to_vec(&meta).unwrap(),
+        )
+        .unwrap();
+        let writer = Arc::new(Mutex::new(
+            capture::Writer::begin(&session, generation.clone()).unwrap(),
+        ));
+        let shared_meta = Arc::new(Mutex::new(meta));
+        let params = Arc::new(ChunkParams {
+            audio_dir: session.join("audio"),
+            meta_path: session.join("meta.json"),
+            chunk_sec: 300.0,
+            flac: false,
+            ffmpeg: "unused".into(),
+        });
+        let recipe = planning::Recipe::default();
+        let fingerprint = recipe.fingerprint().unwrap();
+        let mut sources = BTreeMap::new();
+        let mut pcm = BTreeMap::new();
+        for id in [0, 1] {
+            let n = ends[id as usize].last().copied().unwrap_or(0);
+            let samples: Vec<_> = (0..n)
+                .map(|i| ((i * 7 + id as u64 * 10) % 32000) as i16)
+                .collect();
+            let mut rec = ChunkRecorder::for_capture(
+                id,
+                params.clone(),
+                shared_meta.clone(),
+                writer.clone(),
+                Arc::new(crate::chunks::codec::Conversions::default()),
+            );
+            if n > 0 {
+                rec.feed(&samples);
+                rec.finalize_current();
+            }
+            let mut at = 0;
+            let mut refs = Vec::new();
+            for end in ends[id as usize] {
+                let d = planning::Descriptor {
+                    version: 1,
+                    generation: generation.clone(),
+                    recipe: fingerprint.clone(),
+                    source: id,
+                    start_sample: at,
+                    end_sample: *end,
+                    kind: if id == 1 {
+                        WindowKind::Silence
+                    } else {
+                        WindowKind::Speech
+                    },
+                    pcm_sha256: pcm_hash(&samples[at as usize..*end as usize]),
+                };
+                let bytes = serde_json::to_vec(&d).unwrap();
+                let path = session.join(d.path());
+                fs::create_dir_all(path.parent().unwrap()).unwrap();
+                fs::write(&path, &bytes).unwrap();
+                refs.push(planning::Reference {
+                    start_sample: at,
+                    end_sample: *end,
+                    sha256: hash(&bytes),
+                });
+                at = *end;
+            }
+            sources.insert(
+                id,
+                planning::SourcePlan {
+                    sequence: if n > 0 { 1 } else { 0 },
+                    input_end: n,
+                    closed_end: n,
+                    eof: terminal,
+                    windows: refs,
+                },
+            );
+            pcm.insert(id, samples);
+        }
+        if terminal {
+            writer
+                .lock()
+                .unwrap()
+                .end(
+                    "test",
+                    false,
+                    pcm.iter().map(|(id, s)| (*id, s.len() as u64)).collect(),
+                )
+                .unwrap();
+        }
+        let input = capture::read(&session).unwrap();
+        let common_end = common_frontier(sources.values().map(|s| (s.closed_end, s.eof)));
+        let plan = planning::Snapshot {
+            version: 1,
+            generation,
+            capture_revision: input.revision,
+            recipe,
+            sources,
+            common_end,
+            complete: terminal,
+        };
+        fs::create_dir_all(session.join("capture/plan")).unwrap();
+        fs::write(
+            session.join(planning::FILE),
+            serde_json::to_vec(&plan).unwrap(),
+        )
+        .unwrap();
+        let horizon = Horizon::read(&session).unwrap();
+        let model = root.path().join("model.bin");
+        let vocab = root.path().join("vocab.txt");
+        fs::write(&model, b"synthetic fixture weights").unwrap();
+        fs::write(&vocab, b"fixture vocabulary").unwrap();
+        let identity = Identity::from_files(
+            "fixture".into(),
+            "ru".into(),
+            "default recipe".into(),
+            [("model".into(), model), ("vocab".into(), vocab)].into(),
+            || false,
+        )
+        .unwrap();
+        Self {
+            root,
+            session,
+            horizon,
+            pcm,
+            identity,
+        }
+    }
+    fn window(&self, id: u8, n: usize) -> VerifiedWindow<'_> {
+        let d = &self.horizon.windows[&id][n];
+        VerifiedWindow::new(
+            d,
+            &self.pcm[&id][d.start_sample as usize..d.end_sample as usize],
+        )
+        .unwrap()
+    }
+    fn lease(&self) -> File {
+        crate::jobs::try_execution_lock(&self.session)
+            .unwrap()
+            .unwrap()
+    }
+}
+
+#[test]
+fn result_before_checkpoint_is_revalidated_and_reused_without_asr_or_duplicate_lines() {
+    let f = Fixture::new([&[10, 20], &[10, 20]], true);
+    let _lease = f.lease();
+    let cache = Cache::open(&f.session, &f.identity).unwrap();
+    let mut calls = 0;
+    let first = cache
+        .resolve(f.window(0, 0), |_| {
+            calls += 1;
+            Ok("  Первый текст  ".into())
+        })
+        .unwrap()
+        .0;
+    assert_eq!(
+        cache.read_checkpoint(&f.horizon).unwrap().0.common_end,
+        0,
+        "uncommitted result is not progress"
+    );
+    let reopened = Cache::open(&f.session, &f.identity).unwrap();
+    let (same, reused) = reopened
+        .resolve(f.window(0, 0), |_| {
+            panic!("accepted window must not repeat ASR")
+        })
+        .unwrap();
+    assert!(reused);
+    assert_eq!(same.text(), Some("Первый текст"));
+    assert_eq!(calls, 1);
+    let second = cache.resolve(f.window(0, 1), |_| Ok(".".into())).unwrap().0;
+    assert_eq!(second.outcome(), &Output::Empty);
+    let mut accepted = vec![first, second];
+    for n in 0..2 {
+        accepted.push(
+            cache
+                .resolve(f.window(1, n), |_| panic!("silence must not call ASR"))
+                .unwrap()
+                .0,
+        );
+    }
+    let checkpoint = cache.checkpoint(&f.horizon, &accepted).unwrap();
+    assert!(checkpoint.complete);
+    assert_eq!(checkpoint.common_end, 20);
+    cache.checkpoint(&f.horizon, &accepted).unwrap();
+    let (state, records) = cache.read_checkpoint(&f.horizon).unwrap();
+    assert_eq!(state, checkpoint);
+    assert_eq!(
+        records.iter().filter_map(|r| r.text()).collect::<Vec<_>>(),
+        vec!["Первый текст"]
+    );
+    assert_eq!(
+        records.len(),
+        4,
+        "same result was not duplicated at EOF retry"
+    );
+}
+
+#[test]
+fn corrupt_cache_rolls_back_only_its_source_prefix_and_repairs_only_missing_work() {
+    let f = Fixture::new([&[10, 20, 30], &[10, 20, 30]], true);
+    let _lease = f.lease();
+    let cache = Cache::open(&f.session, &f.identity).unwrap();
+    let mut all = Vec::new();
+    for id in [0, 1] {
+        for n in 0..3 {
+            all.push(
+                cache
+                    .resolve(f.window(id, n), |_| Ok(format!("строка {n}")))
+                    .unwrap()
+                    .0,
+            );
+        }
+    }
+    cache.checkpoint(&f.horizon, &all).unwrap();
+    let key = cache.key(&f.horizon.windows[&0][1]).unwrap();
+    let path = cache.root.join("windows").join(format!("{key}.json"));
+    fs::write(&path, b"{partial result before sync").unwrap();
+    let (rolled, _) = cache.read_checkpoint(&f.horizon).unwrap();
+    assert_eq!(rolled.sources[&0].end_sample, 10);
+    assert_eq!(rolled.sources[&1].end_sample, 30);
+    assert!(!rolled.complete);
+    let mut calls = 0;
+    let mut repaired = Vec::new();
+    for id in [0, 1] {
+        for n in 0..3 {
+            repaired.push(
+                cache
+                    .resolve(f.window(id, n), |_| {
+                        calls += 1;
+                        Ok("восстановлено".into())
+                    })
+                    .unwrap()
+                    .0,
+            );
+        }
+    }
+    assert_eq!(calls, 1);
+    assert!(cache.checkpoint(&f.horizon, &repaired).unwrap().complete);
+}
+
+#[test]
+fn failed_asr_and_refused_result_or_checkpoint_publish_never_advance_coverage() {
+    let f = Fixture::new([&[10, 20], &[10, 20]], true);
+    let _lease = f.lease();
+    let cache = Cache::open(&f.session, &f.identity).unwrap();
+    assert!(cache
+        .resolve(f.window(0, 0), |_| anyhow::bail!("ASR timed out"))
+        .is_err());
+    let path = cache.root.join("windows").join(format!(
+        "{}.json",
+        cache.key(&f.horizon.windows[&0][0]).unwrap()
+    ));
+    fs::create_dir(&path).unwrap();
+    assert!(cache
+        .resolve(f.window(0, 0), |_| Ok("ответ".into()))
+        .is_err());
+    assert_eq!(
+        cache.read_checkpoint(&f.horizon).unwrap().0.sources[&0].end_sample,
+        0
+    );
+    fs::remove_dir(path).unwrap();
+    let a = cache
+        .resolve(f.window(0, 0), |_| Ok("ответ".into()))
+        .unwrap()
+        .0;
+    cache.checkpoint(&f.horizon, &[a.clone()]).unwrap();
+    let before = fs::read(cache.root.join("checkpoint.json")).unwrap();
+    let path = cache.root.join("checkpoint.json");
+    let backup = path.with_extension("saved");
+    fs::rename(&path, &backup).unwrap();
+    fs::create_dir(&path).unwrap();
+    let b = cache
+        .resolve(f.window(0, 1), |_| Ok("следующий".into()))
+        .unwrap()
+        .0;
+    assert!(cache
+        .checkpoint(&f.horizon, &[a.clone(), b.clone()])
+        .is_err());
+    assert_eq!(fs::read(&backup).unwrap(), before);
+    fs::remove_dir(&path).unwrap();
+    fs::rename(backup, &path).unwrap();
+    let reopened = Cache::open(&f.session, &f.identity).unwrap();
+    let (b, reused) = reopened
+        .resolve(f.window(0, 1), |_| {
+            panic!("synced result must survive refused checkpoint")
+        })
+        .unwrap();
+    assert!(reused);
+    assert_eq!(
+        reopened.checkpoint(&f.horizon, &[a, b]).unwrap().sources[&0].end_sample,
+        20
+    );
+}
+
+#[test]
+fn pcm_model_vocabulary_recipe_generation_and_range_are_all_dependencies() {
+    let f = Fixture::new([&[10], &[10]], true);
+    let _lease = f.lease();
+    let cache = Cache::open(&f.session, &f.identity).unwrap();
+    cache
+        .resolve(f.window(0, 0), |_| Ok("исходник".into()))
+        .unwrap();
+    let d = &f.horizon.windows[&0][0];
+    let mut changed = f.pcm[&0].clone();
+    changed[1] ^= 1;
+    assert!(VerifiedWindow::new(d, &changed).is_err());
+    assert!(VerifiedWindow::new(d, &changed[..9]).is_err());
+    for field in ["model", "vocab", "recipe", "language"] {
+        let mut identity = f.identity.clone();
+        if field == "recipe" {
+            identity.recipe.push_str(" revised");
+        } else if field == "language" {
+            identity.language = "en".into();
+        } else {
+            let path = f.root.path().join(format!("changed-{field}"));
+            fs::write(&path, b"new weights or vocabulary").unwrap();
+            let changed = Identity::from_files(
+                "fixture".into(),
+                "ru".into(),
+                "default recipe".into(),
+                [(field.into(), path)].into(),
+                || false,
+            )
+            .unwrap();
+            identity
+                .files
+                .insert(field.into(), changed.files[field].clone());
+        }
+        let other = Cache::open(&f.session, &identity).unwrap();
+        assert!(
+            !other
+                .resolve(f.window(0, 0), |_| Ok("новый результат".into()))
+                .unwrap()
+                .1
+        );
+    }
+    for field in ["generation", "range", "planner"] {
+        let mut other = d.clone();
+        if field == "generation" {
+            other.generation = uuid::Uuid::now_v7().to_string();
+        } else if field == "range" {
+            other.start_sample += 10;
+            other.end_sample += 10;
+        } else {
+            other.recipe = hash(b"different planner recipe");
+        }
+        let verified = VerifiedWindow::new(&other, &f.pcm[&0]).unwrap();
+        assert!(
+            !cache
+                .resolve(verified, |_| Ok("другая зависимость".into()))
+                .unwrap()
+                .1
+        );
+    }
+}
+
+#[test]
+fn publication_order_and_audio_bound_do_not_insert_an_earlier_window_later() {
+    let mut f = Fixture::new([&[8, 18], &[10, 20]], false);
+    let _lease = f.lease();
+    let cache = Cache::open(&f.session, &f.identity).unwrap();
+    let a = cache
+        .resolve(f.window(0, 0), |_| Ok("раньше".into()))
+        .unwrap()
+        .0;
+    let b = cache
+        .resolve(f.window(1, 0), |_| panic!("silence"))
+        .unwrap()
+        .0;
+    let c = cache
+        .resolve(f.window(1, 1), |_| panic!("silence"))
+        .unwrap()
+        .0;
+    let s = cache.checkpoint(&f.horizon, &[a, b, c]).unwrap();
+    assert_eq!(s.common_end, 8);
+    let (_, before) = cache.read_checkpoint(&f.horizon).unwrap();
+    assert_eq!(
+        before
+            .iter()
+            .map(|r| r.descriptor().start_sample)
+            .collect::<Vec<_>>(),
+        vec![0, 0]
+    );
+    let a = cache
+        .resolve(f.window(0, 1), |_| Ok("после".into()))
+        .unwrap()
+        .0;
+    let s = cache.checkpoint(&f.horizon, &[a]).unwrap();
+    // system [10,20) cannot yet play beyond captured mic end18; withhold from its start.
+    assert_eq!(s.common_end, 18);
+    assert_eq!(s.publication_end, 10);
+    let (_, after) = cache.read_checkpoint(&f.horizon).unwrap();
+    assert_eq!(
+        after
+            .iter()
+            .map(|r| r.descriptor().start_sample)
+            .collect::<Vec<_>>(),
+        vec![0, 0, 8]
+    );
+    f.horizon.input.terminal = Some(capture::Terminal {
+        at: "test".into(),
+        reason: "test".into(),
+        interrupted: false,
+        ends: [(0, 18), (1, 20)].into(),
+    });
+    for source in f.horizon.plan.sources.values_mut() {
+        source.eof = true;
+    }
+    f.horizon.plan.complete = true;
+    f.horizon.plan.common_end = 20;
+    let s = cache.checkpoint(&f.horizon, &[]).unwrap();
+    assert!(s.complete);
+    assert_eq!(s.publication_end, 20);
+    let (_, final_rows) = cache.read_checkpoint(&f.horizon).unwrap();
+    assert_eq!(
+        final_rows
+            .iter()
+            .map(|r| r.descriptor().start_sample)
+            .collect::<Vec<_>>(),
+        vec![0, 0, 8, 10]
+    );
+}
+
+#[test]
+fn unpublished_temporary_result_is_ignored_and_foreign_or_stale_results_cannot_commit() {
+    let f = Fixture::new([&[10, 20], &[10, 20]], false);
+    let _lease = f.lease();
+    let cache = Cache::open(&f.session, &f.identity).unwrap();
+    let a = cache
+        .resolve(f.window(0, 0), |_| Ok("первый".into()))
+        .unwrap()
+        .0;
+    let path = cache.root.join("windows").join(format!("{}.json", a.key));
+    let pending = path.with_extension("pending");
+    fs::rename(&path, &pending).unwrap();
+    File::options()
+        .read(true)
+        .write(true)
+        .open(&pending)
+        .unwrap()
+        .sync_all()
+        .unwrap(); // complete temporary bytes are still not a published result
+    assert_eq!(
+        cache.read_checkpoint(&f.horizon).unwrap().0.sources[&0].end_sample,
+        0
+    );
+    let mut calls = 0;
+    let a = cache
+        .resolve(f.window(0, 0), |_| {
+            calls += 1;
+            Ok("первый".into())
+        })
+        .unwrap()
+        .0;
+    assert_eq!(calls, 1);
+    cache.checkpoint(&f.horizon, &[a.clone()]).unwrap();
+    let original = fs::read(cache.root.join("checkpoint.json")).unwrap();
+    let mut d = f.horizon.windows[&0][0].clone();
+    d.generation = uuid::Uuid::now_v7().to_string();
+    let foreign = cache
+        .resolve(VerifiedWindow::new(&d, &f.pcm[&0][..10]).unwrap(), |_| {
+            Ok("чужой".into())
+        })
+        .unwrap()
+        .0;
+    assert!(cache.checkpoint(&f.horizon, &[foreign]).is_err());
+    assert_eq!(
+        fs::read(cache.root.join("checkpoint.json")).unwrap(),
+        original
+    );
+    let (mut newer, _) = read_envelope::<Checkpoint>(&cache.root.join("checkpoint.json")).unwrap();
+    newer.capture_revision += 1;
+    fs::write(
+        cache.root.join("checkpoint.json"),
+        envelope(&newer).unwrap(),
+    )
+    .unwrap();
+    assert!(cache.checkpoint(&f.horizon, &[a]).is_err());
+}
+
+#[test]
+fn corrupted_descriptor_and_invalid_empty_outcome_never_become_coverage() {
+    let f = Fixture::new([&[10], &[10]], true);
+    let _lease = f.lease();
+    let cache = Cache::open(&f.session, &f.identity).unwrap();
+    let a = cache
+        .resolve(f.window(0, 0), |_| Ok("содержимое".into()))
+        .unwrap()
+        .0;
+    let path = cache.root.join("windows").join(format!("{}.json", a.key));
+    let (mut bad, _) = read_envelope::<Record>(&path).unwrap();
+    bad.outcome = Output::Empty;
+    bad.text = None;
+    fs::write(&path, envelope(&bad).unwrap()).unwrap();
+    let mut calls = 0;
+    let (fixed, reused) = cache
+        .resolve(f.window(0, 0), |_| {
+            calls += 1;
+            Ok("исправлено".into())
+        })
+        .unwrap();
+    assert!(!reused);
+    assert_eq!(calls, 1);
+    assert_eq!(fixed.outcome(), &Output::Text);
+    let descriptor = &f.horizon.windows[&0][0];
+    let path = f.session.join(descriptor.path());
+    let before = fs::read(&path).unwrap();
+    fs::write(&path, b"{truncated descriptor").unwrap();
+    assert!(Horizon::read(&f.session).is_err());
+    fs::write(&path, before).unwrap();
+    assert!(Horizon::read(&f.session).is_ok());
+    assert!(Identity::from_files(
+        "fixture".into(),
+        "ru".into(),
+        "r".into(),
+        [("model".into(), f.root.path().join("model.bin"))].into(),
+        || true
+    )
+    .is_err());
+}
+
+#[test]
+fn malformed_descriptors_seals_and_forged_frontiers_cannot_advance_a_checkpoint() {
+    let f = Fixture::new([&[10, 20], &[10, 20]], true);
+    let _lease = f.lease();
+    let cache = Cache::open(&f.session, &f.identity).unwrap();
+    let a = cache
+        .resolve(f.window(0, 0), |_| Ok("слово".into()))
+        .unwrap()
+        .0;
+    cache.checkpoint(&f.horizon, &[a]).unwrap();
+    let (mut state, _) = read_envelope::<Checkpoint>(&cache.root.join("checkpoint.json")).unwrap();
+    state.common_end = u64::MAX;
+    state.sources.get_mut(&0).unwrap().end_sample = u64::MAX;
+    state.complete = true;
+    fs::write(
+        cache.root.join("checkpoint.json"),
+        envelope(&state).unwrap(),
+    )
+    .unwrap();
+    let (state, _) = cache.read_checkpoint(&f.horizon).unwrap();
+    assert_eq!(state.sources[&0].end_sample, 10);
+    assert_eq!(state.common_end, 0);
+    assert!(!state.complete);
+    let path = f.session.join(planning::FILE);
+    let bytes = fs::read(&path).unwrap();
+    for field in ["generation", "gap", "end", "eof"] {
+        let mut plan: planning::Snapshot = serde_json::from_slice(&bytes).unwrap();
+        match field {
+            "generation" => plan.generation = uuid::Uuid::now_v7().to_string(),
+            "gap" => plan.sources.get_mut(&0).unwrap().windows[0].start_sample = 1,
+            "end" => plan.sources.get_mut(&0).unwrap().closed_end += 1,
+            _ => {
+                plan.sources.get_mut(&0).unwrap().sequence = 0;
+            }
+        }
+        fs::write(&path, serde_json::to_vec(&plan).unwrap()).unwrap();
+        assert!(Horizon::read(&f.session).is_err());
+    }
+    fs::write(path, bytes).unwrap();
+    let mut descriptor = f.horizon.windows[&0][0].clone();
+    descriptor.recipe = "../../escape".into();
+    assert!(VerifiedWindow::new(&descriptor, &f.pcm[&0][..10]).is_err());
+    assert!(Identity::from_files(
+        "e".into(),
+        "ru".into(),
+        "r".into(),
+        [("model".into(), f.root.path().join("absent"))].into(),
+        || false
+    )
+    .is_err());
+}

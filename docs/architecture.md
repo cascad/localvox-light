@@ -185,6 +185,16 @@ Shutdown отменяет чтение/decoder и join-ит принадлежа
 пишется в capture-журнал, primary recording продолжается. Ни ASR/LLM, ни версии,
 best, summary или UI-префикс этим этапом ещё не запускаются/публикуются.
 Проверки: [capture planner](../openspec/changes/add-incremental-recording-transcription/evidence/capture-planner.md).
+
+STT cache library (`core/incremental`) проверяет finite horizon и actual model/vocab
+fingerprints. `VerifiedWindow` сверяет count/PCM SHA; result записывается и
+перечитывается до checkpoint. Speech/Empty/Silence — разные успешные outcomes,
+ошибка не закрывает покрытие. Checkpoint содержит per-source frontiers и отдельный
+publication watermark для устойчивого порядка окон и доступного аудио. Повреждённый
+suffix не удаляет независимые валидные результаты. Писатель вызывается под processing
+execution ownership (standalone CLI или supervising coordinator), как VersionStore. Подключение worker/finalization — следующий этап R1; сам cache
+не пишет best/версии/полные receipts и не разрешает summary.
+[Проверки кеша](../openspec/changes/add-incremental-recording-transcription/evidence/asr-cache.md).
 Остановка внешнего Ollama и общая crash-транзакция нескольких файлов не обещаются.
 [Проверки](../openspec/changes/archive/2026-11-01-serialize-session-mutations/evidence/implementation.md).
 

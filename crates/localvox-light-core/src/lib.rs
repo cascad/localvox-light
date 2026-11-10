@@ -25,6 +25,7 @@ pub mod env_file;
 pub mod events;
 pub mod export;
 pub mod ingest;
+pub mod incremental;
 pub mod jobs;
 pub mod journal;
 pub mod lang;
