@@ -382,6 +382,7 @@ fn waveform_retries_an_early_empty_result_and_invalidates_when_audio_appears() {
 #[test]
 fn metadata_is_explicit_and_control_y_copies_the_entire_plain_text() {
     let mut app = App::default();
+    app.focus = 2;
     app.select_session("one".into());
     app.tab = Tab::Readable;
     let full = (0..500)
@@ -539,6 +540,7 @@ fn late_action_failure_keeps_the_original_session_and_operation_in_the_console()
 #[test]
 fn import_shortcut_pastes_one_url_without_running_or_replaying_it() {
     let mut app = App::default();
+    app.focus = 2;
     key(&mut app, KeyCode::Char('i'));
     app.paste("https://www.youtube.com/shorts/GKpN_NksATI");
     assert!(app.effects.is_empty());

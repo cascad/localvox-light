@@ -1,4 +1,6 @@
 //! Stateless terminal presentation. All user/server text is inert display data.
+mod activity;
+pub(crate) use activity::animation_frame;
 mod console;
 mod documents;
 #[cfg(test)]
@@ -229,7 +231,12 @@ pub fn draw(f: &mut Frame, a: &App) {
             ]),
             Line::from(Span::styled(
                 format!(
-                    " i добавить YouTube / URL   {}",
+                    " {}   {}",
+                    if a.view == View::Archive && a.focus == 1 {
+                        "печатай имя · Esc сброс · F2 действия"
+                    } else {
+                        "i добавить YouTube / URL"
+                    },
                     a.record
                         .voice
                         .as_ref()
@@ -290,7 +297,11 @@ pub fn draw(f: &mut Frame, a: &App) {
     }
     let status = a.status.clone();
     let keys = if area.width < 95 {
-        Line::from(" F8 stop  q/F10 выход  y весь текст  : действия  ~ ошибки")
+        Line::from(if a.view == View::Archive && a.focus == 1 {
+            " F8 stop  F10 выход  Enter открыть  Esc сброс  F2 действия"
+        } else {
+            " F8 stop  q/F10 выход  y весь текст  : действия  ~ ошибки"
+        })
     } else {
         Line::from(vec![
             Span::styled(" Tab", Style::default().fg(t.command)),
@@ -298,7 +309,11 @@ pub fn draw(f: &mut Frame, a: &App) {
             Span::styled("1–5", Style::default().fg(t.argument)),
             Span::raw(" вкладка   "),
             Span::styled(":", Style::default().fg(t.command)),
-            Span::raw(" действия   y/Ctrl+Y копия   F8 stop   F9 rec   ~ ошибки   q/F10 выход"),
+            Span::raw(if a.view == View::Archive && a.focus == 1 {
+                " / F2 действия   Enter открыть   Esc сброс   F8 stop   F10 выход"
+            } else {
+                " действия   y/Ctrl+Y копия   F8 stop   F9 rec   ~ ошибки   q/F10 выход"
+            }),
         ])
     };
     f.render_widget(
@@ -347,7 +362,7 @@ pub fn draw(f: &mut Frame, a: &App) {
     if a.help {
         let rect = modal(area, 78, 26);
         f.render_widget(Clear, rect);
-        f.render_widget(Paragraph::new("УПРАВЛЕНИЕ\nSpace play/pause; p fragment; g time; Alt+Left/Right +/-15s\nF6 — стрелки плееру; повтор — к документу\n\nTab / Shift+Tab — фокус панели\n↑↓ / j k — выбрать строку; Enter — открыть\n1–5 — вкладка документа; y / Ctrl+Y — копировать всё\n/ — поиск; : — все действия; n — создать; i — URL → Enter\nF8 — остановить запись; F9 — начать запись\nX — отменить обработку; R — продолжить этап\nPgUp / PgDn, Home / End — чтение документа\n← / → — свернуть / раскрыть подробности\n\nВ форме: Tab — поле; Enter — новая строка\nCtrl+Enter — отправить; Esc — отменить\nURL, настройка, время: Enter — подтвердить\nВставка остаётся текстом, команды не исполняются.\nI — сведения в «Ход»; A / S — все настройки / сохранить\n~ / ё — консоль ошибок; F12 — также из формы\n\nq / F10 / Ctrl+Q закрывают только клиент.\nДемон и запись продолжают работать.\n\nЛюбая клавиша — закрыть справку").block(borders(a.ascii).title(" Помощь ").style(Style::default().bg(t.bg).fg(t.ink))).wrap(Wrap{trim:false}),rect);
+        f.render_widget(Paragraph::new("УПРАВЛЕНИЕ\nSpace play/pause; p fragment; g/п time; Alt+Left/Right +/-15s\nF6 — стрелки плееру; повтор — к документу\n\nTab / Shift+Tab — фокус панели\n↑↓ — выбрать строку; Enter — открыть\nСписок архива: печатай имя, Backspace, Esc сброс\nБуквы здесь вводят фильтр; F2 — действия\n1–5 — вкладка документа; y / Ctrl+Y — копировать всё\n/ или точка в RU — поиск; : / F2 — действия; n — создать; i — URL → Enter\nF8 — остановить запись; F9 — начать запись\nX — отменить обработку; R — продолжить этап\nPgUp / PgDn, Home / End — чтение документа\n← / → — свернуть / раскрыть подробности\n\nВ форме: Tab — поле; Enter — новая строка\nCtrl+Enter — отправить; Esc — отменить\nURL, настройка, время: Enter — подтвердить\nВставка остаётся текстом, команды не исполняются.\nI — сведения в «Ход»; A / S — все настройки / сохранить\n~ / ё — консоль ошибок; F12 — также из формы\n\nF10 / Ctrl+Q — выход; q — вне ввода фильтра/формы.\nДемон и запись продолжают работать.\n\nЛюбая клавиша — закрыть справку").block(borders(a.ascii).title(" Помощь ").style(Style::default().bg(t.bg).fg(t.ink))).wrap(Wrap{trim:false}),rect);
     }
     if let Some(form) = &a.form {
         let desired = match &form.kind {
@@ -683,27 +698,9 @@ fn nav(f: &mut Frame, a: &App, area: Rect, t: Theme) {
     );
 }
 fn items(f: &mut Frame, a: &App, area: Rect, t: Theme) {
+    let archive = a.visible_sessions();
     let entries: Vec<String> = match a.view {
-        View::Archive => a
-            .sessions
-            .iter()
-            .map(|s| {
-                format!(
-                    "{} {}",
-                    if s.recording {
-                        state_symbol("running", a.ascii)
-                    } else {
-                        state_symbol(
-                            s.job
-                                .as_deref()
-                                .unwrap_or(if s.cooked { "done" } else { "waiting" }),
-                            a.ascii,
-                        )
-                    },
-                    safe_label(s.title())
-                )
-            })
-            .collect(),
+        View::Archive => archive.iter().map(|s| safe_label(s.title())).collect(),
         View::Queue => {
             a.queue
                 .iter()
@@ -786,13 +783,27 @@ fn items(f: &mut Frame, a: &App, area: Rect, t: Theme) {
     };
     let error = resource.and_then(|resource| a.errors.get(&resource));
     let title = if error.is_some() {
-        "Список · ошибка обновления"
+        "Список · ошибка обновления".to_string()
+    } else if a.view == View::Archive && !a.archive_filter.is_empty() {
+        format!("Список · {}/{}", archive.len(), a.sessions.len())
+    } else if a.view == View::Archive {
+        "Список · печатай имя".to_string()
     } else {
-        "Список · Enter открыть"
+        "Список · Enter открыть".to_string()
     };
+    let mut block = panel(&title, a.focus == 1, t);
+    if a.view == View::Archive && !a.archive_filter.is_empty() {
+        block = block.title_bottom(Line::from(vec![
+            Span::styled(" / ", Style::default().fg(t.command)),
+            Span::styled(safe_label(&a.archive_filter), Style::default().fg(t.value)),
+            Span::styled(" · Esc ", Style::default().fg(t.dim)),
+        ]));
+    }
     if entries.is_empty() {
         let message: String = if error.is_some() {
             "Список недоступен · ~ консоль · r повторить".into()
+        } else if a.view == View::Archive && !a.archive_filter.is_empty() {
+            "Нет совпадений\nEsc — сбросить фильтр".into()
         } else if resource.is_some_and(|resource| !a.last_request.contains_key(&resource)) {
             "Загрузка…".into()
         } else {
@@ -802,7 +813,7 @@ fn items(f: &mut Frame, a: &App, area: Rect, t: Theme) {
             Paragraph::new(message)
                 .style(Style::default().fg(if error.is_some() { t.error } else { t.dim }))
                 .wrap(Wrap { trim: false })
-                .block(panel(title, a.focus == 1, t)),
+                .block(block),
             area,
         );
         return;
@@ -812,27 +823,18 @@ fn items(f: &mut Frame, a: &App, area: Rect, t: Theme) {
         .into_iter()
         .enumerate()
         .map(|(index, entry)| {
-            let mut lines = vec![Line::from(entry)];
-            if a.view == View::Archive {
-                let session = &a.sessions[index];
-                let date = session
-                    .started_at
-                    .as_deref()
-                    .and_then(|date| chrono::DateTime::parse_from_rfc3339(date).ok())
-                    .map(|date| date.format("%d.%m.%Y").to_string())
-                    .unwrap_or_else(|| "дата неизвестна".into());
-                lines.push(Line::from(Span::styled(
-                    format!("  {date} · {}", timecode(session.duration_sec)),
-                    Style::default().fg(t.dim),
-                )));
-            }
+            let lines = if a.view == View::Archive {
+                activity::lines(a, archive[index], t)
+            } else {
+                vec![Line::from(entry)]
+            };
             ListItem::new(lines)
         })
         .collect::<Vec<_>>();
     f.render_stateful_widget(
         List::new(items)
-            .block(panel(title, a.focus == 1, t))
-            .highlight_style(selection_style(t).fg(t.ink))
+            .block(block)
+            .highlight_style(selection_style(t))
             .highlight_symbol("> "),
         area,
         &mut state,

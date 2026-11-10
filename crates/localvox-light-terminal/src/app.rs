@@ -1,4 +1,5 @@
 //! Deterministic workspace state. I/O results carry the selection epoch.
+mod archive_list;
 mod commands;
 mod diagnostics;
 mod documents;
@@ -99,6 +100,7 @@ pub struct App {
     pub item: usize,
     pub epoch: u64,
     pub sessions: Vec<Session>,
+    pub archive_filter: String,
     pub current: Option<String>,
     pub record: RecordState,
     pub jobs: Jobs,
@@ -183,6 +185,7 @@ impl Default for App {
             item: 0,
             epoch: 1,
             sessions: vec![],
+            archive_filter: String::new(),
             current: None,
             record: RecordState::default(),
             jobs: Jobs::default(),
@@ -377,7 +380,7 @@ impl App {
         self.item = 0;
         self.selected = 0;
         self.scroll = 0;
-        self.errors.clear();
+        self.clear_document_errors();
         self.refresh_view();
     }
     pub fn select_session(&mut self, name: String) {
@@ -408,12 +411,15 @@ impl App {
             self.journal = crate::journal::Journal::new();
             self.scroll = 0;
             self.item = 0;
-            self.errors.clear();
+            self.clear_document_errors();
         }
         self.view = View::Archive;
         self.nav = 0;
+        if !self.visible_sessions().iter().any(|s| s.name == name) {
+            self.archive_filter.clear();
+        }
         self.selected = self
-            .sessions
+            .visible_sessions()
             .iter()
             .position(|s| s.name == name)
             .unwrap_or(0);
@@ -520,17 +526,23 @@ impl App {
                         }
                     }
                 }
-                let selected = self.sessions.get(self.selected).map(|s| s.name.clone());
+                let selected = self
+                    .visible_sessions()
+                    .get(self.selected)
+                    .map(|s| s.name.clone());
                 self.sessions = s;
                 if self.view == View::Archive {
                     self.selected = selected
-                        .and_then(|name| self.sessions.iter().position(|s| s.name == name))
+                        .and_then(|name| {
+                            self.visible_sessions().iter().position(|s| s.name == name)
+                        })
                         .unwrap_or_else(|| {
-                            self.selected.min(self.sessions.len().saturating_sub(1))
+                            self.selected
+                                .min(self.visible_sessions().len().saturating_sub(1))
                         });
                 }
                 if self.current.is_none() && self.view == View::Archive {
-                    if let Some(s) = self.sessions.first() {
+                    if let Some(s) = self.visible_sessions().first() {
                         self.select_session(s.name.clone());
                     }
                 }
@@ -953,6 +965,10 @@ impl App {
         if self.console.open {
             return;
         }
+        if self.archive_filter_input() {
+            self.append_archive_filter(text);
+            return;
+        }
         if self.constrained_paste(text) {
             return;
         }
@@ -977,7 +993,13 @@ impl App {
             self.route_hints.clear();
         }
     }
-    pub fn key(&mut self, key: KeyEvent) {
+    pub fn key(&mut self, mut key: KeyEvent) {
+        if self.archive_filter_key(key) {
+            return;
+        }
+        if self.form.is_none() {
+            key = archive_list::command_key(key);
+        }
         if (self.form.is_none()
             && matches!(key.code, KeyCode::Char('q' | 'Q' | 'й' | 'Й'))
             && !key
@@ -1123,9 +1145,9 @@ impl App {
             {
                 self.command(Action::CopyDocument)
             }
-            KeyCode::Char('g') => self.command(Action::Seek),
+            KeyCode::Char('g' | 'G') => self.command(Action::Seek),
             KeyCode::Char('?') => self.help = true,
-            KeyCode::Char(':') => self.palette = true,
+            KeyCode::Char(':') | KeyCode::F(2) => self.palette = true,
             KeyCode::Char('/') => {
                 self.command(if self.view == View::Archive && self.tab == Tab::Progress {
                     Action::FilterJournal
@@ -1292,7 +1314,7 @@ impl App {
     }
     pub fn list_len(&self) -> usize {
         match self.view {
-            View::Archive => self.sessions.len(),
+            View::Archive => self.visible_sessions().len(),
             View::Queue => self.queue.len(),
             View::Ask => self.asks.len(),
             View::Notes => self.notes.len(),
@@ -1425,7 +1447,7 @@ impl App {
                 self.journal.toggle(self.item)
             }
             View::Archive if self.focus == 1 => {
-                if let Some(s) = self.sessions.get(self.selected) {
+                if let Some(s) = self.visible_sessions().get(self.selected) {
                     self.select_session(s.name.clone());
                     self.focus = 2;
                 }

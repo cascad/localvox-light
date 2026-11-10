@@ -123,6 +123,7 @@ fn contextual_shortcuts_and_visible_palette_labels_open_the_same_editors() {
             let mut app = App::default();
             app.view = view;
             app.tab = tab;
+            app.focus = 2; // In the archive list printable keys now edit its name filter.
             if palette {
                 choose_palette(&mut app, label);
             } else {
@@ -338,6 +339,7 @@ fn quit_alternatives_leave_recording_and_daemon_alone() {
     for key in [KeyCode::Char('q'), KeyCode::Char('й'), KeyCode::F(10)] {
         let mut app = App::default();
         app.record.recording = true;
+        app.focus = 2;
         app.key(KeyEvent::new(key, KeyModifiers::NONE));
         assert!(app.quit);
         assert!(app.effects.is_empty() && app.player_effects.is_empty());

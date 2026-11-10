@@ -11,6 +11,8 @@ use std::{
 };
 
 struct ApiFixture {
+    activity: Arc<AtomicUsize>,
+    list_reads: Arc<AtomicUsize>,
     preview: Arc<AtomicUsize>,
     address: String,
     stop: Arc<AtomicBool>,
@@ -34,6 +36,10 @@ impl ApiFixture {
         let active = recording.clone();
         let preview = Arc::new(AtomicUsize::new(0));
         let progress = preview.clone();
+        let activity = Arc::new(AtomicUsize::new(0));
+        let activity_state = activity.clone();
+        let list_reads = Arc::new(AtomicUsize::new(0));
+        let reads = list_reads.clone();
         let thread = std::thread::spawn(move || {
             let fixture: serde_json::Value =
                 serde_json::from_str(include_str!("../../../tests/fixtures/workspace.json"))
@@ -41,6 +47,17 @@ impl ApiFixture {
             while !stopping.load(Ordering::Relaxed) {
                 if let Some(request) = server.recv_timeout(Duration::from_millis(50)).unwrap() {
                     let path = request.url().split('?').next().unwrap();
+                    let mode = activity_state.load(Ordering::Relaxed);
+                    if matches!(path, "/api/sessions" | "/api/queue") {
+                        reads.fetch_add(1, Ordering::Relaxed);
+                        if mode == 5 {
+                            let _ = request.respond(
+                                tiny_http::Response::from_string("unavailable")
+                                    .with_status_code(503),
+                            );
+                            continue;
+                        }
+                    }
                     if token.as_ref().is_some_and(|token| {
                         !request.headers().iter().any(|h| {
                             h.field.equiv("Authorization")
@@ -74,7 +91,36 @@ impl ApiFixture {
                                 "ok":true,"service":"localvox-light","version":"fixture",
                                 "api_protocol":1,"capabilities":["technical-journal-v1","terminal-workspace-v1"]
                             }),
-                            "/api/sessions" => fixture["sessions"].clone(),
+                            "/api/sessions" => {
+                                let mut sessions = fixture["sessions"].clone();
+                                if mode > 0 {
+                                    sessions[0]["title"] = "Активная встреча".into();
+                                    sessions[0]["job"] = match mode {
+                                        1 => "running".into(),
+                                        2 => "pending".into(),
+                                        4 => "failed".into(),
+                                        6 => "waiting_input".into(),
+                                        _ => serde_json::Value::Null,
+                                    };
+                                    sessions[0]["recording"] = matches!(mode, 1 | 6).into();
+                                    sessions.as_array_mut().unwrap().push(serde_json::json!({"name":"other","title":"Вторая встреча","cooked":true}));
+                                }
+                                sessions
+                            }
+                            "/api/queue" => {
+                                if mode > 0 {
+                                    let state = match mode {
+                                        1 => "running",
+                                        2 => "pending",
+                                        4 => "failed",
+                                        6 => "waiting_input",
+                                        _ => "done",
+                                    };
+                                    serde_json::json!({"queue":[{"session":"20261031_demo","state":state,"phase":"transcribe","position":2}]})
+                                } else {
+                                    serde_json::json!({"queue":fixture["queue"]})
+                                }
+                            }
                             "/api/record" => {
                                 let mut record = fixture["record"].clone();
                                 record["recording"] = active.load(Ordering::Relaxed).into();
@@ -111,6 +157,8 @@ impl ApiFixture {
             }
         });
         Self {
+            activity,
+            list_reads,
             preview,
             address,
             stop,
@@ -146,11 +194,34 @@ fn wait_for(
     queries: &mut usize,
     deadline: Instant,
 ) {
-    while !(if needle.starts_with('\x1b') {
-        String::from_utf8_lossy(all).contains(needle)
-    } else {
-        screen.screen().contents().contains(needle)
-    }) {
+    wait_until(
+        needle,
+        |all, screen| {
+            if needle.starts_with('\x1b') {
+                String::from_utf8_lossy(all).contains(needle)
+            } else {
+                screen.contents().contains(needle)
+            }
+        },
+        all,
+        screen,
+        rx,
+        writer,
+        queries,
+        deadline,
+    );
+}
+fn wait_until(
+    needle: &str,
+    ready: impl Fn(&[u8], &vt100::Screen) -> bool,
+    all: &mut Vec<u8>,
+    screen: &mut vt100::Parser,
+    rx: &mpsc::Receiver<Vec<u8>>,
+    writer: &mut dyn Write,
+    queries: &mut usize,
+    deadline: Instant,
+) {
+    while !ready(all, screen.screen()) {
         let remaining = deadline.saturating_duration_since(Instant::now());
         assert!(!remaining.is_zero(), "terminal did not emit {needle}");
         match rx.recv_timeout(remaining) {
@@ -219,7 +290,7 @@ fn real_terminal_accepts_paste_resize_and_restores_screen_on_quit() {
         &mut queries,
         deadline,
     );
-    writer.write_all(b"\t5").unwrap();
+    writer.write_all(b"\t\r5").unwrap();
     writer.flush().unwrap();
     wait_for(
         "+ 35 lines",
@@ -408,7 +479,7 @@ fn unauthorized_start_can_reconnect_through_the_masked_form_without_replaying_st
     }
     see!("Нет подключения");
     assert!(!screen.screen().contents().contains("HTTP 401"));
-    writer.write_all(b"`").unwrap();
+    writer.write_all(b"\x1b[24~").unwrap(); // F12 works even in the archive filter
     writer.flush().unwrap();
     see!("HTTP 401");
     assert!(!screen
@@ -418,7 +489,7 @@ fn unauthorized_start_can_reconnect_through_the_masked_form_without_replaying_st
         .next()
         .unwrap_or("")
         .contains("! 1"));
-    writer.write_all(b"`").unwrap();
+    writer.write_all(b"\x1b[24~").unwrap(); // F12 works even in the archive filter
     writer.flush().unwrap();
     see!("F8 stop");
     // This control action is rejected locally while disconnected, never queued
@@ -440,7 +511,7 @@ fn unauthorized_start_can_reconnect_through_the_masked_form_without_replaying_st
     writer.flush().unwrap();
     see!("Архитектура и следующие шаги");
     assert_eq!(api.stops.load(Ordering::Relaxed), 0);
-    writer.write_all(b"q").unwrap(); // plain exit when the host reserves Ctrl+Q
+    writer.write_all(b"\tq").unwrap(); // leave the list input; plain exit when the host reserves Ctrl+Q
     writer.flush().unwrap();
     see!("\x1b[?1049l");
     assert!(child.0.wait().unwrap().success());
@@ -501,7 +572,7 @@ fn real_terminal_reads_a_growing_partial_and_keeps_the_old_line_on_its_row() {
         };
     }
     see!("Архитектура и следующие шаги");
-    writer.write_all(b"\t2").unwrap();
+    writer.write_all(b"\t\r2").unwrap();
     writer.flush().unwrap();
     see!("Готовый фрагмент 1");
     see!("Готовая часть");
@@ -532,5 +603,129 @@ fn real_terminal_reads_a_growing_partial_and_keeps_the_old_line_on_its_row() {
     drop(rx);
     output.join().unwrap();
     assert!(api.recording.load(Ordering::Relaxed));
+    assert_eq!(api.stops.load(Ordering::Relaxed), 0);
+}
+
+#[test]
+fn real_terminal_animates_server_activity_filters_names_and_accepts_russian_commands() {
+    let api = ApiFixture::new();
+    api.activity.store(1, Ordering::Relaxed);
+    let pair = native_pty_system()
+        .openpty(PtySize {
+            rows: 36,
+            cols: 120,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .unwrap();
+    let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_localvox-tui"));
+    command.args(["--address", &api.address, "--ascii", "--no-color"]);
+    command.env("LOCALVOX_API_TOKEN", "");
+    let mut child = OwnedChild(pair.slave.spawn_command(command).unwrap());
+    drop(pair.slave);
+    let mut reader = pair.master.try_clone_reader().unwrap();
+    let mut writer = pair.master.take_writer().unwrap();
+    let (tx, rx) = mpsc::sync_channel(32);
+    let output = std::thread::spawn(move || {
+        let mut bytes = [0; 8192];
+        while let Ok(n) = reader.read(&mut bytes) {
+            if n == 0 || tx.send(bytes[..n].to_vec()).is_err() {
+                break;
+            }
+        }
+    });
+    let mut all = Vec::new();
+    let mut queries = 0;
+    let mut screen = vt100::Parser::new(36, 120, 0);
+    let deadline = Instant::now() + Duration::from_secs(45);
+    macro_rules! see {
+        ($needle:expr) => {
+            wait_for(
+                $needle,
+                &mut all,
+                &mut screen,
+                &rx,
+                &mut writer,
+                &mut queries,
+                deadline,
+            )
+        };
+    }
+    see!("STT · запись");
+    let requests = api.list_reads.load(Ordering::Relaxed);
+    for symbol in ["|", "/", "-", "\\"].into_iter().cycle().take(12) {
+        see!(&format!("{symbol} Активная встреча"));
+    }
+    assert!(
+        api.list_reads.load(Ordering::Relaxed) - requests <= 2,
+        "animation must not poll the server"
+    );
+    api.activity.store(2, Ordering::Relaxed);
+    see!("в очереди #2");
+    see!("> Активная встреча");
+    api.activity.store(3, Ordering::Relaxed);
+    see!("+ Активная встреча");
+    api.activity.store(4, Ordering::Relaxed);
+    see!("! Активная встреча");
+    api.activity.store(5, Ordering::Relaxed);
+    see!("нет обновления");
+    see!("? Активная встреча");
+    api.activity.store(6, Ordering::Relaxed);
+    see!("ждём кусок");
+    writer
+        .write_all("\x1b[200~вТоРаЯ\x1b[201~".as_bytes())
+        .unwrap();
+    writer.flush().unwrap();
+    see!("Список · 1/2");
+    wait_until(
+        "filtered archive frame",
+        |_, screen| {
+            let list = (0..36)
+                .map(|row| {
+                    (0..27)
+                        .filter_map(|col| screen.cell(row, col))
+                        .map(|c| c.contents())
+                        .collect::<String>()
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            list.contains("Вторая встреча") && !list.contains("Активная встреча")
+        },
+        &mut all,
+        &mut screen,
+        &rx,
+        &mut writer,
+        &mut queries,
+        deadline,
+    );
+    writer.write_all("\rп".as_bytes()).unwrap();
+    writer.flush().unwrap();
+    see!("Перейти ко времени");
+    writer.write_all(b"\x1b").unwrap();
+    writer.flush().unwrap();
+    // Observe the closed editor before another printable key; an ESC prefix
+    // immediately followed by a character can legitimately mean Alt+character.
+    while screen.screen().contents().contains("Перейти ко времени") {
+        let bytes = rx
+            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+            .unwrap();
+        screen.process(&bytes);
+        all.extend(bytes);
+        assert!(all.len() < 1024 * 1024);
+    }
+    writer.write_all(b".").unwrap();
+    writer.flush().unwrap();
+    see!("lexical / semantic / hybrid");
+    writer.write_all("п.й".as_bytes()).unwrap();
+    writer.flush().unwrap();
+    see!("п.й");
+    writer.write_all(b"\x11").unwrap();
+    writer.flush().unwrap();
+    see!("\x1b[?1049l");
+    assert!(child.0.wait().unwrap().success());
+    drop(writer);
+    drop(pair.master);
+    drop(rx);
+    output.join().unwrap();
     assert_eq!(api.stops.load(Ordering::Relaxed), 0);
 }

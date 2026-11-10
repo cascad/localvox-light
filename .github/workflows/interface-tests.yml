@@ -130,6 +130,7 @@ jobs:
           npx --yes @fission-ai/openspec@1.13.2 validate --specs --strict --no-interactive
           npx --yes @fission-ai/openspec@1.13.2 validate add-technical-journal-workspace --type change --strict --no-interactive
           npx --yes @fission-ai/openspec@1.13.2 validate add-incremental-recording-transcription --type change --strict --no-interactive
+          npx --yes @fission-ai/openspec@1.13.2 validate add-terminal-session-activity --type change --strict --no-interactive
           npx --yes @fission-ai/openspec@1.13.2 validate control-postprocessing-and-terminal-player --type change --strict --no-interactive
           npx --yes @fission-ai/openspec@1.13.2 validate refactor-terminal-command-dispatch --type change --strict --no-interactive
           npx --yes @fission-ai/openspec@1.13.2 validate fix-browser-artifact-refresh --type change --strict --no-interactive
@@ -170,3 +171,4 @@ jobs:
             ui/playwright-report/
             crates/localvox-light-terminal/src/snapshots/*.snap.new
             crates/localvox-light-terminal/src/render/snapshots/*.snap.new
+            crates/localvox-light-terminal/src/render/activity/snapshots/*.snap.new

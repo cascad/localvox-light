@@ -54,6 +54,7 @@ pub fn run(mut client: Client, mut app: App) -> Result<()> {
         let mut last_record = Instant::now();
         let mut dirty = true;
         let mut last_draw = Instant::now();
+        let mut last_animation = None;
         while !app.quit {
             if let Some((address, token)) = app.connection_request.take() {
                 if connecting.is_some() {
@@ -181,9 +182,12 @@ pub fn run(mut client: Client, mut app: App) -> Result<()> {
                     app.status = "Нет проверенного подключения; действие не отправлено, введённый текст сохранён".into();
                 }
             }
-            if dirty || last_draw.elapsed() >= Duration::from_secs(1) {
+            let animation = render::animation_frame(&app);
+            if dirty || animation != last_animation || last_draw.elapsed() >= Duration::from_secs(1)
+            {
                 terminal.draw(|f| render::draw(f, &app))?;
                 last_draw = Instant::now();
+                last_animation = animation;
                 dirty = false;
             }
             if event::poll(Duration::from_millis(50))? {

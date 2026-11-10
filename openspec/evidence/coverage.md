@@ -1,5 +1,12 @@
 # Покрытие требований и состояние реализации
 
+Дополнение ARCH-001, PIPE-011 и доступности TUI от 2026-11-10:
+[цветные состояния списка, фильтр и RU/EN команды](../changes/add-terminal-session-activity/evidence/implementation.md).
+140 library tests, 4 настоящих ConPTY, style/geometry snapshots и release-сборка
+прошли. Новые ARCH-010–012 остаются локальной delta, main specs не синхронизированы.
+Установленный daemon/личный архив и предыдущий incremental budget gate не затронуты;
+аппаратный звук/другие раскладки этим срезом не проверены.
+
 Продолжение PIPE-002/004/008/010/011/012, VER-001/004, STORE-001/002,
 ARCH-001–005, CFG-001/002 от 2026-11-10:
 [R4 кандидат/регрессии и локальная карта delta](../changes/add-incremental-recording-transcription/evidence/review-candidate.md).
