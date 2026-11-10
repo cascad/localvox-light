@@ -92,20 +92,24 @@ impl ApiFixture {
                                 "api_protocol":1,"capabilities":["technical-journal-v1","terminal-workspace-v1"]
                             }),
                             "/api/sessions" => {
-                                let mut sessions = fixture["sessions"].clone();
-                                if mode > 0 {
-                                    sessions[0]["title"] = "Активная встреча".into();
-                                    sessions[0]["job"] = match mode {
-                                        1 => "running".into(),
-                                        2 => "pending".into(),
-                                        4 => "failed".into(),
-                                        6 => "waiting_input".into(),
-                                        _ => serde_json::Value::Null,
-                                    };
-                                    sessions[0]["recording"] = matches!(mode, 1 | 6).into();
-                                    sessions.as_array_mut().unwrap().push(serde_json::json!({"name":"other","title":"Вторая встреча","cooked":true}));
+                                if mode == 7 {
+                                    serde_json::json!((0..80).map(|n|serde_json::json!({"name":format!("page{n:02}"),"title":format!("Встреча {n:02}"),"cooked":true})).collect::<Vec<_>>())
+                                } else {
+                                    let mut sessions = fixture["sessions"].clone();
+                                    if mode > 0 {
+                                        sessions[0]["title"] = "Активная встреча".into();
+                                        sessions[0]["job"] = match mode {
+                                            1 => "running".into(),
+                                            2 => "pending".into(),
+                                            4 => "failed".into(),
+                                            6 => "waiting_input".into(),
+                                            _ => serde_json::Value::Null,
+                                        };
+                                        sessions[0]["recording"] = matches!(mode, 1 | 6).into();
+                                        sessions.as_array_mut().unwrap().push(serde_json::json!({"name":"other","title":"Вторая встреча","cooked":true}));
+                                    }
+                                    sessions
                                 }
-                                sessions
                             }
                             "/api/queue" => {
                                 if mode > 0 {
@@ -142,6 +146,9 @@ impl ApiFixture {
                             }
                             p if p.ends_with("/transcript") && revision > 0 => {
                                 serde_json::json!({"lines":lines,"partial":info})
+                            }
+                            p if p.ends_with("/processed") && mode == 7 => {
+                                serde_json::json!({"from_transcript":true,"lines":[{"text":(0..200).map(|n|format!("Строка {n:03}")).collect::<Vec<_>>().join("\n")}]})
                             }
                             p if p.ends_with("/processed") && revision > 0 => {
                                 serde_json::json!({"lines":lines,"partial":info,"from_transcript":true})
@@ -719,6 +726,95 @@ fn real_terminal_animates_server_activity_filters_names_and_accepts_russian_comm
     writer.write_all("п.й".as_bytes()).unwrap();
     writer.flush().unwrap();
     see!("п.й");
+    writer.write_all(b"\x1b").unwrap();
+    writer.flush().unwrap();
+    wait_until(
+        "closed search editor",
+        |_, screen| !screen.contents().contains("lexical / semantic / hybrid"),
+        &mut all,
+        &mut screen,
+        &rx,
+        &mut writer,
+        &mut queries,
+        deadline,
+    );
+    api.activity.store(7, Ordering::Relaxed);
+    writer.write_all(b"\x1b[Z\x1b").unwrap();
+    writer.flush().unwrap();
+    see!("Встреча 00");
+    writer.write_all(b"\x1b[1~").unwrap();
+    writer.flush().unwrap();
+    see!("> + Встреча 00");
+    writer.write_all(b"\x1b[6~").unwrap();
+    writer.flush().unwrap();
+    see!("> + Встреча 09");
+    writer.write_all(b"\x1b[5~").unwrap();
+    writer.flush().unwrap();
+    see!("> + Встреча 00");
+    writer.write_all(b"\r3").unwrap();
+    writer.flush().unwrap();
+    see!("Строка 000");
+    writer.write_all(b"\x1b[6~").unwrap();
+    writer.flush().unwrap();
+    wait_until(
+        "one document page",
+        |_, screen| {
+            (28..40)
+                .filter_map(|x| screen.cell(9, x))
+                .map(|c| c.contents())
+                .collect::<String>()
+                .starts_with("Строка 023")
+        },
+        &mut all,
+        &mut screen,
+        &rx,
+        &mut writer,
+        &mut queries,
+        deadline,
+    );
+    pair.master
+        .resize(PtySize {
+            rows: 24,
+            cols: 80,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .unwrap();
+    screen.set_size(24, 80);
+    wait_until(
+        "compact footer",
+        |_, screen| {
+            (1..12)
+                .filter_map(|x| screen.cell(23, x))
+                .map(|c| c.contents())
+                .collect::<String>()
+                .starts_with("F8 stop")
+        },
+        &mut all,
+        &mut screen,
+        &rx,
+        &mut writer,
+        &mut queries,
+        deadline,
+    );
+    writer.write_all(b"\x1b[6~").unwrap();
+    writer.flush().unwrap();
+    wait_until(
+        "resized document page",
+        |_, screen| {
+            (1..13)
+                .filter_map(|x| screen.cell(9, x))
+                .map(|c| c.contents())
+                .collect::<String>()
+                .starts_with("Строка 036")
+        },
+        &mut all,
+        &mut screen,
+        &rx,
+        &mut writer,
+        &mut queries,
+        deadline,
+    );
     writer.write_all(b"\x11").unwrap();
     writer.flush().unwrap();
     see!("\x1b[?1049l");

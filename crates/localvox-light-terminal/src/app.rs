@@ -5,6 +5,7 @@ mod diagnostics;
 mod documents;
 mod forms;
 mod input;
+mod paging;
 use crate::io::{Data, Resource, Response, Task};
 pub use commands::{Action, COMMANDS};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -97,6 +98,7 @@ pub struct App {
     pub focus: usize,
     pub nav: usize,
     pub selected: usize,
+    pub list_scroll: usize,
     pub item: usize,
     pub epoch: u64,
     pub sessions: Vec<Session>,
@@ -182,6 +184,7 @@ impl Default for App {
             focus: 1,
             nav: 0,
             selected: 0,
+            list_scroll: 0,
             item: 0,
             epoch: 1,
             sessions: vec![],
@@ -379,6 +382,7 @@ impl App {
         self.epoch += 1;
         self.item = 0;
         self.selected = 0;
+        self.list_scroll = 0;
         self.scroll = 0;
         self.clear_document_errors();
         self.refresh_view();
@@ -423,6 +427,7 @@ impl App {
             .iter()
             .position(|s| s.name == name)
             .unwrap_or(0);
+        self.list_scroll = crate::render::list_metrics(self).1;
         self.refresh_view();
     }
     pub fn apply(&mut self, r: Response) {
@@ -1203,10 +1208,7 @@ impl App {
                 if self.focus == 0 {
                     self.nav = (self.nav + 1) % VIEWS.len();
                 } else if self.focus == 1 {
-                    self.selected = self
-                        .selected
-                        .saturating_add(1)
-                        .min(self.list_len().saturating_sub(1));
+                    self.move_list(true, 1);
                 } else {
                     self.scroll = self.effective_scroll();
                     if self.is_journal() {
@@ -1227,7 +1229,7 @@ impl App {
                 if self.focus == 0 {
                     self.nav = (self.nav + VIEWS.len() - 1) % VIEWS.len();
                 } else if self.focus == 1 {
-                    self.selected = self.selected.saturating_sub(1);
+                    self.move_list(false, 1);
                 } else {
                     self.scroll = self.effective_scroll();
                     if self.is_journal() {
@@ -1241,21 +1243,17 @@ impl App {
                     self.scroll = self.scroll.saturating_sub(1);
                 }
             }
-            KeyCode::PageDown => {
-                self.scroll = self.effective_scroll();
-                if self.is_journal() {
-                    self.journal.follow = false;
-                }
-                self.follow_selection = false;
-                self.scroll = self.scroll.saturating_add(10);
+            KeyCode::PageDown => self.page(true),
+            KeyCode::PageUp => self.page(false),
+            KeyCode::Home if self.focus == 1 => {
+                self.selected = 0;
+                self.list_scroll = 0;
             }
-            KeyCode::PageUp => {
-                self.scroll = self.effective_scroll();
-                if self.is_journal() {
-                    self.journal.follow = false;
-                }
-                self.follow_selection = false;
-                self.scroll = self.scroll.saturating_sub(10);
+            KeyCode::End if self.focus == 1 => {
+                self.selected = self.list_len().saturating_sub(1);
+                self.list_scroll = self
+                    .list_len()
+                    .saturating_sub(crate::render::list_metrics(self).0);
             }
             KeyCode::Home => {
                 self.scroll = 0;
@@ -1268,7 +1266,7 @@ impl App {
             KeyCode::End => {
                 self.scroll = crate::render::document_metrics(self)
                     .0
-                    .saturating_sub(self.viewport.1.saturating_sub(8));
+                    .saturating_sub(crate::render::document_dimensions(self).1);
                 self.follow_selection = false;
                 if self.is_journal() {
                     self.journal.follow = true;

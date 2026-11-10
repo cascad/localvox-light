@@ -131,6 +131,7 @@ jobs:
           npx --yes @fission-ai/openspec@1.13.2 validate add-technical-journal-workspace --type change --strict --no-interactive
           npx --yes @fission-ai/openspec@1.13.2 validate add-incremental-recording-transcription --type change --strict --no-interactive
           npx --yes @fission-ai/openspec@1.13.2 validate add-terminal-session-activity --type change --strict --no-interactive
+          npx --yes @fission-ai/openspec@1.13.2 validate fix-terminal-page-navigation --type change --strict --no-interactive
           npx --yes @fission-ai/openspec@1.13.2 validate control-postprocessing-and-terminal-player --type change --strict --no-interactive
           npx --yes @fission-ai/openspec@1.13.2 validate refactor-terminal-command-dispatch --type change --strict --no-interactive
           npx --yes @fission-ai/openspec@1.13.2 validate fix-browser-artifact-refresh --type change --strict --no-interactive

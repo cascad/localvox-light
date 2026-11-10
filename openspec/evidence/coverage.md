@@ -1,5 +1,10 @@
 # Покрытие требований и состояние реализации
 
+Дополнение чтения ARCH-001 и ручного журнала PIPE-011 от 2026-11-10:
+[Page Up/Down по видимой странице TUI](../changes/fix-terminal-page-navigation/evidence/implementation.md).
+145 library tests/4 ConPTY прошли, прежние visual baselines сохранены; ARCH-013
+пока delta. UI/сервер/модели и аппаратные gates не менялись.
+
 Дополнение ARCH-001, PIPE-011 и доступности TUI от 2026-11-10:
 [цветные состояния списка, фильтр и RU/EN команды](../changes/add-terminal-session-activity/evidence/implementation.md).
 140 library tests, 4 настоящих ConPTY, style/geometry snapshots и release-сборка

@@ -23,6 +23,7 @@ impl App {
             .get(self.selected)
             .map(|s| s.name.clone());
         self.archive_filter = query;
+        self.list_scroll = 0;
         self.selected = selected
             .and_then(|id| self.visible_sessions().iter().position(|s| s.name == id))
             .unwrap_or(0);

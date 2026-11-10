@@ -3,6 +3,9 @@ mod activity;
 pub(crate) use activity::animation_frame;
 mod console;
 mod documents;
+mod geometry;
+pub(crate) use geometry::{document_dimensions, list_metrics};
+use geometry::{document_rows, left_rows, workspace_columns, workspace_rows};
 #[cfg(test)]
 mod ux_tests;
 use crate::app::{state_symbol, timecode, App, Tab, View, COMMANDS, TABS, VIEWS};
@@ -154,15 +157,7 @@ pub fn draw(f: &mut Frame, a: &App) {
         );
         return;
     }
-    let rows = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(2),
-            Constraint::Length(4),
-            Constraint::Min(1),
-            Constraint::Length(2),
-        ])
-        .split(area);
+    let rows = workspace_rows(area);
     let record = if a.pending_record.is_some() {
         "ожидаем подтверждение"
     } else if a.record.recording {
@@ -272,22 +267,8 @@ pub fn draw(f: &mut Frame, a: &App) {
             _ => document(f, a, rows[2], t, &title),
         };
     } else {
-        let cols = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints(if wide {
-                vec![
-                    Constraint::Length(27),
-                    Constraint::Min(40),
-                    Constraint::Length(28),
-                ]
-            } else {
-                vec![Constraint::Length(27), Constraint::Min(40)]
-            })
-            .split(rows[2]);
-        let left = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([Constraint::Length(9), Constraint::Min(2)])
-            .split(cols[0]);
+        let cols = workspace_columns(rows[2]);
+        let left = left_rows(cols[0]);
         nav(f, a, left[0], t);
         items(f, a, left[1], t);
         document(f, a, cols[1], t, &a.document_title());
@@ -697,6 +678,17 @@ fn nav(f: &mut Frame, a: &App, area: Rect, t: Theme) {
         &mut state,
     );
 }
+fn list_block(a: &App, t: Theme, title: &str) -> Block<'static> {
+    let mut block = panel(title, a.focus == 1, t);
+    if a.view == View::Archive && !a.archive_filter.is_empty() {
+        block = block.title_bottom(Line::from(vec![
+            Span::styled(" / ", Style::default().fg(t.command)),
+            Span::styled(safe_label(&a.archive_filter), Style::default().fg(t.value)),
+            Span::styled(" · Esc ", Style::default().fg(t.dim)),
+        ]));
+    }
+    block
+}
 fn items(f: &mut Frame, a: &App, area: Rect, t: Theme) {
     let archive = a.visible_sessions();
     let entries: Vec<String> = match a.view {
@@ -791,14 +783,7 @@ fn items(f: &mut Frame, a: &App, area: Rect, t: Theme) {
     } else {
         "Список · Enter открыть".to_string()
     };
-    let mut block = panel(&title, a.focus == 1, t);
-    if a.view == View::Archive && !a.archive_filter.is_empty() {
-        block = block.title_bottom(Line::from(vec![
-            Span::styled(" / ", Style::default().fg(t.command)),
-            Span::styled(safe_label(&a.archive_filter), Style::default().fg(t.value)),
-            Span::styled(" · Esc ", Style::default().fg(t.dim)),
-        ]));
-    }
+    let block = list_block(a, t, &title);
     if entries.is_empty() {
         let message: String = if error.is_some() {
             "Список недоступен · ~ консоль · r повторить".into()
@@ -819,6 +804,7 @@ fn items(f: &mut Frame, a: &App, area: Rect, t: Theme) {
         return;
     }
     let mut state = ListState::default().with_selected(Some(a.selected));
+    *state.offset_mut() = list_metrics(a).1;
     let items = entries
         .into_iter()
         .enumerate()
@@ -844,10 +830,7 @@ fn document(f: &mut Frame, a: &App, area: Rect, t: Theme, title: &str) {
     let block = panel(title, a.focus == 2, t);
     let inner = block.inner(area);
     f.render_widget(block, area);
-    let rows = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Length(2), Constraint::Min(1)])
-        .split(inner);
+    let rows = document_rows(inner);
     let tabs = if a.view == View::Archive {
         Line::from(
             TABS.iter()
@@ -933,15 +916,7 @@ fn document(f: &mut Frame, a: &App, area: Rect, t: Theme, title: &str) {
     );
 }
 pub fn document_metrics(a: &App) -> (u16, u16) {
-    let (width, height) = a.viewport;
-    let body_width = width.saturating_sub(if width >= 125 {
-        56
-    } else if width >= 95 {
-        28
-    } else {
-        1
-    });
-    let body_height = height.saturating_sub(8);
+    let (body_width, body_height) = document_dimensions(a);
     let projection = documents::project(a, Theme::for_app(a), true);
     let count = Paragraph::new(projection.lines.clone())
         .wrap(Wrap { trim: false })
@@ -959,15 +934,7 @@ pub fn document_metrics(a: &App) -> (u16, u16) {
     )
 }
 pub fn journal_metrics(a: &App) -> (u16, u16) {
-    let (width, height) = a.viewport;
-    let body_width = width.saturating_sub(if width >= 125 {
-        56
-    } else if width >= 95 {
-        28
-    } else {
-        1
-    });
-    let body_height = height.saturating_sub(8);
+    let (body_width, body_height) = document_dimensions(a);
     let count = Paragraph::new(journal_lines(a, Theme::for_app(a)))
         .wrap(Wrap { trim: false })
         .line_count(body_width)
@@ -1451,17 +1418,7 @@ fn journal_projection(a: &App, t: Theme) -> JournalProjection {
     }
 }
 fn journal_dimensions(a: &App) -> (u16, u16) {
-    let (width, height) = a.viewport;
-    (
-        width.saturating_sub(if width >= 125 {
-            56
-        } else if width >= 95 {
-            28
-        } else {
-            1
-        }),
-        height.saturating_sub(8),
-    )
+    document_dimensions(a)
 }
 fn wrapped_offsets(lines: &[Line], width: u16) -> Vec<usize> {
     let mut offsets = Vec::with_capacity(lines.len() + 1);
