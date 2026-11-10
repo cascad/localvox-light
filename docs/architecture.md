@@ -163,6 +163,28 @@ speech/silence диапазоны, `feed` — прежний speech-only ASR в�
 `finish_all` вызывается только для EOF и повторяется без дублирования. Отказ sink
 требует replay сохранённого PCM; повреждённый planner не продолжает с догадками.
 Рецепт VAD/quietest cut не менялся: [побайтовые проверки](../openspec/changes/add-incremental-recording-transcription/evidence/window-planner.md).
+
+Capture теперь владеет отдельным лёгким потоком `capture-plan`. Он создаёт native
+VAD внутри потока, читает только новые sealed ranges и публикует immutable descriptors
+с PCM SHA и speech/silence outcome до атомарного `capture/plan/state.json`.
+В state — capture revision, recipe, per-source input/closed bounds и общий минимум
+неоконченных источников. Источник без данных, unknown или отстающая дорожка не
+считаются тишиной; при неясной топологии общий префикс может ждать до EOF.
+
+Recorder посылает только coalesced wakeup (канал ёмкостью один), без PCM и ожидания
+планировщика. Idle timeout проверяет отмену, не перечитывает диск. В штатном проходе
+закрытый файл читается один раз; VAD/tail остаются в RAM, не сериализуются. Replay
+возможен после сбоя, но не при каждом обновлении. Окно ограничено recipe, decoder
+читает блоками 64 KiB; временный decoded FLAC лежит на диске аудио.
+
+Stop подтверждает primary EOF независимо от планировщика; drop session handle
+передаёт последний дисковый horizon без join на пути записи. Планировщик удерживает
+capture lease до выхода. Engine manager владеет максимум двумя потоками (предыдущая
+и текущая запись); при занятости первичное аудио сохраняется для полной обработки.
+Shutdown отменяет чтение/decoder и join-ит принадлежащие потоки. Отказ планировщика
+пишется в capture-журнал, primary recording продолжается. Ни ASR/LLM, ни версии,
+best, summary или UI-префикс этим этапом ещё не запускаются/публикуются.
+Проверки: [capture planner](../openspec/changes/add-incremental-recording-transcription/evidence/capture-planner.md).
 Остановка внешнего Ollama и общая crash-транзакция нескольких файлов не обещаются.
 [Проверки](../openspec/changes/archive/2026-11-01-serialize-session-mutations/evidence/implementation.md).
 

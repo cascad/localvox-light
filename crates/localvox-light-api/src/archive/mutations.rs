@@ -94,6 +94,74 @@ mod tests {
         assert_eq!(fs::read(root.path().join("jobs.json")).unwrap(), before);
     }
 
+    #[test]
+    fn deletion_after_stop_waits_for_the_real_capture_planner_owner() {
+        use localvox_light_core::chunks::{self, capture, codec, planning};
+        use std::sync::{Arc, Mutex};
+        let (root, archive, session) = fixture();
+        fs::create_dir(session.join("audio")).unwrap();
+        let generation = "0199a774-0000-7000-8000-000000000001".to_string();
+        fs::write(
+            session.join("meta.json"),
+            serde_json::to_vec(&chunks::SessionMeta {
+                capture_generation: Some(generation.clone()),
+                sample_rate: 16000,
+                ..Default::default()
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        let mut writer = capture::Writer::begin(&session, generation).unwrap();
+        writer.open(0, 1, 0).unwrap();
+        fs::write(
+            session.join("audio/src0_chunk0001.wav"),
+            wav_16k_mono(&[1, 0, 2, 0]),
+        )
+        .unwrap();
+        writer
+            .close(
+                0,
+                capture::Range {
+                    sequence: 1,
+                    start_sample: 0,
+                    samples: 2,
+                    kind: capture::Kind::Audio,
+                    problem: None,
+                },
+            )
+            .unwrap();
+        writer
+            .end("test Stop", false, [(0, 2), (1, 0)].into())
+            .unwrap();
+        codec::with_read(&session.join("audio"), "src0_chunk0001", |_| Ok(())).unwrap();
+        let sidecar = fs::read_dir(session.join(".audio-locks"))
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        let blocked = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(sidecar)
+            .unwrap();
+        blocked.lock().unwrap();
+        let group = planning::Planners::default();
+        let handle = group
+            .attach(Arc::new(Mutex::new(writer)), "unused-for-wav".into())
+            .unwrap();
+        drop(handle); // Stop notification; planner still owns capture until the read exits
+        let before = fs::read(root.path().join("jobs.json")).unwrap();
+        assert!(archive.delete_session("fixture", "fixture").is_err());
+        assert_eq!(fs::read(root.path().join("jobs.json")).unwrap(), before);
+        assert!(session.join("retained.txt").is_file());
+        drop(group);
+        assert!(capture::try_mutation_lock(&session).unwrap().is_some());
+        drop(blocked);
+        archive.delete_session("fixture", "fixture").unwrap();
+        assert!(!session.exists());
+    }
+
     fn fixture() -> (tempfile::TempDir, Archive, PathBuf) {
         let root = tempfile::tempdir().unwrap();
         let session = root.path().join("sessions/fixture");

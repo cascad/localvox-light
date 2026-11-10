@@ -1374,7 +1374,7 @@ impl Archive {
         }
 
         let _capture = localvox_light_core::chunks::capture::try_mutation_lock(&dir)?
-            .context("запись ещё сохраняется или конвертируется; файлы не удалены")?;
+            .context("запись ещё сохраняет аудио или план обработки; файлы не удалены")?;
         let _lease = self.stopped_lease(session, &dir, std::time::Duration::from_secs(5))?;
         std::fs::remove_dir_all(&dir).with_context(|| format!("не удалось удалить {session}"))?;
         // The cancellation tombstone was saved before touching files. A cleanup failure

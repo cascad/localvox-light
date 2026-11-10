@@ -113,6 +113,7 @@ jobs:
       - name: Real archive HTTP media and sample-accurate FLAC
         run: |
           cargo test --locked -p localvox-light-core --lib chunks::codec::tests::real_ -- --ignored --nocapture
+          cargo test --locked -p localvox-light-core --lib chunks::planning::tests::real_ -- --ignored --nocapture
           cargo test --locked -p localvox-light-api media_http_range_plays --lib -- --ignored --nocapture
           cargo test --locked -p localvox-light-api flac_range_is_sample_accurate --lib -- --ignored --nocapture
       - name: Specification checks

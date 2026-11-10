@@ -146,12 +146,13 @@ pub fn read(session: &Path) -> Result<Snapshot> {
     Ok(snapshot)
 }
 
-/// One producer, held through recorder and (later) its lightweight planner lifetime.
+/// One producer, held through recorder, converter and lightweight planner lifetime.
 pub struct Writer {
     session: PathBuf,
     working: Snapshot,
     committed_revision: u64,
     _lease: File,
+    plan_signal: Option<crossbeam_channel::Sender<()>>,
 }
 impl Writer {
     pub fn begin(session: &Path, generation: String) -> Result<Self> {
@@ -180,6 +181,7 @@ impl Writer {
             },
             committed_revision: 0,
             _lease: lease,
+            plan_signal: None,
         };
         writer.working.validate()?;
         crate::journal::begin_run(session, &writer.working.generation);
@@ -208,7 +210,20 @@ impl Writer {
         fs::create_dir_all(path.parent().context("capture directory")?)?;
         crate::artifacts::atomic_write(&path, &serde_json::to_vec_pretty(&self.working)?)?;
         self.committed_revision = self.working.revision;
+        if let Some(signal) = &self.plan_signal {
+            let _ = signal.try_send(()); // disk is truth; at most one pending wakeup
+        }
         Ok(())
+    }
+    pub(super) fn set_plan_signal(&mut self, signal: crossbeam_channel::Sender<()>) {
+        let _ = signal.try_send(());
+        self.plan_signal = Some(signal);
+    }
+    pub(super) fn has_planner(&self) -> bool {
+        self.plan_signal.is_some()
+    }
+    pub(super) fn session(&self) -> &Path {
+        &self.session
     }
     fn update(&mut self, change: impl FnOnce(&mut Snapshot) -> Result<()>) -> Result<()> {
         let mut next = self.working.clone();
@@ -484,6 +499,7 @@ pub(super) fn recover(session: &Path) -> Result<usize> {
         committed_revision: snapshot.revision,
         working: snapshot,
         _lease: lease,
+        plan_signal: None,
     };
     let mut recovered = 0;
     for id in [0, 1] {

@@ -414,6 +414,15 @@ fn convert_with(
 /// PCM identity from a conversion we verified before dropping WAV; legacy FLACs
 /// still undergo full decode when read, but do not acquire invented provenance.
 pub fn verify_conversion(audio: &Path, stem: &str, n: u64, generation: &str) -> Result<()> {
+    verify_conversion_cancelled(audio, stem, n, generation, &|| false)
+}
+pub(super) fn verify_conversion_cancelled(
+    audio: &Path,
+    stem: &str,
+    n: u64,
+    generation: &str,
+    cancelled: &impl Fn() -> bool,
+) -> Result<()> {
     let path = audio
         .parent()
         .unwrap()
@@ -425,7 +434,7 @@ pub fn verify_conversion(audio: &Path, stem: &str, n: u64, generation: &str) -> 
         receipt["version"] == 1
             && receipt["generation"] == generation
             && receipt["samples"] == n
-            && receipt["flac_sha256"] == digest(&flac, 0, &|| false)?,
+            && receipt["flac_sha256"] == digest(&flac, 0, cancelled)?,
         "unconfirmed FLAC conversion"
     );
     Ok(())

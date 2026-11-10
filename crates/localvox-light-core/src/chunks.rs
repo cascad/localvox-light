@@ -8,8 +8,8 @@
 //!
 //! Layout: `<work_dir>/sessions/<YYYYMMDD_HHMMSS>/audio/src{N}_chunk{SEQ}.wav`,
 //! with `meta.json` next to `audio/`. A closed chunk is optionally recompressed to FLAC
-//! (external ffmpeg, on a background thread); `meta.json` stores the name without an
-//! extension: the reader looks for `.flac`, then `.wav`.
+//! (supervised ffmpeg, on an owned background thread); `meta.json` stores the name
+//! without an extension. Readers select WAV, then FLAC, under a shared chunk lease.
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -26,6 +26,7 @@ const FSYNC_INTERVAL: Duration = Duration::from_secs(5);
 
 pub mod capture;
 pub mod codec;
+pub mod planning;
 
 // ─────────────────────────── parameters ───────────────────────────
 

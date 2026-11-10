@@ -298,6 +298,7 @@ struct Session {
     params: Arc<ChunkParams>,
     meta: Arc<Mutex<SessionMeta>>,
     capture: Arc<Mutex<crate::chunks::capture::Writer>>,
+    _planner: Option<crate::chunks::planning::Handle>,
 }
 
 /// Recording of session chunks (F8).
@@ -324,6 +325,7 @@ struct ChunkLane {
     current: Option<Session>,
     recorders: [Option<ChunkRecorder>; 2],
     conversions: Arc<crate::chunks::codec::Conversions>,
+    planners: crate::chunks::planning::Planners,
     /// The last `preroll_cap` samples of each source. Filled always — this is the past we can
     /// still save.
     preroll: [std::collections::VecDeque<i16>; 2],
@@ -369,6 +371,7 @@ impl ChunkLane {
             current: None,
             recorders: [None, None],
             conversions: Arc::new(crate::chunks::codec::Conversions::default()),
+            planners: crate::chunks::planning::Planners::default(),
             preroll: [
                 std::collections::VecDeque::new(),
                 std::collections::VecDeque::new(),
@@ -548,6 +551,17 @@ impl ChunkLane {
                         return;
                     }
                 };
+                let planner = match self.planners.attach(capture.clone(), s.ffmpeg.clone()) {
+                    Ok(handle) => Some(handle),
+                    Err(error) => {
+                        crate::chunks::capture::report(
+                            meta_path.parent().unwrap(),
+                            "Раннее планирование недоступно; запись аудио продолжается",
+                            &error,
+                        );
+                        None
+                    }
+                };
                 self.current = Some(Session {
                     params: Arc::new(ChunkParams {
                         audio_dir,
@@ -558,6 +572,7 @@ impl ChunkLane {
                     }),
                     meta: Arc::new(Mutex::new(meta)),
                     capture,
+                    _planner: planner,
                 });
                 self.recorded_since_open = false;
                 self.sync_marker();
@@ -1454,6 +1469,23 @@ mod tests {
             assert!(source.open.is_none());
             assert_eq!(source.confirmed_end(), source.end());
         }
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let plan = loop {
+            if let Some(plan) = std::fs::read(session.join(crate::chunks::planning::FILE))
+                .ok()
+                .and_then(|b| serde_json::from_slice::<crate::chunks::planning::Snapshot>(&b).ok())
+                .filter(|p| p.complete)
+            {
+                break plan;
+            }
+            assert!(Instant::now() < deadline, "Stop did not reach planner EOF");
+            std::thread::sleep(Duration::from_millis(5));
+        };
+        assert_eq!(plan.generation, generation);
+        assert_eq!(plan.sources[&0].input_end, 16320);
+        assert_eq!(plan.sources[&1].input_end, 8640);
+        assert!(!session.join("versions.json").exists());
+        assert!(!session.join("processing.json").exists());
     }
 
     #[test]
