@@ -1,5 +1,14 @@
 # Покрытие требований и состояние реализации
 
+Продолжение PIPE-002/004/008/010/011/012, VER-001/004, STORE-001/002,
+ARCH-001–005, CFG-001/002 от 2026-11-10:
+[R4 кандидат/регрессии и локальная карта delta](../changes/add-incremental-recording-transcription/evidence/review-candidate.md).
+Сохранённая fault/restart серия и три native пары выполнены: окна/текст/ASR calls
+совпали, **reference wall budget не пройден (+48.12% > 20%)**. Preset остаётся off,
+PIPE-018 default on не реализован, 7.3/7.4 открыты; аппаратные сценарии not-run.
+Это дополнительное свидетельство принятых требований, не принятие новых IDs и
+не sync/archive change. Кандидат передаётся на просмотр UI/TUI с явным включением.
+
 Продолжение ARCH-001–005, PIPE-011/012, VER-001, CFG-001/002 от 2026-11-10:
 [R3 partial API/UI/TUI](../changes/add-incremental-recording-transcription/evidence/partial-clients.md).
 UI build/unit/77 browser tests, TUI/client/ConPTY, real HTTP seam/error, real FLAC и

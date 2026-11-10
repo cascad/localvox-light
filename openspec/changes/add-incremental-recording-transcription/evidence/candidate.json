@@ -1,0 +1,54 @@
+{
+  "date": "2026-11-10",
+  "kind": "owner-review-candidate",
+  "protocol": "localvox-worker/2",
+  "normal_worker_rejects_fixture_cli": true,
+  "incremental_preset": "off",
+  "reference_budget": "failed; default-on task remains open",
+  "hardware_acceptance": "not-run",
+  "files": {
+    "target/release/localvox-light.exe": {
+      "sha256": "865c07a11ea5ebc5d28c818b806b762ffa948cf6b52983f26e9be71e2e17bfc8",
+      "bytes": 38926848
+    },
+    "target/release/localvox-process.exe": {
+      "sha256": "bcb4b845a2ea22ebfc0edd3064b64c0351183dc15815b23b5ba2cad9d9631bc2",
+      "bytes": 45626880
+    },
+    "target/release/localvox-tui.exe": {
+      "sha256": "eadde846c414a0da59874fad1d72dee9129149513fea55e4120e7accae3082c2",
+      "bytes": 5510656
+    },
+    "ui/dist/index.html": {
+      "sha256": "90dc7d37f9d472f589d4274252b234e04c3b256573fe32187c14a5b6d904a08d",
+      "bytes": 500
+    },
+    "ui/dist/assets/index-4b6_YUh5.js": {
+      "sha256": "2f8eb79fc58fa5249953d95a65bd587f6bae0a7792d5605eb08ed05ddc5db5c6",
+      "bytes": 355242
+    },
+    "ui/dist/assets/index-RoCd6nSq.css": {
+      "sha256": "717a70fe1a06674e00330e18a7d3483b0e62cc16b98ad893a8d51f61b6cd0c19",
+      "bytes": 37425
+    }
+  },
+  "candidate_native_probe": {
+    "samples": 5280000,
+    "reference": false,
+    "budget_pass": false,
+    "pairs": [
+      {
+        "batch_chunks": 1,
+        "overhead": 0.4519245802219647,
+        "pair": 1,
+        "pass": false,
+        "same_asr_calls": true,
+        "same_text": true,
+        "same_windows": true,
+        "stop_to_ready_sec": 1.643718
+      }
+    ],
+    "report": "target/incremental-candidate-probe-20261110/report.json",
+    "report_file_sha256": "865a9c1b2efd2549c76b32877dddbdcadcc45e1bd04874b7e5b330b846bfcc47"
+  }
+}

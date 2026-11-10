@@ -8,7 +8,7 @@
 | R1 · Готовые куски распознаются, Stop завершает полную запись с reuse | 1.1–3.2 | Готово: worker/crash fixtures и native 150 s smoke прошли; reference performance в R4 |
 | R2 · Очередь, настройка и отмена работают во время записи | 4.1–4.2 | Готово: real coordinator stop/disable/cancel/Retry; default gate в R4 |
 | R3 · Готовое можно читать, копировать и слушать в UI/TUI без прыжков | 4.3, 6.1–6.3 | Готово: HTTP/оба клиента/ConPTY, native mpv и FLAC; hardware отдельно |
-| R4 · Кандидат проходит общий прогон и запускается по короткой инструкции | 7.1–7.3 | Не готово |
+| R4 · Кандидат проходит общий прогон и запускается по короткой инструкции | 7.1–7.3 | Кандидат собран и регрессии прошли; reference +48.12% > 20%, default gate 7.3 не закрыт |
 
 После R4 передать кандидата владельцу и остановиться на проверке 7.4. Новые фичи,
 подбор моделей и общий рефакторинг не добавлять к этому выпуску. Далее — баги по
@@ -51,7 +51,17 @@
 
 ## 7. Integration and acceptance
 
-- [ ] 7.1 Прогнать единую fault/restart серию с синтетическим producer и реальными coordinator/worker/API: VAD seam, тишина, lost/empty chunk, disk refusal, decoder/ASR timeout, две дорожки, FLAC race, смена входа и crash на финализации; сохранить input/output receipts и воспроизводимые assertions без микрофона/пользовательского архива.
-- [ ] 7.2 Выполнить alternating offline/incremental native серии на сохранённом публичном двухчасовом PCM: сравнить окно за окном PCM hashes/coverage, ASR cache calls, final text differences, wall/active CPU/I/O/RAM/startup и Stop→ready; проверить reference-budget из design, при провале не включать default и не менять пороги/алгоритм ради результата.
+- [x] 7.1 Прогнать единую fault/restart серию с синтетическим producer и реальными coordinator/worker/API: VAD seam, тишина, lost/empty chunk, disk refusal, decoder/ASR timeout, две дорожки, FLAC race, смена входа и crash на финализации; сохранить input/output receipts и воспроизводимые assertions без микрофона/пользовательского архива.
+- [x] 7.2 Выполнить alternating offline/incremental native серии на сохранённом публичном двухчасовом PCM: сравнить окно за окном PCM hashes/coverage, ASR cache calls, final text differences, wall/active CPU/I/O/RAM/startup и Stop→ready; проверить reference-budget из design, при провале не включать default и не менять пороги/алгоритм ради результата.
 - [ ] 7.3 После автономных gate обновить evidence затронутых принятых требований и локальную карту новых IDs; включить обещанный default только для проверенного полного пути, прогнать соответствующие Rust/API/browser/ConPTY regressions и strict main/change/check-openspec/diff; коммитить проверенные этапы без push, не sync/archive невыполненное.
 - [ ] 7.4 Выполнить с владельцем аппаратную проверку длительной записи microphone/loopback и слабого Mac: качество стыков, capture backlog/звук, отзывчивость, Stop и восстановление; до фактического прогона оставить not-run и не объявлять готовность на этом железе.
+
+Срез R4 от 2026-11-10: [fault/restart и receipts](evidence/fault-series.md),
+[native reference — correctness pass, budget fail](evidence/native-reference.md),
+[кандидат/регрессии/traceability](evidence/review-candidate.md),
+[короткая проверка владельцем](../../../docs/incremental-acceptance.md).
+В 7.3 выполнены сборка, регрессии и evidence, но обещанный default on запрещён
+непройденным reference gate. Требование PIPE-018 не переписано под результат;
+задача остаётся открытой до отдельного решения о lifecycle/default. Кандидат
+доступен с явным переключателем для согласованного просмотра UI/TUI. Дальнейшие
+самовольные оптимизации/фичи не добавляются; 7.4 not-run, change не sync/archive.

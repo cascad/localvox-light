@@ -11,6 +11,8 @@ struct Spec {
     calls_file: PathBuf,
     #[serde(default)]
     delay_ms: u64,
+    #[serde(default)]
+    fault_file: Option<PathBuf>,
 }
 pub(super) struct FixtureEngine {
     spec: Spec,
@@ -42,6 +44,21 @@ impl AsrEngine for FixtureEngine {
         let mut calls = self.calls.lock().unwrap();
         writeln!(calls, "{sha}")?;
         calls.sync_all()?;
+        if let Some(path) = &self.spec.fault_file {
+            match fs::read_to_string(path) {
+                Ok(mode) if mode.trim() == "fail" => anyhow::bail!("synthetic ASR failure"),
+                Ok(mode) if mode.trim() == "wait" => {
+                    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+                    while path.exists() && std::time::Instant::now() < deadline {
+                        std::thread::sleep(std::time::Duration::from_millis(50));
+                    }
+                    anyhow::bail!("synthetic ASR stall ended without a result");
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => return Err(e.into()),
+                Ok(_) => {}
+            }
+        }
         std::thread::sleep(std::time::Duration::from_millis(self.spec.delay_ms));
         Ok(if self.spec.include_pcm_sha {
             format!("{} {sha}", self.spec.answer)

@@ -343,6 +343,10 @@ fn cook_session_impl(
 
     let t0 = Instant::now();
     let mut lines: Vec<(u8, f64, f64, String)> = Vec::new();
+    // Explicit engineering probe only: actual full-cook PCM windows, including silence.
+    let mut window_trace = std::env::var_os("LOCALVOX_PROFILE_WINDOWS")
+        .map(fs::File::create)
+        .transpose()?;
     let mut audio_sec = 0.0f64;
     let mut tracks: Vec<crate::diarize::Track> = Vec::new();
 
@@ -384,6 +388,13 @@ fn cook_session_impl(
 
         let mut windower = Windower::new(p.max_window_sec, p.min_cut_sec, p.silence_ms);
         let mut emit = |window: crate::windowing::Window<'_>| -> Result<()> {
+            if let Some(trace) = &mut window_trace {
+                serde_json::to_writer(
+                    &mut *trace,
+                    &serde_json::json!({"source":source_id,"start":window.start_sample,"end":window.start_sample+window.pcm.len() as u64,"kind":window.kind,"pcm_sha256":crate::windowing::pcm_sha256(window.pcm)}),
+                )?;
+                trace.write_all(b"\n")?;
+            }
             let mut recognize = |samples: &[i16]| -> Result<String> {
                 if engine.is_none() {
                     let _load = crate::journal::Operation::start(

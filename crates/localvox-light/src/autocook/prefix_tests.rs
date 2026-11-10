@@ -14,8 +14,11 @@ struct Producer {
     seed: u32,
 }
 impl Producer {
-    fn new() -> Self {
-        let root = tempfile::tempdir().unwrap();
+    fn new(evidence: Option<&std::path::Path>) -> Self {
+        let root = match evidence {
+            Some(path) => tempfile::tempdir_in(path).unwrap(),
+            None => tempfile::tempdir().unwrap(),
+        };
         let session = root.path().join("sessions/recorded");
         fs::create_dir_all(session.join("audio")).unwrap();
         let generation = "0199a774-0000-7000-8000-000000000004".to_string();
@@ -127,7 +130,7 @@ impl Producer {
         .unwrap();
         cfg.exe = worker;
         let fixture = self.root.path().join("fixture.json");
-        fs::write(&fixture,serde_json::to_vec(&serde_json::json!({"answer":"слова из записи","include_pcm_sha":true,"calls_file":self.root.path().join("calls.txt"),"delay_ms":50})).unwrap()).unwrap();
+        fs::write(&fixture,serde_json::to_vec(&serde_json::json!({"answer":"слова из записи","include_pcm_sha":true,"calls_file":self.root.path().join("calls.txt"),"delay_ms":50,"fault_file":self.root.path().join("asr-fault.txt")})).unwrap()).unwrap();
         cfg.fixture_args = vec!["--fixture-asr".into(), fixture.into_os_string()];
         cfg.interval = Duration::from_millis(30);
         cfg.quiescent_sec = 1;
@@ -185,14 +188,31 @@ fn finite_prefix_coordinator_handles_growth_stop_disable_cancel_and_retry() {
             .map(|k| (k.to_string(), std::env::var(k).ok()))
             .collect(),
     );
-    for action in ["stop", "disable", "cancel"] {
+    // Opt-in retention for the isolated fault series; ordinary tests clean up as before.
+    let evidence = std::env::var_os("LOCALVOX_TEST_PREFIX_EVIDENCE").map(PathBuf::from);
+    if let Some(path) = &evidence {
+        fs::create_dir(path).expect("evidence output must be a new directory");
+    }
+    for action in [
+        "stop",
+        "disable",
+        "cancel",
+        "timeout",
+        "asr_error",
+        "missing",
+        "changed",
+    ] {
+        let fault = matches!(action, "timeout" | "asr_error" | "missing" | "changed");
         localvox_light_core::settings::apply_live(&[
             (keys[0].into(), Some("off".into())),
             (keys[1].into(), Some("on".into())),
         ]);
-        let mut producer = Producer::new();
+        let mut producer = Producer::new(evidence.as_deref());
         producer.feed(43);
-        let cfg = producer.config();
+        let mut cfg = producer.config();
+        if action == "timeout" {
+            cfg.timeouts[1] = Duration::from_secs(2);
+        }
         let running = AtomicBool::new(true);
         cfg.preflight(&running).unwrap();
         std::thread::scope(|scope| {
@@ -216,7 +236,56 @@ fn finite_prefix_coordinator_handles_growth_stop_disable_cancel_and_retry() {
             assert!(before.len() > 0);
             std::thread::sleep(Duration::from_millis(200));
             assert_eq!(producer.calls(), before, "same horizon respawned");
-            if action == "disable" {
+            if fault {
+                localvox_light_core::settings::apply_live(&[(keys[1].into(), Some("off".into()))]);
+                producer.feed(35);
+                let path = producer.session().join("audio/src0_chunk0002.wav");
+                let original = fs::read(&path).unwrap();
+                let fault_path = producer.root.path().join("asr-fault.txt");
+                match action {
+                    "timeout" => fs::write(&fault_path, "wait").unwrap(),
+                    "asr_error" => fs::write(&fault_path, "fail").unwrap(),
+                    "missing" => fs::remove_file(&path).unwrap(),
+                    "changed" => {
+                        let mut changed = original.clone();
+                        changed[44] ^= 1;
+                        fs::write(&path, changed).unwrap();
+                    }
+                    _ => unreachable!(),
+                }
+                localvox_light_core::settings::apply_live(&[(keys[1].into(), Some("on".into()))]);
+                wait(|| producer.state() == Some(JobState::Failed));
+                assert_eq!(
+                    Published::current(&producer.session()).unwrap().unwrap(),
+                    published,
+                    "failed suffix changed published prefix"
+                );
+                let archive =
+                    localvox_light_api::archive::Archive::new(producer.root.path().to_owned());
+                assert_eq!(
+                    archive
+                        .transcript("recorded")
+                        .unwrap()
+                        .partial
+                        .unwrap()
+                        .snapshot
+                        .as_deref(),
+                    Some(published.snapshot.as_str())
+                );
+                assert!(!producer.session().join("versions.json").exists());
+                assert!(producer.owner.is_some());
+                wait(|| {
+                    jobs::try_execution_lock(&producer.session())
+                        .unwrap()
+                        .is_some()
+                });
+                fs::write(&path, original).unwrap();
+                if fault_path.exists() {
+                    fs::remove_file(fault_path).unwrap();
+                }
+                archive.retry("recorded").unwrap();
+                wait(|| producer.state() == Some(JobState::WaitingInput));
+            } else if action == "disable" {
                 localvox_light_core::settings::apply_live(&[(keys[1].into(), Some("off".into()))]);
                 producer.feed(35);
                 std::thread::sleep(Duration::from_millis(200));
@@ -251,7 +320,7 @@ fn finite_prefix_coordinator_handles_growth_stop_disable_cancel_and_retry() {
             assert!(!lines.is_empty());
             assert!(!producer.session().join("summary.md").exists());
             assert_eq!(JobQueue::load(producer.root.path()).jobs().len(), 1);
-            if action != "cancel" {
+            if action != "cancel" && !fault {
                 let calls = producer.calls();
                 assert_eq!(
                     calls.len(),
@@ -262,8 +331,35 @@ fn finite_prefix_coordinator_handles_growth_stop_disable_cancel_and_retry() {
                     "ASR repeated after {action}"
                 );
             }
+            if fault {
+                let calls = producer.calls();
+                for hash in &before {
+                    assert_eq!(
+                        calls.iter().filter(|next| *next == hash).count(),
+                        1,
+                        "accepted prefix ASR repeated after {action}"
+                    );
+                }
+            }
             running.store(false, Ordering::Relaxed);
             coordinator.join().unwrap();
         });
+        if let Some(path) = &evidence {
+            let report = serde_json::json!({
+                "scenario": action,
+                "assertions_passed": true,
+                "archive": producer.root.path(),
+                "capture": capture::read(&producer.session()).unwrap(),
+                "published": Published::current(&producer.session()).unwrap(),
+                "jobs": JobQueue::load(producer.root.path()).jobs(),
+                "asr_input_hashes": producer.calls(),
+            });
+            localvox_light_core::artifacts::atomic_write(
+                &path.join(format!("{action}.json")),
+                &serde_json::to_vec_pretty(&report).unwrap(),
+            )
+            .unwrap();
+            let _retained_archive = producer.root.keep();
+        }
     }
 }

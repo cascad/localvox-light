@@ -102,7 +102,14 @@ pub fn consume_windows(
                                     stats.peak_window_samples.max(buffer.len());
                                 bytes = &bytes[count * 2..];
                                 if at == window.end_sample {
-                                    consume(VerifiedWindow::new(window, &buffer)?)?;
+                                    consume(VerifiedWindow::new(window, &buffer).with_context(
+                                        || {
+                                            format!(
+                                                "audio source {id} samples {}..{}",
+                                                window.start_sample, window.end_sample
+                                            )
+                                        },
+                                    )?)?;
                                     stats.windows += 1;
                                     buffer.clear();
                                     index += 1;
@@ -112,7 +119,8 @@ pub fn consume_windows(
                         },
                     )
                 },
-            )?;
+            )
+            .with_context(|| format!("audio source {id} sealed samples {from}..{to}"))?;
             stats.chunks_read += 1;
             if at == last {
                 break;

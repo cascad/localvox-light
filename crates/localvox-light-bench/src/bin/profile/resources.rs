@@ -9,10 +9,16 @@ pub fn observe(pid: u32, stopped: &std::sync::atomic::AtomicBool) -> Value {
     let mut samples = 0;
     loop {
         let sample = process.read();
-        for key in ["peak_working_set_bytes", "peak_commit_bytes", "cpu_sec"] {
+        for key in [
+            "peak_working_set_bytes",
+            "peak_commit_bytes",
+            "cpu_sec",
+            "read_bytes",
+            "write_bytes",
+        ] {
             if let Some(number) = sample[key].as_f64() {
                 // A queried CPU counter may legitimately be zero. Missing is a different value.
-                if (number > 0.0 || key == "cpu_sec")
+                if (number > 0.0 || matches!(key, "cpu_sec" | "read_bytes" | "write_bytes"))
                     && result[key].as_f64().is_none_or(|old| number >= old)
                 {
                     result[key] = sample[key].clone();
@@ -76,7 +82,7 @@ impl Process {
             Foundation::FILETIME,
             System::{
                 ProcessStatus::{GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS_EX},
-                Threading::GetProcessTimes,
+                Threading::{GetProcessIoCounters, GetProcessTimes, IO_COUNTERS},
             },
         };
         // The retained handle remains valid after the supervised child is reaped.
@@ -100,6 +106,8 @@ impl Process {
         let times =
             unsafe { GetProcessTimes(self.0, &mut created, &mut exited, &mut kernel, &mut user) }
                 .is_ok();
+        let mut io = IO_COUNTERS::default();
+        let io_ok = unsafe { GetProcessIoCounters(self.0, &mut io) }.is_ok();
         let seconds = |time: FILETIME| {
             ((u64::from(time.dwHighDateTime) << 32) | u64::from(time.dwLowDateTime)) as f64
                 / 10_000_000.0
@@ -109,7 +117,7 @@ impl Process {
             "commit_bytes": memory.then_some(counters.PrivateUsage),
             "peak_working_set_bytes": memory.then_some(counters.PeakWorkingSetSize),
             "peak_commit_bytes": memory.then_some(counters.PeakPagefileUsage),
-            "cpu_sec": times.then(|| seconds(kernel) + seconds(user))})
+            "cpu_sec": times.then(|| seconds(kernel) + seconds(user)),"read_bytes":io_ok.then_some(io.ReadTransferCount),"write_bytes":io_ok.then_some(io.WriteTransferCount)})
     }
 }
 

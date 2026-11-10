@@ -72,6 +72,8 @@ jobs:
         run: |
           rustfmt --edition 2021 --check crates/localvox-light-bench/src/bin/localvox-profile.rs
           rustfmt --edition 2021 --check crates/localvox-light-bench/src/bin/localvox-queue-profile.rs
+          rustfmt --edition 2021 --check crates/localvox-light-bench/src/bin/localvox-incremental-profile.rs
+          cargo check --locked -p localvox-light-bench --bin localvox-incremental-profile
           cargo test --locked -p localvox-light-bench --bin localvox-profile
           python -m unittest discover -s scripts/tests -p "test_*quality.py"
           python scripts/profile-sage-quality.py --help

@@ -1,0 +1,92 @@
+{
+  "date": "2026-11-10",
+  "kind": "real-coordinator-fixture-series",
+  "asr": "explicit fixture engine, no native model",
+  "passed": true,
+  "scenarios": [
+    {
+      "scenario": "asr_error",
+      "assertions_passed": true,
+      "receipt": "target/incremental-faults-20261110/asr_error.json",
+      "receipt_sha256": "e1350940d483ee2d7faff5658681482a4af4e2c9462cfbf6133ece2f0cf2cd7e",
+      "retained_archive": "D:/rust_repo/localvox-light/target/incremental-faults-20261110/.tmpDJTeBr",
+      "asr_attempts": 9,
+      "distinct_asr_pcm": 6,
+      "terminal_job_states": [
+        "Done"
+      ]
+    },
+    {
+      "scenario": "cancel",
+      "assertions_passed": true,
+      "receipt": "target/incremental-faults-20261110/cancel.json",
+      "receipt_sha256": "a80ef7f319df5d15b7e0e033e3e675abfd8c48c6c662f8df070fe1701ac2dc62",
+      "retained_archive": "D:/rust_repo/localvox-light/target/incremental-faults-20261110/.tmp0QJuvG",
+      "asr_attempts": 6,
+      "distinct_asr_pcm": 6,
+      "terminal_job_states": [
+        "Done"
+      ]
+    },
+    {
+      "scenario": "changed",
+      "assertions_passed": true,
+      "receipt": "target/incremental-faults-20261110/changed.json",
+      "receipt_sha256": "755b6f23bb3fc00b571558f7fd80d4ab3ad051f0984b67e2258c0fc3a929199a",
+      "retained_archive": "D:/rust_repo/localvox-light/target/incremental-faults-20261110/.tmpOWJTEp",
+      "asr_attempts": 6,
+      "distinct_asr_pcm": 6,
+      "terminal_job_states": [
+        "Done"
+      ]
+    },
+    {
+      "scenario": "disable",
+      "assertions_passed": true,
+      "receipt": "target/incremental-faults-20261110/disable.json",
+      "receipt_sha256": "a22458a94fda2cce40d7c5bb8359ceb56ac4712baafcb5b3cf8068a666457079",
+      "retained_archive": "D:/rust_repo/localvox-light/target/incremental-faults-20261110/.tmpHcGoAw",
+      "asr_attempts": 6,
+      "distinct_asr_pcm": 6,
+      "terminal_job_states": [
+        "Done"
+      ]
+    },
+    {
+      "scenario": "missing",
+      "assertions_passed": true,
+      "receipt": "target/incremental-faults-20261110/missing.json",
+      "receipt_sha256": "436c0866aa6adcf8e735fb9f6317b48abcdadee76c6ae8a0f0d9b79e0e6ec5c7",
+      "retained_archive": "D:/rust_repo/localvox-light/target/incremental-faults-20261110/.tmpfPV8Ai",
+      "asr_attempts": 6,
+      "distinct_asr_pcm": 6,
+      "terminal_job_states": [
+        "Done"
+      ]
+    },
+    {
+      "scenario": "stop",
+      "assertions_passed": true,
+      "receipt": "target/incremental-faults-20261110/stop.json",
+      "receipt_sha256": "7d33a2844c8b93ffef03d4d6d6a3889194991d651904d89f42342d2e1df3fa2f",
+      "retained_archive": "D:/rust_repo/localvox-light/target/incremental-faults-20261110/.tmpe2Wg6y",
+      "asr_attempts": 6,
+      "distinct_asr_pcm": 6,
+      "terminal_job_states": [
+        "Done"
+      ]
+    },
+    {
+      "scenario": "timeout",
+      "assertions_passed": true,
+      "receipt": "target/incremental-faults-20261110/timeout.json",
+      "receipt_sha256": "ee80237bb3648ee8ccc49f16dfb7b2dfcf58df03898b8f2cb56cf38340f58823",
+      "retained_archive": "D:/rust_repo/localvox-light/target/incremental-faults-20261110/.tmpDQtNiS",
+      "asr_attempts": 9,
+      "distinct_asr_pcm": 6,
+      "terminal_job_states": [
+        "Done"
+      ]
+    }
+  ]
+}

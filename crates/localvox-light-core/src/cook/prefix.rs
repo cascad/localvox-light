@@ -122,6 +122,7 @@ fn prefix_impl(
                 window.descriptor().start_sample,
                 window.descriptor().end_sample
             );
+            operation.log(&range);
             let (result, reused) = cache
                 .resolve(window, |pcm| {
                     if engine.is_none() {
