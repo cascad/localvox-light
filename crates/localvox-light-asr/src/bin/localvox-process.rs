@@ -34,6 +34,9 @@ struct Cli {
     #[arg(long, hide = true, conflicts_with = "worker_index")]
     worker_prefix: bool,
 
+    #[arg(long, hide = true, requires = "worker_prefix")]
+    worker_input: Option<PathBuf>,
+
     /// Explicit synthetic engine for isolated integration tests; absent in normal builds.
     #[cfg(feature = "asr-fixtures")]
     #[arg(long, hide = true)]
@@ -310,14 +313,32 @@ fn main() -> Result<()> {
             min_cut_sec: cli.min_cut_sec,
             ..Default::default()
         };
+        let input: Option<localvox_light_core::incremental::FrozenInput> = cli
+            .worker_input
+            .as_ref()
+            .map(|path| -> Result<_> { Ok(serde_json::from_slice(&std::fs::read(path)?)?) })
+            .transpose()?;
         #[cfg(feature = "asr-fixtures")]
         let report = if let Some(spec) = &cli.fixture_asr {
-            localvox_light_core::cook::transcribe_prefix_fixture(session, &params, spec)?
+            localvox_light_core::cook::transcribe_prefix_fixture(
+                session,
+                &params,
+                spec,
+                input.as_ref(),
+            )?
         } else {
-            localvox_light_core::cook::transcribe_prefix(session, &params)?
+            match &input {
+                Some(input) => {
+                    localvox_light_core::cook::transcribe_input(session, &params, input)?
+                }
+                None => localvox_light_core::cook::transcribe_prefix(session, &params)?,
+            }
         };
         #[cfg(not(feature = "asr-fixtures"))]
-        let report = localvox_light_core::cook::transcribe_prefix(session, &params)?;
+        let report = match &input {
+            Some(input) => localvox_light_core::cook::transcribe_input(session, &params, input)?,
+            None => localvox_light_core::cook::transcribe_prefix(session, &params)?,
+        };
         println!("{}", serde_json::to_string(&report)?);
         return Ok(());
     }

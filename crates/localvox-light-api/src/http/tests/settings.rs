@@ -102,11 +102,13 @@ fn settings_http_masks_unknown_values_and_reports_snapshot_restart_before_and_af
         live,
         [
             "LOCALVOX_LLM_SERVER_URLS",
+            "LOCALVOX_LIGHT_INCREMENTAL_TRANSCRIBE",
             "LOCALVOX_LIGHT_AUTOCOOK_SUMMARY"
         ]
     );
     assert!(live.iter().all(|s| [
         "LOCALVOX_LIGHT_AUTOCOOK_SUMMARY",
+        "LOCALVOX_LIGHT_INCREMENTAL_TRANSCRIBE",
         "LOCALVOX_LIGHT_AUTOCOOK_CLEANUP",
         "LOCALVOX_LIGHT_AUTOCOOK_REFINE",
         "LOCALVOX_LLM_SERVER_URLS"

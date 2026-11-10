@@ -275,6 +275,14 @@ pub const CATALOGUE: &[Setting] = &[
         applies: Applies::Restart,
     },
     Setting {
+        key: "LOCALVOX_LIGHT_INCREMENTAL_TRANSCRIBE",
+        group: "Автоварка",
+        label: "Распознавать во время записи",
+        hint: "Готовые фрагменты обрабатываются заранее. Выключение сохраняет текущую порцию; после Stop — обычная обработка",
+        kind: Kind::Bool,
+        applies: Applies::Live,
+    },
+    Setting {
         key: "LOCALVOX_LIGHT_AUTOCOOK_INTERVAL_SEC",
         group: "Автоварка",
         label: "Как часто искать недоваренное, сек",

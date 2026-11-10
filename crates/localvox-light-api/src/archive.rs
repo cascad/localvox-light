@@ -830,6 +830,7 @@ impl Archive {
                         S::Cancelling => "cancelling",
                         S::Cancelled => "cancelled",
                         S::Pending => "pending",
+                        S::WaitingInput => "waiting_input",
                         S::Failed => "failed",
                         S::Done => return None,
                     };
@@ -1164,7 +1165,9 @@ impl Archive {
     pub fn retry(&self, session: &str) -> Result<String> {
         use localvox_light_core::jobs::{JobQueue, JobState};
         let dir = self.session_dir(session)?;
-        let _lease = self.mutation_lease(session, &dir)?;
+        self.checked_mutation_target(session, &dir)?;
+        let _lease = localvox_light_core::jobs::control::MutationLease::try_processing(&dir)?
+            .context("обработчик ещё занят; повторите после его остановки")?;
         JobQueue::mutate(&self.work_dir, |queue| -> Result<String> {
             if let Some(error) = queue.error() {
                 return Err(QueueUnavailable(error.to_owned()).into());
@@ -1179,6 +1182,9 @@ impl Archive {
                 "повтор этапа доступен только для остановленного задания"
             );
             let phase = job.phase;
+            if job.kind != localvox_light_core::jobs::JobKind::Incremental {
+                self.ensure_not_recording(session)?;
+            }
             if !queue.retry_failed(session) {
                 return Err(QueueUnavailable("не удалось сохранить повтор этапа".into()).into());
             }
@@ -2182,6 +2188,7 @@ impl Archive {
                         S::Cancelling => "cancelling",
                         S::Cancelled => "cancelled",
                         S::Pending => "pending",
+                        S::WaitingInput => "waiting_input",
                         S::Failed => "failed",
                         S::Done => "done",
                     }
@@ -2189,6 +2196,7 @@ impl Archive {
                     kind: match j.kind {
                         JobKind::Cook => "cook",
                         JobKind::Ingest => "ingest",
+                        JobKind::Incremental => "incremental",
                     }
                     .into(),
                     position,
@@ -2209,6 +2217,7 @@ impl Archive {
             use localvox_light_core::jobs::JobState as S;
             match j.state {
                 S::Pending => st.pending += 1,
+                S::WaitingInput => {}
                 S::Running => {
                     st.running += 1;
                     st.current = Some(j.session.clone());

@@ -45,7 +45,7 @@ pub mod model;
 mod prefix;
 #[cfg(feature = "asr-fixtures")]
 pub use prefix::transcribe_prefix_fixture;
-pub use prefix::{transcribe_prefix, PrefixReport};
+pub use prefix::{transcribe_input, transcribe_prefix, PrefixReport};
 
 pub struct CookParams {
     /// Model directory of the DEFAULT LANGUAGE (the caller knows its path: next to

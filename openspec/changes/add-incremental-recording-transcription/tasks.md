@@ -6,7 +6,7 @@
 | Результат для проверки | Состав | Состояние |
 |---|---|---|
 | R1 · Готовые куски распознаются, Stop завершает полную запись с reuse | 1.1–3.2 | Готово: worker/crash fixtures и native 150 s smoke прошли; reference performance в R4 |
-| R2 · Очередь, настройка и отмена работают во время записи | 4.1–4.2 | Не готово |
+| R2 · Очередь, настройка и отмена работают во время записи | 4.1–4.2 | Готово: real coordinator stop/disable/cancel/Retry; default gate в R4 |
 | R3 · Готовое можно читать, копировать и слушать в UI/TUI без прыжков | 4.3, 6.1–6.3 | Не готово |
 | R4 · Кандидат проходит общий прогон и запускается по короткой инструкции | 7.1–7.3 | Не готово |
 
@@ -31,8 +31,8 @@
 
 ## 4. Coordinator, controls and API
 
-- [ ] 4.1 Добавить coalesced incremental intent, новый worker protocol/preflight и finite задания в существующих ресурсных линиях без starvation обычной очереди (PIPE-018); real-coordinator fixture проверяет лимиты, отсутствие spawn без новых descriptors, повторные уведомления, Stop/claim race, несовместимый worker и отсутствие длительного I/O под queue mutex; обновить protocol docs.
-- [ ] 4.2 Реализовать capture/processing mutation leases и различие Stop, Cancel, Retry и выключения раннего режима; проверить cancel при продолжающемся capture, sticky отмену после Stop/restart, отсутствие удаления живым planner, конфликты языка/best/recook, включённый/выключенный autocook и видимую Live предустановку нового bool в UI/TUI settings schema.
+- [x] 4.1 Добавить coalesced incremental intent, новый worker protocol/preflight и finite задания в существующих ресурсных линиях без starvation обычной очереди (PIPE-018); real-coordinator fixture проверяет лимиты, отсутствие spawn без новых descriptors, повторные уведомления, Stop/claim race, несовместимый worker и отсутствие длительного I/O под queue mutex; обновить protocol docs.
+- [x] 4.2 Реализовать capture/processing mutation leases и различие Stop, Cancel, Retry и выключения раннего режима; проверить cancel при продолжающемся capture, sticky отмену после Stop/restart, отсутствие удаления живым planner, конфликты языка/best/recook, включённый/выключенный autocook и видимую Live предустановку нового bool в UI/TUI settings schema.
 - [ ] 4.3 Добавить согласованный partial/final snapshot API, stable line IDs и неизменяемые audio revision URLs/Range/peaks (ARCH-006); настоящим HTTP проверить stale revision, повреждённый chunk без fake silence, точное аудио через шов, рост capture, доступность старого playing snapshot и отказ полного export до final; описать API/доступные границы.
 
 ## 5. Deferred text precomputation

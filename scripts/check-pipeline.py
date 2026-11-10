@@ -27,7 +27,7 @@ try:
     with tempfile.TemporaryDirectory(prefix='localvox-pipeline-smoke-') as temp:
         root=Path(temp); session=root/'sessions'/'fixture'; transcripts=session/'transcripts'
         protocol=subprocess.run([str(binary),'--worker-protocol'],cwd=root,capture_output=True,text=True,timeout=10)
-        assert protocol.returncode==0 and protocol.stdout.strip()=='localvox-worker/1', protocol.stderr
+        assert protocol.returncode==0 and protocol.stdout.strip()=='localvox-worker/2', protocol.stderr
         transcripts.mkdir(parents=True); (root/'glossary').mkdir()
         original=json.dumps({'source_id':0,'start_sec':0,'end_sec':8,
             'text':'Сегодня обсудили план работы и подготовку отчета.'},ensure_ascii=False)+'\n'

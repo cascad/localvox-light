@@ -31,13 +31,18 @@ impl Archive {
         dir: &Path,
         timeout: Duration,
     ) -> Result<MutationLease> {
-        self.ensure_not_recording(session)?;
         self.checked_mutation_target(session, dir)?;
+        let recording = jobs::recording_session(&self.work_dir).as_deref() == Some(session);
+        let incremental_capture =
+            recording && localvox_light_core::chunks::capture::read(dir).is_ok();
         let control = control::try_control_lock(dir)?
             .context("сессия занята другим изменением; повторите после его завершения")?;
         let mut free = None;
         JobQueue::mutate(&self.work_dir, |queue|->Result<()> {
             if let Some(error)=queue.error() {return Err(QueueUnavailable(error.into()).into())}
+            if recording && (!incremental_capture || queue.jobs().iter().any(|j|j.session==session && j.kind!=jobs::JobKind::Incremental)) {
+                anyhow::bail!("для этой сессии отмена обработки во время записи недоступна; сначала остановите запись");
+            }
             if let Some(lease)=jobs::try_execution_lock(dir)? {
                 queue.try_complete_cancellation(session)?;
                 free=Some(lease);

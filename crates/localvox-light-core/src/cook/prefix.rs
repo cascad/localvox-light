@@ -31,27 +31,40 @@ fn checkpoint_receipt<S: serde::Serializer>(
 /// One finite ready-input horizon. Caller holds processing execution ownership;
 /// this never writes versions, best, processed, summary or primary capture state.
 pub fn transcribe_prefix(session: &Path, params: &CookParams) -> Result<PrefixReport> {
-    prefix_impl(session, params, None)
+    prefix_impl(session, params, None, None)
+}
+pub fn transcribe_input(
+    session: &Path,
+    params: &CookParams,
+    input: &crate::incremental::FrozenInput,
+) -> Result<PrefixReport> {
+    prefix_impl(session, params, None, Some(input))
 }
 #[cfg(feature = "asr-fixtures")]
 pub fn transcribe_prefix_fixture(
     session: &Path,
     params: &CookParams,
     spec: &Path,
+    input: Option<&crate::incremental::FrozenInput>,
 ) -> Result<PrefixReport> {
     prefix_impl(
         session,
         params,
         Some(model::Selection::fixture(session, params, spec)?),
+        input,
     )
 }
 fn prefix_impl(
     session: &Path,
     params: &CookParams,
     override_model: Option<model::Selection>,
+    input: Option<&crate::incremental::FrozenInput>,
 ) -> Result<PrefixReport> {
     let started = Instant::now();
-    let horizon = Horizon::read(session)?;
+    let horizon = match input {
+        Some(input) => input.horizon(session)?,
+        None => Horizon::read(session)?,
+    };
     ensure!(
         horizon.recipe().max_samples == (params.max_window_sec * 16000.0) as u64
             && horizon.recipe().min_cut_samples == (params.min_cut_sec * 16000.0) as u64
@@ -134,6 +147,7 @@ fn prefix_impl(
         },
     )?;
     let checkpoint = cache.checkpoint(&horizon, &accepted)?;
+    cache.publish(session, &horizon)?;
     selection.crash_if_fixture("after_checkpoint");
     operation.log(&format!(
         "Готово до {} сэмплов; новых ASR окон: {asr_calls}, cache hits: {hits}",

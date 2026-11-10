@@ -1,5 +1,10 @@
 # Покрытие требований и состояние реализации
 
+Продолжение PIPE-002/008/010/012, CFG-001/002, ARCH-005 от 2026-11-10:
+[R2 finite queue/control/protocol](../changes/add-incremental-recording-transcription/evidence/prefix-coordinator.md).
+Real-coordinator fixture stop/disable/cancel прошёл, ранние snapshots не становятся
+финальными версиями. Default gate/клиенты ещё не приняты, новые IDs остаются delta.
+
 Продолжение PIPE-004/012, VER-001/004, STORE-001/002 от 2026-11-10:
 [R1 finite worker и восстановление финализации](../changes/add-incremental-recording-transcription/evidence/prefix-worker.md).
 Core 444 passed/8 ignored; 3 настоящих child-worker fixture tests и native 150 s smoke

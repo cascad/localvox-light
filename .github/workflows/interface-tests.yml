@@ -100,6 +100,8 @@ jobs:
           rustfmt --edition 2021 --check crates/localvox-light-core/src/incremental.rs
           cargo test --locked -p localvox-light-core incremental:: --lib
           cargo test --locked -p localvox-light-asr --features asr-fixtures --test incremental_fixture
+          $env:LOCALVOX_TEST_ASR_WORKER = (Resolve-Path target/debug/localvox-process.exe).Path
+          cargo test --locked -p localvox-light --lib autocook::prefix_tests -- --ignored --nocapture
       - name: Real worker cancellation and standalone CLI ownership (local HTTP, no models/devices)
         run: cargo test --locked -p localvox-light --lib autocook::cancellation_tests -- --ignored --nocapture
       - name: Background indexes and search (local HTTP, no models/devices)

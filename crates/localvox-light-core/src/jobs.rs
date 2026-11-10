@@ -22,6 +22,7 @@ use crate::versions::{now_rfc3339, VersionStore};
 mod cancellation;
 pub mod control;
 pub mod discovery;
+pub mod prefix;
 
 /// A queue read/write failure may be retried without rerunning a worker.
 #[derive(Debug)]
@@ -38,6 +39,7 @@ impl std::error::Error for QueueStorageError {}
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum JobState {
     Pending,
+    WaitingInput,
     Running,
     Cancelling,
     Cancelled,
@@ -78,6 +80,8 @@ pub enum JobKind {
     Cook,
     /// There is no audio yet: fetch it from the link in the session's meta, and then cook.
     Ingest,
+    /// One finite sealed horizon; never a final version.
+    Incremental,
 }
 
 /// One session is owned by one phase at a time. Old queues start at Prepare.
@@ -92,7 +96,7 @@ pub enum JobPhase {
 }
 
 /// Increment when the daemon/worker phase contract becomes incompatible.
-pub const WORKER_PROTOCOL: &str = "localvox-worker/1";
+pub const WORKER_PROTOCOL: &str = "localvox-worker/2";
 
 /// OS-backed ownership, held from claim through artifact acceptance. A missing heartbeat is not
 /// evidence that a worker died. API repairs use the same lock before invalidating its outputs.
@@ -197,6 +201,8 @@ pub struct Job {
     /// throwing them away is no loss. Only the audio itself is untouchable.
     #[serde(default)]
     pub force: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prefix: Option<prefix::Intent>,
 }
 
 impl Job {
@@ -230,6 +236,7 @@ impl Job {
             failed_at: None,
             revivals: 0,
             force: false,
+            prefix: None,
         }
     }
 }
@@ -824,7 +831,9 @@ impl JobQueue {
             return Ok(None);
         };
         let job = &mut self.file.jobs[index];
-        if job.state != JobState::Pending || active.as_deref() == Some(job.session.as_str()) {
+        if job.state != JobState::Pending
+            || (job.kind != JobKind::Incremental && active.as_deref() == Some(job.session.as_str()))
+        {
             return Ok(None);
         }
         let previous = job.clone();
@@ -853,12 +862,15 @@ impl JobQueue {
 
     /// A worker takes only phases assigned to its resource lane.
     pub fn pending_for(&self, phases: &[JobPhase]) -> Vec<u64> {
-        self.file
+        let mut jobs: Vec<_> = self
+            .file
             .jobs
             .iter()
             .filter(|j| j.state == JobState::Pending && phases.contains(&j.phase))
-            .map(|j| j.id)
-            .collect()
+            .collect();
+        // Each finite early quantum yields to every ordinary job in this lane.
+        jobs.sort_by_key(|j| j.kind == JobKind::Incremental);
+        jobs.into_iter().map(|j| j.id).collect()
     }
 
     pub fn start_phase(&mut self, id: u64, phases: &[JobPhase]) -> Option<Job> {

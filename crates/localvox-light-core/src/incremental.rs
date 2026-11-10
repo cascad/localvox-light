@@ -13,8 +13,10 @@ use crate::windowing::WindowKind;
 
 mod audio;
 mod cache;
+mod publication;
 pub use audio::{consume_windows, AudioStats};
 pub use cache::{Accepted, Cache, Checkpoint, Output, VerifiedWindow};
+pub use publication::{FrozenInput, PartialLine, Published, Snapshot};
 
 #[cfg(test)]
 mod test_support;
@@ -116,7 +118,7 @@ impl Horizon {
     pub fn read(session: &Path) -> Result<Self> {
         Self::read_plan(session, Path::new(planning::FILE))
     }
-    pub(crate) fn read_plan(session: &Path, plan_path: &Path) -> Result<Self> {
+    pub fn read_plan(session: &Path, plan_path: &Path) -> Result<Self> {
         // The later primary snapshot may include newer seals, never fewer than the plan.
         let plan: planning::Snapshot = json_file(&session.join(plan_path), 8 * 1024 * 1024)?;
         let input = capture::read(session)?;

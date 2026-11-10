@@ -36,6 +36,13 @@ pub struct MutationLease {
     _capture: Option<fs::File>,
 }
 impl MutationLease {
+    /// Queue-only controls (Cancel/Retry) may coexist with capture, never rewrite its files.
+    pub fn try_processing(session: &Path) -> std::io::Result<Option<Self>> {
+        let Some(control) = try_control_lock(session)? else {
+            return Ok(None);
+        };
+        Ok(super::try_execution_lock(session)?.map(|execution| Self::new(control, execution)))
+    }
     pub fn new(control: fs::File, execution: fs::File) -> Self {
         Self {
             _control: control,

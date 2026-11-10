@@ -48,6 +48,8 @@ struct Config {
     index_timeout: Duration,
     child_env: Vec<(std::ffi::OsString, std::ffi::OsString)>,
     observer: Option<Observer>,
+    #[cfg(test)]
+    fixture_args: Vec<std::ffi::OsString>,
 }
 
 fn seconds(name: &str, default: u64) -> Result<u64> {
@@ -126,6 +128,8 @@ impl Config {
             index_timeout: Duration::from_secs(seconds("LOCALVOX_INDEX_TIMEOUT_SEC", 300)?),
             child_env: std::env::vars_os().collect(),
             observer: None,
+            #[cfg(test)]
+            fixture_args: vec![],
         })
     }
 
@@ -152,6 +156,8 @@ impl Config {
     fn command(&self) -> Command {
         let mut command = Command::new(&self.exe);
         command.env_clear().envs(self.child_env.iter().cloned());
+        #[cfg(test)]
+        command.args(&self.fixture_args);
         command
     }
 
@@ -307,6 +313,7 @@ fn coordinate(cfg: &Config, running: &AtomicBool) {
                                 return None;
                             }
                             let name = q.jobs().iter().find(|j| j.id == id)?.session.clone();
+                            if q.jobs().iter().any(|j|j.id==id && j.kind==jobs::JobKind::Incremental) && !jobs::prefix::enabled() {return None;}
                             match jobs::try_execution_lock(&wd.join("sessions").join(&name)) {
                                 Ok(Some(lock)) => q.start_phase(id, phases).map(|job| {
                                     let lock = jobs::control::ManagedExecution::register(&wd.join("sessions").join(&name), &job, lock);
@@ -375,6 +382,16 @@ fn coordinate(cfg: &Config, running: &AtomicBool) {
                 }
             }
             let (summary, cleanup, _) = jobs::post_processing_from_env();
+            for observation in jobs::prefix::observe(wd) {
+                if let Err(error) = JobQueue::mutate(wd, |queue| {
+                    queue.offer_prefix(&observation, jobs::post_processing_from_env())
+                }) {
+                    tracing::warn!(
+                        session = observation.session,
+                        "early processing intent: {error:#}"
+                    );
+                }
+            }
             let wanted = jobs::Wanted::new(
                 summary,
                 cleanup,
@@ -446,6 +463,8 @@ mod cancellation_tests;
 mod discovery_tests;
 #[cfg(test)]
 mod indexing_tests;
+#[cfg(test)]
+mod prefix_tests;
 
 #[cfg(test)]
 fn run_phase(cfg: &Config, running: &AtomicBool, job: &Job) -> bool {
@@ -461,7 +480,7 @@ fn run_phase_controlled(
     run_step(cfg, running, job, true, cfg.timeout(job.phase), owner);
     // Even a failed attempt may have committed reusable artifacts. The queue
     // carries success/failure; this return value only dirties idle indexes.
-    running.load(Ordering::Relaxed)
+    job.kind != jobs::JobKind::Incremental && running.load(Ordering::Relaxed)
 }
 
 fn run_step(
@@ -479,7 +498,8 @@ fn run_step(
     if job.phase == JobPhase::Prepare && job.attempts == 1 {
         progress::new_run(&session);
     }
-    if (!job.force || job.phase != JobPhase::Transcribe)
+    if job.kind != jobs::JobKind::Incremental
+        && (!job.force || job.phase != JobPhase::Transcribe)
         && jobs::verify_phase(&session, job).is_ok()
     {
         return if finish {
@@ -524,6 +544,37 @@ fn run_step(
     }
     if job.phase == JobPhase::Transcribe && job.force {
         cmd.arg("--force");
+    }
+    if job.kind == jobs::JobKind::Incremental {
+        let input = job.prefix.as_ref().map(|p| &p.requested);
+        let prepare = || -> Result<PathBuf> {
+            let input = input.context("missing incremental input")?;
+            input.horizon(&session)?;
+            job.execution_id
+                .as_deref()
+                .context("missing execution id")?;
+            let path = session
+                .join("incremental/claims")
+                .join(format!("{}.json", job.id));
+            std::fs::create_dir_all(path.parent().unwrap())?;
+            localvox_light_core::artifacts::atomic_write(&path, &serde_json::to_vec(input)?)?;
+            Ok(path)
+        };
+        match prepare() {
+            Ok(path) => {
+                cmd.arg("--worker-prefix").arg("--worker-input").arg(path);
+            }
+            Err(error) => {
+                fail_phase_observed(
+                    &cfg.work_dir,
+                    running,
+                    job,
+                    &format!("Подготовка раннего входа: {error:#}"),
+                    cfg.observer.as_ref(),
+                );
+                return false;
+            }
+        }
     }
     let mut _journal_operation = localvox_light_core::journal::Operation::start(
         &session,
@@ -742,6 +793,55 @@ fn accept_phase_observed(
     job: &Job,
     observer: Option<&Observer>,
 ) -> bool {
+    if job.kind == jobs::JobKind::Incremental {
+        let session = wd.join("sessions").join(&job.session);
+        let verified = job
+            .prefix
+            .as_ref()
+            .context("missing early input")
+            .and_then(|p| {
+                localvox_light_core::incremental::Published::for_input(&session, &p.requested)
+            });
+        if let Err(error) = verified {
+            fail_phase_observed(
+                wd,
+                running,
+                job,
+                &format!("Готовая часть не подтверждена: {error:#}"),
+                observer,
+            );
+            return false;
+        }
+        let enabled = jobs::prefix::enabled();
+        return match retry_queue_commit(wd, running, job, || {
+            JobQueue::mutate(wd, |queue| {
+                queue.finish_prefix(job, enabled)?;
+                if let Some(observer) = observer {
+                    observer.emit(
+                        "accepted",
+                        job,
+                        queue.jobs().iter().find(|j| j.id == job.id).unwrap(),
+                    );
+                }
+                Ok(())
+            })
+        }) {
+            Ok(true) => {
+                progress::mark(
+                    &session,
+                    progress::Stage::Transcribe,
+                    progress::StageState::Waiting,
+                    Some("Готовая часть сохранена; ожидание новых фрагментов или финализации"),
+                );
+                true
+            }
+            Ok(false) => false,
+            Err(error) => {
+                tracing::error!(job_id = job.id, "early queue acceptance: {error:#}");
+                false
+            }
+        };
+    }
     let result = retry_queue_commit(wd, running, job, || {
         JobQueue::mutate(wd, |q| {
             q.finish_phase_with_policy(job.id, job.phase, Some(jobs::post_processing_from_env()))?;
@@ -911,7 +1011,7 @@ fn warm_indexes(cfg: &Config, running: &AtomicBool) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    static POST_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    pub(super) static POST_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     #[test]
     fn observer_uses_saved_job_clocks_without_error_or_document_content() {

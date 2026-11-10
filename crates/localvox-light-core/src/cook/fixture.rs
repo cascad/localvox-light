@@ -9,6 +9,8 @@ struct Spec {
     answer: String,
     include_pcm_sha: bool,
     calls_file: PathBuf,
+    #[serde(default)]
+    delay_ms: u64,
 }
 pub(super) struct FixtureEngine {
     spec: Spec,
@@ -40,6 +42,7 @@ impl AsrEngine for FixtureEngine {
         let mut calls = self.calls.lock().unwrap();
         writeln!(calls, "{sha}")?;
         calls.sync_all()?;
+        std::thread::sleep(std::time::Duration::from_millis(self.spec.delay_ms));
         Ok(if self.spec.include_pcm_sha {
             format!("{} {sha}", self.spec.answer)
         } else {

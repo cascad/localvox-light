@@ -153,6 +153,12 @@ fn execution(
                 .then(|| j.enqueued_at.clone().unwrap_or(j.created_at.clone()))
         });
         match j.state {
+            JobState::WaitingInput => {
+                value.state = "waiting_input".into();
+                value.message = "Готовая часть обработана; ожидание следующего закрытого фрагмента или включения раннего распознавания".into();
+                value.current = None;
+                value.since = None;
+            }
             JobState::Pending => {
                 value.state = "queued".into();
                 value.message = if j.last_error.is_some() {
