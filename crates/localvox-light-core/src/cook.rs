@@ -39,6 +39,14 @@ use crate::windowing::FRAME_SAMPLES;
 // Keep the public benchmark API while both capture and cook share the same planner.
 pub use crate::windowing::Windower;
 
+#[cfg(feature = "asr-fixtures")]
+mod fixture;
+pub mod model;
+mod prefix;
+#[cfg(feature = "asr-fixtures")]
+pub use prefix::transcribe_prefix_fixture;
+pub use prefix::{transcribe_prefix, PrefixReport};
+
 pub struct CookParams {
     /// Model directory of the DEFAULT LANGUAGE (the caller knows its path: next to
     /// the exe in a built application). A model of another language is looked up by
@@ -123,6 +131,25 @@ pub enum CookOutcome {
 /// names, so the order is all the cook needs. That makes the cook resilient to
 /// post-crash sessions, where the recovered chunks are missing from meta.
 pub fn cook_session_asr(session_dir: &Path, p: &CookParams) -> Result<CookOutcome> {
+    cook_session_impl(session_dir, p, None)
+}
+#[cfg(feature = "asr-fixtures")]
+pub fn cook_session_asr_fixture(
+    session_dir: &Path,
+    p: &CookParams,
+    spec: &Path,
+) -> Result<CookOutcome> {
+    cook_session_impl(
+        session_dir,
+        p,
+        Some(model::Selection::fixture(session_dir, p, spec)?),
+    )
+}
+fn cook_session_impl(
+    session_dir: &Path,
+    p: &CookParams,
+    override_model: Option<model::Selection>,
+) -> Result<CookOutcome> {
     ensure!(
         crate::chunks::capture::is_finalized(session_dir)?,
         "запись или подтверждение сохранённого аудио ещё не завершены"
@@ -255,48 +282,50 @@ pub fn cook_session_asr(session_dir: &Path, p: &CookParams) -> Result<CookOutcom
         return Ok(CookOutcome::Empty);
     }
 
-    // The model follows the session language. No model for the language — fail loudly:
-    // silently cooking English speech with a Russian model means emitting plausible
-    // mush, and afterwards nobody will tell it apart from a bad recording.
-    let model = lang::asr_model(&lang, &p.model_dir)
-        .with_context(|| format!("session language «{lang}»"))?;
-    // Explicit engineering profile only; ordinary capture/cook emits no extra operation.
-    // Includes adapter/vocabulary construction and inference-session loading.
-    let model_load = (std::env::var("LOCALVOX_PROFILE_TIMINGS").as_deref() == Ok("1")).then(|| {
-        crate::journal::Operation::start(
-            session_dir,
-            "transcribe",
-            "Загрузка ASR-модели и адаптера",
-            None,
-        )
-    });
-    let (engine, model_name): (Box<dyn AsrEngine>, String) = match model.engine {
-        lang::Engine::Onnx => {
-            let file = find_model_file(&model.dir)?;
-            let adapter = GigaamV3E2eCtc::from_model_dir(&model.dir)
-                .context("building the GigaAM v3 E2E CTC adapter")?;
-            let name = file
-                .file_name()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .into();
-            let engine = OnnxEngine::new(&file, adapter).context("loading the ONNX model")?;
-            (Box::new(engine), name)
-        }
-        lang::Engine::Vosk => {
-            let engine =
-                crate::asr::vosk::VoskEngine::new(&model.dir).context("loading the Vosk model")?;
-            let name = model
-                .dir
-                .file_name()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .into();
-            (Box::new(engine), name)
-        }
+    let capture = session_dir
+        .join("capture")
+        .exists()
+        .then(|| crate::chunks::capture::read(session_dir))
+        .transpose()?;
+    let window_recipe = crate::chunks::planning::Recipe {
+        revision: 1,
+        max_samples: (p.max_window_sec * SAMPLE_RATE as f64) as u64,
+        min_cut_samples: (p.min_cut_sec * SAMPLE_RATE as f64) as u64,
+        silence_ms: p.silence_ms,
     };
-
-    drop(model_load);
+    // Explicit force retains its fresh-recognition meaning; legacy archives retain their route.
+    let use_cache = capture.is_some() && !p.force && window_recipe.validate().is_ok();
+    let selection = match override_model {
+        Some(model) => Some(model),
+        None => use_cache
+            .then(|| model::Selection::resolve(session_dir, p, || false))
+            .transpose()?,
+    };
+    let cache = if use_cache {
+        Some(crate::incremental::Cache::open(
+            session_dir,
+            &selection.as_ref().unwrap().identity,
+        )?)
+    } else {
+        None
+    };
+    let window_fingerprint = use_cache.then(|| window_recipe.fingerprint()).transpose()?;
+    let (mut engine, model_name) = if let Some(selection) = &selection {
+        (None, selection.name.clone())
+    } else {
+        let _load = (std::env::var("LOCALVOX_PROFILE_TIMINGS").as_deref() == Ok("1")).then(|| {
+            crate::journal::Operation::start(
+                session_dir,
+                "transcribe",
+                "Загрузка ASR-модели и адаптера",
+                None,
+            )
+        });
+        let (engine, name) = model::legacy(session_dir, p)?;
+        (Some(engine), name)
+    };
+    let mut cache_hits = 0usize;
+    let mut asr_calls = 0usize;
 
     // The diarization models — if they exist at all. If they do not (or it is switched
     // off), we work as before: we do not know the speakers, and we say so with
@@ -354,19 +383,52 @@ pub fn cook_session_asr(session_dir: &Path, p: &CookParams) -> Result<CookOutcom
         let mut classify = |frame: &[i16]| vad.is_voice_segment(frame).unwrap_or(true);
 
         let mut windower = Windower::new(p.max_window_sec, p.min_cut_sec, p.silence_ms);
-        let mut emit = |start_samples: u64, samples: &[i16]| -> Result<()> {
-            let pcm: Vec<f32> = samples.iter().map(|&s| f32::from(s) / 32768.0).collect();
-            let text = engine.transcribe(&pcm).context("recognizing the window")?;
-            let text = text.trim().to_string();
-            // An utterance without a single real word does not get into the transcript.
-            // On near-silence GigaAM emits «.», «Т.», «а-а» — that is not speech but
-            // recognition noise, and it has to be fixed here, at the source: once in
-            // the transcript it travels into search, into the index and into the LLM
-            // prompt, where the model is obliged to «write a summary» out of the line
-            // «.».
-            if has_real_word(&text) {
-                let start = start_samples as f64 / f64::from(SAMPLE_RATE);
-                let end = start + samples.len() as f64 / f64::from(SAMPLE_RATE);
+        let mut emit = |window: crate::windowing::Window<'_>| -> Result<()> {
+            let mut recognize = |samples: &[i16]| -> Result<String> {
+                if engine.is_none() {
+                    let _load = crate::journal::Operation::start(
+                        session_dir,
+                        "transcribe",
+                        "Загрузка ASR-модели и адаптера",
+                        None,
+                    );
+                    engine = Some(selection.as_ref().context("ASR selection")?.load()?);
+                }
+                asr_calls += 1;
+                let pcm: Vec<f32> = samples.iter().map(|&s| f32::from(s) / 32768.0).collect();
+                engine
+                    .as_ref()
+                    .unwrap()
+                    .transcribe(&pcm)
+                    .context("recognizing the window")
+            };
+            let text = if let Some(cache) = &cache {
+                let descriptor = crate::chunks::planning::Descriptor::from_pcm(
+                    &capture.as_ref().unwrap().generation,
+                    window_fingerprint.as_deref().unwrap(),
+                    source_id,
+                    window.start_sample,
+                    window.pcm,
+                    window.kind,
+                )?;
+                let (result, reused) = cache.resolve(
+                    crate::incremental::VerifiedWindow::new(&descriptor, window.pcm)?,
+                    &mut recognize,
+                )?;
+                if let Some(selection) = &selection {
+                    selection.crash_if_fixture("after_result");
+                }
+                cache_hits += usize::from(reused);
+                result.text().map(str::to_owned)
+            } else if window.kind == crate::windowing::WindowKind::Speech {
+                let text = recognize(window.pcm)?.trim().to_string();
+                has_real_word(&text).then_some(text)
+            } else {
+                None
+            };
+            if let Some(text) = text {
+                let start = window.start_sample as f64 / SAMPLE_RATE as f64;
+                let end = start + window.pcm.len() as f64 / SAMPLE_RATE as f64;
                 lines.push((source_id, start, end, text));
             }
             Ok(())
@@ -380,28 +442,64 @@ pub fn cook_session_asr(session_dir: &Path, p: &CookParams) -> Result<CookOutcom
             crate::diarize::Runner::new(&m.seg, &m.emb, crate::diarize::Options::default())
         });
 
+        let mut last_report = processed_sec;
         for path in &chunks {
-            let samples = read_chunk_samples(path)?;
-            audio_sec += samples.len() as f64 / f64::from(SAMPLE_RATE);
-            if let Some(d) = &mut diar {
-                let pcm: Vec<f32> = samples.iter().map(|&s| f32::from(s) / 32768.0).collect();
-                d.push(&pcm)?;
-            }
-            // Feed the recognizer in slices so ONE long file still moves the bar. Each slice is a
-            // heartbeat: the percentage a person watches AND the liveness a stall is read from —
-            // while these keep coming (every ~15 s of audio) the transcribe is alive, not hung.
-            for slice in samples.chunks(slice_samples) {
-                windower.feed(slice, &mut classify, &mut emit)?;
-                processed_sec += slice.len() as f64 / f64::from(SAMPLE_RATE);
-                crate::progress::progress(
-                    session_dir,
-                    crate::progress::Stage::Transcribe,
-                    processed_sec.round() as u32,
-                    total_sec,
-                );
-            }
+            let stem = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .context("chunk stem")?;
+            crate::chunks::codec::with_read(
+                path.parent().context("audio directory")?,
+                stem,
+                |selected| {
+                    crate::chunks::codec::stream(
+                        selected,
+                        Path::new(&crate::chunks::resolve_ffmpeg_for_decode()),
+                        || false,
+                        |bytes| {
+                            let samples: Vec<i16> = bytes
+                                .chunks_exact(2)
+                                .map(|b| i16::from_le_bytes([b[0], b[1]]))
+                                .collect();
+                            audio_sec += samples.len() as f64 / SAMPLE_RATE as f64;
+                            if let Some(d) = &mut diar {
+                                let pcm: Vec<f32> =
+                                    samples.iter().map(|s| f32::from(*s) / 32768.0).collect();
+                                d.push(&pcm)?;
+                            }
+                            windower.feed_all(&samples, &mut classify, &mut emit)?;
+                            processed_sec += samples.len() as f64 / SAMPLE_RATE as f64;
+                            if processed_sec - last_report
+                                >= slice_samples as f64 / SAMPLE_RATE as f64
+                            {
+                                crate::progress::progress(
+                                    session_dir,
+                                    crate::progress::Stage::Transcribe,
+                                    processed_sec.round() as u32,
+                                    total_sec,
+                                );
+                                last_report = processed_sec;
+                            }
+                            Ok(())
+                        },
+                    )
+                },
+            )?;
+            crate::progress::progress(
+                session_dir,
+                crate::progress::Stage::Transcribe,
+                processed_sec.round() as u32,
+                total_sec,
+            );
         }
-        windower.finish(&mut emit)?;
+        windower.finish_all(&mut emit)?;
+        if let Some(capture) = &capture {
+            ensure!(
+                windower.input_end() == capture.sources[&source_id].end()
+                    && windower.closed_end() == capture.sources[&source_id].end(),
+                "final ASR did not cover the sealed source EOF"
+            );
+        }
 
         if let Some(d) = diar {
             match d.finish() {
@@ -447,6 +545,9 @@ pub fn cook_session_asr(session_dir: &Path, p: &CookParams) -> Result<CookOutcom
         w.flush()?;
         w.get_ref().sync_all()?;
     }
+    if let Some(selection) = &selection {
+        selection.crash_if_fixture("after_transcript_file");
+    }
     store.commit(VersionEntry {
         id,
         label: label.clone(),
@@ -462,10 +563,14 @@ pub fn cook_session_asr(session_dir: &Path, p: &CookParams) -> Result<CookOutcom
             "max_window_sec": p.max_window_sec,
             "min_cut_sec": p.min_cut_sec,
             "silence_ms": p.silence_ms,
+            "asr_cache": {"hits":cache_hits,"calls":asr_calls,"recognizer":selection.as_ref().map(|s|s.identity.fingerprint()).transpose()?},
         }),
         created_at: now_rfc3339(),
         parents: vec![],
     })?;
+    if let Some(selection) = &selection {
+        selection.crash_if_fixture("after_manifest");
+    }
 
     // A re-cook MUST move `best` onto itself. Otherwise the pointer would stay on a
     // derivative of the OLD version (usually `refined` from that same version), and
@@ -473,6 +578,9 @@ pub fn cook_session_asr(session_dir: &Path, p: &CookParams) -> Result<CookOutcom
     // the re-cook would have been pointless. If refine comes after us in the job, it
     // will move best onto itself, having been built from the fresh cook already.
     store.set_best(id)?;
+    if let Some(selection) = &selection {
+        selection.crash_if_fixture("after_best");
+    }
 
     // The language of the text — now, when the text exists. A human's explicit choice we
     // do not touch: a guess does not argue with a decision. What was detected goes into
@@ -511,6 +619,9 @@ pub fn cook_session_asr(session_dir: &Path, p: &CookParams) -> Result<CookOutcom
         Some(format!("{} lines", lines.len())),
         Some(id),
     )?;
+    if let Some(selection) = &selection {
+        selection.crash_if_fixture("after_receipt");
+    }
 
     Ok(CookOutcome::Done {
         version_id: id,
@@ -634,31 +745,6 @@ fn chunk_seconds(path: &Path) -> Result<f64> {
         .context("chunk stem")?;
     crate::chunks::codec::with_read(audio, stem, |path| {
         Ok(crate::chunks::codec::samples(path)? as f64 / f64::from(SAMPLE_RATE))
-    })
-}
-
-fn read_chunk_samples(path: &Path) -> Result<Vec<i16>> {
-    let audio = path.parent().context("audio directory")?;
-    let stem = path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .context("chunk stem")?;
-    crate::chunks::codec::with_read(audio, stem, |path| {
-        let mut samples = Vec::new();
-        crate::chunks::codec::stream(
-            path,
-            Path::new(&crate::chunks::resolve_ffmpeg_for_decode()),
-            || false,
-            |bytes| {
-                samples.extend(
-                    bytes
-                        .chunks_exact(2)
-                        .map(|b| i16::from_le_bytes([b[0], b[1]])),
-                );
-                Ok(())
-            },
-        )?;
-        Ok(samples)
     })
 }
 

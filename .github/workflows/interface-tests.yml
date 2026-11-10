@@ -99,6 +99,7 @@ jobs:
           cargo test --locked -p localvox-light-core windowing:: --lib
           rustfmt --edition 2021 --check crates/localvox-light-core/src/incremental.rs
           cargo test --locked -p localvox-light-core incremental:: --lib
+          cargo test --locked -p localvox-light-asr --features asr-fixtures --test incremental_fixture
       - name: Real worker cancellation and standalone CLI ownership (local HTTP, no models/devices)
         run: cargo test --locked -p localvox-light --lib autocook::cancellation_tests -- --ignored --nocapture
       - name: Background indexes and search (local HTTP, no models/devices)
@@ -116,6 +117,7 @@ jobs:
         run: |
           cargo test --locked -p localvox-light-core --lib chunks::codec::tests::real_ -- --ignored --nocapture
           cargo test --locked -p localvox-light-core --lib chunks::planning::tests::real_ -- --ignored --nocapture
+          cargo test --locked -p localvox-light-core --lib incremental::audio::tests::real_ -- --ignored --nocapture
           cargo test --locked -p localvox-light-api media_http_range_plays --lib -- --ignored --nocapture
           cargo test --locked -p localvox-light-api flac_range_is_sample_accurate --lib -- --ignored --nocapture
       - name: Specification checks

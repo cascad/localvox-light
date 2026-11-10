@@ -63,6 +63,28 @@ pub struct Descriptor {
     pub pcm_sha256: String,
 }
 impl Descriptor {
+    pub fn from_pcm(
+        generation: &str,
+        recipe: &str,
+        source: u8,
+        start_sample: u64,
+        pcm: &[i16],
+        kind: WindowKind,
+    ) -> Result<Self> {
+        ensure!(!pcm.is_empty(), "empty planned window");
+        Ok(Self {
+            version: 1,
+            generation: generation.into(),
+            recipe: recipe.into(),
+            source,
+            start_sample,
+            end_sample: start_sample
+                .checked_add(pcm.len() as u64)
+                .context("planned sample overflow")?,
+            kind,
+            pcm_sha256: crate::windowing::pcm_sha256(pcm),
+        })
+    }
     pub fn id(&self) -> String {
         format!(
             "src{}_{}-{}",
@@ -168,24 +190,14 @@ impl Planner {
                     window.start_sample == state.plan.closed_end,
                     "planner coverage gap/overlap"
                 );
-                let mut hash = Sha256::new();
-                let mut bytes = [0; 8192];
-                for pcm in window.pcm.chunks(bytes.len() / 2) {
-                    for (sample, pair) in pcm.iter().zip(bytes.chunks_exact_mut(2)) {
-                        pair.copy_from_slice(&sample.to_le_bytes());
-                    }
-                    hash.update(&bytes[..pcm.len() * 2]);
-                }
-                let record = Descriptor {
-                    version: 1,
-                    generation: self.generation.clone(),
-                    recipe: self.fingerprint.clone(),
-                    source: *id,
-                    start_sample: window.start_sample,
-                    end_sample: window.start_sample + window.pcm.len() as u64,
-                    kind: window.kind,
-                    pcm_sha256: format!("{:x}", hash.finalize()),
-                };
+                let record = Descriptor::from_pcm(
+                    &self.generation,
+                    &self.fingerprint,
+                    *id,
+                    window.start_sample,
+                    window.pcm,
+                    window.kind,
+                )?;
                 let bytes = serde_json::to_vec(&record)?;
                 let path = self.session.join(record.path());
                 match fs::read(&path) {

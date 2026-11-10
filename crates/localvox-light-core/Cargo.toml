@@ -45,6 +45,8 @@ default = []
 # Включает `asr::onnx::*`: trait OnnxAdapter, OnnxEngine + адаптеры (GigaAM v3 и др.).
 # Тащит `ort` (onnxruntime, CPU-провайдер по умолчанию), `ndarray`, `realfft`.
 onnx = ["dep:ndarray", "dep:ort", "dep:realfft", "dep:tokenizers"]
+# Explicit fixture worker builds only; never selected by an ordinary model lookup.
+asr-fixtures = ["onnx"]
 
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true

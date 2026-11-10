@@ -1,5 +1,11 @@
 # Покрытие требований и состояние реализации
 
+Продолжение PIPE-004/012, VER-001/004, STORE-001/002 от 2026-11-10:
+[R1 finite worker и восстановление финализации](../changes/add-incremental-recording-transcription/evidence/prefix-worker.md).
+Core 444 passed/8 ignored; 3 настоящих child-worker fixture tests и native 150 s smoke
+прошли. Полная native diarization, coordinator/клиенты и двухчасовой gate этим срезом
+не проверены; новые PIPE-015/016 пока остаются delta, не принятыми main requirements.
+
 Дата сверки: 2026-09-27, `new_course`, HEAD `6dfde241bbeff1736829b0bf94c8d4c1f84b1517`
 плюс рабочее дерево. Это свидетельства, а не второй набор требований. Полный текст
 контракта находится по ссылке ID, дополнительные входные точки — в самом требовании.

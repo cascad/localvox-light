@@ -95,6 +95,12 @@ pub struct VerifiedWindow<'a> {
     pcm: &'a [i16],
 }
 impl<'a> VerifiedWindow<'a> {
+    pub fn descriptor(&self) -> &planning::Descriptor {
+        self.input
+    }
+    pub fn pcm(&self) -> &[i16] {
+        self.pcm
+    }
     pub fn new(input: &'a planning::Descriptor, pcm: &'a [i16]) -> Result<Self> {
         validate_descriptor(input)?;
         ensure!(
@@ -149,6 +155,11 @@ pub struct Checkpoint {
     /// Stable ordering watermark, additionally constrained by available audio.
     pub publication_end: u64,
     pub complete: bool,
+}
+impl Checkpoint {
+    pub fn fingerprint(&self) -> Result<String> {
+        Ok(hash(&serde_json::to_vec(self)?))
+    }
 }
 
 /// Like VersionStore, writes require the caller's session execution ownership.

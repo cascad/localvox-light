@@ -1,5 +1,45 @@
 use super::*;
 
+#[test]
+fn legacy_wav_metadata_is_skipped_and_declared_truncated_pcm_is_rejected() {
+    let root = tempfile::tempdir().unwrap();
+    let audio = root.path().join("audio");
+    let path = wav(&audio, "legacy", 2000);
+    let canonical = fs::read(&path).unwrap();
+    let expected = canonical[44..].to_vec();
+    let mut bytes = canonical[..12].to_vec();
+    bytes.extend_from_slice(b"JUNK\x04\x00\x00\x00meta");
+    bytes.extend_from_slice(&canonical[12..]);
+    bytes.extend_from_slice(b"LIST\x04\x00\x00\x00tail");
+    let riff = (bytes.len() - 8) as u32;
+    bytes[4..8].copy_from_slice(&riff.to_le_bytes());
+    fs::write(&path, &bytes).unwrap();
+    assert_eq!(samples(&path).unwrap(), 2000);
+    assert!(
+        capture::wav_samples(&path).is_err(),
+        "primary capture validation remains strict"
+    );
+    let mut streamed = Vec::new();
+    stream(
+        &path,
+        Path::new("no-ffmpeg-needed"),
+        || false,
+        |b| {
+            streamed.extend_from_slice(b);
+            Ok(())
+        },
+    )
+    .unwrap();
+    assert_eq!(streamed, expected);
+    assert_eq!(
+        range(&path, 17, 777, Path::new("no-ffmpeg-needed")).unwrap(),
+        expected[34..1554]
+    );
+    bytes.truncate(56 + 3900);
+    fs::write(&path, bytes).unwrap();
+    assert!(samples(&path).is_err());
+}
+
 fn wav(audio: &Path, name: &str, n: usize) -> PathBuf {
     fs::create_dir_all(audio).unwrap();
     let mut writer = StreamingWav::create(audio.join(format!("{name}.part"))).unwrap();

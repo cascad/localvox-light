@@ -8,10 +8,16 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use crate::chunks::{capture, planning};
+use crate::windowing::pcm_sha256 as pcm_hash;
 use crate::windowing::WindowKind;
 
+mod audio;
 mod cache;
+pub use audio::{consume_windows, AudioStats};
 pub use cache::{Accepted, Cache, Checkpoint, Output, VerifiedWindow};
+
+#[cfg(test)]
+mod test_support;
 
 fn hash(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
@@ -33,17 +39,6 @@ fn bytes_file(path: &Path, limit: u64) -> Result<Vec<u8>> {
 }
 fn json_file<T: serde::de::DeserializeOwned>(path: &Path, limit: u64) -> Result<T> {
     Ok(serde_json::from_slice(&bytes_file(path, limit)?)?)
-}
-fn pcm_hash(pcm: &[i16]) -> String {
-    let mut digest = Sha256::new();
-    let mut bytes = [0; 8192];
-    for samples in pcm.chunks(bytes.len() / 2) {
-        for (s, pair) in samples.iter().zip(bytes.chunks_exact_mut(2)) {
-            pair.copy_from_slice(&s.to_le_bytes());
-        }
-        digest.update(&bytes[..samples.len() * 2]);
-    }
-    format!("{:x}", digest.finalize())
 }
 
 /// Exact engine/recipe and content fingerprints. Paths/mtimes are not model identity.
@@ -214,6 +209,12 @@ impl Horizon {
     }
     pub fn complete(&self) -> bool {
         self.plan.complete
+    }
+    pub fn revision(&self) -> u64 {
+        self.plan.capture_revision
+    }
+    pub fn recipe(&self) -> &planning::Recipe {
+        &self.plan.recipe
     }
     fn audio_end(&self) -> u64 {
         common_frontier(

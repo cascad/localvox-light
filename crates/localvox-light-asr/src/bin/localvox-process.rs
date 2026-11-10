@@ -30,6 +30,15 @@ struct Cli {
     #[arg(long, hide = true)]
     worker_phase: Option<localvox_light_core::jobs::JobPhase>,
 
+    /// Process one immutable ready-input horizon; never publish a final transcript.
+    #[arg(long, hide = true, conflicts_with = "worker_index")]
+    worker_prefix: bool,
+
+    /// Explicit synthetic engine for isolated integration tests; absent in normal builds.
+    #[cfg(feature = "asr-fixtures")]
+    #[arg(long, hide = true)]
+    fixture_asr: Option<PathBuf>,
+
     /// Rebuild derived search indexes during an idle period (internal daemon contract).
     #[arg(long, hide = true, conflicts_with = "worker_phase")]
     worker_index: bool,
@@ -262,6 +271,54 @@ fn main() -> Result<()> {
     let mut cli = Cli::parse();
     if cli.worker_protocol {
         println!("{}", localvox_light_core::jobs::WORKER_PROTOCOL);
+        return Ok(());
+    }
+    if cli.worker_prefix {
+        use localvox_light_core::jobs::JobPhase;
+        let session = cli
+            .session
+            .as_ref()
+            .context("--worker-prefix requires a session path")?;
+        anyhow::ensure!(
+            cli.worker_phase.is_none_or(|p| p == JobPhase::Transcribe)
+                && cli.ingest.is_empty()
+                && cli.lang.is_none()
+                && !cli.force
+                && !cli.post_only
+                && !cli.refine
+                && !cli.cleanup
+                && !cli.summary
+                && !cli.status
+                && !cli.list_versions
+                && cli.set_best.is_none()
+                && cli.export.is_empty(),
+            "prefix transcription cannot be combined with final processing or archive management"
+        );
+        let _execution = if cli.worker_phase.is_none() {
+            Some(
+                localvox_light_core::jobs::try_execution_lock(session)?
+                    .context("session is being processed by another worker")?,
+            )
+        } else {
+            None
+        };
+        localvox_light_core::cli::init_tracing_tool("info");
+        let params = CookParams {
+            model_dir: cli.model_dir.clone(),
+            label: cli.label.clone(),
+            max_window_sec: cli.max_window_sec,
+            min_cut_sec: cli.min_cut_sec,
+            ..Default::default()
+        };
+        #[cfg(feature = "asr-fixtures")]
+        let report = if let Some(spec) = &cli.fixture_asr {
+            localvox_light_core::cook::transcribe_prefix_fixture(session, &params, spec)?
+        } else {
+            localvox_light_core::cook::transcribe_prefix(session, &params)?
+        };
+        #[cfg(not(feature = "asr-fixtures"))]
+        let report = localvox_light_core::cook::transcribe_prefix(session, &params)?;
+        println!("{}", serde_json::to_string(&report)?);
         return Ok(());
     }
     if cli.worker_index {
@@ -549,7 +606,15 @@ fn main() -> Result<()> {
                 session,
                 Stage::Transcribe,
                 "Распознавание и разметка говорящих",
-                || cook_session_asr(session, &params),
+                || {
+                    #[cfg(feature = "asr-fixtures")]
+                    if let Some(spec) = &cli.fixture_asr {
+                        return localvox_light_core::cook::cook_session_asr_fixture(
+                            session, &params, spec,
+                        );
+                    }
+                    cook_session_asr(session, &params)
+                },
             ) {
                 Ok(CookOutcome::Done {
                     version_id,

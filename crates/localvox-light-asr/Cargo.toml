@@ -4,6 +4,9 @@ version.workspace = true
 edition.workspace = true
 description = "CLI for offline transcription with ONNX models (GigaAM v3 and the like); ingestion is shared with localvox-light-youtube."
 
+[features]
+asr-fixtures = ["localvox-light-core/asr-fixtures"]
+
 [[bin]]
 name = "localvox-asr"
 path = "src/main.rs"
@@ -25,3 +28,6 @@ url.workspace = true
 indicatif.workspace = true
 
 serde_json.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

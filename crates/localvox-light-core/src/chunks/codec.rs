@@ -91,11 +91,41 @@ pub fn with_read_cancelled<T>(
     read(&path)
 }
 
+fn wav_info(path: &Path) -> Result<(u64, u64)> {
+    let reader = hound::WavReader::new(File::open(path)?)?;
+    let spec = reader.spec();
+    ensure!(
+        spec.sample_rate == 16000
+            && spec.channels == 1
+            && spec.bits_per_sample == 16
+            && spec.sample_format == hound::SampleFormat::Int,
+        "unexpected archive WAV PCM format"
+    );
+    let count = u64::from(reader.duration());
+    let mut file = reader.into_inner();
+    let file_bytes = file.metadata()?.len();
+    let offset = file.stream_position()?;
+    ensure!(offset >= 8, "invalid WAV data position");
+    file.seek(SeekFrom::Start(offset - 8))?;
+    let mut data = [0; 8];
+    file.read_exact(&mut data)?;
+    ensure!(
+        &data[..4] == b"data"
+            && u64::from(u32::from_le_bytes(data[4..].try_into()?)) == count * 2
+            && count * 2 <= MAX_PCM_BYTES
+            && offset
+                .checked_add(count * 2)
+                .is_some_and(|end| end <= file_bytes),
+        "truncated or unsupported WAV sample storage"
+    );
+    Ok((count, offset))
+}
+
 /// STREAMINFO is mandatory first metadata (RFC 9639 §8.2). Counts remain untrusted
 /// until decoded bytes have been checked; never allocate from this header.
 pub fn samples(path: &Path) -> Result<u64> {
     if path.extension().and_then(|s| s.to_str()) == Some("wav") {
-        return capture::wav_samples(path);
+        return Ok(wav_info(path)?.0);
     }
     let mut file = File::open(path)?;
     let mut header = [0; 42];
@@ -217,9 +247,25 @@ pub fn stream(
     path: &Path,
     ffmpeg: &Path,
     cancelled: impl Fn() -> bool,
+    consume: impl FnMut(&[u8]) -> Result<()>,
+) -> Result<()> {
+    stream_range(path, ffmpeg, 0, samples(path)?, cancelled, consume)
+}
+
+/// One bounded decode per container, then only the requested PCM interval is fed.
+pub fn stream_range(
+    path: &Path,
+    ffmpeg: &Path,
+    from: u64,
+    to: u64,
+    cancelled: impl Fn() -> bool,
     mut consume: impl FnMut(&[u8]) -> Result<()>,
 ) -> Result<()> {
     let n = samples(path)?;
+    ensure!(
+        from <= to && to <= n,
+        "PCM stream interval exceeds saved audio"
+    );
     let temporary = if path.extension().and_then(|s| s.to_str()) == Some("flac") {
         let temp = tempfile::tempdir_in(path.parent().context("audio directory")?)?;
         decode_file(
@@ -241,10 +287,14 @@ pub fn stream(
             .map(|t| t.path().join("decoded.pcm"))
             .unwrap_or_else(|| path.into()),
     )?;
-    if temporary.is_none() {
-        file.seek(SeekFrom::Start(44))?;
-    }
-    let mut remaining = n * 2;
+    file.seek(SeekFrom::Start(
+        if temporary.is_none() {
+            wav_info(path)?.1
+        } else {
+            0
+        } + from * 2,
+    ))?;
+    let mut remaining = (to - from) * 2;
     let mut buf = [0u8; 64 * 1024];
     while remaining > 0 {
         ensure!(!cancelled(), "audio read cancelled");
@@ -266,7 +316,7 @@ pub fn range(path: &Path, from: u64, to: u64, ffmpeg: &Path) -> Result<Vec<u8>> 
     let bytes = (b - a).checked_mul(2).context("PCM range overflow")?;
     if path.extension().and_then(|s| s.to_str()) == Some("wav") {
         let mut file = File::open(path)?;
-        file.seek(SeekFrom::Start(44 + a * 2))?;
+        file.seek(SeekFrom::Start(wav_info(path)?.1 + a * 2))?;
         let mut pcm = vec![0; usize::try_from(bytes)?];
         file.read_exact(&mut pcm)?;
         return Ok(pcm);
@@ -416,7 +466,7 @@ fn convert_with(
 pub fn verify_conversion(audio: &Path, stem: &str, n: u64, generation: &str) -> Result<()> {
     verify_conversion_cancelled(audio, stem, n, generation, &|| false)
 }
-pub(super) fn verify_conversion_cancelled(
+pub(crate) fn verify_conversion_cancelled(
     audio: &Path,
     stem: &str,
     n: u64,

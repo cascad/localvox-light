@@ -5,7 +5,7 @@
 
 | Результат для проверки | Состав | Состояние |
 |---|---|---|
-| R1 · Готовые куски распознаются, Stop завершает полную запись с reuse | 1.1–3.2 | В работе: сохранение/planner/cache готовы; worker/final ещё не приняты целиком |
+| R1 · Готовые куски распознаются, Stop завершает полную запись с reuse | 1.1–3.2 | Готово: worker/crash fixtures и native 150 s smoke прошли; reference performance в R4 |
 | R2 · Очередь, настройка и отмена работают во время записи | 4.1–4.2 | Не готово |
 | R3 · Готовое можно читать, копировать и слушать в UI/TUI без прыжков | 4.3, 6.1–6.3 | Не готово |
 | R4 · Кандидат проходит общий прогон и запускается по короткой инструкции | 7.1–7.3 | Не готово |
@@ -27,7 +27,7 @@
 ## 3. Durable ASR work and finalization
 
 - [x] 3.1 Реализовать immutable descriptors/window cache/checkpoint и отдельные per-source/common frontiers (PIPE-015/016); тестами с остановкой между result/sync/checkpoint доказать отсутствие дыр/дублей, учёт empty outcomes, отказ битого кеша/изменённого PCM/model/recipe и повтор только недостающего.
-- [ ] 3.2 Дать worker конечный input horizon и общий путь принятия кеша в full cook, EOF tail, final diarization и обычные версии/receipts; настоящим worker с model-free ASR fixture проверить crash каждого шага final commit, source/parent/timing, legacy fallback, запрет summary/index до полного подтверждения и отсутствие повторного ASR принятых окон; документировать recovery/rollback.
+- [x] 3.2 Дать worker конечный input horizon и общий путь принятия кеша в full cook, EOF tail, final diarization и обычные версии/receipts; настоящим worker с model-free ASR fixture проверить crash каждого шага final commit, source/parent/timing, legacy fallback, запрет summary/index до полного подтверждения и отсутствие повторного ASR принятых окон; документировать recovery/rollback.
 
 ## 4. Coordinator, controls and API
 

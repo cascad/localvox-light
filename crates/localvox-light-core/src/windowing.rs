@@ -4,6 +4,20 @@ use anyhow::{ensure, Result};
 pub const SAMPLE_RATE: u32 = 16_000;
 pub const FRAME_SAMPLES: usize = 320;
 
+/// Canonical little-endian PCM identity shared by capture planning and ASR reuse.
+pub fn pcm_sha256(pcm: &[i16]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut digest = Sha256::new();
+    let mut bytes = [0; 8192];
+    for samples in pcm.chunks(bytes.len() / 2) {
+        for (sample, pair) in samples.iter().zip(bytes.chunks_exact_mut(2)) {
+            pair.copy_from_slice(&sample.to_le_bytes());
+        }
+        digest.update(&bytes[..samples.len() * 2]);
+    }
+    format!("{:x}", digest.finalize())
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum WindowKind {
