@@ -472,18 +472,101 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
     let mut temp = tempfile::NamedTempFile::new_in(parent)?;
     temp.write_all(bytes)?;
     temp.as_file().sync_all()?;
-    temp.persist(path)
-        .map_err(|e| e.error)
-        .with_context(|| format!("сохранение {}", path.display()))?;
+    #[cfg(windows)]
+    let published = persist_atomic_windows(temp, path, |file, target| file.persist(target));
+    #[cfg(not(windows))]
+    let published = temp.persist(path).map_err(|e| e.error);
+    published.with_context(|| format!("сохранение {}", path.display()))?;
     #[cfg(unix)]
     fs::File::open(parent)?.sync_all()?;
     Ok(())
+}
+
+#[cfg(windows)]
+fn persist_atomic_windows(
+    mut file: tempfile::NamedTempFile,
+    target: &Path,
+    mut persist: impl FnMut(
+        tempfile::NamedTempFile,
+        &Path,
+    ) -> std::result::Result<fs::File, tempfile::PersistError>,
+) -> std::io::Result<fs::File> {
+    use std::time::{Duration, Instant};
+    let deadline = Instant::now() + Duration::from_millis(100);
+    let mut delay = Duration::from_millis(1);
+    loop {
+        match persist(file, target) {
+            Ok(published) => return Ok(published),
+            Err(error) => {
+                // Replace can be denied while a reader/scanner owns a Windows handle.
+                // Retry only the atomic rename of the same already-synced temporary file.
+                if !matches!(error.error.raw_os_error(), Some(5 | 32)) || Instant::now() >= deadline
+                {
+                    return Err(error.error);
+                }
+                file = error.file;
+                std::thread::sleep(delay.min(deadline.saturating_duration_since(Instant::now())));
+                delay = (delay * 2).min(Duration::from_millis(10));
+            }
+        }
+    }
 }
 
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
     use crate::{processing, versions::VersionStore};
+
+    #[cfg(windows)]
+    #[test]
+    fn atomic_replace_retries_a_released_windows_handle_without_exposing_partial_bytes() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("meta.json");
+        fs::write(&path, b"old").unwrap();
+        let mut blocker = Some(
+            fs::OpenOptions::new()
+                .read(true)
+                .share_mode(1)
+                .open(&path)
+                .unwrap(),
+        );
+        let mut temp = tempfile::NamedTempFile::new_in(root.path()).unwrap();
+        temp.write_all(b"new complete bytes").unwrap();
+        temp.as_file().sync_all().unwrap();
+        let mut attempts = 0;
+        persist_atomic_windows(temp, &path, |file, target| {
+            attempts += 1;
+            let result = file.persist(target);
+            if attempts == 1 {
+                assert!(result.is_err(), "the held handle must refuse replacement");
+                assert_eq!(fs::read(&path).unwrap(), b"old");
+                drop(blocker.take());
+            }
+            result
+        })
+        .unwrap();
+        assert_eq!(attempts, 2);
+        assert_eq!(fs::read(path).unwrap(), b"new complete bytes");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn atomic_replace_remains_bounded_and_preserves_old_bytes_when_the_handle_stays_locked() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("meta.json");
+        fs::write(&path, b"old").unwrap();
+        let _blocker = fs::OpenOptions::new()
+            .read(true)
+            .share_mode(1)
+            .open(&path)
+            .unwrap();
+        let started = std::time::Instant::now();
+        assert!(atomic_write(&path, b"unpublished").is_err());
+        assert!(started.elapsed() < std::time::Duration::from_secs(2));
+        assert_eq!(fs::read(path).unwrap(), b"old");
+    }
 
     #[test]
     fn partial_ingest_is_not_ready_until_complete_audio_is_committed() {

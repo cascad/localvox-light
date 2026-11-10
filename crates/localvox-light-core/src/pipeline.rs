@@ -1560,7 +1560,18 @@ mod tests {
         assert!(started, "start was not serviced with an idle PCM sender");
         assert!(stopped, "stop was not serviced with an idle PCM sender");
         let meta = only_meta(dir.path());
-        assert_eq!(meta.stopped_reason.as_deref(), Some("test stop"));
+        assert_eq!(
+            meta.stopped_reason.as_deref(),
+            Some("test stop"),
+            "capture journal: {}",
+            std::fs::read_to_string(
+                dir.path()
+                    .join("sessions")
+                    .join(session_dirs(dir.path())[0].clone())
+                    .join("progress.jsonl")
+            )
+            .unwrap_or_default()
+        );
         assert!(recorded_sec(&meta, 0) > 0.0);
         assert!(meta.chunks.iter().all(|c| !c.file.ends_with(".part")));
     }
