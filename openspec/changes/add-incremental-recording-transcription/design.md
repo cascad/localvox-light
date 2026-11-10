@@ -181,28 +181,15 @@ Crash в любой точке публикации оставляет чита�
 либо повторяет недостающее под тем же lease. Summary и индекс получают только
 подтверждённый final source. В полном экспорте по best нет скрытого partial fallback.
 
-### 6. Текст: reuse только точного запроса, последний пакет ждёт
+### 6. Граница первого выпуска: ранний STT, обычная правка после Stop
 
-Сначала нужно получить стабильный общий STT префикс. Refine/cleanup остаются явными
-флагами операции; автоматические очистители не возвращаются в settings. Из текущего
-batcher выделяется чистый planner запросов для offline и incremental. Последний
-пакет не flush до появления следующего либо EOF; oversized одиночная строка и
-границы лимитов проверяются отдельно. Для cleanup после refine учитывается именно
-подтверждённый результат соответствующих refined строк, не raw STT соседнего run.
-
-Кеш запросов содержит input IDs/точный порядок/исходные тексты, фактические messages,
-глоссарный блок, модель/endpoint identity, sampling/context/caps и revision pipeline.
-Ответ сопоставляется только с sent IDs, затем проходит текущие общие guards.
-Raw answer и проверенный delta хранятся отдельно; неизвестные/опасные поправки
-оставляют source. Финальное принятие снова проверяет dependencies и guards.
-Наличие позднего глоссарного термина может инвалидировать несколько или все ранние
-текстовые пакеты; в таком случае честно пересчитываем их. Ради reuse не меняем
-глоссарный prompt, контекст, batch limits или степень правки.
-
-Внешний Ollama не атомарен с нашим cache: после crash запрос может повториться,
-его ровно однократное выполнение не обещается. При несовпадении сохраняется исходник,
-а не лучший на глаз вариант. Полные refined/processed публикуются только с final
-version IDs/parent/receipts. Пунктуация/семантика моделей — прежний RV-020 scope.
+Решение владельца 2026-11-10: довести готовые аудиокуски до параллельного STT и
+чтения/копирования/прослушивания в UI/TUI, затем остановиться на кандидате для
+просмотра и сбора багов. Ранняя LLM-правка (PIPE-017, прежние 5.1/5.2) отложена:
+она не реализована и не считается выполненной в этом change. Номер сохраняется
+для будущего отдельного согласования; новых моделей и общего рефакторинга здесь нет.
+Во время записи Текст — исходный STT. Summary ждёт Stop и подтверждённого полного
+источника; существующие явно запрошенные refine/cleanup после Stop идут прежним путём.
 
 ### 7. Короткие задания в существующих линиях и понятные controls
 
@@ -332,7 +319,7 @@ Owner microphone/loopback длительный сеанс и Mac — отдел�
 | STORE-004 | [chunks](../../../crates/localvox-light-core/src/chunks.rs), [capture](../../../crates/localvox-light-core/src/pipeline.rs) | seal/EOF/recovery/FLAC failure tests, not-run |
 | PIPE-015 | [cook](../../../crates/localvox-light-core/src/cook.rs) | PCM/window partition invariance, boundary native, not-run |
 | PIPE-016 | [artifacts](../../../crates/localvox-light-core/src/artifacts.rs), [worker](../../../crates/localvox-light-asr/src/bin/localvox-process.rs) | checkpoints/kill/final receipts, not-run |
-| PIPE-017 | [LLM pipeline](../../../crates/localvox-light-llm/src/pipeline.rs) | closed batch/prompt invalidation/guards, not-run |
+| PIPE-017 (deferred) | [LLM pipeline](../../../crates/localvox-light-llm/src/pipeline.rs) | Вне выпуска по решению 2026-11-10; не реализовано, ID не переиспользовать |
 | PIPE-018 | [jobs](../../../crates/localvox-light-core/src/jobs.rs), [coordinator](../../../crates/localvox-light/src/autocook.rs), [settings](../../../crates/localvox-light-core/src/settings.rs) | scheduling/ownership/protocol/cancel, not-run |
 | PIPE-011 | [workflow](../../../crates/localvox-light-core/src/workflow.rs), [journal](../../../ui/src/Journal.tsx) | times/states/error scopes, not-run |
 | ARCH-006 | [API](../../../crates/localvox-light-api/src/archive.rs), [UI](../../../ui/src/DocumentPane.tsx), [TUI](../../../crates/localvox-light-terminal/src/app.rs) | real shared API + browser/ConPTY/player, not-run |
@@ -346,3 +333,13 @@ check-openspec — 88 requirements, 188 scenarios, 88 coverage rows, 1584 links 
 Все 18 implementation/acceptance tasks не выполнены. Проверены документы и ссылки;
 код/модели/устройства не запускались ради этого плана. Пользовательский справочник
 не описывает новую возможность до её реализации.
+
+## Release checkpoint — 2026-11-10
+
+R1 — worker→cache→Stop/final без потерь и повторного ASR принятых окон; R2 —
+очередь/настройка/отмена; R3 — единый partial snapshot и рабочие UI/TUI; R4 —
+фиксированный automated fault/native/browser/ConPTY прогон и воспроизводимый запуск
+кандидата. Технические пункты не заменяют эти результаты. После R4 владелец смотрит
+кандидат, затем собираются/исправляются баги. Рефакторинг — следующий отдельный этап.
+Аппаратные microphone/loopback/Mac сценарии до прогона остаются not-run. Нельзя
+объявлять deferred PIPE-017 выполненным или включать его обратно ради процента задач.

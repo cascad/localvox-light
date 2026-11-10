@@ -1,5 +1,19 @@
 # Tasks
 
+Граница выпуска подтверждена владельцем 2026-11-10: ранняя транскрибация готовых
+кусков в UI и TUI → просмотр владельцем → баги → отдельный рефакторинг.
+
+| Результат для проверки | Состав | Состояние |
+|---|---|---|
+| R1 · Готовые куски распознаются, Stop завершает полную запись с reuse | 1.1–3.2 | В работе: сохранение/planner готовы, cache/worker/final ещё не приняты целиком |
+| R2 · Очередь, настройка и отмена работают во время записи | 4.1–4.2 | Не готово |
+| R3 · Готовое можно читать, копировать и слушать в UI/TUI без прыжков | 4.3, 6.1–6.3 | Не готово |
+| R4 · Кандидат проходит общий прогон и запускается по короткой инструкции | 7.1–7.3 | Не готово |
+
+После R4 передать кандидата владельцу и остановиться на проверке 7.4. Новые фичи,
+подбор моделей и общий рефакторинг не добавлять к этому выпуску. Далее — баги по
+результатам просмотра; аппаратные сценарии не объявлять выполненными заранее.
+
 ## 1. Confirmed capture input
 
 - [x] 1.1 Реализовать generation/sealed sample ranges/terminal capture manifest (STORE-004), не публиковать ошибки close/sync/rename; проверить fault injection каждого commit, пустой файл, pre-roll/pause/Stop/две дорожки и interrupted recovery; обновить описание первичных артефактов.
@@ -21,10 +35,13 @@
 - [ ] 4.2 Реализовать capture/processing mutation leases и различие Stop, Cancel, Retry и выключения раннего режима; проверить cancel при продолжающемся capture, sticky отмену после Stop/restart, отсутствие удаления живым planner, конфликты языка/best/recook, включённый/выключенный autocook и видимую Live предустановку нового bool в UI/TUI settings schema.
 - [ ] 4.3 Добавить согласованный partial/final snapshot API, stable line IDs и неизменяемые audio revision URLs/Range/peaks (ARCH-006); настоящим HTTP проверить stale revision, повреждённый chunk без fake silence, точное аудио через шов, рост capture, доступность старого playing snapshot и отказ полного export до final; описать API/доступные границы.
 
-## 5. Optional text precomputation
+## 5. Deferred text precomputation
 
-- [ ] 5.1 Выделить общий planner refine/cleanup requests и кеш полных зависимостей (PIPE-017), не менять prompt/batch/glossary/guards ради reuse; проверить закрытый/последний/oversized пакет, late glossary term, модель/параметры/source order, чужие/повторные/пропущенные IDs и текущие retention regressions.
-- [ ] 5.2 Подключить явно запрошенную правку к готовому общему STT префиксу и final source/parent receipts; real-worker fixture для refine/cleanup/chain/off доказывает отсутствие LLM без запроса, fallback на source, перепроверку guards и инвалидирование только несовпавших пакетов; обновить engineering docs, не возвращать retired auto-clean toggles.
+По решению владельца 2026-11-10 ранняя LLM-правка вынесена за границу выпуска.
+Прежние задачи 5.1 (общий planner/cache точных refine/cleanup запросов) и 5.2
+(раннее применение/финальные parent receipts), ID PIPE-017, остаются невыполненными
+идеями для отдельного последующего согласования. Их исключение из текущего счётчика
+не означает реализацию. Существующая правка после Stop сохраняется без переделки.
 
 ## 6. UI and TUI behavior
 
