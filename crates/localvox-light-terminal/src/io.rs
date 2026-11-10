@@ -43,6 +43,7 @@ pub fn action_resource(task: &Task) -> Resource {
 #[derive(Clone)]
 pub enum Task {
     Read(Resource, String),
+    Peaks(String, Option<String>),
     Journal(String, Option<String>, Option<String>),
     Search(String, String),
     Chat(String),
@@ -85,6 +86,7 @@ pub enum Data {
     Queue(Vec<QueueItem>),
     Summary(Summary),
     Transcript(Vec<TranscriptLine>),
+    TranscriptSnapshot(TranscriptDoc),
     Readable(ReadableDoc),
     Versions(Vec<Version>),
     Speakers(Vec<Participant>),
@@ -197,7 +199,11 @@ impl Io {
             &self.control
         } else if matches!(
             task,
-            Task::Chat(_) | Task::Search(..) | Task::Route(_) | Task::Read(Resource::Peaks, _)
+            Task::Chat(_)
+                | Task::Search(..)
+                | Task::Route(_)
+                | Task::Read(Resource::Peaks, _)
+                | Task::Peaks(..)
         ) {
             &self.model
         } else if matches!(task, Task::Read(..) | Task::Journal(..)) {
@@ -233,6 +239,11 @@ impl Io {
 }
 pub fn perform(c: &Client, task: Task) -> anyhow::Result<Data> {
     Ok(match task {
+        Task::Peaks(s, snapshot) => Data::Peaks(if snapshot.is_some() {
+            c.peaks_snapshot(&s, 160, snapshot.as_deref())?
+        } else {
+            c.peaks(&s, 160)?
+        }),
         Task::Journal(s, after, before) => Data::Journal(
             c.journal(&s, after.as_deref(), before.as_deref())?,
             before.is_some(),
@@ -243,7 +254,7 @@ pub fn perform(c: &Client, task: Task) -> anyhow::Result<Data> {
             Resource::Jobs => Data::Jobs(c.jobs()?),
             Resource::Queue => Data::Queue(c.queue()?),
             Resource::Summary => Data::Summary(c.summary(&s)?),
-            Resource::Transcript => Data::Transcript(c.transcript(&s)?),
+            Resource::Transcript => Data::TranscriptSnapshot(c.transcript_document(&s)?),
             Resource::Readable => Data::Readable(c.readable(&s)?),
             Resource::Versions => Data::Versions(c.versions(&s)?),
             Resource::Speakers => Data::Speakers(c.speakers(&s)?),

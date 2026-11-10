@@ -116,24 +116,32 @@ fn prefix_impl(
         &after,
         || false,
         |window| {
-            let (result, reused) = cache.resolve(window, |pcm| {
-                if engine.is_none() {
-                    let _load = crate::journal::Operation::start(
-                        session,
-                        "transcribe",
-                        "Загрузка ASR-модели и адаптера",
-                        None,
-                    );
-                    engine = Some(selection.load()?);
-                }
-                asr_calls += 1;
-                let input: Vec<_> = pcm.iter().map(|s| f32::from(*s) / 32768.0).collect();
-                engine
-                    .as_ref()
-                    .unwrap()
-                    .transcribe(&input)
-                    .context("recognizing a ready window")
-            })?;
+            let range = format!(
+                "ASR source {} samples {}..{}",
+                window.descriptor().source,
+                window.descriptor().start_sample,
+                window.descriptor().end_sample
+            );
+            let (result, reused) = cache
+                .resolve(window, |pcm| {
+                    if engine.is_none() {
+                        let _load = crate::journal::Operation::start(
+                            session,
+                            "transcribe",
+                            "Загрузка ASR-модели и адаптера",
+                            None,
+                        );
+                        engine = Some(selection.load()?);
+                    }
+                    asr_calls += 1;
+                    let input: Vec<_> = pcm.iter().map(|s| f32::from(*s) / 32768.0).collect();
+                    engine
+                        .as_ref()
+                        .unwrap()
+                        .transcribe(&input)
+                        .context("recognizing a ready window")
+                })
+                .with_context(|| range)?;
             hits += usize::from(reused);
             accepted.push(result);
             selection.crash_if_fixture("after_result");

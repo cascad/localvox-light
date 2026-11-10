@@ -126,6 +126,21 @@ impl Client {
             },
         }
     }
+    pub fn playback(&self, session: &str) -> Result<PlaybackDoc> {
+        self.get(&["api", "sessions", session, "playback"], &[])
+    }
+    pub fn media_snapshot(&self, session: &str, snapshot: Option<&str>) -> MediaRequest {
+        let mut media = self.media(session);
+        if let Some(snapshot) = snapshot {
+            let mut url = Url::parse(&media.url).expect("client media URL");
+            url.query_pairs_mut().append_pair("snapshot", snapshot);
+            media.url = url.into();
+        }
+        media
+    }
+    pub fn transcript_document(&self, s: &str) -> Result<TranscriptDoc> {
+        self.get(&["api", "sessions", s, "transcript"], &[])
+    }
     pub fn url(&self, segments: &[&str], query: &[(&str, &str)]) -> Url {
         let mut u = self.base.clone();
         u.path_segments_mut()
@@ -465,10 +480,22 @@ impl Client {
         self.post(&["api", "settings"], &[], json!({"set":set}))
     }
     pub fn peaks(&self, s: &str, buckets: usize) -> Result<Peaks> {
+        let media = self.playback(s)?;
+        if media.partial.is_some() && media.snapshot.is_none() {
+            return Ok(Peaks::default());
+        }
+        self.peaks_snapshot(s, buckets, media.snapshot.as_deref())
+    }
+    pub fn peaks_snapshot(&self, s: &str, buckets: usize, snapshot: Option<&str>) -> Result<Peaks> {
+        let count = buckets.min(320).to_string();
+        let mut query = vec![("buckets", count.as_str())];
+        if let Some(snapshot) = snapshot {
+            query.push(("snapshot", snapshot));
+        }
         self.request(
             "GET",
             &["api", "sessions", s, "peaks"],
-            &[("buckets", &buckets.min(320).to_string())],
+            &query,
             None,
             Duration::from_secs(120),
         )
@@ -505,7 +532,6 @@ macro_rules! document {
     };
 }
 document!(QueueDoc, queue, QueueItem);
-document!(TranscriptDoc, lines, TranscriptLine);
 document!(VersionsDoc, versions, Version);
 document!(SpeakersDoc, speakers, Participant);
 document!(SourcesDoc, sources, SourceName);

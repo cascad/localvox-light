@@ -121,6 +121,82 @@ fn wav_info(path: &Path) -> Result<(u64, u64)> {
     Ok((count, offset))
 }
 
+/// A bounded seekable container owned by one media response. Decode FLAC once,
+/// retain the shared lease until this reader is released, never buffer a whole recording.
+pub struct PcmReader {
+    file: File,
+    offset: u64,
+    samples: u64,
+    _lease: File,
+    _temporary: Option<tempfile::TempDir>,
+}
+impl PcmReader {
+    pub fn open(
+        audio: &Path,
+        stem: &str,
+        expected: u64,
+        generation: &str,
+        ffmpeg: &Path,
+    ) -> Result<Self> {
+        let lease = acquire(audio, stem, false, Instant::now() + CODEC_TIMEOUT, &|| {
+            false
+        })?;
+        let wav = audio.join(format!("{stem}.wav"));
+        let path = if wav.is_file() {
+            wav
+        } else {
+            audio.join(format!("{stem}.flac"))
+        };
+        ensure!(
+            samples(&path)? == expected,
+            "sealed media sample count changed"
+        );
+        let (file, offset, temporary) = if path.extension().and_then(|s| s.to_str()) == Some("flac")
+        {
+            verify_conversion(audio, stem, expected, generation)?;
+            let temp = tempfile::tempdir_in(audio)?;
+            let decoded = temp.path().join("media.pcm");
+            decode_file(
+                ffmpeg,
+                &path,
+                &decoded,
+                expected,
+                Instant::now() + CODEC_TIMEOUT,
+                &|| false,
+                &tool,
+            )?;
+            ensure!(
+                fs::metadata(&decoded)?.len() == expected * 2,
+                "sealed media decode incomplete"
+            );
+            (File::open(decoded)?, 0, Some(temp))
+        } else {
+            let (_, offset) = wav_info(&path)?;
+            (File::open(path)?, offset, None)
+        };
+        Ok(Self {
+            file,
+            offset,
+            samples: expected,
+            _lease: lease,
+            _temporary: temporary,
+        })
+    }
+    pub fn range(&mut self, from: u64, to: u64) -> Result<Vec<i16>> {
+        ensure!(
+            from <= to && to <= self.samples && to - from <= 200 * 16000 + 320,
+            "invalid bounded media interval"
+        );
+        self.file.seek(SeekFrom::Start(self.offset + from * 2))?;
+        let mut bytes = vec![0; ((to - from) * 2) as usize];
+        self.file.read_exact(&mut bytes)?;
+        Ok(bytes
+            .chunks_exact(2)
+            .map(|b| i16::from_le_bytes([b[0], b[1]]))
+            .collect())
+    }
+}
+
 /// STREAMINFO is mandatory first metadata (RFC 9639 §8.2). Counts remain untrusted
 /// until decoded bytes have been checked; never allocate from this header.
 pub fn samples(path: &Path) -> Result<u64> {

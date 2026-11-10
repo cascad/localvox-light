@@ -13,8 +13,47 @@ pub struct AudioStream {
     position: u64,
     buffer: Vec<u8>,
     consumed: usize,
+    partial: Option<localvox_light_core::incremental::AudioReader>,
 }
 impl AudioStream {
+    fn fill_buffer(&mut self) -> io::Result<()> {
+        let end = self.end.min(self.position + WINDOW_BYTES as u64);
+        let from = (self.position - 44) / 2;
+        let to = (end - 44).div_ceil(2);
+        let mut read_source = |id| {
+            if let Some(reader) = &mut self.partial {
+                return reader.range(id, from, to).map_err(io::Error::other);
+            }
+            let overlaps = self.meta.chunks.iter().any(|c| {
+                c.source_id == id
+                    && c.start_offset_sec < to as f64 / SR
+                    && c.start_offset_sec + c.duration_sec > from as f64 / SR
+            });
+            if overlaps {
+                source_pcm(&self.dir, &self.meta, id, from, to).map_err(io::Error::other)
+            } else {
+                Ok(Vec::new())
+            }
+        };
+        let mic = read_source(0)?;
+        let sys = read_source(1)?;
+        let mixed = mix(&mic, &sys);
+        let skip = ((self.position - 44) % 2) as usize;
+        let count = (end - self.position) as usize;
+        self.buffer.clear();
+        self.buffer.extend(mixed.into_iter().skip(skip).take(count));
+        if self.partial.is_some() {
+            if self.buffer.len() != count {
+                return Err(io::Error::other("snapshot audio coverage gap"));
+            }
+        } else {
+            self.buffer.resize(count, 0);
+        }
+        self.consumed = 0;
+
+        Ok(())
+    }
+
     pub fn len(&self) -> u64 {
         self.end - self.start
     }
@@ -36,30 +75,7 @@ impl Read for AudioStream {
             return Ok(count);
         }
         if self.consumed == self.buffer.len() {
-            let end = self.end.min(self.position + WINDOW_BYTES as u64);
-            let from = (self.position - 44) / 2;
-            let to = (end - 44).div_ceil(2);
-            let read_source = |id| {
-                let overlaps = self.meta.chunks.iter().any(|c| {
-                    c.source_id == id
-                        && c.start_offset_sec < to as f64 / SR
-                        && c.start_offset_sec + c.duration_sec > from as f64 / SR
-                });
-                if overlaps {
-                    source_pcm(&self.dir, &self.meta, id, from, to).map_err(io::Error::other)
-                } else {
-                    Ok(Vec::new())
-                }
-            };
-            let mic = read_source(0)?;
-            let sys = read_source(1)?;
-            let mixed = mix(&mic, &sys);
-            let skip = ((self.position - 44) % 2) as usize;
-            let count = (end - self.position) as usize;
-            self.buffer.clear();
-            self.buffer.extend(mixed.into_iter().skip(skip).take(count));
-            self.buffer.resize(count, 0);
-            self.consumed = 0;
+            self.fill_buffer()?;
         }
         let count = out.len().min(self.buffer.len() - self.consumed);
         out[..count].copy_from_slice(&self.buffer[self.consumed..self.consumed + count]);
@@ -77,21 +93,41 @@ impl Archive {
         session: &str,
         range: Option<(u64, Option<u64>)>,
     ) -> Result<AudioStream> {
+        self.audio_wav_snapshot(session, range, None)
+    }
+    pub fn audio_wav_snapshot(
+        &self,
+        session: &str,
+        range: Option<(u64, Option<u64>)>,
+        snapshot: Option<&str>,
+    ) -> Result<AudioStream> {
         let dir = self.session_dir(session)?;
         let meta: localvox_light_core::chunks::SessionMeta =
             serde_json::from_slice(&fs::read(dir.join("meta.json")).context("нет meta.json")?)
                 .context("meta.json не читается")?;
+        let snapshot = snapshot
+            .map(|id| localvox_light_core::incremental::Published::snapshot(&dir, id))
+            .transpose()?;
+        if snapshot.is_none() && self.partial_document(&dir)?.is_some() {
+            anyhow::bail!("аудио записи доступно только по опубликованному снимку");
+        }
         let duration = meta
             .chunks
             .iter()
             .map(|c| c.start_offset_sec + c.duration_sec)
             .fold(0.0_f64, f64::max);
-        let pcm_len = (duration * SR) as u64;
+        let pcm_len = snapshot
+            .as_ref()
+            .map_or((duration * SR) as u64, |s| s.audio_end);
         anyhow::ensure!(
             pcm_len <= (u32::MAX as u64 - 36) / 2,
             "запись превышает размер WAV RIFF"
         );
         let file_len = 44 + pcm_len * 2;
+        anyhow::ensure!(
+            snapshot.is_none() || range.is_none_or(|(start, _)| start < file_len),
+            "запрошенное аудио ещё недоступно; граница снимка — {pcm_len} сэмплов"
+        );
         let (start, end) = match range {
             Some((start, end)) => {
                 let start = start.min(file_len);
@@ -104,7 +140,8 @@ impl Archive {
             }
             None => (0, file_len),
         };
-        Ok(AudioStream {
+        let partial = snapshot.map(|s| s.audio_reader(&dir)).transpose()?;
+        let mut stream = AudioStream {
             total: file_len,
             start,
             end,
@@ -113,7 +150,44 @@ impl Archive {
             position: start,
             buffer: Vec::new(),
             consumed: 0,
-        })
+            partial,
+        };
+        // Validate the first bounded PCM buffer before sending successful HTTP headers.
+        if stream.partial.is_some() && stream.end > 44 {
+            let start = stream.position;
+            stream.position = start.max(44);
+            stream.fill_buffer()?;
+            stream.position = start;
+        }
+        Ok(stream)
+    }
+
+    pub fn peaks_snapshot(&self, name: &str, buckets: usize, id: &str) -> Result<Value> {
+        let dir = self.session_dir(name)?;
+        let snapshot = localvox_light_core::incremental::Published::snapshot(&dir, id)?;
+        let end = snapshot.audio_end;
+        let mut reader = snapshot.audio_reader(&dir)?;
+        let buckets = buckets.clamp(32, 2000);
+        let mut acc = vec![0f32; buckets];
+        let mut from = 0;
+        while from < end {
+            let to = (from + 512 * 1024).min(end);
+            for source in [0, 1] {
+                let pcm = reader.range(source, from, to)?;
+                for (i, sample) in pcm.chunks_exact(2).enumerate() {
+                    let bucket =
+                        (((from + i as u64) as u128 * buckets as u128) / end as u128) as usize;
+                    acc[bucket.min(buckets - 1)] = acc[bucket.min(buckets - 1)].max(f32::from(
+                        i16::from_le_bytes([sample[0], sample[1]]).saturating_abs(),
+                    ));
+                }
+            }
+            from = to;
+        }
+        let loudest = acc.iter().copied().fold(1f32, f32::max);
+        Ok(
+            json!({"duration_sec":end as f64/SR,"snapshot":id,"peaks":acc.into_iter().map(|v|(v/loudest).sqrt()).collect::<Vec<_>>()}),
+        )
     }
 }
 

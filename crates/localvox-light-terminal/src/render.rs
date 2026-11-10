@@ -712,6 +712,8 @@ fn items(f: &mut Frame, a: &App, area: Rect, t: Theme) {
                         "{} {}",
                         if q.state == "cancelling" {
                             "~ остановка"
+                        } else if q.state == "waiting_input" {
+                            "~ фрагменты"
                         } else if q.state == "cancelled" {
                             "x отменено"
                         } else if q
@@ -877,9 +879,19 @@ fn document(f: &mut Frame, a: &App, area: Rect, t: Theme, title: &str) {
         None
     };
     let availability = if resource.is_some_and(|resource| a.errors.contains_key(&resource)) {
-        "Последние полученные данные · ~ консоль"
+        "Последние полученные данные · ~ консоль".to_string()
     } else {
-        ""
+        a.partial
+            .as_ref()
+            .filter(|_| matches!(a.tab, Tab::Transcript | Tab::Readable))
+            .map(|p| {
+                format!(
+                    "└ Готовая часть · текст {} · аудио {}",
+                    timecode(p.text_end_sec),
+                    timecode(p.audio_end_sec)
+                )
+            })
+            .unwrap_or_default()
     };
     f.render_widget(
         Paragraph::new(vec![
@@ -1019,6 +1031,21 @@ fn journal_projection(a: &App, t: Theme) -> JournalProjection {
         lines.push(Line::from(Span::styled(
             "Очередь недоступна · ~ консоль",
             Style::default().fg(t.error),
+        )));
+    }
+    if let Some(p) = &a.progress.partial {
+        lines.push(Line::from(Span::styled(
+            format!(
+                "├ Сохранено {} · STT {} · текст {}",
+                timecode(p.sealed_end_sec),
+                timecode(p.stt_end_sec),
+                timecode(p.text_end_sec)
+            ),
+            Style::default().fg(t.dim),
+        )));
+        lines.push(Line::from(Span::styled(
+            "└ Финализация / summary ждут Stop и полного STT",
+            Style::default().fg(t.dim),
         )));
     }
     if let Some(timing) = &a.progress.timing {

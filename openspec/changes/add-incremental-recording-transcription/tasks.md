@@ -7,7 +7,7 @@
 |---|---|---|
 | R1 · Готовые куски распознаются, Stop завершает полную запись с reuse | 1.1–3.2 | Готово: worker/crash fixtures и native 150 s smoke прошли; reference performance в R4 |
 | R2 · Очередь, настройка и отмена работают во время записи | 4.1–4.2 | Готово: real coordinator stop/disable/cancel/Retry; default gate в R4 |
-| R3 · Готовое можно читать, копировать и слушать в UI/TUI без прыжков | 4.3, 6.1–6.3 | Не готово |
+| R3 · Готовое можно читать, копировать и слушать в UI/TUI без прыжков | 4.3, 6.1–6.3 | Готово: HTTP/оба клиента/ConPTY, native mpv и FLAC; hardware отдельно |
 | R4 · Кандидат проходит общий прогон и запускается по короткой инструкции | 7.1–7.3 | Не готово |
 
 После R4 передать кандидата владельцу и остановиться на проверке 7.4. Новые фичи,
@@ -33,7 +33,7 @@
 
 - [x] 4.1 Добавить coalesced incremental intent, новый worker protocol/preflight и finite задания в существующих ресурсных линиях без starvation обычной очереди (PIPE-018); real-coordinator fixture проверяет лимиты, отсутствие spawn без новых descriptors, повторные уведомления, Stop/claim race, несовместимый worker и отсутствие длительного I/O под queue mutex; обновить protocol docs.
 - [x] 4.2 Реализовать capture/processing mutation leases и различие Stop, Cancel, Retry и выключения раннего режима; проверить cancel при продолжающемся capture, sticky отмену после Stop/restart, отсутствие удаления живым planner, конфликты языка/best/recook, включённый/выключенный autocook и видимую Live предустановку нового bool в UI/TUI settings schema.
-- [ ] 4.3 Добавить согласованный partial/final snapshot API, stable line IDs и неизменяемые audio revision URLs/Range/peaks (ARCH-006); настоящим HTTP проверить stale revision, повреждённый chunk без fake silence, точное аудио через шов, рост capture, доступность старого playing snapshot и отказ полного export до final; описать API/доступные границы.
+- [x] 4.3 Добавить согласованный partial/final snapshot API, stable line IDs и неизменяемые audio revision URLs/Range/peaks (ARCH-006); настоящим HTTP проверить stale revision, повреждённый chunk без fake silence, точное аудио через шов, рост capture, доступность старого playing snapshot и отказ полного export до final; описать API/доступные границы.
 
 ## 5. Deferred text precomputation
 
@@ -45,9 +45,9 @@
 
 ## 6. UI and TUI behavior
 
-- [ ] 6.1 Показать partial Реплики/Текст/границы/журнал (PIPE-011, ARCH-006) в UI, сохранить copy, stable selection/scroll и playing snapshot; browser unit/e2e и visual проверки должны покрывать несколько обновлений, выделение, старый HTTP ответ, ошибку, Stop→final и отсутствие прыжка scroll/seek/фокуса.
-- [ ] 6.2 Подключить тот же snapshot/state к TUI: устойчивый anchor/selection, цельный Текст с одним copy hotkey, прежние player hotkeys и статусы ожидания; snapshot/ConPTY + real API/null-audio mpv проверки покрывают растущий документ, late/stale revisions, Stop/Cancel и отсутствие сброса проигрывания.
-- [ ] 6.3 Обновить затронутые US-ID в user-guide вместе с реально доступными сценариями: готовая часть, что копируется, граница аудио, разные Stop/Cancel и настройка; проверить общим temporary API→UI/TUI сценарием без ручного редактирования архивных файлов, будущие действия не выдавать за реализованные.
+- [x] 6.1 Показать partial Реплики/Текст/границы/журнал (PIPE-011, ARCH-006) в UI, сохранить copy, stable selection/scroll и playing snapshot; browser unit/e2e и visual проверки должны покрывать несколько обновлений, выделение, старый HTTP ответ, ошибку, Stop→final и отсутствие прыжка scroll/seek/фокуса.
+- [x] 6.2 Подключить тот же snapshot/state к TUI: устойчивый anchor/selection, цельный Текст с одним copy hotkey, прежние player hotkeys и статусы ожидания; snapshot/ConPTY + real API/null-audio mpv проверки покрывают растущий документ, late/stale revisions, Stop/Cancel и отсутствие сброса проигрывания.
+- [x] 6.3 Обновить затронутые US-ID в user-guide вместе с реально доступными сценариями: готовая часть, что копируется, граница аудио, разные Stop/Cancel и настройка; проверить общим temporary API→UI/TUI сценарием без ручного редактирования архивных файлов, будущие действия не выдавать за реализованные.
 
 ## 7. Integration and acceptance
 

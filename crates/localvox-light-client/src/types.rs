@@ -2,6 +2,36 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct PartialInfo {
+    pub generation: String,
+    pub revision: u64,
+    pub snapshot: Option<String>,
+    pub sealed_end_sec: f64,
+    pub stt_end_sec: f64,
+    pub text_end_sec: f64,
+    pub audio_end_sec: f64,
+}
+impl PartialInfo {
+    pub fn follows(&self, previous: &Self) -> bool {
+        self.generation == previous.generation && self.revision >= previous.revision
+    }
+}
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct TranscriptDoc {
+    pub lines: Vec<TranscriptLine>,
+    pub partial: Option<PartialInfo>,
+}
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct PlaybackDoc {
+    pub duration_sec: f64,
+    pub snapshot: Option<String>,
+    pub partial: Option<PartialInfo>,
+}
+
 /// Required fields deliberately have no serde defaults: an arbitrary JSON
 /// health endpoint is not evidence of a compatible LocalVox service.
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -132,6 +162,7 @@ mod retry_compatibility {
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(default)]
 pub struct TranscriptLine {
+    pub id: Option<String>,
     pub start_sec: f64,
     pub end_sec: f64,
     pub who: String,
@@ -151,6 +182,7 @@ pub struct Provenance {
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(default)]
 pub struct ReadableDoc {
+    pub partial: Option<PartialInfo>,
     pub from_transcript: bool,
     pub lines: Vec<TranscriptLine>,
     pub version_id: u32,
@@ -326,12 +358,14 @@ pub struct Reply {
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(default)]
 pub struct Peaks {
+    pub snapshot: Option<String>,
     pub duration_sec: f64,
     pub peaks: Vec<f64>,
 }
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(default)]
 pub struct Progress {
+    pub partial: Option<PartialInfo>,
     pub at: Option<String>,
     pub execution: Option<Execution>,
     pub running: bool,

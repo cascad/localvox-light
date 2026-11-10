@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   api,
+  acceptsDocument,
+  type PartialInfo,
   type Line,
   type Participant,
   type Provenance as Prov,
@@ -46,7 +48,7 @@ export function DocumentPane({ session, tab, setTab, pos, onSeek, onChanged, say
   // ONLY while there is work (recording, queued or cooking), fires one final reload the moment that
   // work ends, and — thanks to `useArtifact`'s in-place reload — never flickers to «загрузка…».
   const live =
-    session.recording || session.job === "running" || session.job === "pending" || session.job === "cancelling";
+    session.recording || session.job === "waiting_input" || session.job === "running" || session.job === "pending" || session.job === "cancelling";
   const controlPending = useRef(false);
   const [controlBusy, setControlBusy] = useState(false);
   const [tick, setTick] = useState(0);
@@ -136,7 +138,7 @@ export function DocumentPane({ session, tab, setTab, pos, onSeek, onChanged, say
             </button>
           ))}
           <span className="grow" />
-          {!session.recording && session.job && ["running", "pending", "failed"].includes(session.job) && <button className="tool" disabled={controlBusy} onClick={() => void control("cancel")}>
+          {session.job && ["running", "pending", "failed", "waiting_input"].includes(session.job) && <button className="tool" disabled={controlBusy} onClick={() => void control("cancel")}>
             {controlBusy ? "Остановка…" : "Отменить обработку"}
           </button>}
           {session.job === "cancelling" && <span className="hint">Ожидается остановка…</span>}
@@ -148,7 +150,7 @@ export function DocumentPane({ session, tab, setTab, pos, onSeek, onChanged, say
             title={`Скопировать документ (без служебных сносок)${tab === "processed" ? " · Ctrl+Shift+C" : ""}`}>
             ⧉ Копировать
           </button>
-          <button className="tool" disabled={controlBusy || session.job === "cancelling"} onClick={recook} title={`Переварить ${scopeWord}`}>
+          <button className="tool" disabled={session.recording || controlBusy || session.job === "cancelling"} onClick={recook} title={`Переварить ${scopeWord}`}>
             ♻ Переварить
           </button>
         </div>
@@ -199,7 +201,7 @@ function SessionLanguage({ session, onChanged, say }: { session: Session; onChan
   };
   return <div className="ver-switch" data-nocopy>
     <label className="lbl" htmlFor="session-language">Язык:</label>
-    <select id="session-language" value={current} disabled={busy} onChange={(event) => void change(event.target.value)}>
+    <select id="session-language" value={current} disabled={session.recording || busy} onChange={(event) => void change(event.target.value)}>
       {[...new Set(["auto", ...langs, current])].map((lang) => <option value={lang} key={lang}>{lang === "auto" ? "авто" : lang}</option>)}
     </select>
     <span className="hint">смена языка запускает полную переработку</span>
@@ -228,6 +230,7 @@ function Transcript({
     `${session.name}/tr/${gen}`,
     signal => api.transcript(session.name, signal),
     refresh,
+    acceptsDocument,
   );
   const vers = useArtifact(
     `${session.name}/vr/${gen}`,
@@ -252,7 +255,7 @@ function Transcript({
     }
   };
 
-  if (err) return <p className="err">{err}</p>;
+  if (err && !data) return <p className="err">{err}</p>;
   if (!data) return <p className="hint">загрузка…</p>;
   const lines: Line[] = data.lines ?? [];
 
@@ -279,13 +282,16 @@ function Transcript({
     return (
       <>
         {switcher}
-        <p className="hint">пусто</p>
+        <PartialStatus info={data.partial} />
+        <p className="hint">{data.partial ? "Ожидание закрытого фрагмента и распознавания." : "пусто"}</p>
       </>
     );
 
   return (
     <>
       {switcher}
+      <PartialStatus info={data.partial} />
+      {err && <p className="hint" data-nocopy>Обновление недоступно; показана последняя готовая часть.</p>}
       <div className="lines">
         {lines.map((l, i) => {
         // The lit line is wherever the ONE player is now. Clicking ▶ moves the player to this
@@ -293,7 +299,7 @@ function Transcript({
         // the right line lights immediately — no lag, no "previous line first".
         const sounding = pos >= l.start_sec && pos < l.end_sec;
         return (
-          <div key={i} className={`ln${sounding ? " playing" : ""}`}>
+          <div key={l.id ?? i} className={`ln${sounding ? " playing" : ""}`}>
             <button
               className="play"
               title={`Послушать этот фрагмент (${mmss(l.start_sec)}–${mmss(l.end_sec)})`}
@@ -363,7 +369,7 @@ function Article({
     }
   };
 
-  if (err) return <p className="err">{err}</p>;
+  if (err && !data) return <p className="err">{err}</p>;
   if (!data) return <p className="hint">загрузка…</p>;
   if (data.available === false) return <p className="hint">Сводка ещё не создана. Текст и реплики доступны отдельно; ход обработки — во вкладке «Ход».</p>;
 
@@ -570,6 +576,7 @@ function Readable({
     `${session.name}/readable`,
     signal => api.readable(session.name, signal),
     refresh,
+    acceptsDocument,
   );
 
   const recook = async () => {
@@ -582,7 +589,7 @@ function Readable({
     }
   };
 
-  if (err) return <p className="err">{err}</p>;
+  if (err && !data) return <p className="err">{err}</p>;
   if (!data) return <p className="hint">загрузка…</p>;
 
   const lines = data.lines ?? [];
@@ -594,6 +601,8 @@ function Readable({
 
   return (
     <>
+      <PartialStatus info={data.partial} />
+      {err && <p className="hint" data-nocopy>Обновление недоступно; показана последняя готовая часть.</p>}
       {!data.from_transcript && session.processed_doubts && (
         <div className="doubt" data-nocopy>
           <span aria-hidden="true">⚠</span>
@@ -648,7 +657,7 @@ function Readable({
       </details>}
       <div className="book">
         {data.from_transcript ? <p className="raw-transcript" data-plain-text>
-          {lines.map(line => line.text.trim()).filter(Boolean).join(" ")}
+          {lines.map((line, i) => <span key={line.id ?? i}>{i > 0 ? " " : ""}{line.text.trim()}</span>)}
         </p> : turns.map((t, i) =>
           t.paras.map((p, j) => (
             // A change of speaker is marked the way a book marks it: the dash of direct speech, on
@@ -768,7 +777,7 @@ function Speakers({
     }
   };
 
-  if (err) return <p className="err">{err}</p>;
+  if (err && !data) return <p className="err">{err}</p>;
   if (!data) return <p className="hint">загрузка…</p>;
   const people: Participant[] = data.speakers ?? [];
 
@@ -822,4 +831,8 @@ function Speakers({
       )}
     </>
   );
+}
+
+function PartialStatus({info}: {info?: PartialInfo | null}) {
+  return info ? <p className="hint" data-nocopy>└ Готовая часть · текст до {mmss(info.text_end_sec)} · аудио до {mmss(info.audio_end_sec)} · полная расшифровка ещё не готова</p> : null;
 }

@@ -82,6 +82,8 @@ pub struct Snapshot {
     pub captured: capture::Snapshot,
     pub plan: planning::Snapshot,
     pub lines: Vec<PartialLine>,
+    pub audio_end: u64,
+    pub publication_end: u64,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -90,6 +92,18 @@ pub struct Published {
     pub input: FrozenInput,
 }
 impl Published {
+    pub fn snapshot(session: &Path, id: &str) -> Result<Snapshot> {
+        ensure!(is_hash(id), "invalid partial snapshot key");
+        let path = session.join(format!("incremental/snapshots/{id}.json"));
+        let bytes = bytes_file(&path, 16 * 1024 * 1024)?;
+        ensure!(hash(&bytes) == id, "partial snapshot checksum changed");
+        let value: Snapshot = serde_json::from_slice(&bytes)?;
+        Self {
+            snapshot: id.into(),
+            input: value.input,
+        }
+        .read(session)
+    }
     pub fn read(&self, session: &Path) -> Result<Snapshot> {
         ensure!(is_hash(&self.snapshot), "invalid partial snapshot key");
         let bytes = bytes_file(
@@ -151,8 +165,18 @@ impl Cache {
     pub fn publish(&self, session: &Path, horizon: &Horizon) -> Result<Published> {
         let (checkpoint, records) = self.read_checkpoint(horizon)?;
         let input = horizon.freeze(session)?;
+        // Only fully window-verified audio is exposed. Withhold a whole older-start
+        // line (and its successors) if another track has not closed enough PCM yet.
+        let audio_end = checkpoint.common_end;
+        let publication_end = records
+            .iter()
+            .filter(|r| r.descriptor().end_sample > audio_end)
+            .map(|r| r.descriptor().start_sample)
+            .min()
+            .unwrap_or(checkpoint.publication_end);
         let lines = records
             .into_iter()
+            .filter(|r| r.descriptor().start_sample < publication_end)
             .filter_map(|record| {
                 record.text().map(|text| {
                     let d = record.descriptor();
@@ -176,6 +200,8 @@ impl Cache {
             captured: horizon.input.clone(),
             plan: horizon.plan.clone(),
             lines,
+            audio_end,
+            publication_end,
         };
         let bytes = serde_json::to_vec(&value)?;
         ensure!(

@@ -223,7 +223,9 @@ fn parse_range(request: &tiny_http::Request) -> Option<(u64, Option<u64>)> {
 fn serve_audio_wav(archive: &Archive, request: tiny_http::Request, name: &str) {
     let range = parse_range(&request);
     let partial = range.is_some();
-    match archive.audio_wav(name, range) {
+    let (_, query) = split_url(request.url());
+    let snapshot = query_param(query, "snapshot");
+    match archive.audio_wav_snapshot(name, range, snapshot.as_deref()) {
         Ok(slice) => {
             let status = if partial { 206 } else { 200 };
             let (start, end, total, length) =
@@ -671,7 +673,11 @@ pub fn respond(
                 let buckets = query_param(query, "buckets")
                     .and_then(|v| v.parse::<usize>().ok())
                     .unwrap_or(160);
-                archive.peaks(name, buckets)
+                if let Some(snapshot) = query_param(query, "snapshot") {
+                    archive.peaks_snapshot(name, buckets, &snapshot)
+                } else {
+                    archive.peaks(name, buckets)
+                }
             }
             // Where the session is RIGHT NOW: the chain of stages, each with its state, its
             // time and — if it broke — its reason.
@@ -1036,16 +1042,31 @@ pub fn respond(
                     // instead of trusting it. `?format=md` renders the markdown for those who
                     // want a document (export, the clipboard, a script).
                     "processed" => {
-                        let dir = archive.session_dir(name)?;
-                        let doc = localvox_light_core::readable::document(&dir)?;
+                        let doc = archive.readable_document(name)?;
                         if query_param(query, "format").as_deref() == Some("md") {
-                            Ok(
-                                json!({"markdown": localvox_light_core::readable::render_markdown(&doc.lines)}),
-                            )
+                            // Readable projection, including partial text, never means a full export.
+                            let text = if doc.get("partial").is_some() {
+                                doc["lines"]
+                                    .as_array()
+                                    .into_iter()
+                                    .flatten()
+                                    .filter_map(|l| l["text"].as_str())
+                                    .collect::<Vec<_>>()
+                                    .join(" ")
+                            } else {
+                                localvox_light_core::readable::render_markdown(
+                                    &localvox_light_core::readable::document(
+                                        &archive.session_dir(name)?,
+                                    )?
+                                    .lines,
+                                )
+                            };
+                            Ok(json!({"markdown":text}))
                         } else {
-                            Ok(serde_json::to_value(doc)?)
+                            Ok(doc)
                         }
                     }
+                    "playback" => archive.playback(name),
                     "processed-unverified" => {
                         document(archive.artifact(name, "processed.unverified.md")?)
                     }
@@ -1159,6 +1180,7 @@ mod tests {
     use super::*;
     use std::fs;
     use std::path::Path;
+    mod partial;
     mod workspace;
 
     fn archive(dir: &Path) -> Archive {

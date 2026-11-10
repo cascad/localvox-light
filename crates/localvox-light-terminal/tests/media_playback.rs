@@ -130,6 +130,19 @@ fn real_player_auth_range_pause_and_repeated_fragment() {
                         .unwrap();
                     continue;
                 }
+                if request.url().ends_with("/playback") {
+                    request
+                        .respond(
+                            Response::from_string(
+                                r#"{"duration_sec":3600,"snapshot":null,"partial":null}"#,
+                            )
+                            .with_header(
+                                Header::from_bytes("Content-Type", "application/json").unwrap(),
+                            ),
+                        )
+                        .unwrap();
+                    continue;
+                }
                 assert!([
                     "/api/sessions/demo/audio.wav",
                     "/api/sessions/other/audio.wav"

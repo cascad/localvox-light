@@ -122,6 +122,7 @@ jobs:
           cargo test --locked -p localvox-light-core --lib incremental::audio::tests::real_ -- --ignored --nocapture
           cargo test --locked -p localvox-light-api media_http_range_plays --lib -- --ignored --nocapture
           cargo test --locked -p localvox-light-api flac_range_is_sample_accurate --lib -- --ignored --nocapture
+          cargo test --locked -p localvox-light-api http::tests::partial::real_ --lib -- --ignored --nocapture --test-threads=1
       - name: Specification checks
         run: |
           npx --yes @fission-ai/openspec@1.13.2 validate --specs --strict --no-interactive

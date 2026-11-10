@@ -2,7 +2,17 @@
 // learns here — no component talks to the network on its own.
 import type { JournalPage } from "./journal-model";
 
-export type JobState = "running" | "pending" | "failed" | "cancelling" | "cancelled";
+export type JobState = "running" | "pending" | "failed" | "cancelling" | "cancelled" | "waiting_input";
+
+export interface PartialInfo {
+  generation: string; revision: number; snapshot: string | null;
+  sealed_end_sec: number; stt_end_sec: number; text_end_sec: number; audio_end_sec: number;
+}
+export interface PlaybackDoc { duration_sec: number; snapshot: string | null; partial?: PartialInfo | null }
+export function acceptsDocument(next: {partial?: PartialInfo | null}, previous: {partial?: PartialInfo | null}) {
+  if (!next.partial) return true;
+  return !!previous.partial && next.partial.generation === previous.partial.generation && next.partial.revision >= previous.partial.revision;
+}
 
 export interface Session {
   name: string;
@@ -25,6 +35,7 @@ export interface Session {
 }
 
 export interface Line {
+  id?: string | null;
   start_sec: number;
   end_sec: number;
   who: string;
@@ -121,7 +132,7 @@ export interface QueueItem {
   title: string;
   started_at?: string | null;
   state: JobState;
-  kind: "cook" | "ingest";
+  kind: "cook" | "ingest" | "incremental";
   /** Place in the line; null for what is already cooking. */
   position?: number | null;
   attempts: number;
@@ -224,6 +235,7 @@ export interface Provenance {
 /** One line of the readable text. Assembled by the daemon at READ time: the words come from the
  *  cleanup delta, the speaker and the timecode from the transcript and the session's metadata. */
 export interface ReadableLine {
+  id?: string | null;
   who: string;
   source_id: number;
   start_sec: number;
@@ -235,6 +247,7 @@ export interface ReadableLine {
 }
 
 export interface ReadableDoc {
+  partial?: PartialInfo | null;
   from_transcript?: boolean;
   lines: ReadableLine[];
   /** Which transcript version this was cleaned from. */
@@ -326,6 +339,7 @@ export interface StageStatus {
 }
 
 export interface Progress {
+  partial?: PartialInfo | null;
   at?: string;
   execution?: {
     run?: string | null;
@@ -446,7 +460,8 @@ export const api = {
   langs: () => call<{ langs: string[] }>("/api/langs"),
   slots: () => call<{ slots: string[] }>("/api/slots"),
 
-  transcript: (s: string, signal?: AbortSignal) => call<{ lines: Line[] }>(`/api/sessions/${enc(s)}/transcript`, { signal }),
+  transcript: (s: string, signal?: AbortSignal) => call<{ lines: Line[]; partial?: PartialInfo | null }>(`/api/sessions/${enc(s)}/transcript`, { signal }),
+  playback: (s: string, signal?: AbortSignal) => call<PlaybackDoc>(`/api/sessions/${enc(s)}/playback`, { signal }),
   markdown: (s: string, kind: "summary" | "processed") =>
     call<{ markdown: string; provenance?: Provenance | null }>(
       `/api/sessions/${enc(s)}/${kind}?format=md`,
@@ -490,9 +505,9 @@ export const api = {
   /** The shape of the recording: peak loudness per bucket, 0…1. REAL — people aim at the loud
    *  stretch by it, and a drawn wave would send them to the wrong place while looking just as
    *  trustworthy as a true one. */
-  peaks: (s: string, buckets: number, signal?: AbortSignal) =>
+  peaks: (s: string, buckets: number, signal?: AbortSignal, snapshot?: string | null) =>
     call<{ duration_sec: number; peaks: number[] }>(
-      `/api/sessions/${enc(s)}/peaks?buckets=${buckets}`,
+      `/api/sessions/${enc(s)}/peaks?buckets=${buckets}${snapshot ? `&snapshot=${enc(snapshot)}` : ""}`,
       { timeoutMs: 120_000, signal },
     ),
   /** A link → a session. It appears in the archive at once, empty, carrying the stages of

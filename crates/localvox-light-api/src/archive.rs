@@ -4,7 +4,9 @@
 
 mod media;
 mod mutations;
+mod partial;
 pub use media::AudioStream;
+pub use partial::PartialInfo;
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -193,6 +195,8 @@ pub struct TranscriptDoc {
     pub label: String,
     pub model: String,
     pub lines: Vec<TranscriptLineOut>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub partial: Option<PartialInfo>,
 }
 
 #[derive(Serialize)]
@@ -508,6 +512,8 @@ pub struct SpeakerOut {
 
 #[derive(Serialize)]
 pub struct TranscriptLineOut {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
     /// Who said it: a name (diarization + profile), «Участник N» (the voices are
     /// separated, but we do not know the people) or the audio source — if we do not
     /// know at all.
@@ -952,7 +958,17 @@ impl Archive {
     /// prose there.
     pub fn transcript(&self, session: &str) -> Result<TranscriptDoc> {
         let dir = self.session_dir(session)?;
+        if let Some((partial, lines)) = self.partial_document(&dir)? {
+            return Ok(TranscriptDoc {
+                session: session.into(),
+                label: "Готовая часть".into(),
+                model: String::new(),
+                lines,
+                partial: Some(partial),
+            });
+        }
         let store = VersionStore::open(&dir)?;
+        let generation = Self::generation(&dir);
 
         // The cleanup pins the version it read. Serving its wording over any OTHER version would
         // put one text's cleaning under another text's line numbers.
@@ -964,12 +980,19 @@ impl Archive {
                     .into_iter()
                     .find(|v| v.id == r.version_id);
                 return Ok(TranscriptDoc {
+                    partial: None,
                     session: session.to_string(),
                     label: v.as_ref().map(|v| v.label.clone()).unwrap_or_default(),
                     model: v.map(|v| v.model).unwrap_or_default(),
                     lines: lines
                         .into_iter()
                         .map(|l| TranscriptLineOut {
+                            id: Self::line_id(
+                                generation.as_deref(),
+                                l.source_id,
+                                l.start_sec,
+                                l.end_sec,
+                            ),
                             who: l.who,
                             source_id: l.source_id,
                             start_sec: l.start_sec,
@@ -988,6 +1011,7 @@ impl Archive {
             .into_iter()
             .find(|v| v.id == version_id);
         Ok(TranscriptDoc {
+            partial: None,
             session: session.to_string(),
             label: version
                 .as_ref()
@@ -997,6 +1021,7 @@ impl Archive {
             lines: lines
                 .into_iter()
                 .map(|l| TranscriptLineOut {
+                    id: Self::line_id(generation.as_deref(), l.source_id, l.start_sec, l.end_sec),
                     who: l.who,
                     source_id: l.source_id,
                     start_sec: l.start_sec,
@@ -1068,6 +1093,10 @@ impl Archive {
         dur_sec: f64,
     ) -> Result<Vec<u8>> {
         let dir = self.session_dir(session)?;
+        anyhow::ensure!(
+            self.partial_document(&dir)?.is_none(),
+            "во время ранней обработки используйте опубликованный audio snapshot"
+        );
         let meta_txt = fs::read_to_string(dir.join("meta.json")).context("нет meta.json сессии")?;
         let meta: localvox_light_core::chunks::SessionMeta =
             serde_json::from_str(&meta_txt).context("meta.json повреждён")?;
@@ -1976,18 +2005,27 @@ impl Archive {
             &localvox_light_core::versions::now_rfc3339(),
         );
         let mut value = serde_json::to_value(&view)?;
+        if let Some((partial, _)) = self.partial_document(&dir)? {
+            value["partial"] = serde_json::to_value(partial)?;
+        }
         value["source"] = serde_json::to_value(source)?;
         value["queue_error"] = json!(queue.error());
         if let Some(error) = queue.error() {
             value["execution"]["state"] = json!("unavailable");
             value["execution"]["message"] = json!(format!("Очередь недоступна: {error}"));
             value["execution"]["current"] = Value::Null;
-        } else if localvox_light_core::jobs::recording_session(&self.work_dir).as_deref()
-            == Some(name)
+        } else if job
+            .as_ref()
+            .is_none_or(|j| j.kind != localvox_light_core::jobs::JobKind::Incremental)
+            && localvox_light_core::jobs::recording_session(&self.work_dir).as_deref() == Some(name)
         {
             value["execution"]["state"] = json!("recording");
             value["execution"]["message"] =
-                json!("Идёт запись; обработка начнётся после её завершения");
+                json!(if localvox_light_core::jobs::prefix::enabled() {
+                    "Идёт запись; ожидание закрытого фрагмента для раннего распознавания"
+                } else {
+                    "Идёт запись; раннее распознавание выключено, полная обработка — после Stop"
+                });
         }
         // Backwards-compatible field; the UI now names queue, processing and total separately.
         value["elapsed_sec"] = if view.running {
@@ -2156,9 +2194,18 @@ impl Archive {
         let coordinator = localvox_light_core::jobs::coordinator_status();
         let now = localvox_light_core::versions::now_rfc3339();
         let mut place = 0usize;
-        Ok(q.jobs()
-            .iter()
-            .filter(|j| !matches!(j.state, S::Done))
+        let mut queued: Vec<_> = q.jobs().iter().filter(|j| j.state != S::Done).collect();
+        queued.sort_by_key(|j| {
+            if j.state == S::WaitingInput {
+                2
+            } else if j.kind == JobKind::Incremental && j.state == S::Pending {
+                1
+            } else {
+                0
+            }
+        });
+        Ok(queued
+            .into_iter()
             .map(|j| {
                 // The meta gives the human name; without it the person reads directory stamps.
                 let meta: Option<localvox_light_core::chunks::SessionMeta> =

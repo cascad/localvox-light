@@ -65,6 +65,11 @@ fn fmt_srt(sec: f64) -> String {
 
 /// Exports the session's best version; returns the path of the finished file.
 pub fn export_session(session_dir: &Path, format: ExportFormat) -> Result<PathBuf> {
+    anyhow::ensure!(
+        !session_dir.join("capture").exists()
+            || crate::processing::inspect(session_dir, crate::processing::TRANSCRIPT).complete(),
+        "полный экспорт доступен после подтверждения полной расшифровки"
+    );
     let store = VersionStore::open(session_dir)?;
     let Some(best) = store.best() else {
         bail!(
@@ -117,7 +122,11 @@ fn render_txt(lines: &[TranscriptLine], meta: &crate::chunks::SessionMeta) -> St
 
 fn render_md(
     lines: &[TranscriptLine],
-    meta: &crate::chunks::SessionMeta, session: &str, label: &str, model: &str) -> String {
+    meta: &crate::chunks::SessionMeta,
+    session: &str,
+    label: &str,
+    model: &str,
+) -> String {
     let mut s = format!("# Транскрипт: {session}\n\n> версия: {label} · модель: {model}\n\n");
     for l in lines {
         s.push_str(&format!(

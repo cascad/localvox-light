@@ -13,9 +13,11 @@ use crate::windowing::WindowKind;
 
 mod audio;
 mod cache;
+mod media;
 mod publication;
 pub use audio::{consume_windows, AudioStats};
 pub use cache::{Accepted, Cache, Checkpoint, Output, VerifiedWindow};
+pub use media::AudioReader;
 pub use publication::{FrozenInput, PartialLine, Published, Snapshot};
 
 #[cfg(test)]

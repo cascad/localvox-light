@@ -105,6 +105,8 @@ pub struct App {
     pub queue: Vec<QueueItem>,
     pub summary: Summary,
     pub transcript: Vec<TranscriptLine>,
+    pub partial: Option<PartialInfo>,
+    pub document_final: bool,
     pub readable: ReadableDoc,
     pub versions: Vec<Version>,
     pub speakers: Vec<Participant>,
@@ -188,6 +190,8 @@ impl Default for App {
             summary: Summary::default(),
             transcript: vec![],
             readable: ReadableDoc::default(),
+            partial: None,
+            document_final: false,
             versions: vec![],
             speakers: vec![],
             sources: vec![],
@@ -260,6 +264,49 @@ impl Default for App {
 }
 
 impl App {
+    fn accept_document(&mut self, partial: Option<&PartialInfo>) -> bool {
+        if let Some(next) = partial {
+            if self.document_final || self.partial.as_ref().is_some_and(|old| !next.follows(old)) {
+                return false;
+            }
+            if self.partial.as_ref().and_then(|p| p.snapshot.as_ref()) != next.snapshot.as_ref()
+                && (self.playback.session != self.current || self.playback.idle)
+            {
+                self.peaks_loaded = false;
+            }
+        } else {
+            self.document_final = true;
+        }
+        self.partial = partial.cloned();
+        true
+    }
+    fn update_transcript(&mut self, lines: Vec<TranscriptLine>) {
+        let anchor = self
+            .transcript
+            .get(self.item)
+            .map(|l| (l.id.clone(), l.start_sec, l.source_id));
+        self.transcript = lines;
+        if let Some(time) = self.document_target.take() {
+            self.item = self
+                .transcript
+                .iter()
+                .position(|l| l.end_sec > time)
+                .unwrap_or_else(|| self.transcript.len().saturating_sub(1));
+            self.scroll = 0;
+            self.follow_selection = true;
+        } else if let Some((id, time, source)) = anchor {
+            self.item = self
+                .transcript
+                .iter()
+                .position(|l| id.is_some() && l.id == id)
+                .or_else(|| {
+                    self.transcript.iter().position(|l| {
+                        l.source_id == source && l.start_sec <= time && l.end_sec > time
+                    })
+                })
+                .unwrap_or_else(|| self.item.min(self.transcript.len().saturating_sub(1)));
+        }
+    }
     pub fn refresh(&mut self) {
         self.read(Resource::Sessions, String::new());
         self.read(Resource::Record, String::new());
@@ -268,7 +315,17 @@ impl App {
         self.refresh_view();
     }
     fn read(&mut self, r: Resource, s: String) {
-        self.effects.push((r, Task::Read(r, s)));
+        let task = if r == Resource::Peaks {
+            let snapshot = if self.playback.session == self.current && !self.playback.idle {
+                self.playback.snapshot.clone()
+            } else {
+                self.partial.as_ref().and_then(|p| p.snapshot.clone())
+            };
+            Task::Peaks(s, snapshot)
+        } else {
+            Task::Read(r, s)
+        };
+        self.effects.push((r, task));
     }
     pub fn refresh_view(&mut self) {
         match self.view {
@@ -341,6 +398,8 @@ impl App {
             self.document_target = None;
             self.summary = Summary::default();
             self.transcript.clear();
+            self.partial = None;
+            self.document_final = false;
             self.readable = ReadableDoc::default();
             self.speakers.clear();
             self.versions.clear();
@@ -537,19 +596,19 @@ impl App {
                 }
             }
             Data::Summary(s) => self.summary = s,
-            Data::Transcript(t) => {
-                self.transcript = t;
-                if let Some(time) = self.document_target.take() {
-                    self.item = self
-                        .transcript
-                        .iter()
-                        .position(|line| line.end_sec > time)
-                        .unwrap_or_else(|| self.transcript.len().saturating_sub(1));
-                    self.scroll = 0;
-                    self.follow_selection = true;
+            Data::TranscriptSnapshot(t) => {
+                if self.accept_document(t.partial.as_ref()) {
+                    self.update_transcript(t.lines);
                 }
             }
-            Data::Readable(t) => self.readable = t,
+            Data::Transcript(t) => {
+                self.update_transcript(t);
+            }
+            Data::Readable(t) => {
+                if self.accept_document(t.partial.as_ref()) {
+                    self.readable = t;
+                }
+            }
             Data::Versions(v) => self.versions = v,
             Data::Speakers(s) => self.speakers = s,
             Data::Sources(s) => self.sources = s,
@@ -596,6 +655,15 @@ impl App {
                 crate::render::restore_journal_anchor(self, anchor);
             }
             Data::Peaks(p) => {
+                let expected = if self.playback.session == self.current && !self.playback.idle {
+                    self.playback.snapshot.as_ref()
+                } else {
+                    self.partial.as_ref().and_then(|p| p.snapshot.as_ref())
+                };
+                if expected.is_some() && p.snapshot.as_ref() != expected {
+                    self.peaks_loaded = false;
+                    return;
+                }
                 self.peaks = p;
                 self.peaks_loaded = !self.peaks.peaks.is_empty();
                 if !self.peaks_loaded {
@@ -1296,7 +1364,10 @@ impl App {
         if let Some(session) = self.current.clone() {
             let position = position.max(0.0);
             let position = self
-                .media_duration()
+                .partial
+                .as_ref()
+                .map(|p| p.audio_end_sec)
+                .or_else(|| self.media_duration())
                 .map_or(position, |d| position.min((d - 0.01).max(0.0)));
             self.player_effects
                 .push(crate::player::PlaybackCommand::Seek { session, position });

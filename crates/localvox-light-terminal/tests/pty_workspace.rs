@@ -11,6 +11,7 @@ use std::{
 };
 
 struct ApiFixture {
+    preview: Arc<AtomicUsize>,
     address: String,
     stop: Arc<AtomicBool>,
     stops: Arc<AtomicUsize>,
@@ -31,6 +32,8 @@ impl ApiFixture {
         let stopped = stops.clone();
         let recording = Arc::new(AtomicBool::new(true));
         let active = recording.clone();
+        let preview = Arc::new(AtomicUsize::new(0));
+        let progress = preview.clone();
         let thread = std::thread::spawn(move || {
             let fixture: serde_json::Value =
                 serde_json::from_str(include_str!("../../../tests/fixtures/workspace.json"))
@@ -63,6 +66,9 @@ impl ApiFixture {
                         active.store(false, Ordering::Relaxed);
                         serde_json::json!({"msg":"Остановлено"})
                     } else {
+                        let revision = progress.load(Ordering::Relaxed);
+                        let info = serde_json::json!({"generation":"pty-g1","revision":revision,"snapshot":format!("snapshot{revision}"),"audio_end_sec":revision*20,"text_end_sec":revision*20,"stt_end_sec":revision*20,"sealed_end_sec":revision*25});
+                        let lines:Vec<_>=(0..revision+1).map(|n|serde_json::json!({"id":format!("pty-g1/0/{n}"),"text":format!("Готовый фрагмент {n}"),"start_sec":n*10,"end_sec":(n+1)*10,"source_id":0,"who":"Микрофон"})).collect();
                         match path {
                             "/api/health" => serde_json::json!({
                                 "ok":true,"service":"localvox-light","version":"fixture",
@@ -88,6 +94,15 @@ impl ApiFixture {
                             p if p.ends_with("/sources") => {
                                 serde_json::json!({"sources":fixture["sources"]})
                             }
+                            p if p.ends_with("/transcript") && revision > 0 => {
+                                serde_json::json!({"lines":lines,"partial":info})
+                            }
+                            p if p.ends_with("/processed") && revision > 0 => {
+                                serde_json::json!({"lines":lines,"partial":info,"from_transcript":true})
+                            }
+                            p if p.ends_with("/playback") => {
+                                serde_json::json!({"duration_sec":120,"snapshot":null,"partial":null})
+                            }
                             _ => serde_json::json!({}),
                         }
                     };
@@ -96,6 +111,7 @@ impl ApiFixture {
             }
         });
         Self {
+            preview,
             address,
             stop,
             stops,
@@ -436,5 +452,85 @@ fn unauthorized_start_can_reconnect_through_the_masked_form_without_replaying_st
         !String::from_utf8_lossy(&all).contains(TOKEN),
         "token must not appear in terminal capture"
     );
+    assert_eq!(api.stops.load(Ordering::Relaxed), 0);
+}
+
+#[test]
+fn real_terminal_reads_a_growing_partial_and_keeps_the_old_line_on_its_row() {
+    let api = ApiFixture::new();
+    api.preview.store(1, Ordering::Relaxed);
+    let pair = native_pty_system()
+        .openpty(PtySize {
+            rows: 36,
+            cols: 120,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .unwrap();
+    let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_localvox-tui"));
+    command.args(["--address", &api.address, "--ascii", "--no-color"]);
+    command.env("LOCALVOX_API_TOKEN", "");
+    let mut child = OwnedChild(pair.slave.spawn_command(command).unwrap());
+    drop(pair.slave);
+    let mut reader = pair.master.try_clone_reader().unwrap();
+    let mut writer = pair.master.take_writer().unwrap();
+    let (tx, rx) = mpsc::sync_channel(32);
+    let output = std::thread::spawn(move || {
+        let mut bytes = [0; 8192];
+        while let Ok(n) = reader.read(&mut bytes) {
+            if n == 0 || tx.send(bytes[..n].to_vec()).is_err() {
+                break;
+            }
+        }
+    });
+    let mut all = Vec::new();
+    let mut queries = 0;
+    let mut screen = vt100::Parser::new(36, 120, 0);
+    let deadline = Instant::now() + Duration::from_secs(20);
+    macro_rules! see {
+        ($needle:expr) => {
+            wait_for(
+                $needle,
+                &mut all,
+                &mut screen,
+                &rx,
+                &mut writer,
+                &mut queries,
+                deadline,
+            )
+        };
+    }
+    see!("Архитектура и следующие шаги");
+    writer.write_all(b"\t2").unwrap();
+    writer.flush().unwrap();
+    see!("Готовый фрагмент 1");
+    see!("Готовая часть");
+    let before = screen
+        .screen()
+        .contents()
+        .lines()
+        .position(|l| l.contains("Готовый фрагмент 1"))
+        .unwrap();
+    writer.write_all(b"\x1b[B").unwrap();
+    writer.flush().unwrap();
+    api.preview.store(2, Ordering::Relaxed);
+    see!("Готовый фрагмент 2");
+    let after = screen
+        .screen()
+        .contents()
+        .lines()
+        .position(|l| l.contains("Готовый фрагмент 1"))
+        .unwrap();
+    assert_eq!(before, after);
+    assert!(screen.screen().contents().contains("00:40"));
+    writer.write_all(b"q").unwrap();
+    writer.flush().unwrap();
+    see!("\x1b[?1049l");
+    assert!(child.0.wait().unwrap().success());
+    drop(writer);
+    drop(pair.master);
+    drop(rx);
+    output.join().unwrap();
+    assert!(api.recording.load(Ordering::Relaxed));
     assert_eq!(api.stops.load(Ordering::Relaxed), 0);
 }

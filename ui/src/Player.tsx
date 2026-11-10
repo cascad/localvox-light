@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { api, token, type Session } from "./api";
+import { api, acceptsDocument, token, type Session, type PlaybackDoc } from "./api";
 import { mmss } from "./lib";
 import { useArtifact } from "./useArtifact";
 
@@ -47,17 +47,39 @@ export function Player({ session, seek, onPos }: Props) {
   const [note, setNote] = useState("");
   const [seg, setSeg] = useState<{ start: number; end: number } | null>(null);
 
-  const total = session?.duration_sec ?? 0;
   const name = session?.name ?? null;
+  const [active, setActive] = useState<(PlaybackDoc & {name: string}) | null>(null);
+  const [tick, setTick] = useState(0);
+  const pendingSeek = useRef<{sec:number; autoplay:boolean; until?:number; source:string} | null>(null);
+  const seekCommand = useRef(0);
+  const legacy = !!session && !session.recording && (session.cooked || !session.job);
+  const changing = !!session && (!legacy || active?.snapshot != null);
+  useEffect(() => {
+    if (!changing) return;
+    const timer=setInterval(() => setTick(n=>n+1),3000);
+    return () => clearInterval(timer);
+  },[changing]);
+  const media = useArtifact(`${name ?? ""}/playback`, signal => name
+    ? legacy && active?.snapshot == null ? Promise.resolve({duration_sec:session?.duration_sec ?? 0,snapshot:null,partial:null} as PlaybackDoc) : api.playback(name,signal)
+    : Promise.resolve({duration_sec:0,snapshot:null,partial:null} as PlaybackDoc),tick+(session?.duration_sec ?? 0),acceptsDocument);
+  useEffect(() => {
+    if (name && media.data && media.data.duration_sec>0) setActive(previous => previous?.name===name ? previous : {...media.data!,name});
+  },[name,media.data]);
+  const current = active?.name === name ? active : null;
+  const total = current?.snapshot ? current.duration_sec : legacy ? session?.duration_sec ?? 0 : current?.duration_sec ?? 0;
   const available = name != null && total > 0;
   const auth = available ? token.get() : "";
-  const source = available ? `/api/sessions/${encodeURIComponent(name)}/audio.wav${auth ? `?token=${encodeURIComponent(auth)}` : ""}` : null;
+  const mediaUrl = (snapshot?:string|null) => {
+    const query=new URLSearchParams();if(auth)query.set("token",auth);if(snapshot)query.set("snapshot",snapshot);
+    return `/api/sessions/${encodeURIComponent(name ?? "")}/audio.wav${query.size ? `?${query}` : ""}`;
+  };
+  const source = available ? mediaUrl(current?.snapshot) : null;
 
   // A duration refresh can update the wave without interrupting the native audio. Slow reads
   // coalesce; useArtifact retains the last successful shape even if the refresh fails.
   const waveform = useArtifact(
-    `${name ?? ""}/peaks/${available}`,
-    signal => available ? api.peaks(name, BARS, signal) : Promise.resolve({ duration_sec: 0, peaks: [] as number[] }),
+    `${name ?? ""}/peaks/${available}/${current?.snapshot ?? "final"}`,
+    signal => available ? api.peaks(name, BARS, signal,current?.snapshot) : Promise.resolve({ duration_sec: 0, peaks: [] as number[] }),
     total,
   );
   const peaks = waveform.data?.peaks ?? (waveform.err ? [] : null);
@@ -68,10 +90,11 @@ export function Player({ session, seek, onPos }: Props) {
   // fetches ranges of it on demand. The token (if any) rides in the query — an <audio> element
   // cannot send an Authorization header, and this stream is same-origin and local.
   useEffect(() => {
+    const pending=pendingSeek.current;
     stopAt.current = null;
     setSeg(null);
-    setPos(0);
-    reportPos.current(0);
+    setPos(pending?.source===source ? pending.sec : 0);
+    reportPos.current(pending?.source===source ? pending.sec : 0);
     setPlaying(false);
     setNote("");
     const el = audio.current;
@@ -85,12 +108,26 @@ export function Player({ session, seek, onPos }: Props) {
     };
   }, [source]);
 
-  const goTo = (sec: number, autoplay: boolean, until?: number) => {
+  const goTo = async (sec: number, autoplay: boolean, until?: number) => {
+    const command=++seekCommand.current;
     const el = audio.current;
     if (!el || total <= 0) return;
+    let bound=total;
+    if (name && (sec>total || (sec===total && until!=null))) {
+      try {
+        const latest=media.data && media.data.duration_sec>sec ? media.data : await api.playback(name);
+        if(command!==seekCommand.current || audio.current!==el || el.getAttribute("src")!==source)return;
+        if(sec>=latest.duration_sec){setNote(`Доступно до ${mmss(latest.duration_sec)}`);return;}
+        if(latest.snapshot!==current?.snapshot){
+          pendingSeek.current={sec,autoplay,until,source:mediaUrl(latest.snapshot)};
+          setActive({...latest,name});return;
+        }
+        bound=latest.duration_sec;
+      }catch{setNote("Не удалось обновить границу аудио");return;}
+    }
     stopAt.current = until ?? null;
     setSeg(until != null ? { start: sec, end: until } : null);
-    el.currentTime = Math.max(0, Math.min(sec, total - 0.05)); // native, instant, exact
+    el.currentTime = Math.max(0, Math.min(sec, bound - 0.05)); // native, instant, exact
     setPos(el.currentTime);
     onPos(el.currentTime);
     if (autoplay) void el.play().catch(() => {});
@@ -118,6 +155,7 @@ export function Player({ session, seek, onPos }: Props) {
   };
 
   const toggle = () => {
+    ++seekCommand.current;
     const el = audio.current;
     if (!el || total <= 0) return;
     if (playing) {
@@ -131,6 +169,7 @@ export function Player({ session, seek, onPos }: Props) {
   };
 
   const nudge = (d: number) => {
+    ++seekCommand.current;
     const el = audio.current;
     if (!el || total <= 0) return;
     stopAt.current = null;
@@ -156,6 +195,13 @@ export function Player({ session, seek, onPos }: Props) {
       <audio
         ref={audio}
         preload="metadata"
+        onLoadedMetadata={() => {
+          const pending=pendingSeek.current;const el=audio.current;
+          if (!pending || !el || el.getAttribute("src")!==pending.source) return;
+          pendingSeek.current=null;el.currentTime=pending.sec;stopAt.current=pending.until ?? null;
+          setSeg(pending.until==null ? null : {start:pending.sec,end:pending.until});
+          if(pending.autoplay)void el.play().catch(()=>{});
+        }}
         onTimeUpdate={onTime}
         onPlay={() => setPlaying(true)}
         onPause={() => setPlaying(false)}
@@ -168,6 +214,13 @@ export function Player({ session, seek, onPos }: Props) {
       <button className="play-big" onClick={toggle} title={playing ? "Пауза" : "Слушать"}>
         {playing ? "❚❚" : "▶"}
       </button>
+
+      {media.data && media.data.duration_sec>total && <button className="icon-btn" title={`Доступно новое аудио до ${mmss(media.data.duration_sec)}`} onClick={() => {
+        ++seekCommand.current;
+        if(!name || !media.data)return;
+        pendingSeek.current={sec:pos,autoplay:playing,until:stopAt.current ?? undefined,source:mediaUrl(media.data.snapshot)};
+        setActive({...media.data,name});
+      }}>+ {mmss(media.data.duration_sec-total)}</button>}
 
       <Wave peaks={peaks} total={total} pos={pos} seg={seg} note={note} onSeek={scrub} onKeySeek={(sec) => goTo(sec, playing)} />
 

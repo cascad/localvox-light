@@ -7,7 +7,7 @@ interface Snapshot<T> {
 }
 
 /** The key identifies the session/tab/version; refresh requests never overlap. */
-export function useArtifact<T>(key: string, load: (signal: AbortSignal) => Promise<T>, refresh = 0) {
+export function useArtifact<T>(key: string, load: (signal: AbortSignal) => Promise<T>, refresh = 0, accepts?: (next: T, previous: T) => boolean) {
   const [snapshot, setSnapshot] = useState<Snapshot<T> | null>(null);
   const request = useRef<(() => void) | null>(null);
 
@@ -25,7 +25,8 @@ export function useArtifact<T>(key: string, load: (signal: AbortSignal) => Promi
         await Promise.resolve();
         if (!alive) return;
         const data = await load(controller.signal);
-        if (alive) setSnapshot({ key, data, err: null });
+        if (alive) setSnapshot(previous => previous?.key === key && previous.data != null && accepts && !accepts(data, previous.data)
+          ? previous : { key, data, err: null });
       } catch (error) {
         if (alive) setSnapshot(current => ({
           key,

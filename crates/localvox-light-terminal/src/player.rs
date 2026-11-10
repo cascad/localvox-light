@@ -17,6 +17,7 @@ use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWrite
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct PlaybackState {
+    pub snapshot: Option<String>,
     pub session: Option<String>,
     pub position: f64,
     pub duration: Option<f64>,
@@ -200,7 +201,17 @@ impl Backend {
                 start,
                 end,
             } => {
-                let media = self.client.media(&session);
+                let info = self.client.playback(&session)?;
+                anyhow::ensure!(
+                    start < info.duration_sec,
+                    "готовое аудио доступно до {:.1} с",
+                    info.duration_sec
+                );
+                let media = self
+                    .client
+                    .media_snapshot(&session, info.snapshot.as_deref());
+                self.state.snapshot = info.snapshot;
+                self.state.duration = Some(info.duration_sec);
                 player
                     .load(&media.url, &media.headers, start, end)
                     .context("Не удалось открыть аудио")?;
@@ -213,12 +224,25 @@ impl Backend {
                 self.state.fragment_end = None;
             }
             PlaybackCommand::Seek { session, position } => {
-                if self.state.session.as_ref() == Some(&session) && !self.state.idle {
+                if self.state.session.as_ref() == Some(&session)
+                    && !self.state.idle
+                    && self.state.duration.is_none_or(|d| position < d)
+                {
                     player
                         .seek(position)
                         .context("Не удалось перемотать аудио")?;
                 } else {
-                    let media = self.client.media(&session);
+                    let info = self.client.playback(&session)?;
+                    anyhow::ensure!(
+                        position < info.duration_sec,
+                        "готовое аудио доступно до {:.1} с",
+                        info.duration_sec
+                    );
+                    let media = self
+                        .client
+                        .media_snapshot(&session, info.snapshot.as_deref());
+                    self.state.snapshot = info.snapshot;
+                    self.state.duration = Some(info.duration_sec);
                     player
                         .load(&media.url, &media.headers, position, None)
                         .context("Не удалось открыть аудио для перехода")?;
@@ -257,6 +281,7 @@ impl Backend {
                     }
                     next.fragment_end = self.state.fragment_end;
                     let session = self.state.session.take();
+                    next.snapshot = self.state.snapshot.take();
                     self.state = next;
                     self.state.session = session;
                 }

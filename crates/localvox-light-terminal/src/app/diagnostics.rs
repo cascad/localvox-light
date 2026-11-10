@@ -87,6 +87,9 @@ impl App {
         )
     }
     pub fn apply_playback(&mut self, state: crate::player::PlaybackState) {
+        if state.session == self.current && state.snapshot != self.playback.snapshot {
+            self.peaks_loaded = false;
+        }
         let context = self.diagnostic("Плеер", "Воспроизведение", state.session.clone());
         if let Some(error) = &state.error {
             self.console.record(context, error, self.wall_ms);

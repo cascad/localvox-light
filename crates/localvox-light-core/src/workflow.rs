@@ -317,7 +317,7 @@ pub fn view(session: &Path, job: Option<&Job>, from_link: bool, now: &str) -> Vi
     let live = job.is_some_and(|j| {
         matches!(
             j.state,
-            JobState::Pending | JobState::Running | JobState::Cancelling
+            JobState::Pending | JobState::Running | JobState::Cancelling | JobState::WaitingInput
         )
     });
     let queued = job.map(|j| j.enqueued_at.as_ref().unwrap_or(&j.created_at).clone());

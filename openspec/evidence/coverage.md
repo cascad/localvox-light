@@ -1,5 +1,11 @@
 # Покрытие требований и состояние реализации
 
+Продолжение ARCH-001–005, PIPE-011/012, VER-001, CFG-001/002 от 2026-11-10:
+[R3 partial API/UI/TUI](../changes/add-incremental-recording-transcription/evidence/partial-clients.md).
+UI build/unit/77 browser tests, TUI/client/ConPTY, real HTTP seam/error, real FLAC и
+mpv/null audio прошли; core с CI-параллелизмом 448 passed/8 ignored. Native reference
+и аппаратная приёмка остаются отдельно, новые ARCH-006/PIPE-015–018 ещё delta.
+
 Продолжение PIPE-002/008/010/012, CFG-001/002, ARCH-005 от 2026-11-10:
 [R2 finite queue/control/protocol](../changes/add-incremental-recording-transcription/evidence/prefix-coordinator.md).
 Real-coordinator fixture stop/disable/cancel прошёл, ранние snapshots не становятся

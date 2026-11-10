@@ -1,5 +1,5 @@
 use super::*;
-use crate::io::{Data, Response};
+use crate::io::Response;
 use localvox_light_client::{QueueItem, Setting};
 use ratatui::{backend::TestBackend, Terminal};
 
@@ -20,6 +20,20 @@ fn screen(case: &str, width: u16, height: u16, light: bool) {
         .unwrap()
         .timestamp_millis();
     match case {
+        "partial" => {
+            app.tab = Tab::Transcript;
+            app.transcript =
+                serde_json::from_value(fixture["transcript"]["lines"].clone()).unwrap();
+            app.partial = Some(localvox_light_client::PartialInfo {
+                generation: "fixture".into(),
+                revision: 2,
+                snapshot: Some("snapshot2".into()),
+                sealed_end_sec: 600.0,
+                stt_end_sec: 585.0,
+                text_end_sec: 570.0,
+                audio_end_sec: 585.0,
+            });
+        }
         "preset" => {
             app.view = View::Settings;
             app.nav = 4;
@@ -115,6 +129,10 @@ fn screen(case: &str, width: u16, height: u16, light: bool) {
 #[test]
 fn settings_dark() {
     screen("settings", 120, 36, false);
+}
+#[test]
+fn partial_document() {
+    screen("partial", 120, 36, false);
 }
 #[test]
 fn settings_light() {

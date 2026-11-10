@@ -1,5 +1,153 @@
 use super::*;
 
+#[test]
+fn growing_partial_keeps_anchor_scroll_copy_and_playback_and_rejects_stale_or_late_prefix() {
+    let mut app = App {
+        current: Some("live".into()),
+        tab: Tab::Transcript,
+        focus: 2,
+        ..Default::default()
+    };
+    let info = |revision| PartialInfo {
+        generation: "g1".into(),
+        revision,
+        snapshot: Some(format!("s{revision}")),
+        audio_end_sec: revision as f64 * 20.0,
+        text_end_sec: revision as f64 * 20.0,
+        ..Default::default()
+    };
+    let lines = |count| {
+        (0..count)
+            .map(|i| TranscriptLine {
+                id: Some(format!("g1/0/{i}")),
+                source_id: Some(0),
+                start_sec: i as f64 * 10.0,
+                end_sec: (i + 1) as f64 * 10.0,
+                text: format!("реплика {i}"),
+                ..Default::default()
+            })
+            .collect::<Vec<_>>()
+    };
+    response(
+        &mut app,
+        1,
+        Resource::Transcript,
+        Ok(Data::TranscriptSnapshot(TranscriptDoc {
+            lines: lines(2),
+            partial: Some(info(1)),
+        })),
+    );
+    app.item = 1;
+    app.scroll = 7;
+    app.follow_selection = false;
+    app.playback = crate::player::PlaybackState {
+        session: Some("live".into()),
+        snapshot: Some("s1".into()),
+        position: 6.0,
+        duration: Some(20.0),
+        paused: false,
+        idle: false,
+        ..Default::default()
+    };
+    app.effects.clear();
+    app.player_effects.clear();
+    response(
+        &mut app,
+        2,
+        Resource::Transcript,
+        Ok(Data::TranscriptSnapshot(TranscriptDoc {
+            lines: lines(3),
+            partial: Some(info(2)),
+        })),
+    );
+    assert_eq!((app.item, app.scroll, app.playback.position), (1, 7, 6.0));
+    assert!(!app.playback.paused);
+    assert!(app.player_effects.is_empty());
+    response(
+        &mut app,
+        3,
+        Resource::Transcript,
+        Ok(Data::TranscriptSnapshot(TranscriptDoc {
+            lines: lines(1),
+            partial: Some(info(1)),
+        })),
+    );
+    assert_eq!(app.transcript.len(), 3);
+    let mut foreign = info(3);
+    foreign.generation = "obsolete generation".into();
+    response(
+        &mut app,
+        4,
+        Resource::Transcript,
+        Ok(Data::TranscriptSnapshot(TranscriptDoc {
+            lines: vec![],
+            partial: Some(foreign),
+        })),
+    );
+    assert_eq!(app.transcript.len(), 3);
+    response(
+        &mut app,
+        5,
+        Resource::Readable,
+        Ok(Data::Readable(ReadableDoc {
+            from_transcript: true,
+            lines: lines(3),
+            partial: Some(info(2)),
+            ..Default::default()
+        })),
+    );
+    app.tab = Tab::Readable;
+    key(&mut app, KeyCode::Char('y'));
+    assert!(app
+        .effects
+        .iter()
+        .any(|(_, task)| matches!(task,Task::Copy(text) if text=="реплика 0 реплика 1 реплика 2")));
+    response(
+        &mut app,
+        6,
+        Resource::Action,
+        Ok(Data::Reply(Reply {
+            msg: Some("Документ скопирован".into()),
+            ..Default::default()
+        })),
+    );
+    app.sessions = vec![Session {
+        name: "live".into(),
+        recording: true,
+        job: Some("waiting_input".into()),
+        ..Default::default()
+    }];
+    key(&mut app, KeyCode::Char('X'));
+    assert!(app
+        .effects
+        .iter()
+        .any(|(_, task)| matches!(task,Task::Cancel(name) if name=="live")));
+    assert!(!app
+        .effects
+        .iter()
+        .any(|(_, task)| matches!(task, Task::Stop)));
+    response(
+        &mut app,
+        6,
+        Resource::Transcript,
+        Ok(Data::TranscriptSnapshot(TranscriptDoc {
+            lines: lines(3),
+            partial: None,
+        })),
+    );
+    response(
+        &mut app,
+        7,
+        Resource::Transcript,
+        Ok(Data::TranscriptSnapshot(TranscriptDoc {
+            lines: lines(2),
+            partial: Some(info(2)),
+        })),
+    );
+    assert!(app.document_final);
+    assert_eq!(app.transcript.len(), 3);
+}
+
 fn key(app: &mut App, code: KeyCode) {
     app.key(KeyEvent::new(code, KeyModifiers::NONE));
 }
@@ -207,6 +355,7 @@ fn waveform_retries_an_early_empty_result_and_invalidates_when_audio_appears() {
         3,
         Resource::Peaks,
         Ok(Data::Peaks(Peaks {
+            snapshot: None,
             duration_sec: 53.6,
             peaks: vec![0.2; 160],
         })),

@@ -126,6 +126,12 @@ export function ProgressChain({ session }: { session: Session }) {
         </p>
       )}
 
+      {prog.partial && <p className="hint" data-nocopy>
+        ├ Сохранено до {hms(prog.partial.sealed_end_sec)}
+        {" · "}STT до {hms(prog.partial.stt_end_sec)}
+        {" · "}текст до {hms(prog.partial.text_end_sec)}
+        {" · "}финализация и summary — после Stop и полного STT
+      </p>}
       <p className="hint">
         {prog.running ? <b>Задание ещё не завершено.</b> : <b>Текущее состояние результатов.</b>}
         {" "}«Готово» означает, что файл результата проверен. Время ролика не входит в расчёт.

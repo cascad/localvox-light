@@ -47,7 +47,7 @@ export function QueuePane({
         <h1 style={{ fontSize: 19, margin: "0 0 4px" }}>Очередь обработки</h1>
         {err && <p className="err">Очередь не обновляется: {err}. Показаны последние полученные данные.</p>}
         <p className="hint" style={{ marginTop: 0 }}>
-          Порядок настоящий — демон берёт записи сверху вниз. Отменённые остаются для ручного продолжения.
+          {items.some(i=>i.kind==="incremental") ? "Обычные задания идут перед следующей ранней порцией. Отменённые ждут ручного продолжения." : "Порядок настоящий — демон берёт записи сверху вниз. Отменённые остаются для ручного продолжения."}
         </p>
 
         {items.length === 0 ? (
@@ -67,6 +67,7 @@ export function QueuePane({
                   <span className="m">
                     {i.state === "running" && <span className="st busy">обрабатывается</span>}
                     {i.state === "pending" && <span className="st mute">ждёт очереди</span>}
+                    {i.state === "waiting_input" && <span className="st mute">ждёт новых фрагментов или включения раннего режима</span>}
                     {i.state === "cancelling" && <span className="st busy">останавливается · ждёт освобождения</span>}
                     {i.state === "cancelled" && <span className="st mute">отменено</span>}
                     {i.state === "failed" && (
@@ -89,7 +90,7 @@ export function QueuePane({
                     {pending.get(i.session) === "retry" ? "Постановка…" : i.state === "cancelled" ? "Продолжить обработку" : "♻ Повторить этап"}
                   </button>
                 )}
-                {["running", "pending", "failed"].includes(i.state) && <button className="btn sm" disabled={pending.has(i.session)} onClick={() => void change(i.session, "cancel")}>
+                {["running", "pending", "failed", "waiting_input"].includes(i.state) && <button className="btn sm" disabled={pending.has(i.session)} onClick={() => void change(i.session, "cancel")}>
                   {pending.get(i.session) === "cancel" ? "Остановка…" : "Отменить обработку"}
                 </button>}
                 </div>

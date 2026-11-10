@@ -175,12 +175,12 @@ test("document cancellation preserves readable text and shows the unfinished sum
   expect(posts).toEqual(["/api/sessions/20261031_demo/cancel", "/api/sessions/20261031_demo/retry"]);
 });
 
-async function workspace(page: Page, options: { journalError?: boolean; record?: boolean; jobsError?: boolean } = {}) {
+async function workspace(page: Page, options: { journalError?: boolean; record?: boolean; jobsError?: boolean; partial?: boolean } = {}) {
   await page.clock.install({ time: new Date("2026-10-31T07:00:25Z") });
   await page.route("**/api/**", async (route) => {
     const url = new URL(route.request().url()); const path = url.pathname;
     let body: unknown = {};
-    if (path === "/api/sessions") body = fixture.sessions;
+    if (path === "/api/sessions") body = options.partial ? fixture.sessions.map((s: object,i:number)=>i===0 ? {...s,recording:true,cooked:false,job:"waiting_input"} : s) : fixture.sessions;
     else if (path === "/api/record") body = { ...fixture.record, recording: !!options.record, session: options.record ? "20261031_demo" : null };
     else if (path === "/api/jobs") {
       if (options.jobsError) return route.fulfill({ status: 503, json: { error: "synthetic queue unavailable" } });
@@ -192,11 +192,12 @@ async function workspace(page: Page, options: { journalError?: boolean; record?:
       if (options.journalError) return route.fulfill({ status: 503, json: { error: "synthetic journal failure" } });
       body = journalFixture;
     } else if (path.endsWith("/summary")) body = fixture.summary;
-    else if (path.endsWith("/transcript")) body = fixture.transcript;
-    else if (path.endsWith("/processed")) body = fixture.readable;
+    else if (path.endsWith("/transcript")) body = options.partial ? {lines:growingLines(80),partial:growingInfo(1)} : fixture.transcript;
+    else if (path.endsWith("/processed")) body = options.partial ? {...fixture.readable,from_transcript:true,lines:growingLines(80),partial:growingInfo(1)} : fixture.readable;
     else if (path.endsWith("/versions")) body = { versions: fixture.versions };
     else if (path.endsWith("/speakers")) body = { speakers: fixture.speakers };
     else if (path.endsWith("/sources")) body = { sources: fixture.sources };
+    else if(path.endsWith("/playback")) body = options.partial ? {duration_sec:100,snapshot:growingInfo(1).snapshot,partial:growingInfo(1)} : {duration_sec:120,snapshot:null,partial:null};
     else if (path.endsWith("/peaks")) body = { duration_sec: 120, peaks: Array.from({ length: 320 }, (_, i) => (i % 9 + 1) / 12) };
     else if (path === "/api/slots/notes") body = { slots: fixture.slots };
     else if (path === "/api/slots") body = { slots: ["идеи"] };
@@ -295,7 +296,7 @@ test("raw Text is a single body and the copy shortcut includes offscreen text wi
   await page.clock.runFor(3100);
   await expect(page.locator("[data-plain-text]")).toHaveText(full);
   expect(await page.locator("[data-plain-text]").evaluate(element => {
-    const text = element.firstChild!;
+    const text = element.lastElementChild!.lastChild!;
     const range = document.createRange(); range.setStart(text, text.textContent!.length - 12); range.setEnd(text, text.textContent!.length);
     return range.getBoundingClientRect().top > window.innerHeight;
   })).toBe(true);
@@ -1492,3 +1493,55 @@ for (const mutation of ["symbol", "color", "geometry"] as const) {
     await expect(page.locator(".app")).toHaveScreenshot("workspace-recording-1440.png", { timeout: 1000 });
   });
 }
+
+function growingInfo(revision:number) {
+  return {generation:"capture-g1",revision,snapshot:String(revision).repeat(64),sealed_end_sec:revision*100,stt_end_sec:revision*100,text_end_sec:revision*100,audio_end_sec:revision*100};
+}
+function growingLines(count:number) {
+  return Array.from({length:count},(_,i)=>({id:`capture-g1/0/${i}`,who:"Микрофон",source_id:0,start_sec:i,end_sec:i+1,text:`Готовая реплика ${i}. Сохраняем выбранный фрагмент и читаем запись дальше.`}));
+}
+test("growing partial text preserves selection scroll and playing snapshot through stale replies and finalization",async({page})=>{
+  await page.setViewportSize({width:1000,height:650});
+  await page.addInitScript(()=>{
+    Object.defineProperty(HTMLMediaElement.prototype,"currentTime",{get(){return (this as HTMLMediaElement & {testTime?:number}).testTime ?? 0;},set(value:number){(this as HTMLMediaElement & {testTime?:number}).testTime=value;}});
+    HTMLMediaElement.prototype.load=function(){queueMicrotask(()=>this.dispatchEvent(new Event("loadedmetadata")));};
+    HTMLMediaElement.prototype.play=function(){this.dispatchEvent(new Event("play"));return Promise.resolve();};
+    HTMLMediaElement.prototype.pause=function(){this.dispatchEvent(new Event("pause"));};
+  });
+  await workspace(page,{partial:true});
+  let revision=1;let final=false;
+  await page.route("**/processed",route=>route.fulfill({json:{...fixture.readable,from_transcript:true,lines:growingLines(revision===1?80:120),partial:final?null:growingInfo(revision)}}));
+  await page.route("**/playback",route=>route.fulfill({json:{duration_sec:revision*100,snapshot:final?null:growingInfo(revision).snapshot,partial:final?null:growingInfo(revision)}}));
+  await page.getByRole("button",{name:"Текст",exact:true}).click();
+  await expect(page.locator("[data-plain-text] span")).toHaveCount(80);
+  await page.getByTitle("Слушать",{exact:true}).click();
+  await page.locator("audio").evaluate(el=>{el.currentTime=50;el.dispatchEvent(new Event("timeupdate"));});
+  const oldSource=await page.locator("audio").getAttribute("src");
+  await page.locator(".main").evaluate(el=>{el.scrollTop=220;});
+  const scroll=await page.locator(".main").evaluate(el=>el.scrollTop);
+  const selected=await page.locator("[data-plain-text] span").nth(8).evaluate(el=>{
+    const range=document.createRange();range.setStart(el.lastChild!,2);range.setEnd(el.lastChild!,15);const selection=getSelection()!;selection.removeAllRanges();selection.addRange(range);return selection.toString();
+  });
+  revision=2;await page.clock.runFor(3100);
+  await expect(page.locator("[data-plain-text] span")).toHaveCount(120);
+  expect(await page.evaluate(()=>getSelection()?.toString())).toBe(selected);
+  expect(await page.locator(".main").evaluate(el=>el.scrollTop)).toBe(scroll);
+  expect(await page.locator("audio").getAttribute("src")).toBe(oldSource);
+  expect(await page.locator("audio").evaluate(el=>el.currentTime)).toBe(50);
+  await expect(page.getByTitle("Пауза",{exact:true})).toBeVisible();
+  revision=1;await page.clock.runFor(3100);await expect(page.locator("[data-plain-text] span")).toHaveCount(120);
+  revision=2;
+  const copied:string[]=[];await page.exposeFunction("captureGrowingCopy",(text:string)=>{copied.push(text);});
+  await page.evaluate(()=>Object.defineProperty(navigator,"clipboard",{value:{writeText:(text:string)=>(window as unknown as {captureGrowingCopy:(s:string)=>Promise<void>}).captureGrowingCopy(text)}}));
+  await page.keyboard.press("Control+Shift+C");await expect.poll(()=>copied.length).toBe(1);expect(copied[0]).toBe(growingLines(120).map(l=>l.text).join(" "));
+  await page.getByTitle(/Доступно новое аудио/).click();
+  await expect(page.locator("audio")).not.toHaveAttribute("src",oldSource!);
+  expect(await page.locator("audio").evaluate(el=>el.currentTime)).toBe(50);
+  await expect(page.getByTitle("Пауза",{exact:true})).toBeVisible();
+  await page.locator(".main").evaluate(el=>{el.scrollTop=0;});
+  await expect(page.locator(".main")).toHaveScreenshot("partial-growing-text.png");
+  final=true;await page.clock.runFor(3100);
+  await expect(page.locator(".doc")).not.toContainText("Готовая часть");
+  await expect(page.locator("[data-plain-text] span")).toHaveCount(120);
+  expect(await page.locator("audio").evaluate(el=>el.currentTime)).toBe(50);
+});

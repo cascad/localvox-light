@@ -136,7 +136,10 @@ impl App {
                     self.queue
                         .get(self.selected)
                         .filter(|job| {
-                            matches!(job.state.as_str(), "pending" | "running" | "failed")
+                            matches!(
+                                job.state.as_str(),
+                                "pending" | "running" | "failed" | "waiting_input"
+                            )
                         })
                         .map(|job| job.session.clone())
                 } else if self.view == View::Archive {
@@ -148,11 +151,10 @@ impl App {
                                 .find(|session| &session.name == current)
                         })
                         .filter(|session| {
-                            !session.recording
-                                && matches!(
-                                    session.job.as_deref(),
-                                    Some("pending" | "running" | "failed")
-                                )
+                            matches!(
+                                session.job.as_deref(),
+                                Some("pending" | "running" | "failed" | "waiting_input")
+                            )
                         })
                         .map(|session| session.name.clone())
                 } else {
