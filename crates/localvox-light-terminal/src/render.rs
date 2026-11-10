@@ -968,6 +968,14 @@ struct JournalProjection {
 fn journal_lines(a: &App, t: Theme) -> Vec<Line<'static>> {
     journal_projection(a, t).lines
 }
+fn journal_duration(seconds: Option<f64>) -> String {
+    match seconds {
+        Some(value) if value > 0.0 && value < 1.0 => "<1 с".into(),
+        Some(value) => timecode(value),
+        None => "время неизвестно".into(),
+    }
+}
+
 fn journal_projection(a: &App, t: Theme) -> JournalProjection {
     let uncertain = a.errors.contains_key(&Resource::Progress);
     let clock_ms = if uncertain {
@@ -1302,6 +1310,10 @@ fn journal_projection(a: &App, t: Theme) -> JournalProjection {
             )));
             stage = Some(g.stage.clone());
         }
+        let stage_timing = g.stage_timing(
+            a.progress.execution.as_ref().and_then(|e| e.run.as_deref()),
+            &a.progress.stages,
+        );
         let active = !uncertain
             && a.progress.execution.as_ref().is_some_and(|execution| {
                 execution.state == "running"
@@ -1313,6 +1325,8 @@ fn journal_projection(a: &App, t: Theme) -> JournalProjection {
                             g.run == *run
                                 && (g.id == format!("{run}/{op}")
                                     || g.parent.as_ref() == Some(op)
+                                        && execution.current.as_deref() == Some(g.stage.as_str())
+                                    || stage_timing.is_some_and(|s| s.state == "running")
                                         && execution.current.as_deref() == Some(g.stage.as_str()))
                         })
             });
@@ -1321,23 +1335,27 @@ fn journal_projection(a: &App, t: Theme) -> JournalProjection {
         } else {
             g.state()
         };
-        let duration = g
+        let seconds = g
             .elapsed_sec
             .or_else(|| {
-                let start = chrono::DateTime::parse_from_rfc3339(g.started_at.as_deref()?)
-                    .ok()?
-                    .timestamp_millis();
+                let start = chrono::DateTime::parse_from_rfc3339(
+                    g.started_at
+                        .as_deref()
+                        .or_else(|| stage_timing.and_then(|s| s.started_at.as_deref()))?,
+                )
+                .ok()?
+                .timestamp_millis();
                 let end = g
                     .ended_at
                     .as_deref()
+                    .or_else(|| stage_timing.and_then(|s| s.ended_at.as_deref()))
                     .and_then(|at| chrono::DateTime::parse_from_rfc3339(at).ok())
                     .map(|at| at.timestamp_millis())
                     .or(active.then_some(clock_ms))?;
                 (end >= start).then_some((end - start) as f64 / 1000.0)
             })
-            .filter(|seconds| seconds.is_finite() && *seconds >= 0.0)
-            .map(timecode)
-            .unwrap_or_else(|| "время неизвестно".into());
+            .filter(|seconds| seconds.is_finite() && *seconds >= 0.0);
+        let duration = journal_duration(seconds);
         let color = match state {
             "failed" | "invalid" => t.error,
             "running" => t.busy,
@@ -2112,6 +2130,111 @@ mod tests {
             failed.contains("ошибка") && failed.contains("00:03"),
             "{failed}"
         );
+    }
+
+    #[test]
+    fn completed_stage_tail_shows_full_time_and_fast_operation_without_reprocessing() {
+        let mut app = App {
+            focus: 2,
+            tab: Tab::Progress,
+            current: Some("fixture".into()),
+            viewport: (120, 36),
+            ..Default::default()
+        };
+        let end = "2026-11-10T22:28:02.718788300+03:00";
+        app.progress.execution = Some(localvox_light_client::Execution {
+            run: Some("r".into()),
+            state: "done".into(),
+            ..Default::default()
+        });
+        app.progress.stages = vec![localvox_light_client::StageStatus {
+            stage: "summary".into(),
+            state: "done".into(),
+            started_at: Some("2026-11-10T22:21:43.529131700+03:00".into()),
+            ended_at: Some(end.into()),
+            ..Default::default()
+        }];
+        app.journal.entries = vec![
+            localvox_light_client::JournalEntry {
+                id: "child".into(),
+                run: "r".into(),
+                stage: "summary".into(),
+                operation: Some("check".into()),
+                kind: "operation_end".into(),
+                at: "2026-11-10T22:25:14+03:00".into(),
+                label: "Часть 8/23: проверка".into(),
+                elapsed_sec: Some(0.9353011),
+                ..Default::default()
+            },
+            localvox_light_client::JournalEntry {
+                id: "phase".into(),
+                run: "r".into(),
+                stage: "summary".into(),
+                kind: "stage".into(),
+                at: end.into(),
+                label: "summary".into(),
+                status: Some("done".into()),
+                ..Default::default()
+            },
+        ];
+        let text = |app: &App| {
+            journal_lines(app, Theme::for_app(app))
+                .iter()
+                .map(|line| {
+                    line.spans
+                        .iter()
+                        .map(|span| span.content.as_ref())
+                        .collect::<String>()
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        let initial = text(&app);
+        assert!(initial.contains("summary · done · 06:19"), "{initial}");
+        assert!(initial.contains("<1 с"), "{initial}");
+        app.wall_ms += 3_600_000;
+        assert_eq!(
+            initial,
+            text(&app),
+            "completed phase must not grow with client time"
+        );
+        let mut terminal = Terminal::new(TestBackend::new(120, 36)).unwrap();
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        let screen = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        assert!(
+            screen.contains("06:19") && screen.contains("<1 с"),
+            "the actual viewport must include both journal durations"
+        );
+        insta::assert_debug_snapshot!("journal_stage_duration_tail", terminal.backend().buffer());
+        app.progress.execution.as_mut().unwrap().run = Some("another-run".into());
+        assert!(text(&app).contains("summary · done · время неизвестно"));
+        app.progress.execution.as_mut().unwrap().run = Some("r".into());
+        app.progress.stages[0].started_at = None;
+        assert!(text(&app).contains("summary · done · время неизвестно"));
+        app.progress.stages[0].started_at = Some("2026-11-10T22:20:00+03:00".into());
+        app.progress.stages[0].ended_at = None;
+        app.progress.stages[0].state = "running".into();
+        let execution = app.progress.execution.as_mut().unwrap();
+        execution.state = "running".into();
+        execution.current = Some("summary".into());
+        execution.operation = Some("worker".into());
+        let event = app.journal.entries.last_mut().unwrap();
+        event.status = Some("running".into());
+        event.at = "2026-11-10T22:25:14+03:00".into();
+        app.wall_ms = chrono::DateTime::parse_from_rfc3339("2026-11-10T22:25:16+03:00")
+            .unwrap()
+            .timestamp_millis();
+        assert!(text(&app).contains("summary · running · 05:16"));
+        app.wall_ms += 1000;
+        assert!(text(&app).contains("summary · running · 05:17"));
+        app.errors.insert(Resource::Progress, "offline".into());
+        assert!(text(&app).contains("summary · завершение не зафиксировано · время неизвестно"));
     }
     #[test]
     fn snapshot_wide_light() {

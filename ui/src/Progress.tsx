@@ -198,7 +198,7 @@ export function ProgressChain({ session }: { session: Session }) {
           );
         })}
       </div>
-      <Journal session={session.name} execution={prog.execution} uncertain={!!error} now={clockNow} />
+      <Journal session={session.name} execution={prog.execution} stages={prog.stages} uncertain={!!error} now={clockNow} />
     </>
   );
 }

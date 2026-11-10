@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api, type Progress } from "./api";
-import { groupJournal, journalActive, journalState, mergeJournal, type JournalEntry } from "./journal-model";
+import { groupJournal, journalActive, journalSeconds, journalDuration, journalState, mergeJournal, type JournalEntry, type JournalStageClock } from "./journal-model";
 
 function readingAnchor(box: HTMLDivElement | null) {
   if (!box) return null;
@@ -20,7 +20,7 @@ function restoreReadingAnchor(box: HTMLDivElement | null, anchor: ReturnType<typ
 }
 
 /** A separate history view. The artifact/phase result remains the ProgressChain's responsibility. */
-export function Journal({ session, execution, uncertain, now = Date.now() }: { session: string; execution?: Progress["execution"]; uncertain?: boolean; now?: number }) {
+export function Journal({ session, execution, stages = [], uncertain, now = Date.now() }: { session: string; execution?: Progress["execution"]; stages?: JournalStageClock[]; uncertain?: boolean; now?: number }) {
   const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
@@ -183,12 +183,9 @@ export function Journal({ session, execution, uncertain, now = Date.now() }: { s
       {older && <button className="tool journal-older" disabled={loadingOlder} onClick={() => void loadOlder()}>{loadingOlder ? "Загрузка предыдущих…" : "↑ Предыдущие события"}</button>}
       {!groups.length && !error && <p className="hint">Подробные события ещё не поступили. Состояние этапов показано выше.</p>}
       {visible.map((group, index) => {
-        const active = !uncertain && journalActive(group, execution);
+        const active = !uncertain && journalActive(group, execution, stages);
         const state = journalState(group, active);
-        const elapsed = group.elapsed ?? (group.startedAt && (group.endedAt || active === true)
-          ? ((group.endedAt ? new Date(group.endedAt).getTime() : now) - new Date(group.startedAt).getTime()) / 1000 : NaN);
-        const duration = Number.isFinite(elapsed) && elapsed >= 0
-          ? `${Math.floor(elapsed / 60)}:${String(Math.floor(elapsed % 60)).padStart(2, "0")}` : "время неизвестно";
+        const duration = journalDuration(journalSeconds(group, execution?.run, stages, active, now));
         const open = expanded.has(group.id);
         const hidden = group.details.filter((d) => d.status !== "failed" && d.status !== "invalid");
         const hiddenLines = hidden.reduce((n, d) => n + (d.text?.split("\n").length ?? 0), 0);

@@ -11,6 +11,7 @@ export interface JournalPage {
   reset: boolean; truncated: boolean; discarded: number; read_bytes: number; dropped_verbose?: number;
 }
 export interface JournalGroup {
+  operation?: string | null;
   startedAt?: string; endedAt?: string; elapsed?: number | null;
   id: string; run: string; stage: string; label: string; parent?: string | null;
   command?: JournalEntry["command"]; ended: boolean; state?: string | null;
@@ -51,7 +52,7 @@ export function groupJournal(events: JournalEntry[]): JournalGroup[] {
     const id = `${entry.run}/${entry.operation ?? `stage:${entry.stage}`}`;
     let group = groups.get(id);
     if (!group) {
-      group = { id, run: entry.run, stage: entry.stage, label: entry.label || entry.stage, parent: entry.parent,
+      group = { id, operation: entry.operation, run: entry.run, stage: entry.stage, label: entry.label || entry.stage, parent: entry.parent,
         ended: false, details: [], lastAt: entry.at };
       groups.set(id, group);
     }
@@ -66,13 +67,47 @@ export function groupJournal(events: JournalEntry[]): JournalGroup[] {
   return [...groups.values()];
 }
 
+export interface JournalStageClock {
+  stage: string; state: string;
+  started_at?: string | null; ended_at?: string | null;
+}
+
+export function journalStageTiming(group: JournalGroup, run: string | null | undefined, stages: readonly JournalStageClock[]) {
+  if (group.operation != null || !group.run || group.run !== run) return undefined;
+  const stage = stages.find(s => s.stage === group.stage && s.state === group.state);
+  if (!stage) return undefined;
+  const start = Date.parse(stage.started_at ?? ""), signal = Date.parse(group.lastAt);
+  if (!Number.isFinite(start) || !Number.isFinite(signal) || signal < start) return undefined;
+  if (stage.state === "running" && stage.ended_at == null) {
+    return stage;
+  }
+  return ["done", "failed", "cancelled", "invalid", "skipped"].includes(stage.state)
+    && stage.ended_at === group.lastAt ? stage : undefined;
+}
+
 export function journalActive(group: JournalGroup, execution?: {
   state: string; run?: string | null; operation?: string | null; current?: string | null;
-} | null) {
+} | null, stages: readonly JournalStageClock[] = []) {
   return execution?.state === "running" && !!execution.run && !!execution.operation
     && group.run === execution.run
     && (group.id === `${execution.run}/${execution.operation}`
-      || group.parent === execution.operation && group.stage === execution.current);
+      || group.parent === execution.operation && group.stage === execution.current
+      || journalStageTiming(group, execution.run, stages)?.state === "running" && group.stage === execution.current);
+}
+
+export function journalSeconds(group: JournalGroup, run: string | null | undefined,
+  stages: readonly JournalStageClock[], active: boolean, now: number) {
+  if (group.elapsed != null) return group.elapsed;
+  const stage = journalStageTiming(group, run, stages);
+  const start = group.startedAt ?? stage?.started_at, end = group.endedAt ?? stage?.ended_at;
+  if (!start || (!end && !active)) return NaN;
+  return ((end ? Date.parse(end) : now) - Date.parse(start)) / 1000;
+}
+
+export function journalDuration(seconds: number) {
+  if (!Number.isFinite(seconds) || seconds < 0) return "время неизвестно";
+  if (seconds > 0 && seconds < 1) return "<1 с";
+  return `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
 }
 
 export function journalState(group: JournalGroup, active?: boolean) {

@@ -1,5 +1,5 @@
 //! Bounded client history and pure projection into operation groups.
-use localvox_light_client::{safe_text, DisplayCommand, JournalEntry, JournalPage};
+use localvox_light_client::{safe_text, DisplayCommand, JournalEntry, JournalPage, StageStatus};
 use std::collections::{HashMap, HashSet};
 
 const MAX_EVENTS: usize = 5000;
@@ -23,6 +23,7 @@ pub struct Journal {
 }
 #[derive(Clone, Default)]
 pub struct Group {
+    pub operation: Option<String>,
     pub parent: Option<String>,
     pub started_at: Option<String>,
     pub ended_at: Option<String>,
@@ -160,6 +161,7 @@ impl Journal {
             let index = *indices.entry(id.clone()).or_insert_with(|| {
                 groups.push(Group {
                     id,
+                    operation: e.operation.clone(),
                     parent: e.parent.clone(),
                     run: e.run.clone(),
                     stage: safe_text(&e.stage),
@@ -225,6 +227,36 @@ impl Journal {
     }
 }
 impl Group {
+    /// Progress carries the real attempt boundaries even when the journal page starts
+    /// at a heartbeat. Only attach them to that exact run/attempt, never to a child op.
+    pub fn stage_timing<'a>(
+        &self,
+        run: Option<&str>,
+        stages: &'a [StageStatus],
+    ) -> Option<&'a StageStatus> {
+        if self.operation.is_some() || self.run.is_empty() || run != Some(self.run.as_str()) {
+            return None;
+        }
+        let stage = stages
+            .iter()
+            .find(|s| s.stage == self.stage && s.state == self.status)?;
+        let start = chrono::DateTime::parse_from_rfc3339(stage.started_at.as_deref()?).ok()?;
+        let signal = chrono::DateTime::parse_from_rfc3339(&self.at).ok()?;
+        if signal < start {
+            return None;
+        }
+        if stage.state == "running" && stage.ended_at.is_none() {
+            return Some(stage);
+        }
+        if matches!(
+            stage.state.as_str(),
+            "done" | "failed" | "cancelled" | "invalid" | "skipped"
+        ) && stage.ended_at.as_deref() == Some(self.at.as_str())
+        {
+            return Some(stage);
+        }
+        None
+    }
     pub fn state(&self) -> &str {
         if self.ended
             && !matches!(
@@ -248,6 +280,82 @@ impl Group {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn completed_stage_uses_matching_snapshot_without_treating_tail_heartbeat_as_start() {
+        let mut j = Journal::new();
+        j.entries = vec![
+            JournalEntry {
+                id: "beat".into(),
+                run: "r".into(),
+                stage: "summary".into(),
+                kind: "stage".into(),
+                status: Some("running".into()),
+                at: "2026-11-10T22:25:14+03:00".into(),
+                ..Default::default()
+            },
+            JournalEntry {
+                id: "end".into(),
+                run: "r".into(),
+                stage: "summary".into(),
+                kind: "stage".into(),
+                status: Some("done".into()),
+                at: "2026-11-10T22:28:02+03:00".into(),
+                ..Default::default()
+            },
+        ];
+        let g = j.groups().remove(0);
+        assert!(g.started_at.is_none());
+        let mut stages = vec![StageStatus {
+            stage: "summary".into(),
+            state: "done".into(),
+            started_at: Some("2026-11-10T22:21:43+03:00".into()),
+            ended_at: Some(g.at.clone()),
+            ..Default::default()
+        }];
+        assert_eq!(
+            g.stage_timing(Some("r"), &stages).unwrap().started_at,
+            stages[0].started_at
+        );
+        assert!(g.stage_timing(Some("other"), &stages).is_none());
+        assert!(g.stage_timing(None, &stages).is_none());
+        let child = Group {
+            operation: Some("child".into()),
+            ..g.clone()
+        };
+        assert!(child.stage_timing(Some("r"), &stages).is_none());
+        stages[0].ended_at = Some("2026-11-10T22:28:03+03:00".into());
+        assert!(
+            g.stage_timing(Some("r"), &stages).is_none(),
+            "another attempt's end must not match"
+        );
+        stages[0].ended_at = Some(g.at.clone());
+        stages[0].started_at = None;
+        assert!(g.stage_timing(Some("r"), &stages).is_none());
+        stages[0].started_at = Some("2026-11-10T22:29:00+03:00".into());
+        assert!(g.stage_timing(Some("r"), &stages).is_none());
+    }
+
+    #[test]
+    fn running_stage_never_borrows_start_from_a_later_retry() {
+        let mut g = Group {
+            run: "r".into(),
+            stage: "summary".into(),
+            status: "running".into(),
+            at: "2026-11-10T22:25:14+03:00".into(),
+            ..Default::default()
+        };
+        let mut stages = vec![StageStatus {
+            stage: "summary".into(),
+            state: "running".into(),
+            started_at: Some("2026-11-10T22:26:00+03:00".into()),
+            ..Default::default()
+        }];
+        assert!(g.stage_timing(Some("r"), &stages).is_none());
+        g.at = "2026-11-10T22:26:01+03:00".into();
+        assert!(g.stage_timing(Some("r"), &stages).is_some());
+        stages[0].started_at = Some("invalid".into());
+        assert!(g.stage_timing(Some("r"), &stages).is_none());
+    }
     #[test]
     fn replay_is_idempotent_and_reset_drops_old_runs() {
         let mut j = Journal::new();

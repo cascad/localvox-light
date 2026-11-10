@@ -230,6 +230,31 @@ async function watchReadAborts(page: Page, resources = ["summary", "processed", 
   return aborted;
 }
 
+test("completed stage tail uses its own phase clock and preserves a fast child operation", async ({page}) => {
+  await workspace(page);
+  let run="r1";
+  const end="2026-10-31T06:56:19Z";
+  await page.route("**/progress",route=>route.fulfill({json:{running:false,
+    stages:[{stage:"summary",state:"done",started_at:"2026-10-31T06:50:00Z",ended_at:end}],
+    execution:{run,state:"done",current:null,operation:null,next:[],message:"Готово"}
+  }}));
+  await page.route("**/journal**",route=>route.fulfill({json:{...journalFixture,reset:true,events:[
+    {id:"child",run:"r1",stage:"summary",operation:"check",kind:"operation_end",at:"2026-10-31T06:53:31Z",label:"Часть 8/23: проверка",elapsed_sec:0.9353011},
+    {id:"stage",run:"r1",stage:"summary",kind:"stage",status:"done",at:end,label:"summary"}
+  ]}}));
+  await page.getByRole("button",{name:"Ход",exact:true}).click();
+  const phase=page.locator(".journal-row").filter({hasText:"summary"});
+  const child=page.locator(".journal-row").filter({hasText:"Часть 8/23"});
+  await expect(phase.getByLabel("Длительность операции")).toHaveText("6:19");
+  await expect(child.getByLabel("Длительность операции")).toHaveText("<1 с");
+  await page.clock.runFor(3100);
+  await expect(phase.getByLabel("Длительность операции")).toHaveText("6:19");
+  run="another-attempt";
+  await page.clock.runFor(3100);
+  await expect(phase.getByLabel("Длительность операции")).toHaveText("время неизвестно");
+  await expect(child.getByLabel("Длительность операции")).toHaveText("<1 с");
+});
+
 test("voice grouping stays active after all audio was read and retains its measured time", async ({ page }) => {
   await workspace(page);
   let ended = false;

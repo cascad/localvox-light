@@ -379,3 +379,9 @@ attempt/revival и не дописывают recovery progress до сохран
 | ID | Delta / код | Свидетельство | Граница |
 |---|---|---|---|
 | ARCH-011 / ARCH-012 | [delta](../changes/add-terminal-session-activity/specs/archive-playback/spec.md), [input](../../crates/localvox-light-terminal/src/app/archive_list.rs), [render](../../crates/localvox-light-terminal/src/render.rs) | [test-run](../changes/add-terminal-session-activity/evidence/keyboard-search.md): j/k и RU, первый/второй Slash, Esc/Tab/Enter, refresh, snapshots, 153 lib и 4 ConPTY; установленный release TUI | Неархивированные delta уточнены по новому решению владельца, main specs не изменены. Ручной WezTerm/audio not-run; native Ctrl+V остаётся отдельным change |
+
+## Часы этапов в журнале · 2026-11-10
+
+| ID | Delta / код | Свидетельство | Граница |
+|---|---|---|---|
+| PIPE-011 | [delta](../changes/fix-journal-stage-durations/specs/processing-pipeline/spec.md), [TUI projection](../../crates/localvox-light-terminal/src/journal.rs), [UI projection](../../ui/src/journal-model.ts) | [test-run](../changes/fix-journal-stage-durations/evidence/implementation.md): текущий/завершённый этап, неполный хвост, retry/run guards, неизвестные границы, <1 с; 156 lib, 79 browser, 4 ConPTY | TUI установлен; новый embedded UI собран, установка daemon заблокирована работающим экземпляром. Ручной просмотр not-run, старые неизвестные границы не выдумываются |

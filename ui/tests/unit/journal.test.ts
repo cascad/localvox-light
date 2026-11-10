@@ -1,10 +1,51 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { groupJournal, journalActive, journalState, mergeJournal, type JournalEntry, type JournalPage } from "../../src/journal-model.ts";
+import { groupJournal, journalActive, journalSeconds, journalDuration, journalStageTiming, journalState, mergeJournal, type JournalEntry, type JournalPage } from "../../src/journal-model.ts";
 
 const entry = (id: string, extra: Partial<JournalEntry> = {}): JournalEntry => ({ id, run: "r1", stage: "summary", kind: "log", at: "2026-10-31T07:00:00Z", label: "summary", ...extra });
 const page = (events: JournalEntry[], reset = false): JournalPage => ({ events, reset, next_cursor: "next", previous_cursor: "previous", has_more: false, truncated: false, discarded: 0, read_bytes: 0 });
+
+test("stage duration comes from the exact attempt even when the tail has no start", () => {
+  const end="2026-11-10T22:28:02.718788300+03:00";
+  const group=groupJournal([
+    entry("heartbeat",{kind:"stage",status:"running",at:"2026-11-10T22:25:14+03:00"}),
+    entry("done",{kind:"stage",status:"done",at:end}),
+  ])[0];
+  const stage={stage:"summary",state:"done",started_at:"2026-11-10T22:21:43.529131700+03:00",ended_at:end};
+  assert.equal(group.startedAt,undefined);
+  assert.equal(journalDuration(journalSeconds(group,"r1",[stage],false,0)),"6:19");
+  for (const wrong of [{...stage,ended_at:"2026-11-10T22:28:03+03:00"},{...stage,started_at:null},{...stage,started_at:"bad"},{...stage,started_at:"2026-11-10T22:29:00+03:00"}]) {
+    assert.equal(journalDuration(journalSeconds(group,"r1",[wrong],false,0)),"время неизвестно");
+  }
+  assert.equal(journalStageTiming(group,"old-run",[stage]),undefined);
+  assert.equal(journalStageTiming(group,null,[stage]),undefined);
+  const child=groupJournal([entry("child",{operation:"op",kind:"operation_end",elapsed_sec:0.9353011,status:"done",at:end})])[0];
+  assert.equal(journalStageTiming(child,"r1",[stage]),undefined);
+  assert.equal(journalDuration(journalSeconds(child,"r1",[stage],false,0)),"<1 с");
+});
+
+test("running stage uses its real start and refuses a later retry or lost activity", () => {
+  const group=groupJournal([entry("beat",{kind:"stage",status:"running",at:"2026-10-31T07:00:03Z"})])[0];
+  const stage={stage:"summary",state:"running",started_at:"2026-10-31T07:00:00Z"};
+  const execution={run:"r1",operation:"worker",state:"running",current:"summary"};
+  const now=Date.parse("2026-10-31T07:00:05Z");
+  assert.equal(journalActive(group,execution,[stage]),true);
+  assert.equal(journalDuration(journalSeconds(group,"r1",[stage],true,now)),"0:05");
+  assert.equal(journalDuration(journalSeconds(group,"r1",[stage],false,now)),"время неизвестно");
+  const retry={...stage,started_at:"2026-10-31T07:00:04Z"};
+  assert.equal(journalActive(group,execution,[retry]),false);
+  assert.equal(journalStageTiming(group,"r1",[retry]),undefined);
+  assert.equal(journalActive(group,{...execution,state:"done"},[stage]),false);
+});
+
+test("journal distinguishes positive subsecond work from a measured zero or unknown time", () => {
+  assert.equal(journalDuration(0.9353011),"<1 с");
+  assert.equal(journalDuration(0.00001),"<1 с");
+  assert.equal(journalDuration(0),"0:00");
+  assert.equal(journalDuration(1),"0:01");
+  for (const value of [NaN,Infinity,-1]) assert.equal(journalDuration(value),"время неизвестно");
+});
 
 test("grouping belongs to the current worker and keeps its own time and error", () => {
   const events = [entry("start", {stage:"transcribe",operation:"group",parent:"worker",kind:"operation_start",label:"Группировка голосов"})];
