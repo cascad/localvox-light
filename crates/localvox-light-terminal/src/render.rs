@@ -285,7 +285,7 @@ pub fn draw(f: &mut Frame, a: &App) {
         Line::from(if a.view == View::Archive && a.focus == 1 {
             " F8 stop  F10 выход  Enter открыть  Esc сброс  F2 действия"
         } else {
-            " F8 stop  q/F10 выход  y весь текст  : действия  ~ ошибки"
+            " F8 stop  qq/F10 выход  y весь текст  : действия  ~ ошибки"
         })
     } else {
         Line::from(vec![
@@ -297,7 +297,7 @@ pub fn draw(f: &mut Frame, a: &App) {
             Span::raw(if a.view == View::Archive && a.focus == 1 {
                 " / F2 действия   Enter открыть   Esc сброс   F8 stop   F10 выход"
             } else {
-                " действия   y/Ctrl+Y копия   F8 stop   F9 rec   ~ ошибки   q/F10 выход"
+                " действия   y/Ctrl+Y копия   F8 stop   F9 rec   ~ ошибки   qq/F10 выход"
             }),
         ])
     };
@@ -347,7 +347,7 @@ pub fn draw(f: &mut Frame, a: &App) {
     if a.help {
         let rect = modal(area, 78, 26);
         f.render_widget(Clear, rect);
-        f.render_widget(Paragraph::new("УПРАВЛЕНИЕ\nSpace play/pause; p fragment; g/п time; Alt+Left/Right +/-15s\nF6 — стрелки плееру; повтор — к документу\n\nTab / Shift+Tab — фокус панели\n↑↓ — выбрать строку; Enter — открыть\nСписок архива: j/k или ↑↓, l/Enter — открыть, / — поиск\nВ поиске буквы и / — текст; Esc — сброс и выход\n1–5 — вкладка документа; y / Ctrl+Y — копировать всё\n/ или точка в RU — поиск в выбранной панели; : / F2 — действия; n — создать; i — URL → Enter\nF8 — остановить запись; F9 — начать запись\nX — отменить обработку; R — продолжить этап\nPgUp / PgDn, Home / End — чтение документа\n← / → или h/l — свернуть / раскрыть подробности\n\nВ форме: Tab — поле; Enter — новая строка\nCtrl+Enter — отправить; Esc — отменить\nURL, настройка, время: Enter — подтвердить\nВставка остаётся текстом, команды не исполняются.\nI — сведения в «Ход»; A / S — все настройки / сохранить\n~ / ё — консоль ошибок; F12 — также из формы\n\nF10 / Ctrl+Q — выход; q — вне ввода фильтра/формы.\nДемон и запись продолжают работать.\n\nЛюбая клавиша — закрыть справку").block(borders(a.ascii).title(" Помощь ").style(Style::default().bg(t.bg).fg(t.ink))).wrap(Wrap{trim:false}),rect);
+        f.render_widget(Paragraph::new("УПРАВЛЕНИЕ\nSpace play/pause; p fragment; g/п time; Alt+Left/Right +/-15s\nF6 — стрелки плееру; повтор — к документу\n\nTab / Shift+Tab — фокус панели\n↑↓ — выбрать строку; Enter — открыть\nМеню разделов: l/Enter — выбрать\nСписок архива: j/k или ↑↓, l/Enter — открыть, / — поиск\nВ поиске буквы и / — текст; Esc — сброс и выход\n1–5 — вкладка документа; y / Ctrl+Y — копировать всё\n/ или точка в RU — поиск в выбранной панели; : / F2 — действия; n — создать; i — URL → Enter\nF8 — остановить запись; F9 — начать запись\nX — отменить обработку; R — продолжить этап\nPgUp / PgDn, Home / End — чтение документа\n← / → или h/l — свернуть / раскрыть подробности\n\nВ форме: Tab — поле; Enter — новая строка\nCtrl+Enter — отправить; Esc — отменить\nURL, настройка, время: Enter — подтвердить\nВставка остаётся текстом, команды не исполняются.\nI — сведения в «Ход»; A / S — все настройки / сохранить\n~ / ё — консоль ошибок; F12 — также из формы\n\nF10 / Ctrl+Q — выход; qq/йй за 0.5 с — вне ввода.\nДругая клавиша или вставка отменяет первое q.\nДемон и запись продолжают работать.\n\nЛюбая клавиша — закрыть справку").block(borders(a.ascii).title(" Помощь ").style(Style::default().bg(t.bg).fg(t.ink))).wrap(Wrap{trim:false}),rect);
     }
     if let Some(form) = &a.form {
         let desired = match &form.kind {
@@ -540,6 +540,13 @@ pub fn draw(f: &mut Frame, a: &App) {
         );
     }
     render_console(f, a, t);
+    if a.quit_pending() && area.height > 0 {
+        f.render_widget(
+            Paragraph::new(" q ещё раз — выйти · до 0.5 с · другая клавиша — отмена")
+                .style(Style::default().fg(t.command).bg(t.bg)),
+            Rect::new(area.x, area.bottom() - 1, area.width, 1),
+        );
+    }
 }
 fn player_bar(f: &mut Frame, a: &App, area: Rect, t: Theme) {
     let block = panel(

@@ -403,3 +403,9 @@ attempt/revival и не дописывают recovery progress до сохран
 | ID | Delta / код | Свидетельство | Граница |
 |---|---|---|---|
 | ARCH-001; ARCH-011/012 в delta | [delta](../changes/add-terminal-session-activity/specs/archive-playback/spec.md), [keys](../../crates/localvox-light-terminal/src/app.rs) | [test-run](../changes/add-terminal-session-activity/evidence/vim-navigation.md): l/д открывает запись; h/l и р/д как стрелки в документе; 164 lib, 4 ConPTY, IO/run-script, проверенный release кандидат | Обычный exe удерживает открытый TUI; кандидат готов отдельно. Ручная приёмка not-run; main specs не изменены |
+
+Продолжение ARCH-001 / delta ARCH-011/012 от 2026-11-11:
+[меню и безопасный qq](../changes/add-terminal-session-activity/evidence/menu-and-quit.md).
+170 lib / 4 ConPTY / IO/run-script passed, сроки/контексты/вставка/Unicode и
+auto-expiring hint проверены; 28 snapshots меняют только q → qq в footer.
+Обычный release TUI и прежний review-кандидат обновлены; ручная приёмка not-run.

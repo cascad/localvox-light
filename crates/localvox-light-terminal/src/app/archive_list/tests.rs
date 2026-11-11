@@ -146,6 +146,39 @@ fn vim_horizontal_keys_match_document_arrows_and_remain_literal_in_input() {
 }
 
 #[test]
+fn vim_right_selects_each_section_without_executing_palette_or_modified_keys() {
+    for c in ['l', 'д'] {
+        for (index, (view, _)) in VIEWS.iter().enumerate() {
+            let mut a = fixture();
+            a.focus = 0;
+            a.nav = index;
+            a.selected = 2;
+            key(&mut a, c);
+            assert_eq!(a.view, *view);
+            assert_eq!(a.focus, 1);
+            assert_eq!(a.selected, 0);
+            assert!(a.form.is_none());
+        }
+        let mut a = fixture();
+        a.focus = 0;
+        a.nav = 2;
+        for modifiers in [KeyModifiers::CONTROL, KeyModifiers::ALT] {
+            a.key(KeyEvent::new(KeyCode::Char(c), modifiers));
+            assert_eq!(a.focus, 0);
+            assert_eq!(a.view, View::Archive);
+            assert!(a.effects.is_empty());
+        }
+        a.palette = true;
+        key(&mut a, c);
+        assert!(a.palette && a.form.is_none() && a.effects.is_empty());
+        a.palette = false;
+        a.command(Action::NewAsk);
+        key(&mut a, c);
+        assert_eq!(a.form.as_ref().unwrap().fields[0].value, c.to_string());
+    }
+}
+
+#[test]
 fn first_slash_starts_search_and_further_slashes_and_command_letters_are_literal() {
     for first in ['/', '.'] {
         let mut a = fixture();

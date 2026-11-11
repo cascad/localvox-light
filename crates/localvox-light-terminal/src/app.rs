@@ -6,10 +6,12 @@ mod documents;
 mod forms;
 mod input;
 mod paging;
+mod quit;
 use crate::io::{Data, Resource, Response, Task};
 pub use commands::{Action, COMMANDS};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use localvox_light_client::{safe_text, types::*, Scope};
+pub use quit::QuitSequence;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -158,6 +160,7 @@ pub struct App {
     pub status: String,
     pub errors: HashMap<Resource, String>,
     pub quit: bool,
+    pub quit_sequence: Option<QuitSequence>,
     pub ascii: bool,
     pub monochrome: bool,
     pub color16: bool,
@@ -245,6 +248,7 @@ impl Default for App {
             status: "Подключение…".into(),
             errors: HashMap::new(),
             quit: false,
+            quit_sequence: None,
             ascii: false,
             monochrome: false,
             color16: false,
@@ -952,6 +956,9 @@ impl App {
     }
     pub fn tick(&mut self, now_ms: u64) {
         self.now_ms = now_ms;
+        if !self.quit_pending() {
+            self.cancel_quit_confirmation();
+        }
         if self.pending_record.is_some() && now_ms.saturating_sub(self.pending_record_at) > 10_000 {
             self.pending_record = None;
             self.status = "Подтверждение записи не получено — проверьте состояние движка".into();
@@ -970,6 +977,7 @@ impl App {
             })
     }
     pub fn paste(&mut self, text: &str) {
+        self.cancel_quit_confirmation();
         if self.console.open {
             return;
         }
@@ -1012,27 +1020,20 @@ impl App {
         }
     }
     pub fn key(&mut self, mut key: KeyEvent) {
+        if key.kind == crossterm::event::KeyEventKind::Release {
+            return;
+        }
         if self.view != View::Archive || self.focus != 1 {
             self.archive_filter_editing = false;
+        }
+        if self.quit_key(key) {
+            return;
         }
         if self.archive_filter_key(key) {
             return;
         }
         if self.form.is_none() {
             key = archive_list::command_key(key);
-        }
-        if (self.form.is_none()
-            && matches!(key.code, KeyCode::Char('q' | 'Q' | 'й' | 'Й'))
-            && !key
-                .modifiers
-                .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT))
-            || (key.modifiers.contains(KeyModifiers::CONTROL)
-                && matches!(key.code, KeyCode::Char('q' | 'Q' | 'й' | 'Й')))
-            || key.code == KeyCode::Char('\u{11}')
-            || (key.code == KeyCode::F(10) && key.modifiers.is_empty())
-        {
-            self.quit = true;
-            return;
         }
         if self.console_key(key) {
             return;
@@ -1158,13 +1159,6 @@ impl App {
                 if let Some(duration) = self.media_duration() {
                     self.seek_to(duration);
                 }
-            }
-            KeyCode::Char('q' | 'Q' | 'й' | 'Й')
-                if !key
-                    .modifiers
-                    .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
-            {
-                self.quit = true
             }
             KeyCode::Char('y' | 'Y' | 'н' | 'Н')
                 if !key
@@ -1327,7 +1321,8 @@ impl App {
                 }
             }
             KeyCode::Char('l')
-                if self.view == View::Archive && self.focus == 1 && key.modifiers.is_empty() =>
+                if key.modifiers.is_empty()
+                    && (self.focus == 0 || (self.view == View::Archive && self.focus == 1)) =>
             {
                 self.enter()
             }

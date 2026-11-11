@@ -57,6 +57,7 @@ pub fn run(mut client: Client, mut app: App) -> Result<()> {
         let mut dirty = true;
         let mut last_draw = Instant::now();
         let mut last_animation = None;
+        let mut last_quit_hint = false;
         while !app.quit {
             if let Some((address, token)) = app.connection_request.take() {
                 if connecting.is_some() {
@@ -185,11 +186,16 @@ pub fn run(mut client: Client, mut app: App) -> Result<()> {
                 }
             }
             let animation = render::animation_frame(&app);
-            if dirty || animation != last_animation || last_draw.elapsed() >= Duration::from_secs(1)
+            let quit_hint = app.quit_pending();
+            if dirty
+                || animation != last_animation
+                || quit_hint != last_quit_hint
+                || last_draw.elapsed() >= Duration::from_secs(1)
             {
                 terminal.draw(|f| render::draw(f, &app))?;
                 last_draw = Instant::now();
                 last_animation = animation;
+                last_quit_hint = quit_hint;
                 dirty = false;
             }
             if let Some(event) = input.read(Duration::from_millis(50))? {
@@ -211,6 +217,7 @@ fn dispatch(app: &mut App, event: Event, clipboard: impl FnOnce() -> Result<Stri
                 && !key.modifiers.contains(KeyModifiers::ALT)
                 && matches!(key.code, KeyCode::Char('v' | 'V' | 'м' | 'М' | '\u{16}'))
             {
+                app.cancel_quit_confirmation();
                 match clipboard() {
                     Ok(text) => app.paste(&text),
                     Err(error) => {

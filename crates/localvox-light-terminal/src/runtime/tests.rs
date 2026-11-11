@@ -63,6 +63,29 @@ fn clipboard_hotkey_and_terminal_paste_have_one_safe_path_without_reading_real_c
 }
 
 #[test]
+fn reserved_actions_and_failed_clipboard_cancel_pending_quit() {
+    use crossterm::event::{KeyEvent, KeyModifiers};
+    for code in [KeyCode::F(8), KeyCode::Char('v')] {
+        let mut app = App::default();
+        app.key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE));
+        assert!(app.quit_pending());
+        dispatch(
+            &mut app,
+            Event::Key(KeyEvent::new(
+                code,
+                if code == KeyCode::F(8) {
+                    KeyModifiers::NONE
+                } else {
+                    KeyModifiers::CONTROL
+                },
+            )),
+            || anyhow::bail!("synthetic clipboard failure"),
+        );
+        assert!(!app.quit_pending());
+    }
+}
+
+#[test]
 fn guard_restores_raw_mode_after_error() {
     let pair = native_pty_system()
         .openpty(PtySize {

@@ -341,6 +341,11 @@ fn quit_alternatives_leave_recording_and_daemon_alone() {
         app.record.recording = true;
         app.focus = 2;
         app.key(KeyEvent::new(key, KeyModifiers::NONE));
+        if key != KeyCode::F(10) {
+            assert!(!app.quit);
+            app.tick(100);
+            app.key(KeyEvent::new(key, KeyModifiers::NONE));
+        }
         assert!(app.quit);
         assert!(app.effects.is_empty() && app.player_effects.is_empty());
         assert!(app.record.recording);

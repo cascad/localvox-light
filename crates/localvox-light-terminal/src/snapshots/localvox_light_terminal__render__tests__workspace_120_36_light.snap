@@ -40,7 +40,7 @@ Buffer {
         "│                          │                                                                                            ",
         "│                          │                                                                                            ",
         " Данные обновлены                                                                                                       ",
-        " Tab фокус   1–5 вкладка   : действия   y/Ctrl+Y копия   F8 stop   F9 rec   ~ ошибки   q/F10 выход                      ",
+        " Tab фокус   1–5 вкладка   : действия   y/Ctrl+Y копия   F8 stop   F9 rec   ~ ошибки   qq/F10 выход                     ",
     ],
     styles: [
         x: 0, y: 0, fg: Rgb(39, 43, 48), bg: Rgb(246, 245, 241), underline: Reset, modifier: BOLD,

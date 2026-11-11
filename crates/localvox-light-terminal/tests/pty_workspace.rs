@@ -518,7 +518,7 @@ fn unauthorized_start_can_reconnect_through_the_masked_form_without_replaying_st
     writer.flush().unwrap();
     see!("Архитектура и следующие шаги");
     assert_eq!(api.stops.load(Ordering::Relaxed), 0);
-    writer.write_all(b"\tq").unwrap(); // leave the list input; plain exit when the host reserves Ctrl+Q
+    writer.write_all(b"\tqq").unwrap(); // leave the list input; confirm exit without Ctrl+Q
     writer.flush().unwrap();
     see!("\x1b[?1049l");
     assert!(child.0.wait().unwrap().success());
@@ -602,6 +602,21 @@ fn real_terminal_reads_a_growing_partial_and_keeps_the_old_line_on_its_row() {
     assert_eq!(before, after);
     assert!(screen.screen().contents().contains("00:40"));
     writer.write_all(b"q").unwrap();
+    writer.flush().unwrap();
+    see!("q ещё раз — выйти");
+    assert!(child.0.try_wait().unwrap().is_none());
+    wait_until(
+        "quit confirmation expires without another key",
+        |_, screen| !screen.contents().contains("q ещё раз — выйти"),
+        &mut all,
+        &mut screen,
+        &rx,
+        &mut writer,
+        &mut queries,
+        deadline,
+    );
+    assert!(child.0.try_wait().unwrap().is_none());
+    writer.write_all(b"qq").unwrap();
     writer.flush().unwrap();
     see!("\x1b[?1049l");
     assert!(child.0.wait().unwrap().success());

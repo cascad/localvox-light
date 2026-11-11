@@ -99,6 +99,7 @@ pub const COMMANDS: &[(Action, &str)] = &[
 
 impl App {
     pub fn command(&mut self, action: Action) {
+        self.cancel_quit_confirmation();
         self.palette = false;
         let s = self.current.clone().unwrap_or_default();
         match action {

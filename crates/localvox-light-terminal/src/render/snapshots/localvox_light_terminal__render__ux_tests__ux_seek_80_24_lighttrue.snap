@@ -28,7 +28,7 @@ Buffer {
         "│                                                                               ",
         "│                                                                               ",
         " Подключение…                                                                   ",
-        " F8 stop  q/F10 выход  y весь текст  : действия  ~ ошибки                       ",
+        " F8 stop  qq/F10 выход  y весь текст  : действия  ~ ошибки                      ",
     ],
     styles: [
         x: 0, y: 0, fg: Rgb(39, 43, 48), bg: Rgb(246, 245, 241), underline: Reset, modifier: BOLD,
