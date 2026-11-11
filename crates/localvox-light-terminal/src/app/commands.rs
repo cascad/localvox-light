@@ -583,9 +583,9 @@ impl App {
                     form.active = 1;
                 }
             }
-            Action::ToggleTheme => self.light = !self.light,
-            Action::ToggleAscii => self.ascii = !self.ascii,
-            Action::ToggleMonochrome => self.monochrome = !self.monochrome,
+            Action::ToggleTheme => self.preferences.light = !self.preferences.light,
+            Action::ToggleAscii => self.preferences.ascii = !self.preferences.ascii,
+            Action::ToggleMonochrome => self.preferences.monochrome = !self.preferences.monochrome,
             Action::Refresh => self.refresh(),
             Action::Connection => {
                 let address = self.address.clone();
@@ -613,7 +613,7 @@ impl App {
                     );
                 }
             }
-            Action::ToggleColorDepth => self.color16 = !self.color16,
+            Action::ToggleColorDepth => self.preferences.color16 = !self.preferences.color16,
             Action::FilterJournal => {
                 let filter = self.journal.filter.clone();
                 self.open(

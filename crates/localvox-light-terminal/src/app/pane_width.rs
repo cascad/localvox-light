@@ -6,7 +6,7 @@ impl App {
             self.status = "Ширина списка меняется в окне от 95 колонок".into();
             return;
         };
-        let old = crate::render::effective_list_width(self.viewport.0, self.list_width);
+        let old = crate::render::effective_list_width(self.viewport.0, self.preferences.list_width);
         let next = old.saturating_add_signed(delta).clamp(min, max);
         if next != old {
             self.set_list_width(next);
@@ -21,7 +21,7 @@ impl App {
 
     fn set_list_width(&mut self, width: u16) {
         let anchor = crate::render::journal_anchor(self);
-        self.list_width = width;
+        self.preferences.list_width = width;
         crate::render::restore_journal_anchor(self, anchor);
     }
 }

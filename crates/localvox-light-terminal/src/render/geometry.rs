@@ -50,7 +50,7 @@ fn panes(a: &App) -> (Rect, Rect) {
     if width < 95 {
         (body, body)
     } else {
-        let cols = workspace_columns(body, a.list_width);
+        let cols = workspace_columns(body, a.preferences.list_width);
         (left_rows(cols[0])[1], cols[1])
     }
 }
@@ -97,15 +97,21 @@ mod tests {
             );
         }
         let mut a = App {
-            list_width: 100,
+            preferences: crate::app::UiPreferences {
+                list_width: 100,
+                ..Default::default()
+            },
             viewport: (160, 36),
             ..Default::default()
         };
         for (width, visible) in [(160, 92), (120, 80), (95, 55), (80, 80), (240, 100)] {
             a.viewport.0 = width;
-            assert_eq!(effective_list_width(width, a.list_width), visible);
+            assert_eq!(
+                effective_list_width(width, a.preferences.list_width),
+                visible
+            );
             let _ = document_dimensions(&a);
-            assert_eq!(a.list_width, 100);
+            assert_eq!(a.preferences.list_width, 100);
         }
     }
 }

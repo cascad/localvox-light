@@ -40,14 +40,17 @@ fn main() -> anyhow::Result<()> {
         .unwrap_or_default();
     let client = localvox_light_client::Client::new(&cli.address, cli.token)?;
     let app = localvox_light_terminal::app::App {
-        keymap,
-        ascii: cli.ascii,
-        monochrome: cli.no_color || std::env::var_os("NO_COLOR").is_some(),
-        color16: cli.color16
-            || !(std::env::var("COLORTERM")
-                .is_ok_and(|v| matches!(v.as_str(), "truecolor" | "24bit"))
-                || std::env::var_os("WT_SESSION").is_some()),
-        light: cli.light,
+        preferences: localvox_light_terminal::app::UiPreferences {
+            keymap,
+            ascii: cli.ascii,
+            monochrome: cli.no_color || std::env::var_os("NO_COLOR").is_some(),
+            color16: cli.color16
+                || !(std::env::var("COLORTERM")
+                    .is_ok_and(|v| matches!(v.as_str(), "truecolor" | "24bit"))
+                    || std::env::var_os("WT_SESSION").is_some()),
+            light: cli.light,
+            ..Default::default()
+        },
         ..Default::default()
     };
     localvox_light_terminal::runtime::run(client, app)

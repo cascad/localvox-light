@@ -196,3 +196,333 @@ impl App {
             .unwrap_or(value)
     }
 }
+
+impl App {
+    pub fn key(&mut self, mut key: KeyEvent) {
+        if key.kind == crossterm::event::KeyEventKind::Release {
+            return;
+        }
+        if self.view != View::Archive || self.focus != 1 {
+            self.archive_filter_editing = false;
+        }
+        let shortcut = self.shortcut_key(key);
+        if self.quit_key(shortcut) {
+            return;
+        }
+        if self.archive_filter_key(key) {
+            return;
+        }
+        if self.form.is_none() {
+            key = shortcut;
+        }
+        if self.console_key(key) {
+            return;
+        }
+        if self.constrained_form_key(key) {
+            return;
+        }
+        if self.form.is_none() && self.view == View::Settings {
+            if key.code == KeyCode::Char('N') {
+                self.command(Action::AddLlmServer);
+                return;
+            }
+            if key.code == KeyCode::Char('A') {
+                self.command(Action::ToggleAdvancedSettings);
+                return;
+            }
+            if key.code == KeyCode::Char('S') {
+                self.command(Action::SaveSettings);
+                return;
+            }
+        }
+        if self.form.is_none() && self.view == View::Archive && key.code == KeyCode::Char('I') {
+            self.command(Action::DocumentInfo);
+            return;
+        }
+        if self.form.is_none()
+            && key.modifiers.contains(KeyModifiers::CONTROL)
+            && matches!(key.code, KeyCode::Char('y' | 'Y' | 'н' | 'Н'))
+        {
+            self.command(Action::CopyDocument);
+            return;
+        }
+        if self.form.is_some() {
+            if key.modifiers.contains(KeyModifiers::CONTROL)
+                && matches!(shortcut.code, KeyCode::Char('r' | 'R'))
+                && self
+                    .form
+                    .as_ref()
+                    .is_some_and(|f| matches!(f.kind, FormKind::Note))
+            {
+                self.command(Action::SuggestSlot);
+                return;
+            }
+            if key.code == KeyCode::Esc {
+                self.form = None;
+                return;
+            }
+            if key.modifiers.contains(KeyModifiers::CONTROL)
+                && matches!(shortcut.code, KeyCode::Enter | KeyCode::Char('s' | 'S'))
+            {
+                if let Err(e) = self.submit_form() {
+                    if let Some(f) = &mut self.form {
+                        f.error = Some(e);
+                    }
+                }
+                return;
+            }
+            if let Some(f) = &mut self.form {
+                match key.code {
+                    KeyCode::Tab => f.active = (f.active + 1) % f.fields.len(),
+                    KeyCode::BackTab => f.active = (f.active + f.fields.len() - 1) % f.fields.len(),
+                    _ => {
+                        let field = &mut f.fields[f.active];
+                        let may_insert = matches!(key.code, KeyCode::Char(_) | KeyCode::Enter)
+                            && !key.modifiers.contains(KeyModifiers::CONTROL);
+                        if !may_insert || field.value.chars().count() < 400_000 {
+                            if field.editor.input(key) {
+                                field.value = field.editor.lines().join("\n");
+                            }
+                        }
+                    }
+                }
+            }
+            self.discard_stale_route_hints();
+            return;
+        }
+        if self.help {
+            self.help = false;
+            return;
+        }
+        if self.palette {
+            match key.code {
+                KeyCode::Esc => self.palette = false,
+                KeyCode::Down | KeyCode::Char('j') => {
+                    self.palette_index = (self.palette_index + 1) % COMMANDS.len()
+                }
+                KeyCode::Up | KeyCode::Char('k') => {
+                    self.palette_index = (self.palette_index + COMMANDS.len() - 1) % COMMANDS.len()
+                }
+                KeyCode::Enter => self.command(COMMANDS[self.palette_index].0),
+                _ => {}
+            }
+            return;
+        }
+        if self.focus <= 1 && key.modifiers == KeyModifiers::CONTROL {
+            let action = match key.code {
+                KeyCode::Left => Some(Action::NarrowList),
+                KeyCode::Right => Some(Action::WidenList),
+                _ => None,
+            };
+            if let Some(action) = action {
+                if !self.archive_filter_editing {
+                    self.command(action);
+                }
+                return;
+            }
+        }
+        if self.view == View::Archive && self.focus == 2 && key.modifiers.is_empty() {
+            key.code = match key.code {
+                KeyCode::Char('h') => KeyCode::Left,
+                KeyCode::Char('l') => KeyCode::Right,
+                other => other,
+            };
+        }
+        match key.code {
+            KeyCode::F(6) => self.focus = if self.focus == 3 { 2 } else { 3 },
+            KeyCode::Left if self.focus == 3 => {
+                self.nudge(if key.modifiers.contains(KeyModifiers::ALT) {
+                    -15.0
+                } else {
+                    -5.0
+                })
+            }
+            KeyCode::Right if self.focus == 3 => {
+                self.nudge(if key.modifiers.contains(KeyModifiers::ALT) {
+                    15.0
+                } else {
+                    5.0
+                })
+            }
+            KeyCode::Home if self.focus == 3 => self.seek_to(0.0),
+            KeyCode::End if self.focus == 3 => {
+                if let Some(duration) = self.media_duration() {
+                    self.seek_to(duration);
+                }
+            }
+            KeyCode::Char('y' | 'Y' | 'н' | 'Н')
+                if !key
+                    .modifiers
+                    .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+            {
+                self.command(match (self.view, self.tab) {
+                    (View::Archive, Tab::Summary) => Action::CopySummaryBlock,
+                    (View::Archive, Tab::Transcript) => Action::CopyReply,
+                    _ => Action::CopyDocument,
+                })
+            }
+            KeyCode::Char('g' | 'G') => self.command(Action::Seek),
+            KeyCode::Char('?') => self.help = true,
+            KeyCode::Char(':') | KeyCode::F(2) => self.palette = true,
+            KeyCode::Char('/') => {
+                self.command(if self.view == View::Archive && self.tab == Tab::Progress {
+                    Action::FilterJournal
+                } else if self.view == View::Settings {
+                    Action::FilterSettings
+                } else {
+                    Action::Search
+                })
+            }
+            KeyCode::Tab => {
+                self.focus = if self.focus == 3 {
+                    2
+                } else {
+                    (self.focus + 1) % 3
+                }
+            }
+            KeyCode::BackTab => {
+                self.focus = if self.focus == 3 {
+                    2
+                } else {
+                    (self.focus + 2) % 3
+                }
+            }
+            KeyCode::Char('r') => self.refresh(),
+            KeyCode::Char('R') => self.command(Action::RetryFailed),
+            KeyCode::Char('X') => self.command(Action::CancelProcessing),
+            KeyCode::Char(' ') => self.command(Action::TogglePlayback),
+            KeyCode::Char('p') => self.command(Action::PlayFragment),
+            KeyCode::Left if key.modifiers.contains(KeyModifiers::ALT) => self.nudge(-15.0),
+            KeyCode::Right if key.modifiers.contains(KeyModifiers::ALT) => self.nudge(15.0),
+            KeyCode::Char('o') if self.view == View::Archive && self.tab == Tab::Progress => {
+                if let (Some(s), Some(before)) = (self.current.clone(), self.journal.before.clone())
+                {
+                    self.effects
+                        .push((Resource::Journal, Task::Journal(s, None, Some(before))));
+                }
+            }
+            KeyCode::Char('i') => self.command(Action::ImportUrl),
+            KeyCode::Char('n') => self.command(match self.view {
+                View::Notes => Action::NewNote,
+                View::Ask => Action::NewAsk,
+                _ => Action::ImportUrl,
+            }),
+            KeyCode::Char('1'..='5') => {
+                if let KeyCode::Char(c) = key.code {
+                    self.tab = TABS[c as usize - '1' as usize].0;
+                    self.scroll = 0;
+                    self.item = 0;
+                    self.refresh_view();
+                }
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                if self.focus == 0 {
+                    self.nav = (self.nav + 1) % VIEWS.len();
+                } else if self.focus == 1 {
+                    self.move_list(true, 1);
+                } else {
+                    self.scroll = self.effective_scroll();
+                    if self.is_journal() {
+                        if self.journal.follow {
+                            self.item = self.selection_len().saturating_sub(1);
+                        }
+                        self.journal.follow = false;
+                    }
+                    self.follow_selection = true;
+                    self.item = self
+                        .item
+                        .saturating_add(1)
+                        .min(self.selection_len().saturating_sub(1));
+                    self.scroll = self.scroll.saturating_add(1);
+                }
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                if self.focus == 0 {
+                    self.nav = (self.nav + VIEWS.len() - 1) % VIEWS.len();
+                } else if self.focus == 1 {
+                    self.move_list(false, 1);
+                } else {
+                    self.scroll = self.effective_scroll();
+                    if self.is_journal() {
+                        if self.journal.follow {
+                            self.item = self.selection_len().saturating_sub(1);
+                        }
+                        self.journal.follow = false;
+                    }
+                    self.follow_selection = true;
+                    self.item = self.item.saturating_sub(1);
+                    self.scroll = self.scroll.saturating_sub(1);
+                }
+            }
+            KeyCode::PageDown => self.page(true),
+            KeyCode::PageUp => self.page(false),
+            KeyCode::Home if self.focus == 1 => {
+                self.selected = 0;
+                self.list_scroll = 0;
+            }
+            KeyCode::End if self.focus == 1 => {
+                self.selected = self.list_len().saturating_sub(1);
+                self.list_scroll = self
+                    .list_len()
+                    .saturating_sub(crate::render::list_metrics(self).0);
+            }
+            KeyCode::Home => {
+                self.scroll = 0;
+                self.item = 0;
+                if self.is_journal() {
+                    self.journal.follow = false;
+                }
+                self.follow_selection = false;
+            }
+            KeyCode::End => {
+                self.scroll = crate::render::document_metrics(self)
+                    .0
+                    .saturating_sub(crate::render::document_dimensions(self).1);
+                self.follow_selection = false;
+                if self.is_journal() {
+                    self.journal.follow = true;
+                    self.journal.unseen = 0;
+                }
+                if self.is_journal() && self.journal.tail_gap {
+                    let expanded = std::mem::take(&mut self.journal.expanded);
+                    let filter = std::mem::take(&mut self.journal.filter);
+                    self.journal = crate::journal::Journal::new();
+                    self.journal.expanded = expanded;
+                    self.journal.filter = filter;
+                    self.refresh_view();
+                }
+            }
+            KeyCode::Left => {
+                self.expanded = false;
+                if self.is_journal() {
+                    self.scroll = self.effective_scroll();
+                    self.journal.follow = false;
+                    self.follow_selection = true;
+                    if let Some(g) = self.journal.visible_groups().get(self.item) {
+                        self.journal.expanded.remove(&g.id);
+                    }
+                }
+            }
+            KeyCode::Right => {
+                self.expanded = true;
+                if self.is_journal() {
+                    self.scroll = self.effective_scroll();
+                    self.journal.follow = false;
+                    self.follow_selection = true;
+                    if let Some(g) = self.journal.visible_groups().get(self.item) {
+                        self.journal.expanded.insert(g.id.clone());
+                    }
+                }
+            }
+            KeyCode::Char('l')
+                if key.modifiers.is_empty()
+                    && (self.focus == 0 || (self.view == View::Archive && self.focus == 1)) =>
+            {
+                self.enter()
+            }
+            KeyCode::Enter => self.enter(),
+            KeyCode::Esc => self.back(),
+            _ => {}
+        }
+    }
+}

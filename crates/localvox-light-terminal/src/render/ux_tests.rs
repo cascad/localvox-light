@@ -1,3 +1,4 @@
+use super::playback::player_line;
 use super::*;
 use crate::io::Response;
 use localvox_light_client::{QueueItem, Setting};
@@ -7,7 +8,10 @@ fn screen(case: &str, width: u16, height: u16, light: bool) {
     let mut app = App {
         viewport: (width, height),
         focus: 2,
-        light,
+        preferences: crate::app::UiPreferences {
+            light,
+            ..Default::default()
+        },
         ..Default::default()
     };
     let fixture: serde_json::Value =
@@ -176,7 +180,10 @@ fn notification_visible() {
 fn play_pause_keeps_the_waveform_in_the_same_columns() {
     for ascii in [false, true] {
         let mut app = App {
-            ascii,
+            preferences: crate::app::UiPreferences {
+                ascii,
+                ..Default::default()
+            },
             current: Some("demo".into()),
             ..Default::default()
         };

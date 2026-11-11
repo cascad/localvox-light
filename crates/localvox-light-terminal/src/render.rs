@@ -3,6 +3,11 @@ mod activity;
 pub(crate) use activity::animation_frame;
 mod console;
 mod documents;
+mod overlays;
+mod playback;
+use playback::player_bar;
+mod lists;
+use lists::{items, list_block, nav};
 mod geometry;
 pub(crate) use geometry::{document_dimensions, list_metrics};
 use geometry::{document_rows, left_rows, workspace_columns, workspace_rows};
@@ -42,7 +47,7 @@ pub struct Theme {
 }
 impl Theme {
     pub fn for_app(a: &App) -> Self {
-        if a.monochrome {
+        if a.preferences.monochrome {
             return Self {
                 bg: Color::Reset,
                 ink: Color::Reset,
@@ -57,10 +62,10 @@ impl Theme {
                 busy: Color::Reset,
                 error: Color::Reset,
                 selection: Color::Reset,
-                ascii: a.ascii,
+                ascii: a.preferences.ascii,
             };
         }
-        if a.color16 {
+        if a.preferences.color16 {
             return Self {
                 bg: Color::Reset,
                 ink: Color::Reset,
@@ -75,10 +80,10 @@ impl Theme {
                 busy: Color::Yellow,
                 error: Color::Red,
                 selection: Color::Blue,
-                ascii: a.ascii,
+                ascii: a.preferences.ascii,
             };
         }
-        if a.light {
+        if a.preferences.light {
             return Self {
                 bg: Color::Rgb(246, 245, 241),
                 ink: Color::Rgb(39, 43, 48),
@@ -93,7 +98,7 @@ impl Theme {
                 busy: Color::Rgb(137, 96, 26),
                 error: Color::Rgb(171, 54, 54),
                 selection: Color::Rgb(235, 224, 209),
-                ascii: a.ascii,
+                ascii: a.preferences.ascii,
             };
         }
         Self {
@@ -110,7 +115,7 @@ impl Theme {
             busy: Color::Rgb(216, 183, 119),
             error: Color::Rgb(227, 141, 133),
             selection: Color::Rgb(52, 43, 38),
-            ascii: a.ascii,
+            ascii: a.preferences.ascii,
         }
     }
     fn label_style(self) -> Style {
@@ -226,7 +231,7 @@ pub fn draw(f: &mut Frame, a: &App) {
                     Style::default().fg(t.dim),
                 ),
                 Span::styled(
-                    format!("{} {record}", if a.ascii { "*" } else { "●" }),
+                    format!("{} {record}", if a.preferences.ascii { "*" } else { "●" }),
                     Style::default().fg(rec_color),
                 ),
                 Span::styled(
@@ -303,7 +308,7 @@ pub fn draw(f: &mut Frame, a: &App) {
             _ => document(f, a, rows[2], t, &title),
         };
     } else {
-        let cols = workspace_columns(rows[2], a.list_width);
+        let cols = workspace_columns(rows[2], a.preferences.list_width);
         let left = left_rows(cols[0]);
         nav(f, a, left[0], t);
         items(f, a, left[1], t);
@@ -355,563 +360,12 @@ pub fn draw(f: &mut Frame, a: &App) {
         ]),
         rows[3],
     );
-    if a.palette {
-        let offset = a.palette_index.saturating_sub(8);
-        let entries = COMMANDS
-            .iter()
-            .enumerate()
-            .skip(offset)
-            .take(16)
-            .map(|(i, (_, label))| {
-                ListItem::new(Line::from(vec![
-                    Span::styled(format!(" {:02} ", i + 1), Style::default().fg(t.dim)),
-                    Span::styled((*label).to_owned(), Style::default().fg(t.command)),
-                ]))
-            })
-            .collect::<Vec<_>>();
-        let rect = modal(area, 70, 20);
-        f.render_widget(Clear, rect);
-        let mut state = ListState::default().with_selected(Some(a.palette_index - offset));
-        f.render_stateful_widget(
-            List::new(entries)
-                .block(
-                    borders(a.ascii)
-                        .title(" Действия · Enter / Esc ")
-                        .title_style(t.focus_style())
-                        .border_style(Style::default().fg(t.focus))
-                        .style(Style::default().bg(t.bg).fg(t.ink)),
-                )
-                .highlight_style(
-                    Style::default()
-                        .bg(t.selection)
-                        .add_modifier(Modifier::REVERSED),
-                ),
-            rect,
-            &mut state,
-        );
-    }
-    if a.help {
-        let rect = modal(area, 78, 26);
-        f.render_widget(Clear, rect);
-        f.render_widget(Paragraph::new("УПРАВЛЕНИЕ\nSpace play/pause; p fragment; g/п time; Alt+Left/Right +/-15s\nF6 — стрелки плееру; повтор — к документу\n\nTab / Shift+Tab — фокус панели\nEsc — окно → детали → список → меню\n↑↓ — выбрать строку; Enter — открыть\nМеню разделов: l/Enter — выбрать\nСписок: j/k ↑↓; l/Enter открыть; / поиск; Ctrl+←/→ ширина\nВ поиске буквы и / — текст; Esc — сброс и выход\n1–5 — вкладки; y — блок/реплика; Ctrl+Y — всё; 3 → y — весь текст\n/ или точка в RU — поиск в выбранной панели; : / F2 — действия; n — создать; i — URL → Enter\nF8 — остановить запись; F9 — начать запись\nX — отменить обработку; R — продолжить этап\nPgUp / PgDn, Home / End — чтение документа\n← / → или h/l — свернуть / раскрыть подробности\n\nВ форме: Tab — поле; Enter — новая строка\nCtrl+Enter — отправить; Esc — отменить\nURL, настройка, время: Enter — подтвердить\nВставка остаётся текстом, команды не исполняются.\nI — сведения в «Ход»; A / S — все настройки / сохранить\n~ / ё — консоль ошибок; F12 — также из формы\n\nF10 / Ctrl+Q — выход; qq/йй за 0.5 с — вне ввода.\nДругая клавиша или вставка отменяет первое q.\nДемон и запись продолжают работать.\n\nЛюбая клавиша — закрыть справку").block(borders(a.ascii).title(" Помощь ").title_style(t.focus_style()).border_style(Style::default().fg(t.focus)).style(Style::default().bg(t.bg).fg(t.ink))).wrap(Wrap{trim:false}),rect);
-    }
-    if let Some(form) = &a.form {
-        let desired = match &form.kind {
-            crate::app::FormKind::SettingChoice { options, .. } => {
-                (options.len() as u16 + 5).clamp(7, 24)
-            }
-            crate::app::FormKind::Seek
-            | crate::app::FormKind::Import
-            | crate::app::FormKind::LlmServer
-            | crate::app::FormKind::Setting(_) => 9,
-            _ => 30,
-        };
-        let rect = modal(
-            area,
-            if matches!(form.kind, crate::app::FormKind::Seek) {
-                54
-            } else {
-                88
-            },
-            area.height.saturating_sub(4).min(desired),
-        );
-        f.render_widget(Clear, rect);
-        let block = borders(a.ascii)
-            .title(format!(" {} ", safe_label(&form.title)))
-            .title_style(t.focus_style())
-            .border_style(Style::default().fg(t.focus))
-            .style(Style::default().bg(t.bg).fg(t.ink));
-        let inner = block.inner(rect);
-        f.render_widget(block, rect);
-        if let crate::app::FormKind::SettingChoice {
-            options, selected, ..
-        } = &form.kind
-        {
-            let choices = options
-                .iter()
-                .map(|(label, _)| ListItem::new(label.clone()))
-                .collect::<Vec<_>>();
-            let mut state = ListState::default().with_selected(Some(*selected));
-            f.render_stateful_widget(
-                List::new(choices)
-                    .highlight_style(selection_style(t))
-                    .highlight_symbol("> "),
-                inner,
-                &mut state,
-            );
-            if inner.height > 2 {
-                f.render_widget(
-                    Paragraph::new("↑↓ выбрать · Enter в черновик · Esc отменить")
-                        .style(Style::default().fg(t.dim)),
-                    Rect::new(inner.x, inner.bottom() - 1, inner.width, 1),
-                );
-            }
-            render_console(f, a, t);
-            return;
-        }
-        if matches!(form.kind, crate::app::FormKind::Seek) {
-            let mut values = vec![];
-            for (i, field) in form.fields.iter().enumerate() {
-                if i > 0 {
-                    values.push(Span::styled(" : ", Style::default().fg(t.dim)));
-                }
-                values.push(Span::styled(
-                    format!(
-                        "[ {} ]",
-                        if field.value.is_empty() {
-                            "__".into()
-                        } else {
-                            format!("{:0>2}", field.value)
-                        }
-                    ),
-                    if i == form.active {
-                        Style::default()
-                            .fg(t.value)
-                            .bg(t.selection)
-                            .add_modifier(Modifier::BOLD)
-                    } else {
-                        Style::default().fg(t.dim)
-                    },
-                ));
-            }
-            let range = a
-                .media_duration()
-                .map(|duration| format!("Длина записи {}", timecode(duration)))
-                .unwrap_or_else(|| "Длительность пока неизвестна".into());
-            let lines = vec![
-                Line::from(Span::styled(" Часы      Минуты   Секунды", t.label_style())),
-                Line::from(values),
-                Line::from(Span::styled(
-                    " 0–999     0–59     0–59",
-                    Style::default().fg(t.dim),
-                )),
-                Line::from(""),
-                Line::from(Span::styled(
-                    form.error.as_deref().unwrap_or(&range),
-                    Style::default().fg(if form.error.is_some() { t.error } else { t.dim }),
-                )),
-                Line::from(Span::styled(
-                    "Цифры / ↑↓ изменить · Tab поле",
-                    Style::default().fg(t.command),
-                )),
-                Line::from(Span::styled(
-                    "Enter перейти · Esc отменить",
-                    Style::default().fg(t.dim),
-                )),
-            ];
-            f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
-            render_console(f, a, t);
-            return;
-        }
-        let mut constraints = form
-            .fields
-            .iter()
-            .enumerate()
-            .map(|(i, _)| {
-                if i == form.active {
-                    Constraint::Min(5)
-                } else {
-                    Constraint::Length(2)
-                }
-            })
-            .collect::<Vec<_>>();
-        constraints.push(Constraint::Length(3));
-        let fields = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints(constraints)
-            .split(inner);
-        for (i, field) in form.fields.iter().enumerate() {
-            if i == form.active {
-                let rows = Layout::default()
-                    .direction(Direction::Vertical)
-                    .constraints([Constraint::Length(1), Constraint::Min(1)])
-                    .split(fields[i]);
-                f.render_widget(
-                    Paragraph::new(format!("> {}", safe_label(&field.label)))
-                        .style(t.heading_style()),
-                    rows[0],
-                );
-                let mut editor = field.editor.clone();
-                editor.set_style(Style::default().fg(t.value).bg(t.bg));
-                editor.set_cursor_line_style(Style::default().fg(t.value).bg(t.bg));
-                editor.set_cursor_style(Style::default().fg(t.bg).bg(t.value));
-                f.render_widget(&editor, rows[1]);
-            } else {
-                let value = if field.secret {
-                    "••••".into()
-                } else {
-                    safe_label(&field.value)
-                        .lines()
-                        .next()
-                        .unwrap_or("")
-                        .to_owned()
-                };
-                f.render_widget(
-                    Paragraph::new(Line::from(vec![
-                        Span::styled(format!("{}: ", safe_label(&field.label)), t.label_style()),
-                        Span::styled(value, Style::default().fg(t.ink)),
-                    ])),
-                    fields[i],
-                );
-            }
-        }
-        let hint = if matches!(form.kind, crate::app::FormKind::Note) {
-            format!("Ctrl+R предложить слот · {}", a.route_hints.join(", "))
-        } else {
-            String::new()
-        };
-        let footer = vec![
-            Line::from(Span::styled(
-                form.error.as_deref().unwrap_or(&hint),
-                Style::default().fg(if form.error.is_some() { t.error } else { t.dim }),
-            )),
-            Line::from(Span::styled(
-                if matches!(form.kind, crate::app::FormKind::Seek) {
-                    "↑↓ число · Tab поле · Enter перейти · Esc отменить"
-                } else if matches!(form.kind, crate::app::FormKind::Import) {
-                    "Enter импортировать · Esc отменить"
-                } else if matches!(
-                    form.kind,
-                    crate::app::FormKind::Setting(_) | crate::app::FormKind::LlmServer
-                ) {
-                    "Enter в черновик · Esc отменить"
-                } else {
-                    "Tab поле · Ctrl+Enter / Ctrl+S отправить · Esc отменить"
-                },
-                Style::default().fg(t.dim),
-            )),
-        ];
-        f.render_widget(
-            Paragraph::new(footer).wrap(Wrap { trim: false }),
-            fields[fields.len() - 1],
-        );
-    }
-    render_console(f, a, t);
-    if a.quit_pending() && area.height > 0 {
-        f.render_widget(
-            Paragraph::new(" q ещё раз — выйти · до 0.5 с · другая клавиша — отмена")
-                .style(Style::default().fg(t.command).bg(t.bg)),
-            Rect::new(area.x, area.bottom() - 1, area.width, 1),
-        );
-    }
-}
-fn player_bar(f: &mut Frame, a: &App, area: Rect, t: Theme) {
-    let block = panel(
-        if a.focus == 3 {
-            "Аудио · ←/→ перемотка · F6 к документу"
-        } else {
-            "Аудио · F6: стрелки плееру"
-        },
-        a.focus == 3,
-        t,
-    )
-    .borders(Borders::ALL);
-    let inner = block.inner(area);
-    f.render_widget(block, area);
-    let keys = if a.focus == 3 {
-        "←/→ ±5с · Home/End · g время · Space ▶/‖"
-    } else if area.width < 95 {
-        "Space ▶/‖ · p фрагмент · g время · Alt+←/→ ±15с"
-    } else {
-        "Space ▶/‖ · p фрагмент · g время · Alt+←/→ ±15с · F6: стрелки плееру"
-    };
-    f.render_widget(
-        Paragraph::new(vec![
-            player_line(a, t, inner.width),
-            Line::from(Span::styled(keys, Style::default().fg(t.dim))),
-        ]),
-        inner,
-    );
-}
-fn player_line(a: &App, t: Theme, width: u16) -> Line<'static> {
-    let duration = a.media_duration();
-    let duration_text = duration.map(timecode).unwrap_or_else(|| "—".into());
-    let position_text = format!(
-        "{:>width$}",
-        timecode(a.playback.position),
-        width = duration_text.len().max(5)
-    );
-    let label = format!(
-        " {} {} / {}  ",
-        if a.playback.error.is_some() {
-            "!"
-        } else if a.playback.idle {
-            if a.ascii {
-                "."
-            } else {
-                "■"
-            }
-        } else if a.playback.paused {
-            if a.ascii {
-                "="
-            } else {
-                "‖"
-            }
-        } else {
-            if a.ascii {
-                ">"
-            } else {
-                "▶"
-            }
-        },
-        position_text,
-        duration_text
-    );
-    let buckets = width.saturating_sub(30).min(100) as usize;
-    let mut spans = vec![Span::styled(label, Style::default().fg(t.command))];
-    if !a.peaks.peaks.is_empty() && buckets > 0 {
-        for i in 0..buckets {
-            let from = i * a.peaks.peaks.len() / buckets;
-            let to = ((i + 1) * a.peaks.peaks.len() / buckets)
-                .max(from + 1)
-                .min(a.peaks.peaks.len());
-            let peak = a.peaks.peaks[from.min(a.peaks.peaks.len() - 1)..to]
-                .iter()
-                .copied()
-                .filter(|v| v.is_finite())
-                .fold(0.0, f64::max)
-                .clamp(0.0, 1.0);
-            let chars = if a.ascii {
-                [" ", ".", ":", "*", "#"]
-            } else {
-                ["▁", "▂", "▄", "▆", "█"]
-            };
-            let symbol = chars[(peak * 4.0).round() as usize];
-            let active = duration
-                .is_some_and(|d| d > 0.0 && (i as f64 / buckets as f64) < a.playback.position / d);
-            spans.push(Span::styled(
-                symbol,
-                Style::default().fg(if active { t.command } else { t.dim }),
-            ));
-        }
-    }
-    if a.peaks.peaks.is_empty() {
-        if let Some(duration) = duration {
-            let cells = width.saturating_sub(56).min(36) as usize;
-            if cells > 3 {
-                let position = ((a.playback.position / duration).clamp(0.0, 1.0)
-                    * (cells - 1) as f64) as usize;
-                spans.push(Span::styled(
-                    format!(
-                        "[{}] ",
-                        (0..cells)
-                            .map(|i| if i == position { '|' } else { '-' })
-                            .collect::<String>()
-                    ),
-                    Style::default().fg(t.dim),
-                ));
-            }
-        }
-        let message = if a.errors.contains_key(&Resource::Peaks) {
-            "волна: ошибка · ~ консоль"
-        } else if !a.last_request.contains_key(&Resource::Peaks) {
-            "волна загружается…"
-        } else {
-            "волны пока нет"
-        };
-        spans.push(Span::styled(message, Style::default().fg(t.dim)));
-    }
-    Line::from(spans)
+    overlays::draw(f, a, area, t);
 }
 fn modal(a: Rect, w: u16, h: u16) -> Rect {
     let w = w.min(a.width.saturating_sub(2));
     let h = h.min(a.height.saturating_sub(2));
     Rect::new(a.x + (a.width - w) / 2, a.y + (a.height - h) / 2, w, h)
-}
-fn nav(f: &mut Frame, a: &App, area: Rect, t: Theme) {
-    let rows = VIEWS
-        .iter()
-        .enumerate()
-        .map(|(i, (v, label))| {
-            ListItem::new(format!(" {} {label}", if *v == a.view { ">" } else { " " })).style(
-                if i == a.nav {
-                    Style::default().fg(t.ink)
-                } else {
-                    t.label_style()
-                },
-            )
-        })
-        .collect::<Vec<_>>();
-    let mut state = ListState::default().with_selected(Some(a.nav));
-    f.render_stateful_widget(
-        List::new(rows)
-            .block(panel("Разделы", a.focus == 0, t))
-            .highlight_style(selection_style(t)),
-        area,
-        &mut state,
-    );
-}
-fn list_block(a: &App, t: Theme, title: &str) -> Block<'static> {
-    let mut block = panel(title, a.focus == 1, t);
-    if a.view == View::Archive && (a.archive_filter_editing || !a.archive_filter.is_empty()) {
-        block = block.title_bottom(Line::from(vec![
-            Span::styled(" / ", Style::default().fg(t.command)),
-            Span::styled(safe_label(&a.archive_filter), Style::default().fg(t.value)),
-            Span::styled(
-                if a.archive_filter_editing {
-                    if a.ascii {
-                        "_"
-                    } else {
-                        "▏"
-                    }
-                } else {
-                    ""
-                },
-                Style::default().fg(t.command),
-            ),
-            Span::styled(
-                if a.archive_filter_editing {
-                    " · Esc сброс "
-                } else {
-                    " · / править "
-                },
-                Style::default().fg(t.dim),
-            ),
-        ]));
-    }
-    block
-}
-fn items(f: &mut Frame, a: &App, area: Rect, t: Theme) {
-    let archive = a.visible_sessions();
-    let entries: Vec<String> = match a.view {
-        View::Archive => archive.iter().map(|s| safe_label(s.title())).collect(),
-        View::Queue => {
-            a.queue
-                .iter()
-                .map(|q| {
-                    format!(
-                        "{} {}",
-                        if q.state == "cancelling" {
-                            "~ остановка"
-                        } else if q.state == "waiting_input" {
-                            "~ фрагменты"
-                        } else if q.state == "cancelled" {
-                            "x отменено"
-                        } else if q
-                            .retry
-                            .as_ref()
-                            .is_some_and(|plan| plan.state == "retry_wait")
-                        {
-                            "~ повтор"
-                        } else if q.retry.as_ref().is_some_and(|plan| matches!(
-                            plan.state.as_str(),
-                            "blocked" | "stalled"
-                        )) {
-                            "? повтор"
-                        } else if q.stuck {
-                            "! остановлено"
-                        } else {
-                            state_symbol(&q.state, a.ascii)
-                        },
-                        safe_label(&q.title)
-                    )
-                })
-                .collect()
-        }
-        View::Notes => a
-            .notes
-            .iter()
-            .map(|s| format!("{} ({})", safe_label(&s.name), s.notes.len()))
-            .collect(),
-        View::Ask => a
-            .asks
-            .iter()
-            .map(|s| {
-                format!(
-                    "{} {}",
-                    state_symbol(&s.status, a.ascii),
-                    safe_label(s.input_name.as_deref().unwrap_or(&s.id))
-                )
-            })
-            .collect(),
-        View::Settings => a
-            .visible_settings()
-            .into_iter()
-            .map(|s| {
-                format!(
-                    "{} {}",
-                    if a.settings_edits.contains_key(&s.key) {
-                        "*"
-                    } else {
-                        " "
-                    },
-                    safe_label(&s.label)
-                )
-            })
-            .collect(),
-        View::Search => a.hits.iter().map(|h| safe_label(&h.snippet)).collect(),
-        View::Chat => a
-            .answer
-            .sources
-            .iter()
-            .map(|s| format!("[{}] {}", s.n, safe_label(&s.session)))
-            .collect(),
-    };
-    let resource = match a.view {
-        View::Archive => Some(Resource::Sessions),
-        View::Notes => Some(Resource::Notes),
-        View::Queue => Some(Resource::Queue),
-        View::Ask => Some(Resource::Asks),
-        View::Settings => Some(Resource::Settings),
-        _ => None,
-    };
-    let error = resource.and_then(|resource| a.errors.get(&resource));
-    let title = if error.is_some() {
-        "Список · ошибка обновления".to_string()
-    } else if a.view == View::Archive && (a.archive_filter_editing || !a.archive_filter.is_empty())
-    {
-        format!("Список · {}/{}", archive.len(), a.sessions.len())
-    } else if a.view == View::Archive {
-        "Список · / поиск".to_string()
-    } else {
-        "Список · Enter открыть".to_string()
-    };
-    let block = list_block(a, t, &title);
-    if entries.is_empty() {
-        let message: String = if error.is_some() {
-            "Список недоступен · ~ консоль · r повторить".into()
-        } else if a.view == View::Archive && !a.archive_filter.is_empty() {
-            if a.archive_filter_editing {
-                "Нет совпадений\nEsc — сбросить фильтр".into()
-            } else {
-                "Нет совпадений\n/ — изменить фильтр".into()
-            }
-        } else if resource.is_some_and(|resource| !a.last_request.contains_key(&resource)) {
-            "Загрузка…".into()
-        } else {
-            "Пока пусто".into()
-        };
-        f.render_widget(
-            Paragraph::new(message)
-                .style(Style::default().fg(if error.is_some() { t.error } else { t.dim }))
-                .wrap(Wrap { trim: false })
-                .block(block),
-            area,
-        );
-        return;
-    }
-    let mut state = ListState::default().with_selected(Some(a.selected));
-    *state.offset_mut() = list_metrics(a).1;
-    let items = entries
-        .into_iter()
-        .enumerate()
-        .map(|(index, entry)| {
-            let lines = if a.view == View::Archive {
-                activity::lines(a, archive[index], t)
-            } else {
-                vec![Line::from(entry)]
-            };
-            ListItem::new(lines)
-        })
-        .collect::<Vec<_>>();
-    f.render_stateful_widget(
-        List::new(items)
-            .block(block)
-            .highlight_style(selection_style(t))
-            .highlight_symbol("> "),
-        area,
-        &mut state,
-    );
 }
 fn document(f: &mut Frame, a: &App, area: Rect, t: Theme, title: &str) {
     let block = panel(title, a.focus == 2, t).title_style(
@@ -1065,12 +519,12 @@ fn journal_projection(a: &App, t: Theme) -> JournalProjection {
         a.wall_ms
     };
     let mut markers = Vec::new();
-    let branch = if a.ascii { "+" } else { "├" };
-    let end = if a.ascii { "+" } else { "└" };
+    let branch = if a.preferences.ascii { "+" } else { "├" };
+    let end = if a.preferences.ascii { "+" } else { "└" };
     let mut lines = vec![Line::from(Span::styled(
         format!(
             "{} Сведения о записи · I",
-            if a.ascii {
+            if a.preferences.ascii {
                 if a.metadata_open {
                     "[-]"
                 } else {
@@ -1087,7 +541,11 @@ fn journal_projection(a: &App, t: Theme) -> JournalProjection {
     if a.metadata_open {
         for line in a.metadata_text().lines() {
             lines.push(Line::from(Span::styled(
-                format!("  {} {}", if a.ascii { "+" } else { "└" }, safe_text(line)),
+                format!(
+                    "  {} {}",
+                    if a.preferences.ascii { "+" } else { "└" },
+                    safe_text(line)
+                ),
                 Style::default().fg(t.ink),
             )));
         }
@@ -1274,7 +732,10 @@ fn journal_projection(a: &App, t: Theme) -> JournalProjection {
         };
         lines.push(Line::from(vec![
             Span::styled(
-                format!("{branch} {} ", state_symbol(&stage.state, a.ascii)),
+                format!(
+                    "{branch} {} ",
+                    state_symbol(&stage.state, a.preferences.ascii)
+                ),
                 Style::default().fg(color),
             ),
             Span::styled(safe_label(&stage.stage), Style::default().fg(t.command)),
@@ -1439,7 +900,7 @@ fn journal_projection(a: &App, t: Theme) -> JournalProjection {
             _ => t.dim,
         };
         let mut spans = vec![Span::styled(
-            format!("  {end} {} ", state_symbol(state, a.ascii)),
+            format!("  {end} {} ", state_symbol(state, a.preferences.ascii)),
             Style::default().fg(color),
         )];
         if let Some(command) = &g.command {
@@ -2076,7 +1537,7 @@ mod tests {
         let fixture: serde_json::Value =
             serde_json::from_str(include_str!("../../../tests/fixtures/workspace.json")).unwrap();
         let mut app = App::default();
-        app.light = light;
+        app.preferences.light = light;
         app.focus = 2;
         app.status = "Данные обновлены".into();
         app.jobs = serde_json::from_value(fixture["jobs"].clone()).unwrap();
@@ -2348,10 +1809,13 @@ mod tests {
         let mut app = App {
             tab: Tab::Progress,
             focus: 2,
-            light,
-            ascii,
-            monochrome: mono,
-            color16: ascii,
+            preferences: crate::app::UiPreferences {
+                light,
+                ascii,
+                monochrome: mono,
+                color16: ascii,
+                ..Default::default()
+            },
             viewport: (width, height),
             ..Default::default()
         };
@@ -2663,9 +2127,12 @@ mod tests {
     fn ascii_borders_and_monochrome_do_not_require_unicode_or_rgb() {
         for mono in [false, true] {
             let app = App {
-                ascii: true,
-                color16: true,
-                monochrome: mono,
+                preferences: crate::app::UiPreferences {
+                    ascii: true,
+                    color16: true,
+                    monochrome: mono,
+                    ..Default::default()
+                },
                 ..Default::default()
             };
             let mut terminal = Terminal::new(TestBackend::new(120, 36)).unwrap();

@@ -54,7 +54,10 @@ fn rgb_labels_and_values_keep_readable_contrast_on_background_and_selection() {
     }
     for light in [false, true] {
         let t = Theme::for_app(&App {
-            light,
+            preferences: crate::app::UiPreferences {
+                light,
+                ..Default::default()
+            },
             ..Default::default()
         });
         assert_ne!(t.label, t.ink);
@@ -80,9 +83,12 @@ fn rendered_captions_values_and_hints_have_distinct_roles_in_all_color_modes() {
             view: View::Settings,
             focus: 2,
             viewport: (120, 36),
-            light: mode == 1,
-            color16: mode == 2,
-            monochrome: mode == 3,
+            preferences: crate::app::UiPreferences {
+                light: mode == 1,
+                color16: mode == 2,
+                monochrome: mode == 3,
+                ..Default::default()
+            },
             ..Default::default()
         };
         app.settings.settings = vec![Setting {
@@ -110,7 +116,7 @@ fn rendered_captions_values_and_hints_have_distinct_roles_in_all_color_modes() {
         assert!(word(&buffer, "Модель", 26)
             .modifier
             .contains(Modifier::BOLD));
-        if app.monochrome {
+        if app.preferences.monochrome {
             assert!(word(&buffer, "значение", 26)
                 .modifier
                 .contains(Modifier::DIM));
@@ -138,13 +144,13 @@ fn rendered_captions_values_and_hints_have_distinct_roles_in_all_color_modes() {
         let value = &buffer[(x + labels[1].chars().count() as u16 + 2, y)];
         assert_eq!(value.symbol(), "l");
         assert_eq!(value.fg, t.ink);
-        if app.monochrome {
+        if app.preferences.monochrome {
             assert!(word(&buffer, &labels[1], 0)
                 .modifier
                 .contains(Modifier::DIM));
             assert!(!value.modifier.contains(Modifier::DIM));
         }
-        if app.color16 {
+        if app.preferences.color16 {
             assert!(buffer
                 .content
                 .iter()
@@ -189,15 +195,18 @@ fn active_pane_border_and_overlay_titles_use_focus_in_all_color_modes() {
                 current: Some("fixture".into()),
                 focus,
                 viewport: (120, 36),
-                light: mode == 1,
-                color16: mode == 2,
-                monochrome: mode == 3,
+                preferences: crate::app::UiPreferences {
+                    light: mode == 1,
+                    color16: mode == 2,
+                    monochrome: mode == 3,
+                    ..Default::default()
+                },
                 ..Default::default()
             };
             let t = Theme::for_app(&app);
             let buffer = screen(&app);
             let rows = workspace_rows(buffer.area);
-            let cols = workspace_columns(rows[2], app.list_width);
+            let cols = workspace_columns(rows[2], app.preferences.list_width);
             let left = left_rows(cols[0]);
             for (index, rect) in [left[0], left[1], cols[1], rows[1]].into_iter().enumerate() {
                 assert_eq!(
@@ -228,9 +237,12 @@ fn active_pane_border_and_overlay_titles_use_focus_in_all_color_modes() {
 fn resizing_moves_the_actual_pane_boundary_in_every_theme_and_updates_document_measurement() {
     for mode in 0..4 {
         let mut a = App {
-            light: mode == 1,
-            color16: mode == 2,
-            monochrome: mode == 3,
+            preferences: crate::app::UiPreferences {
+                light: mode == 1,
+                color16: mode == 2,
+                monochrome: mode == 3,
+                ..Default::default()
+            },
             ..Default::default()
         };
         a.command(crate::app::Action::WidenList);

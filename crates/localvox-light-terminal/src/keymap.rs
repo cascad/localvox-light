@@ -4,7 +4,7 @@ use crossterm::event::{KeyCode, KeyEvent};
 use serde::Deserialize;
 use std::{collections::BTreeMap, io::Read, path::Path};
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Keymap {
     keys: BTreeMap<char, char>,
 }

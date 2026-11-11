@@ -93,7 +93,7 @@ pub(super) fn project(a: &App, t: Theme, _metadata: bool) -> Projection {
                     setting.label.clone(),
                     t.heading_style(),
                 )));
-                let marker = if a.ascii { "--" } else { "┄┄" };
+                let marker = if a.preferences.ascii { "--" } else { "┄┄" };
                 projection.lines.push(Line::from(Span::styled(
                     format!("{marker} значение"),
                     t.label_style(),
@@ -200,7 +200,7 @@ pub(super) fn project(a: &App, t: Theme, _metadata: bool) -> Projection {
                         &mut projection,
                         format!(
                             "{} {}–{} · {}{}",
-                            if a.ascii { ">" } else { "└" },
+                            if a.preferences.ascii { ">" } else { "└" },
                             timecode(line.start_sec),
                             timecode(line.end_sec),
                             line.who,
@@ -234,7 +234,11 @@ pub(super) fn project(a: &App, t: Theme, _metadata: bool) -> Projection {
                     let text = if value.kind == "heading" {
                         format!("# {}", value.text)
                     } else if value.kind == "bullet" {
-                        format!("{} {}", if a.ascii { "+" } else { "└" }, value.text)
+                        format!(
+                            "{} {}",
+                            if a.preferences.ascii { "+" } else { "└" },
+                            value.text
+                        )
                     } else {
                         value.text.clone()
                     };

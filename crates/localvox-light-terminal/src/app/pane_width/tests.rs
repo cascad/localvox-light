@@ -26,9 +26,9 @@ fn control_arrows_resize_the_list_without_changing_selection_document_or_audio()
     let playback = a.playback.clone();
     let epoch = a.epoch;
     control(&mut a, KeyCode::Right);
-    assert_eq!(a.list_width, 31);
+    assert_eq!(a.preferences.list_width, 31);
     control(&mut a, KeyCode::Left);
-    assert_eq!(a.list_width, 27);
+    assert_eq!(a.preferences.list_width, 27);
     assert_eq!(
         (a.selected, a.list_scroll, a.item, a.scroll, a.epoch),
         (7, 4, 2, 9, epoch)
@@ -39,7 +39,7 @@ fn control_arrows_resize_the_list_without_changing_selection_document_or_audio()
     assert!(a.effects.is_empty() && a.player_effects.is_empty());
     a.focus = 0;
     control(&mut a, KeyCode::Right);
-    assert_eq!(a.list_width, 31);
+    assert_eq!(a.preferences.list_width, 31);
 }
 
 #[test]
@@ -48,23 +48,23 @@ fn width_limits_reset_compact_layout_and_visible_step_are_deterministic() {
     for _ in 0..100 {
         control(&mut a, KeyCode::Right);
     }
-    assert_eq!(a.list_width, 80); // 120-column window leaves 40 for the document.
+    assert_eq!(a.preferences.list_width, 80); // 120-column window leaves 40 for the document.
     for _ in 0..100 {
         control(&mut a, KeyCode::Left);
     }
-    assert_eq!(a.list_width, 22);
+    assert_eq!(a.preferences.list_width, 22);
     a.command(Action::ResetListWidth);
-    assert_eq!(a.list_width, 27);
-    a.list_width = 100;
+    assert_eq!(a.preferences.list_width, 27);
+    a.preferences.list_width = 100;
     a.viewport = (95, 36);
     control(&mut a, KeyCode::Left);
-    assert_eq!(a.list_width, 51); // Step from visible 55, not hidden preference100.
+    assert_eq!(a.preferences.list_width, 51); // Step from visible 55, not hidden preference100.
     a.viewport = (80, 24);
     control(&mut a, KeyCode::Right);
-    assert_eq!(a.list_width, 51);
+    assert_eq!(a.preferences.list_width, 51);
     assert!(a.status.contains("95"));
     a.command(Action::ResetListWidth);
-    assert_eq!(a.list_width, 27);
+    assert_eq!(a.preferences.list_width, 27);
 }
 
 #[test]
@@ -72,7 +72,7 @@ fn fields_filter_and_overlays_keep_control_arrows_and_player_keeps_seeking() {
     let mut form = App::default();
     form.command(Action::Search);
     control(&mut form, KeyCode::Right);
-    assert_eq!(form.list_width, 27);
+    assert_eq!(form.preferences.list_width, 27);
     assert!(form.form.is_some());
     for mode in 0..4 {
         let mut a = App::default();
@@ -86,7 +86,7 @@ fn fields_filter_and_overlays_keep_control_arrows_and_player_keeps_seeking() {
             _ => a.console.toggle(),
         }
         control(&mut a, KeyCode::Right);
-        assert_eq!(a.list_width, 27, "mode={mode}");
+        assert_eq!(a.preferences.list_width, 27, "mode={mode}");
         assert!(a.effects.is_empty() && a.player_effects.is_empty());
     }
     for (focus, modifiers) in [(1, KeyModifiers::ALT), (3, KeyModifiers::CONTROL)] {
@@ -97,15 +97,15 @@ fn fields_filter_and_overlays_keep_control_arrows_and_player_keeps_seeking() {
         };
         a.playback.duration = Some(100.0);
         a.key(KeyEvent::new(KeyCode::Right, modifiers));
-        assert_eq!(a.list_width, 27);
+        assert_eq!(a.preferences.list_width, 27);
         assert!(!a.player_effects.is_empty());
     }
     let mut a = App::default();
     let mut key = KeyEvent::new(KeyCode::Right, KeyModifiers::CONTROL);
     key.kind = crossterm::event::KeyEventKind::Repeat;
     a.key(key);
-    assert_eq!(a.list_width, 31);
+    assert_eq!(a.preferences.list_width, 31);
     key.kind = crossterm::event::KeyEventKind::Release;
     a.key(key);
-    assert_eq!(a.list_width, 31);
+    assert_eq!(a.preferences.list_width, 31);
 }

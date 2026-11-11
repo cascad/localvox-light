@@ -1,5 +1,12 @@
 # Покрытие требований и состояние реализации
 
+Дополнение ARCH-001/002, CFG-001/002 от 2026-11-11:
+[модульный TUI](../changes/refactor-modular-feature-boundaries/evidence/tui.md),
+[карта всех US-сценариев и границ](../../docs/modularity.md).
+Preferences/reconnect, responses/input и renderer разделены; 198 lib / 5 ConPTY /
+IO/run-script прошли, прежние snapshots сохранены. Остальные этапы рефакторинга
+открыты; аппаратная приёмка не подменяется.
+
 Дополнение ARCH-001 от 2026-11-11:
 [регулировка колонки списков TUI](../changes/resize-terminal-list-pane/evidence/implementation.md).
 196 library / 5 ConPTY прошли, включая Control arrows и ширину после reconnect;

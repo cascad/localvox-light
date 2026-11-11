@@ -142,7 +142,7 @@ pub(super) fn lines(a: &App, session: &Session, t: Theme) -> Vec<Line<'static>> 
     let color = activity.color(t);
     let title = Line::from(vec![
         Span::styled(
-            activity.symbol(a.ascii, a.now_ms),
+            activity.symbol(a.preferences.ascii, a.now_ms),
             Style::default().fg(color),
         ),
         Span::raw(" "),

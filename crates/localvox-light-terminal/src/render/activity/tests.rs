@@ -172,10 +172,10 @@ fn animation_changes_only_the_badge_cell_and_keeps_selection_scroll_and_effects(
 fn activity_visuals_preserve_semantic_colors_in_selected_rows_and_terminal_modes() {
     for mode in ["dark", "light", "16", "mono", "ascii"] {
         let mut a = fixture(Some("running"));
-        a.light = mode == "light";
-        a.color16 = mode == "16";
-        a.monochrome = mode == "mono";
-        a.ascii = mode == "ascii";
+        a.preferences.light = mode == "light";
+        a.preferences.color16 = mode == "16";
+        a.preferences.monochrome = mode == "mono";
+        a.preferences.ascii = mode == "ascii";
         a.sessions[0].recording = true;
         for state in ["pending", "waiting_input", "failed", "cancelled", "ready"] {
             a.sessions.push(Session {
@@ -194,11 +194,13 @@ fn activity_visuals_preserve_semantic_colors_in_selected_rows_and_terminal_modes
         let badge = image
             .content
             .iter()
-            .find(|c| c.symbol() == if a.ascii { "/" } else { "⠙" } && c.bg == t.selection)
+            .find(|c| {
+                c.symbol() == if a.preferences.ascii { "/" } else { "⠙" } && c.bg == t.selection
+            })
             .unwrap();
         assert_eq!(badge.fg, t.command, "{mode}");
         assert_eq!(badge.bg, t.selection, "selected badge: {mode}");
-        if a.monochrome {
+        if a.preferences.monochrome {
             assert!(image
                 .content
                 .iter()

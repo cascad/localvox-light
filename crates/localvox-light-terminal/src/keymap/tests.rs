@@ -38,7 +38,10 @@ fn overrides_precede_defaults_preserve_modifiers_and_support_shift_and_explicit_
         .translate(KeyEvent::new(KeyCode::F(10), KeyModifiers::NONE))
         .is_none());
     let mut app = App {
-        keymap: m,
+        preferences: crate::app::UiPreferences {
+            keymap: m,
+            ..Default::default()
+        },
         ..Default::default()
     };
     key(&mut app, 'й', KeyModifiers::CONTROL);
@@ -84,7 +87,10 @@ fn invalid_files_are_rejected_and_loading_is_bounded() {
 #[test]
 fn mapped_commands_and_control_work_without_translating_forms_or_filter_text() {
     let mut app = App {
-        keymap: map(),
+        preferences: crate::app::UiPreferences {
+            keymap: map(),
+            ..Default::default()
+        },
         focus: 2,
         tab: Tab::Summary,
         ..Default::default()
@@ -132,7 +138,10 @@ fn mapped_commands_and_control_work_without_translating_forms_or_filter_text() {
 #[test]
 fn mapped_quit_sequence_and_form_control_submit_use_the_same_projection() {
     let mut app = App {
-        keymap: map(),
+        preferences: crate::app::UiPreferences {
+            keymap: map(),
+            ..Default::default()
+        },
         ..Default::default()
     };
     key(&mut app, 'ς', KeyModifiers::NONE);
@@ -141,14 +150,20 @@ fn mapped_quit_sequence_and_form_control_submit_use_the_same_projection() {
     key(&mut app, 'ς', KeyModifiers::NONE);
     assert!(app.quit);
     let mut app = App {
-        keymap: map(),
+        preferences: crate::app::UiPreferences {
+            keymap: map(),
+            ..Default::default()
+        },
         ..Default::default()
     };
     app.command(Action::NewAsk);
     key(&mut app, 'ς', KeyModifiers::CONTROL);
     assert!(app.quit && app.effects.is_empty());
     let mut app = App {
-        keymap: map(),
+        preferences: crate::app::UiPreferences {
+            keymap: map(),
+            ..Default::default()
+        },
         ..Default::default()
     };
     app.command(Action::ImportUrl);

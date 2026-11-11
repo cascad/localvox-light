@@ -51,7 +51,7 @@ pub fn run(mut client: Client, mut app: App) -> Result<()> {
     let start = Instant::now();
     app.status = "Проверка API LocalVox… Подключение и токен доступны через палитру".into();
     with_terminal(|terminal| {
-        let mut input = input::Input::new()?;
+        let mut input = input::source()?;
         let mut last_poll = Instant::now();
         let mut last_record = Instant::now();
         let mut dirty = true;
@@ -96,31 +96,7 @@ pub fn run(mut client: Client, mut app: App) -> Result<()> {
                         client = next;
                         network = Some(next_io);
                         player = crate::player::Player::new(client.clone())?;
-                        let ascii = app.ascii;
-                        let light = app.light;
-                        let monochrome = app.monochrome;
-                        let color16 = app.color16;
-                        let keymap = app.keymap.clone();
-                        let list_width = app.list_width;
-                        app.console.recover_operation(&crate::diagnostics::Context {
-                            source: "Клиент".into(),
-                            operation: "Подключение".into(),
-                            ..Default::default()
-                        });
-                        let console = std::mem::take(&mut app.console);
-                        app = App {
-                            console,
-                            ascii,
-                            light,
-                            monochrome,
-                            color16,
-                            keymap,
-                            list_width,
-                            address: client.address().into(),
-                            ..Default::default()
-                        };
-                        app.status = "Подключено к API LocalVox".into();
-                        app.refresh();
+                        app.reconnected(client.address().into());
                     }
                     Err(e) => {
                         app.client_error("Подключение", &format!("{e:#}"));
@@ -202,7 +178,7 @@ pub fn run(mut client: Client, mut app: App) -> Result<()> {
                 last_quit_hint = quit_hint;
                 dirty = false;
             }
-            if let Some(event) = input.read(Duration::from_millis(50))? {
+            if let Some(event) = input.next_event(Duration::from_millis(50))? {
                 dirty = true;
                 dispatch(&mut app, event, || {
                     Ok(arboard::Clipboard::new()?.get_text()?)

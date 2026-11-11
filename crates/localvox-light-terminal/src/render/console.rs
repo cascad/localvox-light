@@ -8,7 +8,7 @@ pub(super) fn render_console(f: &mut Frame, a: &App, t: Theme) {
     let height = (area.height / 2).clamp(6, 18).min(area.height);
     let rect = Rect::new(area.x, area.bottom() - height, area.width, height);
     f.render_widget(Clear, rect);
-    let block = borders(a.ascii)
+    let block = borders(a.preferences.ascii)
         .title(" Консоль ошибок · просмотрено ")
         .title_style(t.focus_style())
         .border_style(Style::default().fg(t.focus))
@@ -51,7 +51,7 @@ pub(super) fn render_console(f: &mut Frame, a: &App, t: Theme) {
         )));
         for line in entry.text.lines() {
             lines.push(Line::from(Span::styled(
-                format!("  {} {line}", if a.ascii { "+" } else { "└" }),
+                format!("  {} {line}", if a.preferences.ascii { "+" } else { "└" }),
                 Style::default().fg(t.ink),
             )));
         }
@@ -67,7 +67,7 @@ pub(super) fn render_console(f: &mut Frame, a: &App, t: Theme) {
             lines.push(Line::from(Span::styled(
                 format!(
                     "  {} {}{} {} · последний {last} · Enter",
-                    if a.ascii { "+" } else { "└" },
+                    if a.preferences.ascii { "+" } else { "└" },
                     if entry.expanded { "-" } else { "+" },
                     entry.repeats - 1,
                     repeat_word(entry.repeats - 1)

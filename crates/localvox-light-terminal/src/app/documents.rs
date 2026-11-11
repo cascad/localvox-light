@@ -100,7 +100,7 @@ impl App {
                     .map(|s| {
                         format!(
                             "{} {}  {}{}\n  {}",
-                            state_symbol(&s.state, self.ascii),
+                            state_symbol(&s.state, self.preferences.ascii),
                             s.stage,
                             s.state,
                             match (s.done, s.total) {
