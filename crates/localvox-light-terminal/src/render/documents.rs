@@ -26,7 +26,11 @@ fn block(
     if !header.is_empty() {
         projection.lines.push(Line::from(Span::styled(
             label(&header),
-            style.fg(if active { t.command } else { t.dim }),
+            style.patch(if active {
+                Style::default().fg(t.command)
+            } else {
+                t.label_style()
+            }),
         )));
     }
     for line in safe_text(text).replace('\t', "    ").split('\n') {
@@ -83,16 +87,16 @@ pub(super) fn project(a: &App, t: Theme, _metadata: bool) -> Projection {
             if let Some(setting) = a.selected_setting() {
                 projection.lines.push(Line::from(Span::styled(
                     setting.group.clone(),
-                    Style::default().fg(t.dim),
+                    t.label_style(),
                 )));
                 projection.lines.push(Line::from(Span::styled(
                     setting.label.clone(),
-                    Style::default().fg(t.ink).add_modifier(Modifier::BOLD),
+                    t.heading_style(),
                 )));
                 let marker = if a.ascii { "--" } else { "┄┄" };
                 projection.lines.push(Line::from(Span::styled(
                     format!("{marker} значение"),
-                    Style::default().fg(t.dim),
+                    t.label_style(),
                 )));
                 projection.lines.push(Line::from(Span::styled(
                     format!("  {}", a.setting_value(setting, true)),
@@ -126,7 +130,7 @@ pub(super) fn project(a: &App, t: Theme, _metadata: bool) -> Projection {
                 };
                 projection.lines.push(Line::from(Span::styled(
                     format!("{marker} применение"),
-                    Style::default().fg(t.dim),
+                    t.label_style(),
                 )));
                 projection.lines.push(Line::from(Span::styled(
                     format!("  {applies}"),
@@ -135,7 +139,7 @@ pub(super) fn project(a: &App, t: Theme, _metadata: bool) -> Projection {
                 projection.lines.push(Line::from(""));
                 projection.lines.push(Line::from(Span::styled(
                     format!("{marker} пояснение"),
-                    Style::default().fg(t.dim),
+                    t.label_style(),
                 )));
                 projection.lines.push(Line::from(Span::styled(
                     safe_text(&setting.hint),

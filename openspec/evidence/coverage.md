@@ -414,3 +414,9 @@ auto-expiring hint проверены; 28 snapshots меняют только q 
 [фокус списка после отправки поиска](../changes/add-terminal-session-activity/evidence/search-focus.md).
 171 lib / 4 ConPTY / IO/run-script passed; поздний ответ не перехватывает фокус,
 плеер не запускается. Обычная/review сборки обновлены, ручной прогон not-run.
+
+## Цвет технических подписей TUI · 2026-11-11
+
+| ID | Delta / код | Свидетельство | Граница |
+|---|---|---|---|
+| ARCH-001; ARCH-015 в delta | [delta](../changes/refine-terminal-label-colors/specs/archive-playback/spec.md), [Theme/labels](../../crates/localvox-light-terminal/src/render.rs), [documents](../../crates/localvox-light-terminal/src/render/documents.rs) | [test-run](../changes/refine-terminal-label-colors/evidence/implementation.md): 174 lib, 4 ConPTY, IO/run-script; contrast/style tests 4 modes, 40 snapshots со строго прежним текстом/геометрией, release | Только TUI presentation. Внешний вид в реальном терминале владельца not-run; управление, копируемый текст, UI/сервер и main specs не менялись |

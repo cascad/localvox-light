@@ -7,6 +7,8 @@ mod geometry;
 pub(crate) use geometry::{document_dimensions, list_metrics};
 use geometry::{document_rows, left_rows, workspace_columns, workspace_rows};
 #[cfg(test)]
+mod label_tests;
+#[cfg(test)]
 mod ux_tests;
 use crate::app::{state_symbol, timecode, App, Tab, View, COMMANDS, TABS, VIEWS};
 use crate::io::Resource;
@@ -25,6 +27,7 @@ pub struct Theme {
     pub bg: Color,
     pub ink: Color,
     pub dim: Color,
+    pub label: Color,
     pub line: Color,
     pub command: Color,
     pub argument: Color,
@@ -42,6 +45,7 @@ impl Theme {
                 bg: Color::Reset,
                 ink: Color::Reset,
                 dim: Color::Reset,
+                label: Color::Reset,
                 line: Color::Reset,
                 command: Color::Reset,
                 argument: Color::Reset,
@@ -58,6 +62,7 @@ impl Theme {
                 bg: Color::Reset,
                 ink: Color::Reset,
                 dim: Color::DarkGray,
+                label: Color::Cyan,
                 line: Color::DarkGray,
                 command: Color::Cyan,
                 argument: Color::Magenta,
@@ -74,6 +79,7 @@ impl Theme {
                 bg: Color::Rgb(246, 245, 241),
                 ink: Color::Rgb(39, 43, 48),
                 dim: Color::Rgb(94, 101, 108),
+                label: Color::Rgb(62, 104, 126),
                 line: Color::Rgb(207, 207, 199),
                 command: Color::Rgb(42, 94, 133),
                 argument: Color::Rgb(113, 70, 144),
@@ -89,6 +95,7 @@ impl Theme {
             bg: Color::Rgb(23, 25, 29),
             ink: Color::Rgb(216, 220, 227),
             dim: Color::Rgb(156, 164, 175),
+            label: Color::Rgb(135, 166, 185),
             line: Color::Rgb(52, 57, 66),
             command: Color::Rgb(133, 180, 220),
             argument: Color::Rgb(194, 165, 216),
@@ -99,6 +106,17 @@ impl Theme {
             selection: Color::Rgb(42, 48, 57),
             ascii: a.ascii,
         }
+    }
+    fn label_style(self) -> Style {
+        let style = Style::default().fg(self.label);
+        if self.label == Color::Reset {
+            style.add_modifier(Modifier::DIM)
+        } else {
+            style
+        }
+    }
+    fn heading_style(self) -> Style {
+        Style::default().fg(self.label).add_modifier(Modifier::BOLD)
     }
 }
 fn borders<'a>(ascii: bool) -> Block<'a> {
@@ -138,6 +156,7 @@ fn panel<'a>(title: &str, focused: bool, t: Theme) -> Block<'a> {
             },
             safe_label(title)
         ))
+        .title_style(t.heading_style())
         .border_style(Style::default().fg(if focused { t.command } else { t.line }))
 }
 pub fn draw(f: &mut Frame, a: &App) {
@@ -333,6 +352,7 @@ pub fn draw(f: &mut Frame, a: &App) {
                 .block(
                     borders(a.ascii)
                         .title(" Действия · Enter / Esc ")
+                        .title_style(t.heading_style())
                         .style(Style::default().bg(t.bg).fg(t.ink)),
                 )
                 .highlight_style(
@@ -347,7 +367,7 @@ pub fn draw(f: &mut Frame, a: &App) {
     if a.help {
         let rect = modal(area, 78, 26);
         f.render_widget(Clear, rect);
-        f.render_widget(Paragraph::new("УПРАВЛЕНИЕ\nSpace play/pause; p fragment; g/п time; Alt+Left/Right +/-15s\nF6 — стрелки плееру; повтор — к документу\n\nTab / Shift+Tab — фокус панели\n↑↓ — выбрать строку; Enter — открыть\nМеню разделов: l/Enter — выбрать\nСписок архива: j/k или ↑↓, l/Enter — открыть, / — поиск\nВ поиске буквы и / — текст; Esc — сброс и выход\n1–5 — вкладка документа; y / Ctrl+Y — копировать всё\n/ или точка в RU — поиск в выбранной панели; : / F2 — действия; n — создать; i — URL → Enter\nF8 — остановить запись; F9 — начать запись\nX — отменить обработку; R — продолжить этап\nPgUp / PgDn, Home / End — чтение документа\n← / → или h/l — свернуть / раскрыть подробности\n\nВ форме: Tab — поле; Enter — новая строка\nCtrl+Enter — отправить; Esc — отменить\nURL, настройка, время: Enter — подтвердить\nВставка остаётся текстом, команды не исполняются.\nI — сведения в «Ход»; A / S — все настройки / сохранить\n~ / ё — консоль ошибок; F12 — также из формы\n\nF10 / Ctrl+Q — выход; qq/йй за 0.5 с — вне ввода.\nДругая клавиша или вставка отменяет первое q.\nДемон и запись продолжают работать.\n\nЛюбая клавиша — закрыть справку").block(borders(a.ascii).title(" Помощь ").style(Style::default().bg(t.bg).fg(t.ink))).wrap(Wrap{trim:false}),rect);
+        f.render_widget(Paragraph::new("УПРАВЛЕНИЕ\nSpace play/pause; p fragment; g/п time; Alt+Left/Right +/-15s\nF6 — стрелки плееру; повтор — к документу\n\nTab / Shift+Tab — фокус панели\n↑↓ — выбрать строку; Enter — открыть\nМеню разделов: l/Enter — выбрать\nСписок архива: j/k или ↑↓, l/Enter — открыть, / — поиск\nВ поиске буквы и / — текст; Esc — сброс и выход\n1–5 — вкладка документа; y / Ctrl+Y — копировать всё\n/ или точка в RU — поиск в выбранной панели; : / F2 — действия; n — создать; i — URL → Enter\nF8 — остановить запись; F9 — начать запись\nX — отменить обработку; R — продолжить этап\nPgUp / PgDn, Home / End — чтение документа\n← / → или h/l — свернуть / раскрыть подробности\n\nВ форме: Tab — поле; Enter — новая строка\nCtrl+Enter — отправить; Esc — отменить\nURL, настройка, время: Enter — подтвердить\nВставка остаётся текстом, команды не исполняются.\nI — сведения в «Ход»; A / S — все настройки / сохранить\n~ / ё — консоль ошибок; F12 — также из формы\n\nF10 / Ctrl+Q — выход; qq/йй за 0.5 с — вне ввода.\nДругая клавиша или вставка отменяет первое q.\nДемон и запись продолжают работать.\n\nЛюбая клавиша — закрыть справку").block(borders(a.ascii).title(" Помощь ").title_style(t.heading_style()).style(Style::default().bg(t.bg).fg(t.ink))).wrap(Wrap{trim:false}),rect);
     }
     if let Some(form) = &a.form {
         let desired = match &form.kind {
@@ -372,6 +392,7 @@ pub fn draw(f: &mut Frame, a: &App) {
         f.render_widget(Clear, rect);
         let block = borders(a.ascii)
             .title(format!(" {} ", safe_label(&form.title)))
+            .title_style(t.heading_style())
             .style(Style::default().bg(t.bg).fg(t.ink));
         let inner = block.inner(rect);
         f.render_widget(block, rect);
@@ -431,10 +452,7 @@ pub fn draw(f: &mut Frame, a: &App) {
                 .map(|duration| format!("Длина записи {}", timecode(duration)))
                 .unwrap_or_else(|| "Длительность пока неизвестна".into());
             let lines = vec![
-                Line::from(Span::styled(
-                    " Часы      Минуты   Секунды",
-                    Style::default().fg(t.dim),
-                )),
+                Line::from(Span::styled(" Часы      Минуты   Секунды", t.label_style())),
                 Line::from(values),
                 Line::from(Span::styled(
                     " 0–999     0–59     0–59",
@@ -483,7 +501,7 @@ pub fn draw(f: &mut Frame, a: &App) {
                     .split(fields[i]);
                 f.render_widget(
                     Paragraph::new(format!("> {}", safe_label(&field.label)))
-                        .style(Style::default().fg(t.command)),
+                        .style(t.heading_style()),
                     rows[0],
                 );
                 let mut editor = field.editor.clone();
@@ -502,8 +520,10 @@ pub fn draw(f: &mut Frame, a: &App) {
                         .to_owned()
                 };
                 f.render_widget(
-                    Paragraph::new(format!("{}: {}", safe_label(&field.label), value))
-                        .style(Style::default().fg(t.dim)),
+                    Paragraph::new(Line::from(vec![
+                        Span::styled(format!("{}: ", safe_label(&field.label)), t.label_style()),
+                        Span::styled(value, Style::default().fg(t.ink)),
+                    ])),
                     fields[i],
                 );
             }
@@ -676,8 +696,13 @@ fn nav(f: &mut Frame, a: &App, area: Rect, t: Theme) {
         .iter()
         .enumerate()
         .map(|(i, (v, label))| {
-            ListItem::new(format!(" {} {label}", if *v == a.view { ">" } else { " " }))
-                .style(Style::default().fg(if i == a.nav { t.ink } else { t.dim }))
+            ListItem::new(format!(" {} {label}", if *v == a.view { ">" } else { " " })).style(
+                if i == a.nav {
+                    Style::default().fg(t.ink)
+                } else {
+                    t.label_style()
+                },
+            )
         })
         .collect::<Vec<_>>();
     let mut state = ListState::default().with_selected(Some(a.nav));
@@ -851,7 +876,13 @@ fn items(f: &mut Frame, a: &App, area: Rect, t: Theme) {
     );
 }
 fn document(f: &mut Frame, a: &App, area: Rect, t: Theme, title: &str) {
-    let block = panel(title, a.focus == 2, t);
+    let block = panel(title, a.focus == 2, t).title_style(
+        if a.view == View::Archive && a.current.is_some() {
+            Style::default().fg(t.ink).add_modifier(Modifier::BOLD)
+        } else {
+            t.heading_style()
+        },
+    );
     let inner = block.inner(area);
     f.render_widget(block, area);
     let rows = document_rows(inner);
@@ -862,19 +893,17 @@ fn document(f: &mut Frame, a: &App, area: Rect, t: Theme, title: &str) {
                 .map(|(i, (tab, label))| {
                     Span::styled(
                         format!(" {} {label} ", i + 1),
-                        Style::default()
-                            .fg(if *tab == a.tab { t.command } else { t.dim })
-                            .add_modifier(if *tab == a.tab {
-                                Modifier::BOLD
-                            } else {
-                                Modifier::empty()
-                            }),
+                        if *tab == a.tab {
+                            Style::default().fg(t.command).add_modifier(Modifier::BOLD)
+                        } else {
+                            t.label_style()
+                        },
                     )
                 })
                 .collect::<Vec<_>>(),
         )
     } else {
-        Line::from(Span::styled(VIEWS[a.nav].1, Style::default().fg(t.command)))
+        Line::from(Span::styled(VIEWS[a.nav].1, t.heading_style()))
     };
     let resource = if a.view == View::Archive {
         Some(match a.tab {
@@ -1013,20 +1042,20 @@ fn journal_projection(a: &App, t: Theme) -> JournalProjection {
                 "▸"
             }
         ),
-        Style::default().fg(t.command),
+        t.heading_style(),
     ))];
     if a.metadata_open {
         for line in a.metadata_text().lines() {
             lines.push(Line::from(Span::styled(
                 format!("  {} {}", if a.ascii { "+" } else { "└" }, safe_text(line)),
-                Style::default().fg(t.dim),
+                Style::default().fg(t.ink),
             )));
         }
     }
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
         "Этапы / проверенные результаты",
-        Style::default().fg(t.dim),
+        t.heading_style(),
     )));
     if a.progress.queue_error.is_some() {
         lines.push(Line::from(Span::styled(
