@@ -48,3 +48,18 @@ SSH/tmux и аппаратный звук — not-run, см. [короткую �
 вставки не позволяет отличить injected текст от клавиатуры: сначала открыть поле
 через `i`. Этот факт не маскируется обещанием универсального распознавания.
 ARCH-014 остаётся delta; main specs не синхронизировались и change не архивирован.
+
+## Дополнение: модификаторы Enter/Tab
+
+Финальная проверка совместимости воспроизвела два пропуска: CSI-u Ctrl+Enter
+превращался в Char(CR), а native console Ctrl+Enter терял Control. Добавлены red/green
+ожидания: CSI-u/xterm modifyOtherKeys → Enter+Control, CSI-u/native Shift+Tab →
+BackTab+Shift. VT scalar decoding не заменяет структурированные native Enter/Tab;
+одинаковые типизированные события доходят до прежних обработчиков форм.
+
+После исправления полный terminal прогон снова прошёл: 162 lib / 3 ignored,
+2 IO, 4 workspace ConPTY, 2 run-script; hardware mpv ignored. Последующие расширения
+только тестовых вариантов (native Shift+Tab и modifyOtherKeys) проверены отдельным
+runtime::input прогоном. Production clipboard/архив не использовались.
+Release комплект daemon/worker/TUI повторно собран одной командой после правки
+(8.99 s); обычный localvox-tui.exe обновлён, `--version` проходит.

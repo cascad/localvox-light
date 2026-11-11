@@ -54,6 +54,9 @@ fn vt_keys_and_modifiers_keep_the_existing_contract() {
         ("\x1b[1;5C", KeyCode::Right, KeyModifiers::CONTROL),
         ("\x1b[Z", KeyCode::BackTab, KeyModifiers::SHIFT),
         ("\x11", KeyCode::Char('q'), KeyModifiers::CONTROL),
+        ("\x1b[13;5u", KeyCode::Enter, KeyModifiers::CONTROL),
+        ("\x1b[27;5;13~", KeyCode::Enter, KeyModifiers::CONTROL),
+        ("\x1b[9;2u", KeyCode::BackTab, KeyModifiers::SHIFT),
         ("\r", KeyCode::Enter, KeyModifiers::NONE),
         ("\t", KeyCode::Tab, KeyModifiers::NONE),
         ("\x7f", KeyCode::Backspace, KeyModifiers::NONE),
@@ -110,6 +113,30 @@ fn native_record_surrogates_repeat_modifiers_and_resize_survive_batch_boundaries
             )))
         );
     }
+    let mut enter = key(13, true, 13, 1);
+    unsafe {
+        enter.Event.KeyEvent.dwControlKeyState = LEFT_CTRL_PRESSED;
+    }
+    decoder.records(&[enter]);
+    assert_eq!(
+        decoder.events.pop_front(),
+        Some(Event::Key(KeyEvent::new(
+            KeyCode::Enter,
+            KeyModifiers::CONTROL
+        )))
+    );
+    let mut tab = key(9, true, 9, 1);
+    unsafe {
+        tab.Event.KeyEvent.dwControlKeyState = SHIFT_PRESSED;
+    }
+    decoder.records(&[tab]);
+    assert_eq!(
+        decoder.events.pop_front(),
+        Some(Event::Key(KeyEvent::new(
+            KeyCode::BackTab,
+            KeyModifiers::SHIFT
+        )))
+    );
     decoder.records(&[INPUT_RECORD {
         EventType: WINDOW_BUFFER_SIZE_EVENT as u16,
         Event: INPUT_RECORD_0 {

@@ -140,21 +140,31 @@ impl Decoder {
                         continue;
                     }
                     let unit = unsafe { key.uChar.UnicodeChar };
+                    let modifiers = native_modifiers(key.dwControlKeyState);
+                    // Native console hosts can retain Ctrl+Enter/Shift+Tab as
+                    // structured keys rather than VT sequences. Preserve both forms.
+                    let native_control = if key.wVirtualKeyCode == 13
+                        && modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+                    {
+                        Some(KeyCode::Enter)
+                    } else if key.wVirtualKeyCode == 9 && modifiers.contains(KeyModifiers::SHIFT) {
+                        Some(KeyCode::BackTab)
+                    } else {
+                        None
+                    };
+                    if let Some(code) = native_control {
+                        self.idle();
+                        for _ in 0..key.wRepeatCount.max(1) {
+                            self.events
+                                .push_back(Event::Key(KeyEvent::new(code, modifiers)));
+                        }
+                        continue;
+                    }
                     if unit != 0 {
                         for _ in 0..key.wRepeatCount.max(1) {
                             self.unit(unit);
                         }
                     } else if let Some(code) = native_key(key.wVirtualKeyCode) {
-                        let mut modifiers = KeyModifiers::empty();
-                        if key.dwControlKeyState & SHIFT_PRESSED != 0 {
-                            modifiers |= KeyModifiers::SHIFT;
-                        }
-                        if key.dwControlKeyState & (LEFT_ALT_PRESSED | RIGHT_ALT_PRESSED) != 0 {
-                            modifiers |= KeyModifiers::ALT;
-                        }
-                        if key.dwControlKeyState & (LEFT_CTRL_PRESSED | RIGHT_CTRL_PRESSED) != 0 {
-                            modifiers |= KeyModifiers::CONTROL;
-                        }
                         self.idle();
                         for _ in 0..key.wRepeatCount.max(1) {
                             self.events
@@ -171,6 +181,19 @@ impl Decoder {
             }
         }
     }
+}
+fn native_modifiers(state: u32) -> KeyModifiers {
+    let mut modifiers = KeyModifiers::empty();
+    if state & SHIFT_PRESSED != 0 {
+        modifiers |= KeyModifiers::SHIFT;
+    }
+    if state & (LEFT_ALT_PRESSED | RIGHT_ALT_PRESSED) != 0 {
+        modifiers |= KeyModifiers::ALT;
+    }
+    if state & (LEFT_CTRL_PRESSED | RIGHT_CTRL_PRESSED) != 0 {
+        modifiers |= KeyModifiers::CONTROL;
+    }
+    modifiers
 }
 fn native_key(vk: u16) -> Option<KeyCode> {
     Some(match vk {
@@ -210,6 +233,11 @@ fn convert(event: InputEvent) -> Option<Event> {
                 modifiers |= KeyModifiers::SUPER;
             }
             let code = match key.key {
+                VtKey::Char('\r' | '\n') => KeyCode::Enter,
+                VtKey::Char('\t') if modifiers.contains(KeyModifiers::SHIFT) => KeyCode::BackTab,
+                VtKey::Char('\t') => KeyCode::Tab,
+                VtKey::Char('\x1b') => KeyCode::Esc,
+                VtKey::Char('\x08' | '\x7f') => KeyCode::Backspace,
                 VtKey::Char(c) => KeyCode::Char(c),
                 VtKey::Enter => KeyCode::Enter,
                 VtKey::Tab if modifiers.contains(KeyModifiers::SHIFT) => KeyCode::BackTab,
