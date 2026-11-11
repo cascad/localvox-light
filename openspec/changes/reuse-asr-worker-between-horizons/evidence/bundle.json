@@ -1,0 +1,11 @@
+{
+  "date": "2026-11-11",
+  "protocol": "localvox-worker/3",
+  "ui": "production build embedded",
+  "release_sha256": {
+    "localvox-light.exe": "74481d76f51952258373cb93d24fcd481c381546bc2d80bf593f7e82e91cddbf",
+    "localvox-process.exe": "e3e123f44f148224ab0e0c7dc88acaa7e29e0de9fd8a3266d6a4201f459a896b",
+    "localvox-tui.exe": "ceeb091f775db0dc8dc642482ef6b167309d657e612f926258f6c20c830c59a6"
+  },
+  "tui_review": "target/review/vim-navigation/localvox-tui.exe"
+}

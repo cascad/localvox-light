@@ -192,9 +192,25 @@ fingerprints. `VerifiedWindow` сверяет count/PCM SHA; result записы
 ошибка не закрывает покрытие. Checkpoint содержит per-source frontiers и отдельный
 publication watermark для устойчивого порядка окон и доступного аудио. Повреждённый
 suffix не удаляет независимые валидные результаты. Писатель вызывается под processing
-execution ownership (standalone CLI или supervising coordinator), как VersionStore. Подключение worker/finalization — следующий этап R1; сам cache
-не пишет best/версии/полные receipts и не разрешает summary.
+execution ownership (standalone CLI или supervising coordinator), как VersionStore.
+Сам cache не пишет best/версии/полные receipts и не разрешает summary.
 [Проверки кеша](../openspec/changes/add-incremental-recording-transcription/evidence/asr-cache.md).
+
+Transcribe-линия использует один управляемый stdio worker (`localvox-worker/3`):
+порции и финал идут последовательно через bounded request/reply с protocol/id.
+Одна ASR-модель остаётся в нём до 600 секунд простоя; настройка
+`LOCALVOX_ASR_KEEP_ALIVE_SEC=0` возвращает одноразовые запуски. На каждом запросе
+проверяется полный content fingerprint; другой engine заменяет прежний. Простой не
+удерживает запись или её execution lease. Cancel/timeout/protocol error/shutdown
+завершают дерево процесса. Daemon и worker обновляются одним комплектом.
+
+Производные результаты окон сохраняются в ограниченных framed journal segments
+`incremental/<identity>/results/*.wal`: каждый результат синхронизирован до принятия,
+header/payload проверяются по SHA. Незавершённый или повреждённый frame не закрывает
+покрытие; следующие целые результаты восстанавливаются. Старые `windows/*.json`
+читаются без массовой миграции. Проверенный batch живёт только внутри одной операции;
+между запросами authoritative cache перечитывается. Частичный текст публикуется
+после checkpoint; final повторно проверяет PCM и использует готовые окна.
 Остановка внешнего Ollama и общая crash-транзакция нескольких файлов не обещаются.
 [Проверки](../openspec/changes/archive/2026-11-01-serialize-session-mutations/evidence/implementation.md).
 

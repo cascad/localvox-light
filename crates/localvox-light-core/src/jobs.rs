@@ -19,6 +19,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::versions::{now_rfc3339, VersionStore};
 
+pub mod asr_worker;
 mod cancellation;
 pub mod control;
 pub mod discovery;
@@ -96,7 +97,7 @@ pub enum JobPhase {
 }
 
 /// Increment when the daemon/worker phase contract becomes incompatible.
-pub const WORKER_PROTOCOL: &str = "localvox-worker/2";
+pub const WORKER_PROTOCOL: &str = "localvox-worker/3";
 
 /// OS-backed ownership, held from claim through artifact acceptance. A missing heartbeat is not
 /// evidence that a worker died. API repairs use the same lock before invalidating its outputs.

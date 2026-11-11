@@ -164,6 +164,28 @@ impl Published {
 impl Cache {
     pub fn publish(&self, session: &Path, horizon: &Horizon) -> Result<Published> {
         let (checkpoint, records) = self.read_checkpoint(horizon)?;
+        self.publish_records(session, horizon, checkpoint, records)
+    }
+    /// Commit and publish one verified batch while the caller owns execution.
+    pub fn checkpoint_and_publish(
+        &self,
+        session: &Path,
+        horizon: &Horizon,
+        new: &[Accepted],
+    ) -> Result<Checkpoint> {
+        let (checkpoint, records) = self.commit_checkpoint(horizon, new)?;
+        self.publish_records(session, horizon, checkpoint.clone(), records)?;
+        Ok(checkpoint)
+    }
+    fn publish_records(
+        &self,
+        session: &Path,
+        horizon: &Horizon,
+        checkpoint: Checkpoint,
+        mut records: Vec<Accepted>,
+    ) -> Result<Published> {
+        records.retain(|r| r.descriptor().start_sample < checkpoint.publication_end);
+        records.sort_by_key(|r| (r.descriptor().start_sample, r.descriptor().source));
         let input = horizon.freeze(session)?;
         // Only fully window-verified audio is exposed. Withhold a whole older-start
         // line (and its successors) if another track has not closed enough PCM yet.
@@ -227,6 +249,17 @@ impl Cache {
         published.read(session)?;
         crate::artifacts::atomic_write(&session.join("incremental/current.json"), &receipt)?;
         Ok(published)
+    }
+}
+
+impl Transaction<'_> {
+    /// Consume exactly the previously verified request snapshot; new records are
+    /// revalidated at commit. Recovery and the next request start with disk reads.
+    pub fn finish(self, session: &Path, new: &[Accepted]) -> Result<Checkpoint> {
+        let (state, records) = self.cache.commit_records(self.horizon, self.records, new)?;
+        self.cache
+            .publish_records(session, self.horizon, state.clone(), records)?;
+        Ok(state)
     }
 }
 

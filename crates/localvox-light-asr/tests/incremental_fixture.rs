@@ -20,6 +20,143 @@ struct Recording {
     handle: Option<planning::Handle>,
     planners: planning::Planners,
 }
+
+#[test]
+fn failed_prefix_has_failed_operation_and_no_checkpoint_or_final_success() {
+    let r = Recording::new("failed words", false);
+    let spec_path = r.root.path().join("fixture.json");
+    let fault = r.root.path().join("fault.txt");
+    fs::write(&fault, "fail").unwrap();
+    let mut spec: serde_json::Value =
+        serde_json::from_slice(&fs::read(&spec_path).unwrap()).unwrap();
+    spec["fault_file"] = serde_json::json!(fault);
+    fs::write(&spec_path, serde_json::to_vec(&spec).unwrap()).unwrap();
+    let _lease = localvox_light_core::jobs::try_execution_lock(&r.session())
+        .unwrap()
+        .unwrap();
+    let result = localvox_light_core::cook::transcribe_prefix_fixture(
+        &r.session(),
+        &Default::default(),
+        &spec_path,
+        None,
+    );
+    let error = format!("{:#}", result.err().expect("fixture must fail"));
+    assert!(error.contains("ASR source 0 samples") && error.contains("synthetic ASR failure"));
+    assert!(!r.session().join("incremental/current.json").exists());
+    r.assert_no_final();
+    let journal = fs::read_to_string(r.session().join("progress.jsonl")).unwrap();
+    assert!(journal
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .any(|event| event["kind"] == "operation_end"
+            && event["label"] == "Распознавание готовой части записи"
+            && event["status"] == "failed"));
+}
+
+#[test]
+fn resident_reuses_one_engine_across_new_horizons_final_and_releases_each_session_lease() {
+    use localvox_light_core::jobs::{
+        self,
+        asr_worker::{Reply, Request},
+    };
+    let mut r = Recording::new("warm words", false);
+    let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_localvox-process"));
+    command
+        .arg("--worker-serve")
+        .arg("--work-dir")
+        .arg(r.root.path())
+        .arg("--fixture-asr")
+        .arg(r.root.path().join("fixture.json"))
+        .env("LOCALVOX_DIARIZE", "off")
+        .env("LOCALVOX_LANG", "ru");
+    let mut server = localvox_light_process::StdioSession::spawn(command).unwrap();
+    let pid = server.pid();
+    let mut request = Request::new(1, r.session(), r.root.path().join("unused-model"));
+    request.prefix = true;
+    let exchange = |server: &mut localvox_light_process::StdioSession, request: &Request| {
+        let _lease = jobs::try_execution_lock(&request.session).unwrap().unwrap();
+        let output = server
+            .request(
+                &serde_json::to_vec(request).unwrap(),
+                localvox_light_process::Limits::new(Duration::from_secs(20)),
+                || false,
+                |_, _| {},
+            )
+            .unwrap();
+        assert_eq!(output.pid, pid);
+        let reply: Reply = serde_json::from_slice(&output.stdout).unwrap();
+        reply.validate(request.id).unwrap();
+        reply
+    };
+    let first = exchange(&mut server, &request);
+    assert_eq!(first.model_loads, 1);
+    assert!(first.result.unwrap()["asr_calls"].as_u64().unwrap() > 0);
+    let events = localvox_light_core::progress::read(&r.session());
+    assert!(events
+        .iter()
+        .any(|event| event.done.is_some_and(|done| done > 0) && event.total.is_some()));
+    let journal = fs::read_to_string(r.session().join("progress.jsonl")).unwrap();
+    assert!(journal.contains("Распознавание готовой части записи"));
+    assert!(
+        !journal.contains("ASR source "),
+        "window detail belongs in debug diagnostics"
+    );
+    assert!(jobs::try_execution_lock(&r.session()).unwrap().is_some());
+    r.assert_no_final();
+    let pcm: Vec<i16> = (0..32 * 16000)
+        .map(|i| ((i as u32).wrapping_mul(1664525).wrapping_add(7919) >> 8) as i16)
+        .collect();
+    for (id, recorder) in r.recorders.iter_mut().enumerate() {
+        if id == 0 {
+            recorder.feed(&pcm)
+        } else {
+            recorder.feed(&vec![0; pcm.len()])
+        }
+        recorder.finalize_current();
+    }
+    r.wait(false);
+    request.id = 2;
+    let second = exchange(&mut server, &request);
+    assert_eq!(second.model_loads, 0);
+    assert!(second.result.unwrap()["asr_calls"].as_u64().unwrap() > 0);
+    let file = r.root.path().join("fixture.json");
+    let mut spec: serde_json::Value = serde_json::from_slice(&fs::read(&file).unwrap()).unwrap();
+    spec["answer"] = serde_json::json!("changed model words");
+    fs::write(&file, serde_json::to_vec(&spec).unwrap()).unwrap();
+    request.id = 3;
+    let changed = exchange(&mut server, &request);
+    assert_eq!(changed.model_loads, 1);
+    assert!(changed.result.is_ok());
+    r.stop();
+    request.id = 4;
+    request.prefix = false;
+    let final_reply = exchange(&mut server, &request);
+    assert_eq!(final_reply.model_loads, 0);
+    assert!(final_reply.result.is_ok());
+    let (_, lines) = artifacts::source_transcript(&r.session()).unwrap();
+    assert!(
+        !lines.is_empty()
+            && lines
+                .iter()
+                .all(|line| line.text.contains("changed model words") && line.end_sec <= 75.0)
+    );
+    assert!(jobs::try_execution_lock(&r.session()).unwrap().is_some());
+    request.id = 5;
+    request.protocol = "foreign-protocol".into();
+    let refused = exchange(&mut server, &request);
+    assert!(refused.result.is_err());
+    request.protocol = localvox_light_core::jobs::asr_worker::PROTOCOL.into();
+    // Non-increasing ids and malformed frames cannot be accepted as a new request.
+    assert!(server
+        .request(
+            &serde_json::to_vec(&request).unwrap(),
+            localvox_light_process::Limits::new(Duration::from_secs(2)),
+            || false,
+            |_, _| {}
+        )
+        .is_err());
+    assert!(server.has_exited().unwrap());
+}
 impl Recording {
     fn new(answer: &str, digest: bool) -> Self {
         let root = tempfile::tempdir().unwrap();

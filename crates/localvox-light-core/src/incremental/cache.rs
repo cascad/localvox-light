@@ -66,7 +66,12 @@ fn envelope<T: Serialize>(value: &T) -> Result<Vec<u8>> {
     })?)
 }
 fn read_envelope<T: serde::de::DeserializeOwned + Serialize>(path: &Path) -> Result<(T, String)> {
-    let e: Envelope<T> = json_file(path, 8 * 1024 * 1024)?;
+    decode_envelope(&bytes_file(path, 8 * 1024 * 1024)?)
+}
+fn decode_envelope<T: serde::de::DeserializeOwned + Serialize>(
+    bytes: &[u8],
+) -> Result<(T, String)> {
+    let e: Envelope<T> = serde_json::from_slice(bytes)?;
     ensure!(
         is_hash(&e.sha256) && hash(&serde_json::to_vec(&e.value)?) == e.sha256,
         "ASR cache checksum mismatch"
@@ -167,18 +172,46 @@ impl Checkpoint {
 pub struct Cache {
     root: PathBuf,
     identity: String,
+    wal: std::sync::Mutex<super::wal::Store>,
+}
+
+/// A verified disk snapshot for one held execution lease and one immutable
+/// horizon. It is neither serializable nor retained by the resident ASR engine.
+pub struct Transaction<'a> {
+    pub(super) cache: &'a Cache,
+    pub(super) horizon: &'a Horizon,
+    pub(super) state: Checkpoint,
+    pub(super) records: Vec<Accepted>,
+}
+impl Transaction<'_> {
+    pub fn state(&self) -> &Checkpoint {
+        &self.state
+    }
 }
 impl Cache {
     pub fn open(session: &Path, identity: &Identity) -> Result<Self> {
         let metadata = serde_json::to_vec(identity)?;
         let identity = identity.fingerprint()?;
         let root = session.join("incremental").join(&identity);
+        let created = !root.exists();
         fs::create_dir_all(root.join("windows"))?;
         let metadata_path = root.join("identity.json");
         if !fs::read(&metadata_path).is_ok_and(|bytes| bytes == metadata) {
             crate::artifacts::atomic_write(&metadata_path, &metadata)?;
         }
-        Ok(Self { root, identity })
+        let wal = std::sync::Mutex::new(super::wal::Store::open(root.join("results"))?);
+        #[cfg(unix)]
+        if created {
+            File::open(root.parent().context("cache parent")?)?.sync_all()?;
+            File::open(session)?.sync_all()?;
+        }
+        #[cfg(not(unix))]
+        let _ = created;
+        Ok(Self {
+            root,
+            identity,
+            wal,
+        })
     }
     fn key(&self, d: &planning::Descriptor) -> Result<String> {
         validate_descriptor(d)?;
@@ -186,6 +219,22 @@ impl Cache {
     }
     fn record(&self, d: &planning::Descriptor) -> Result<Option<Accepted>> {
         let key = self.key(d)?;
+        if let Some(bytes) = self
+            .wal
+            .lock()
+            .map_err(|_| anyhow::anyhow!("result journal lock poisoned"))?
+            .get(&key)?
+        {
+            if let Ok((record, sha256)) = decode_envelope::<Record>(&bytes) {
+                if record.validate(d, &self.identity).is_ok() {
+                    return Ok(Some(Accepted {
+                        key,
+                        sha256,
+                        record,
+                    }));
+                }
+            }
+        }
         let Some((record, sha256)) =
             optional_envelope::<Record>(&self.root.join("windows").join(format!("{key}.json")))?
         else {
@@ -207,7 +256,7 @@ impl Cache {
         window: VerifiedWindow<'_>,
         mut recognize: impl FnMut(&[i16]) -> Result<String>,
     ) -> Result<(Accepted, bool)> {
-        if let Some(accepted) = self.record(window.input)? {
+        if let Some(accepted) = self.lookup(&window)? {
             return Ok((accepted, true));
         }
         let raw = match window.input.kind {
@@ -225,18 +274,24 @@ impl Cache {
         };
         record.validate(window.input, &self.identity)?;
         let key = self.key(window.input)?;
-        let path = self.root.join("windows").join(format!("{key}.json"));
         // Only missing/corrupt derived data is replaced; a valid record returned above is immutable.
         let bytes = envelope(&record)?;
         ensure!(
             bytes.len() <= 8 * 1024 * 1024,
             "ASR cache record exceeds its limit"
         );
-        crate::artifacts::atomic_write(&path, &bytes)?;
+        self.wal
+            .lock()
+            .map_err(|_| anyhow::anyhow!("result journal lock poisoned"))?
+            .put(&key, &bytes)?;
         let accepted = self
             .record(window.input)?
             .context("published ASR result failed verification")?;
         Ok((accepted, false))
+    }
+    /// Read-only lookup against already verified actual PCM; never repairs a miss.
+    pub fn lookup(&self, window: &VerifiedWindow<'_>) -> Result<Option<Accepted>> {
+        self.record(window.input)
     }
     fn empty(&self, horizon: &Horizon) -> Result<Checkpoint> {
         Ok(Checkpoint {
@@ -270,6 +325,10 @@ impl Cache {
     /// Carries only previously committed, checksum-verified prefix records. It never
     /// adopts a result left before checkpoint commit without fresh VerifiedWindow.
     fn restore(&self, horizon: &Horizon) -> Result<Vec<Accepted>> {
+        self.wal
+            .lock()
+            .map_err(|_| anyhow::anyhow!("result journal lock poisoned"))?
+            .refresh()?;
         let Some(previous) = self.previous(horizon)? else {
             return Ok(Vec::new());
         };
@@ -301,13 +360,6 @@ impl Cache {
                     record.record.input == *window && record.record.recognizer == self.identity,
                     "foreign accepted ASR record"
                 );
-                let disk = self
-                    .record(window)?
-                    .context("accepted ASR record is missing/corrupt")?;
-                ensure!(
-                    disk.sha256 == record.sha256,
-                    "accepted ASR result changed before checkpoint"
-                );
                 ensure!(
                     window.start_sample == source.end_sample,
                     "ASR checkpoint coverage gap"
@@ -336,13 +388,39 @@ impl Cache {
         Ok(state)
     }
     pub fn checkpoint(&self, horizon: &Horizon, new: &[Accepted]) -> Result<Checkpoint> {
+        Ok(self.commit_checkpoint(horizon, new)?.0)
+    }
+    /// One authoritative read per record at commit; the returned batch is local to
+    /// this operation and never used as a process-wide cache of mutable files.
+    pub(super) fn commit_checkpoint(
+        &self,
+        horizon: &Horizon,
+        new: &[Accepted],
+    ) -> Result<(Checkpoint, Vec<Accepted>)> {
+        self.commit_records(horizon, self.restore(horizon)?, new)
+    }
+    pub fn begin<'a>(&'a self, horizon: &'a Horizon) -> Result<Transaction<'a>> {
+        let records = self.restore(horizon)?;
+        let state = self.derive(horizon, &records)?;
+        Ok(Transaction {
+            cache: self,
+            horizon,
+            state,
+            records,
+        })
+    }
+    pub(super) fn commit_records(
+        &self,
+        horizon: &Horizon,
+        mut all: Vec<Accepted>,
+        new: &[Accepted],
+    ) -> Result<(Checkpoint, Vec<Accepted>)> {
         if let Some(previous) = self.previous(horizon)? {
             ensure!(
                 previous.capture_revision <= horizon.plan.capture_revision,
                 "stale incremental horizon"
             );
         }
-        let mut all = self.restore(horizon)?;
         for record in new {
             ensure!(
                 record.record.recognizer == self.identity,
@@ -357,11 +435,18 @@ impl Cache {
                 "ASR result is outside the finite horizon"
             );
             all.retain(|r| r.key != record.key);
-            all.push(record.clone());
+            let disk = self
+                .record(record.descriptor())?
+                .context("accepted ASR record is missing/corrupt")?;
+            ensure!(
+                disk.sha256 == record.sha256,
+                "accepted ASR result changed before checkpoint"
+            );
+            all.push(disk);
         }
         let state = self.derive(horizon, &all)?;
         crate::artifacts::atomic_write(&self.root.join("checkpoint.json"), &envelope(&state)?)?;
-        Ok(state)
+        Ok((state, all))
     }
     /// Revalidates referenced results and derives frontiers; forged saved counters do not advance them.
     pub fn read_checkpoint(&self, horizon: &Horizon) -> Result<(Checkpoint, Vec<Accepted>)> {

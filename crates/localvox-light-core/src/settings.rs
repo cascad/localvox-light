@@ -291,6 +291,14 @@ pub const CATALOGUE: &[Setting] = &[
         applies: Applies::Restart,
     },
     Setting {
+        key: "LOCALVOX_ASR_KEEP_ALIVE_SEC",
+        group: "Автоварка",
+        label: "Хранить ASR-модель между порциями, сек",
+        hint: "После простоя модель освобождается. 600 сек сохраняет её между обычными порциями; 0 — отдельный процесс для каждого задания",
+        kind: Kind::Number,
+        applies: Applies::Restart,
+    },
+    Setting {
         key: "LOCALVOX_LIGHT_AUTOCOOK_QUIESCENT_SEC",
         group: "Автоварка",
         label: "Сессия «тихая» столько секунд → варим",

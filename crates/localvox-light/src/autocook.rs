@@ -20,6 +20,7 @@ use localvox_light_process::{Limits, Termination};
 const MAX_ATTEMPTS: u32 = 3;
 
 mod observer;
+mod warm;
 pub use observer::{Observer, Transition};
 
 struct CoordinatorExit<'a>(&'a AtomicBool);
@@ -40,6 +41,7 @@ struct Config {
     model_dir: PathBuf,
     ffmpeg: PathBuf,
     interval: Duration,
+    asr_keep_alive: Duration,
     quiescent_sec: u64,
     llm_model: String,
     summary_template: Option<String>,
@@ -110,6 +112,19 @@ impl Config {
                 "LOCALVOX_LIGHT_AUTOCOOK_QUIESCENT_SEC",
                 localvox_light_core::presets::number("LOCALVOX_LIGHT_AUTOCOOK_QUIESCENT_SEC"),
             )?,
+            asr_keep_alive: {
+                let seconds = std::env::var("LOCALVOX_ASR_KEEP_ALIVE_SEC")
+                    .unwrap_or_else(|_| {
+                        localvox_light_core::presets::baked("LOCALVOX_ASR_KEEP_ALIVE_SEC").into()
+                    })
+                    .parse::<u64>()
+                    .context("LOCALVOX_ASR_KEEP_ALIVE_SEC must be seconds")?;
+                anyhow::ensure!(
+                    seconds <= 86400,
+                    "LOCALVOX_ASR_KEEP_ALIVE_SEC must be 0..86400"
+                );
+                Duration::from_secs(seconds)
+            },
             llm_model: std::env::var("LOCALVOX_LLM_MODEL").unwrap_or_else(|_| {
                 localvox_light_core::presets::baked("LOCALVOX_LLM_MODEL").into()
             }),
@@ -297,7 +312,9 @@ fn coordinate(cfg: &Config, running: &AtomicBool) {
         for phases in &lanes {
             let index_dirty = &index_dirty;
             scope.spawn(move || {
+                let mut warm = warm::Lane::default();
                 while running.load(Ordering::Relaxed) {
+                    warm.evict(cfg.asr_keep_alive);
                     let ids = JobQueue::mutate(wd, |q| {
                         if !q.refresh_post_processing(jobs::post_processing_from_env()) {
                             return vec![];
@@ -328,9 +345,10 @@ fn coordinate(cfg: &Config, running: &AtomicBool) {
                             }
                         });
                         if let Some((job, _execution_lock)) = claim {
-                            let changed = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run_phase_controlled(cfg, running, &job, Some(&_execution_lock)))) {
+                            let changed = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run_phase_with_worker(cfg, running, &job, Some(&_execution_lock), Some(&mut warm)))) {
                                 Ok(changed) => changed,
                                 Err(_) => {
+                                    warm.clear();
                                     fail_phase_observed(wd, running, &job, "Сбой координатора при выполнении задания; сохранённые результаты остаются доступны", cfg.observer.as_ref());
                                     true
                                 }
@@ -471,25 +489,36 @@ fn run_phase(cfg: &Config, running: &AtomicBool, job: &Job) -> bool {
     run_phase_controlled(cfg, running, job, None)
 }
 
+#[cfg(test)]
 fn run_phase_controlled(
     cfg: &Config,
     running: &AtomicBool,
     job: &Job,
     owner: Option<&jobs::control::ManagedExecution>,
 ) -> bool {
-    run_step(cfg, running, job, true, cfg.timeout(job.phase), owner);
+    run_phase_with_worker(cfg, running, job, owner, None)
+}
+fn run_phase_with_worker(
+    cfg: &Config,
+    running: &AtomicBool,
+    job: &Job,
+    owner: Option<&jobs::control::ManagedExecution>,
+    warm: Option<&mut warm::Lane>,
+) -> bool {
+    run_step_with_worker(cfg, running, job, true, cfg.timeout(job.phase), owner, warm);
     // Even a failed attempt may have committed reusable artifacts. The queue
     // carries success/failure; this return value only dirties idle indexes.
     job.kind != jobs::JobKind::Incremental && running.load(Ordering::Relaxed)
 }
 
-fn run_step(
+fn run_step_with_worker(
     cfg: &Config,
     running: &AtomicBool,
     job: &Job,
     finish: bool,
     timeout: Duration,
     owner: Option<&jobs::control::ManagedExecution>,
+    warm: Option<&mut warm::Lane>,
 ) -> bool {
     if owner.is_some_and(|owner| owner.cancelled()) {
         return false;
@@ -576,20 +605,55 @@ fn run_step(
             }
         }
     }
+    let resident_request =
+        job.phase == JobPhase::Transcribe && !cfg.asr_keep_alive.is_zero() && warm.is_some();
     let mut _journal_operation = localvox_light_core::journal::Operation::start(
         &session,
         job.phase.as_str(),
-        "localvox-process",
-        Some(localvox_light_core::journal::DisplayCommand::from_args(
-            "localvox-process",
-            &cmd.get_args()
-                .map(|v| v.to_string_lossy().into_owned())
-                .collect::<Vec<_>>(),
-        )),
+        if resident_request {
+            "ASR · обработка порции"
+        } else {
+            "localvox-process"
+        },
+        if resident_request {
+            None
+        } else {
+            Some(localvox_light_core::journal::DisplayCommand::from_args(
+                "localvox-process",
+                &cmd.get_args()
+                    .map(|v| v.to_string_lossy().into_owned())
+                    .collect::<Vec<_>>(),
+            ))
+        },
     );
     if let Some(execution) = &job.execution_id {
         if let Err(error) = _journal_operation.bind_execution(execution) {
             tracing::debug!("journal execution binding: {error}");
+        }
+    }
+    if job.phase == JobPhase::Transcribe && !cfg.asr_keep_alive.is_zero() {
+        if let Some(warm) = warm {
+            let result = warm.run(cfg, running, job, owner, timeout);
+            return match result {
+                Ok(()) => accept_phase_observed(&cfg.work_dir, running, job, cfg.observer.as_ref()),
+                Err(_)
+                    if !running.load(Ordering::Relaxed) || owner.is_some_and(|o| o.cancelled()) =>
+                {
+                    _journal_operation.cancelled();
+                    false
+                }
+                Err(error) => {
+                    _journal_operation.failed();
+                    fail_phase_observed(
+                        &cfg.work_dir,
+                        running,
+                        job,
+                        &format!("Фаза transcribe: {error:#}"),
+                        cfg.observer.as_ref(),
+                    );
+                    false
+                }
+            };
         }
     }
     let outcome = std::thread::scope(|scope| {

@@ -43,9 +43,14 @@ pub use crate::windowing::Windower;
 mod fixture;
 pub mod model;
 mod prefix;
+mod runtime;
 #[cfg(feature = "asr-fixtures")]
 pub use prefix::transcribe_prefix_fixture;
+pub use prefix::transcribe_warm;
+#[cfg(feature = "asr-fixtures")]
+pub use prefix::transcribe_warm_fixture;
 pub use prefix::{transcribe_input, transcribe_prefix, PrefixReport};
+pub use runtime::AsrRuntime;
 
 pub struct CookParams {
     /// Model directory of the DEFAULT LANGUAGE (the caller knows its path: next to
@@ -131,7 +136,14 @@ pub enum CookOutcome {
 /// names, so the order is all the cook needs. That makes the cook resilient to
 /// post-crash sessions, where the recovered chunks are missing from meta.
 pub fn cook_session_asr(session_dir: &Path, p: &CookParams) -> Result<CookOutcome> {
-    cook_session_impl(session_dir, p, None)
+    cook_session_impl(session_dir, p, None, None)
+}
+pub fn cook_session_asr_warm(
+    session_dir: &Path,
+    p: &CookParams,
+    runtime: &mut AsrRuntime,
+) -> Result<CookOutcome> {
+    cook_session_impl(session_dir, p, None, Some(runtime))
 }
 #[cfg(feature = "asr-fixtures")]
 pub fn cook_session_asr_fixture(
@@ -143,12 +155,28 @@ pub fn cook_session_asr_fixture(
         session_dir,
         p,
         Some(model::Selection::fixture(session_dir, p, spec)?),
+        None,
+    )
+}
+#[cfg(feature = "asr-fixtures")]
+pub fn cook_session_asr_warm_fixture(
+    session_dir: &Path,
+    p: &CookParams,
+    spec: &Path,
+    runtime: &mut AsrRuntime,
+) -> Result<CookOutcome> {
+    cook_session_impl(
+        session_dir,
+        p,
+        Some(model::Selection::fixture(session_dir, p, spec)?),
+        Some(runtime),
     )
 }
 fn cook_session_impl(
     session_dir: &Path,
     p: &CookParams,
     override_model: Option<model::Selection>,
+    mut runtime: Option<&mut AsrRuntime>,
 ) -> Result<CookOutcome> {
     ensure!(
         crate::chunks::capture::is_finalized(session_dir)?,
@@ -297,7 +325,7 @@ fn cook_session_impl(
     let use_cache = capture.is_some() && !p.force && window_recipe.validate().is_ok();
     let selection = match override_model {
         Some(model) => Some(model),
-        None => use_cache
+        None => (use_cache || runtime.is_some())
             .then(|| model::Selection::resolve(session_dir, p, || false))
             .transpose()?,
     };
@@ -396,20 +424,23 @@ fn cook_session_impl(
                 trace.write_all(b"\n")?;
             }
             let mut recognize = |samples: &[i16]| -> Result<String> {
-                if engine.is_none() {
-                    let _load = crate::journal::Operation::start(
-                        session_dir,
-                        "transcribe",
-                        "Загрузка ASR-модели и адаптера",
-                        None,
-                    );
-                    engine = Some(selection.as_ref().context("ASR selection")?.load()?);
-                }
+                let recognizer: &dyn AsrEngine = if let Some(runtime) = runtime.as_deref_mut() {
+                    runtime.engine_for(selection.as_ref().context("ASR selection")?, session_dir)?
+                } else {
+                    if engine.is_none() {
+                        let _load = crate::journal::Operation::start(
+                            session_dir,
+                            "transcribe",
+                            "Загрузка ASR-модели и адаптера",
+                            None,
+                        );
+                        engine = Some(selection.as_ref().context("ASR selection")?.load()?);
+                    }
+                    engine.as_deref().unwrap()
+                };
                 asr_calls += 1;
                 let pcm: Vec<f32> = samples.iter().map(|&s| f32::from(s) / 32768.0).collect();
-                engine
-                    .as_ref()
-                    .unwrap()
+                recognizer
                     .transcribe(&pcm)
                     .context("recognizing the window")
             };

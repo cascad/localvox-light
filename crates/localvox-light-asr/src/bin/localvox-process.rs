@@ -16,6 +16,9 @@ use localvox_light_ingest::{
     resolve_ffmpeg, resolve_ffmpeg_location_for_ytdlp, resolve_js_runtime, resolve_yt_dlp,
 };
 
+#[path = "worker_server/mod.rs"]
+mod worker_server;
+
 #[derive(Parser)]
 #[command(
     name = "localvox-process",
@@ -25,6 +28,9 @@ struct Cli {
     /// Print the daemon/worker protocol version without loading models.
     #[arg(long, hide = true)]
     worker_protocol: bool,
+    /// Internal sequential ASR server, owned by one coordinator lane.
+    #[arg(long, hide = true)]
+    worker_serve: bool,
 
     /// Execute exactly one phase of a queued session (internal daemon contract).
     #[arg(long, hide = true)]
@@ -275,6 +281,21 @@ fn main() -> Result<()> {
     if cli.worker_protocol {
         println!("{}", localvox_light_core::jobs::WORKER_PROTOCOL);
         return Ok(());
+    }
+    if cli.worker_serve {
+        anyhow::ensure!(
+            cli.worker_phase.is_none()
+                && !cli.worker_prefix
+                && !cli.worker_index
+                && cli.session.is_none(),
+            "resident worker requires an unambiguous server invocation"
+        );
+        localvox_light_core::cli::init_tracing_tool("info");
+        #[cfg(feature = "asr-fixtures")]
+        let fixture = cli.fixture_asr.as_deref();
+        #[cfg(not(feature = "asr-fixtures"))]
+        let fixture = None;
+        return worker_server::serve(&cli.work_dir, fixture);
     }
     if cli.worker_prefix {
         use localvox_light_core::jobs::JobPhase;

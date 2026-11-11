@@ -38,6 +38,13 @@ struct Args {
     limit_sec: Option<u64>,
     #[arg(long, default_value_t = 3)]
     pairs: usize,
+    /// Explicit comparison mode; ordinary incremental runs reuse one owned ASR server.
+    #[arg(long)]
+    one_shot: bool,
+    /// Additional comparison against current capture/planner with ASR only after Stop.
+    /// Omitted preserves the original legacy-offline reference; never changes its gate.
+    #[arg(long)]
+    current_capture_baseline: bool,
 }
 fn sha(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
@@ -173,7 +180,17 @@ impl Recording {
         Ok(())
     }
 }
-fn worker(args: &Args, root: &Path, session: &Path, prefix: bool, number: usize) -> Result<Value> {
+fn worker(
+    args: &Args,
+    root: &Path,
+    session: &Path,
+    prefix: bool,
+    number: usize,
+    resident: Option<&mut Option<localvox_light_process::StdioSession>>,
+) -> Result<Value> {
+    if let Some(resident) = resident {
+        return resident_worker(args, root, session, prefix, number, resident);
+    }
     let mut command = std::process::Command::new(&args.worker);
     command
         .arg(session)
@@ -224,7 +241,73 @@ fn worker(args: &Args, root: &Path, session: &Path, prefix: bool, number: usize)
         Value::Null
     };
     Ok(
-        json!({"prefix":prefix,"wall_sec":output.elapsed.as_secs_f64(),"resources":metrics,"report":report}),
+        json!({"prefix":prefix,"spawned":true,"wall_sec":output.elapsed.as_secs_f64(),"resources":metrics,"report":report}),
+    )
+}
+
+fn resident_worker(
+    args: &Args,
+    root: &Path,
+    session: &Path,
+    prefix: bool,
+    number: usize,
+    resident: &mut Option<localvox_light_process::StdioSession>,
+) -> Result<Value> {
+    use localvox_light_core::jobs::asr_worker::{Reply, Request};
+    let start = Instant::now();
+    let spawned = resident.is_none();
+    if spawned {
+        let mut command = std::process::Command::new(&args.worker);
+        command
+            .arg("--worker-serve")
+            .arg("--work-dir")
+            .arg(root)
+            .current_dir(root)
+            .env("LOCALVOX_DIARIZE", "off")
+            .env("LOCALVOX_LANG", "ru")
+            .env("LOCALVOX_PROFILE_WINDOWS", root.join("windows.jsonl"));
+        *resident = Some(localvox_light_process::StdioSession::spawn(command)?);
+    }
+    let server = resident.as_mut().context("native resident missing")?;
+    let pid = server.pid();
+    let before = if spawned {
+        json!({"cpu_sec":0.0,"read_bytes":0.0,"write_bytes":0.0})
+    } else {
+        resources::Process::open(pid)
+            .map(|p| p.read())
+            .unwrap_or_else(resources::unavailable)
+    };
+    let stopped = Arc::new(AtomicBool::new(false));
+    let signal = stopped.clone();
+    let observer = std::thread::spawn(move || resources::observe(pid, &signal));
+    let mut request = Request::new(number as u64 + 1, session.into(), args.model.clone());
+    request.prefix = prefix;
+    let result = server.request(
+        &serde_json::to_vec(&request)?,
+        localvox_light_process::Limits::new(Duration::from_secs(7200)),
+        || false,
+        |_, _| {},
+    );
+    let active_wall = start.elapsed().as_secs_f64();
+    stopped.store(true, Ordering::Relaxed);
+    let mut metrics = observer.join().unwrap();
+    for field in ["cpu_sec", "read_bytes", "write_bytes"] {
+        metrics[field] = metrics[field]
+            .as_f64()
+            .zip(before[field].as_f64())
+            .map(|(a, b)| json!((a - b).max(0.0)))
+            .unwrap_or(Value::Null);
+    }
+    metrics["scope"] =
+        json!("resident_process_request_delta; peaks are process lifetime high-water");
+    let output = result?;
+    fs::write(root.join(format!("worker-{number}.stdout")), &output.stdout)?;
+    fs::write(root.join(format!("worker-{number}.stderr")), &output.stderr)?;
+    let reply: Reply = serde_json::from_slice(&output.stdout)?;
+    reply.validate(request.id)?;
+    let report = reply.result.map_err(anyhow::Error::msg)?;
+    Ok(
+        json!({"prefix":prefix,"spawned":spawned,"model_loads":reply.model_loads,"pid":pid,"wall_sec":active_wall,"resources":metrics,"report":report}),
     )
 }
 fn trace(root: &Path) -> Result<Vec<Value>> {
@@ -234,12 +317,33 @@ fn trace(root: &Path) -> Result<Vec<Value>> {
         .collect()
 }
 fn cached_trace(session: &Path, identity: &str) -> Result<Vec<Value>> {
+    use localvox_light_core::incremental::{consume_windows, Cache, Horizon, Identity};
+    let saved: Identity = serde_json::from_slice(&fs::read(
+        session.join(format!("incremental/{identity}/identity.json")),
+    )?)?;
+    ensure!(
+        saved.fingerprint()? == identity,
+        "cache identity differs from final receipt"
+    );
+    let cache = Cache::open(session, &saved)?;
+    let horizon = Horizon::read(session)?;
+    // Audit actual PCM against both legacy JSON and framed results outside the
+    // measured operation. No checkpoint adoption and no missing result repair.
     let mut rows = Vec::new();
-    for entry in fs::read_dir(session.join(format!("incremental/{identity}/windows")))? {
-        let value: Value = serde_json::from_slice(&fs::read(entry?.path())?)?;
-        let d = &value["value"]["input"];
-        rows.push(json!({"source":d["source"],"start":d["start_sample"],"end":d["end_sample"],"kind":d["kind"],"pcm_sha256":d["pcm_sha256"]}));
-    }
+    consume_windows(
+        session,
+        &horizon,
+        &BTreeMap::new(),
+        || false,
+        |window| {
+            let record = cache
+                .lookup(&window)?
+                .context("final ASR cache result is missing")?;
+            let d = record.descriptor();
+            rows.push(json!({"source":d.source,"start":d.start_sample,"end":d.end_sample,"kind":d.kind,"pcm_sha256":d.pcm_sha256}));
+            Ok(())
+        },
+    )?;
     rows.sort_by_key(|r| (r["source"].as_u64(), r["start"].as_u64()));
     Ok(rows)
 }
@@ -256,7 +360,11 @@ fn run(
 ) -> Result<Value> {
     let root = args.output.join(name);
     fs::create_dir(&root)?;
-    let mut recording = Recording::new(&root, incremental, generation)?;
+    let mut recording = Recording::new(
+        &root,
+        incremental || args.current_capture_baseline,
+        generation,
+    )?;
     let process = resources::Process::open(std::process::id());
     let before = process
         .as_ref()
@@ -265,6 +373,7 @@ fn run(
     let start = Instant::now();
     let mut producer_wall = 0.0;
     let mut workers = Vec::new();
+    let mut resident = None;
     let mut from = 0;
     let mut chunks = 0;
     while from < n {
@@ -287,6 +396,7 @@ fn run(
                 &recording.session,
                 true,
                 workers.len(),
+                (!args.one_shot).then_some(&mut resident),
             )?;
             eprintln!(
                 "{name}: {}/{} s · prefix {:.2} s",
@@ -305,7 +415,14 @@ fn run(
     let session = recording.session.clone();
     let root = recording.root.clone();
     drop(recording);
-    let out = worker(args, &root, &session, false, workers.len())?;
+    let out = worker(
+        args,
+        &root,
+        &session,
+        false,
+        workers.len(),
+        (incremental && !args.one_shot).then_some(&mut resident),
+    )?;
     workers.push(out);
     let stop_ready = stop.elapsed().as_secs_f64();
     let wall = start.elapsed().as_secs_f64();
@@ -370,14 +487,22 @@ fn run(
             .map(|w| w["resources"][key].as_f64())
             .sum::<Option<f64>>()
     };
-    let loads = workers
-        .iter()
-        .filter(|w| w["report"]["model_loaded"] == true)
-        .count()
-        + usize::from(final_calls > 0);
+    let loads = if incremental && !args.one_shot {
+        workers
+            .iter()
+            .map(|w| w["model_loads"].as_u64().unwrap())
+            .sum::<u64>() as usize
+    } else {
+        workers
+            .iter()
+            .filter(|w| w["report"]["model_loaded"] == true)
+            .count()
+            + usize::from(final_calls > 0)
+    };
+    let starts = workers.iter().filter(|w| w["spawned"] == true).count();
     let result = json!({"name":name,"incremental":incremental,"batch_chunks":batch,"input_samples":n,"producer_wall_sec":producer_wall,"worker_wall_sec":worker_wall,"active_wall_sec":producer_wall+worker_wall,"observed_run_wall_sec":wall,"stop_to_ready_sec":stop_ready,
         "producer_cpu_sec":producer_cpu,"worker_cpu_sec":cpu_workers,"cpu_sec":producer_cpu.zip(cpu_workers).map(|(a,b)|a+b),"producer_logical_read_bytes":delta("read_bytes"),"producer_logical_write_bytes":delta("write_bytes"),"producer_process_after":after,
-        "worker_logical_read_bytes":worker_io("read_bytes"),"worker_logical_write_bytes":worker_io("write_bytes"),"worker_starts":workers.len(),"model_loads":loads,
+        "worker_logical_read_bytes":worker_io("read_bytes"),"worker_logical_write_bytes":worker_io("write_bytes"),"worker_starts":starts,"model_loads":loads,
         "early_asr_calls":early_calls,"final_asr_calls":final_calls,"asr_calls":early_calls+final_calls,"final_cache_hits":cache["hits"],"windows":actual.len(),"window_sha256":sha(&serde_json::to_vec(&actual)?),"text_sha256":sha(&serde_json::to_vec(&final_text)?),"text_lines":lines.len(),"workers":workers});
     save(&root.join("text.json"), &json!(final_text))?;
     save(&root.join("run-report.json"), &result)?;
@@ -386,6 +511,8 @@ fn run(
 
 fn main() -> Result<()> {
     std::env::set_var("LOCALVOX_LANG", "ru");
+    // The receipt and both worker paths must fingerprint the same recipe.
+    std::env::set_var("LOCALVOX_DIARIZE", "off");
     let mut args = Args::parse();
     args.input = args.input.canonicalize()?;
     args.model = args.model.canonicalize()?;
@@ -415,7 +542,7 @@ fn main() -> Result<()> {
         },
         || false,
     )?;
-    let plan = json!({"input":args.input,"input_file_sha256":file_sha(&args.input)?,"samples":n,"whole_source_samples":all,"worker":args.worker,"worker_sha256":file_sha(&args.worker)?,"model":selection.identity,"window_params":{"max_sec":15,"min_sec":8,"silence_ms":500},"transport_samples":300*16000,"source1":"actual zero PCM","diarization":"off; independent hardware/model acceptance","schedule":["offline-1","incremental-1-steady","offline-2","incremental-2-burst3","offline-3","incremental-3-steady"],"gate":{"active_wall_overhead":0.20,"every_pair":true,"aggregate":true},"cpu_count":std::thread::available_parallelism()?.get()});
+    let plan = json!({"input":args.input,"input_file_sha256":file_sha(&args.input)?,"samples":n,"whole_source_samples":all,"worker":args.worker,"worker_sha256":file_sha(&args.worker)?,"offline_capture":if args.current_capture_baseline {"current capture and planner; ASR only after Stop"} else {"legacy capture without ledger/planner; original reference"},"worker_lifecycle":if args.one_shot {"one-shot"} else {"resident incremental; one-shot offline"},"model":selection.identity,"window_params":{"max_sec":15,"min_sec":8,"silence_ms":500},"transport_samples":300*16000,"source1":"actual zero PCM","diarization":"off; independent hardware/model acceptance","schedule":["offline-1","incremental-1-steady","offline-2","incremental-2-burst3","offline-3","incremental-3-steady"],"gate":{"active_wall_overhead":0.20,"every_pair":true,"aggregate":true},"cpu_count":std::thread::available_parallelism()?.get()});
     save(&args.output.join("plan.json"), &plan)?;
     let mut runs = Vec::new();
     let mut pairs = Vec::new();

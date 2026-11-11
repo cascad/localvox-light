@@ -4,11 +4,15 @@ version.workspace = true
 edition.workspace = true
 description = "Bounded, cancellable execution of external process trees"
 
+[[test]]
+name = "resident_io"
+harness = false
+
 [dependencies]
 anyhow.workspace = true
 tempfile.workspace = true
 process-wrap = { version = "10.0.1", default-features = false, features = ["tokio1", "job-object", "creation-flags", "process-group", "kill-on-drop"] }
-tokio = { version = "1", features = ["rt", "time", "process"] }
+tokio = { version = "1", features = ["rt", "time", "process", "io-util", "macros"] }
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62.2", features = ["Win32_System_Threading"] }

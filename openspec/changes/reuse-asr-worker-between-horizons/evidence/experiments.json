@@ -1,0 +1,238 @@
+[
+  {
+    "workspace": "target\\incremental-warm-reference-20261111",
+    "complete": true,
+    "pass": false,
+    "aggregate_overhead": 0.3485525056365739,
+    "pairs": [
+      {
+        "batch_chunks": 1,
+        "overhead": 0.4971951976962383,
+        "pair": 1,
+        "pass": false,
+        "same_asr_calls": true,
+        "same_text": true,
+        "same_windows": true,
+        "stop_to_ready_sec": 6.3182091
+      },
+      {
+        "batch_chunks": 3,
+        "overhead": 0.24955004325270957,
+        "pair": 2,
+        "pass": false,
+        "same_asr_calls": true,
+        "same_text": true,
+        "same_windows": true,
+        "stop_to_ready_sec": 14.4389162
+      },
+      {
+        "batch_chunks": 1,
+        "overhead": 0.31968181881549085,
+        "pair": 3,
+        "pass": false,
+        "same_asr_calls": true,
+        "same_text": true,
+        "same_windows": true,
+        "stop_to_ready_sec": 6.6887617
+      }
+    ],
+    "runs": [
+      {
+        "name": "offline-1",
+        "active_wall_sec": 86.1370335,
+        "producer_wall_sec": 2.0308005000000002,
+        "worker_wall_sec": 84.106233,
+        "cpu_sec": 36.75,
+        "worker_starts": 1,
+        "model_loads": 1,
+        "asr_calls": 714,
+        "windows": 1608,
+        "text_lines": 704,
+        "stop_to_ready_sec": 84.3519057
+      },
+      {
+        "name": "incremental-1",
+        "active_wall_sec": 128.9639529,
+        "producer_wall_sec": 21.369967000000006,
+        "worker_wall_sec": 107.5939859,
+        "cpu_sec": 31.859375,
+        "worker_starts": 1,
+        "model_loads": 1,
+        "asr_calls": 714,
+        "windows": 1608,
+        "text_lines": 704,
+        "stop_to_ready_sec": 6.3182091
+      },
+      {
+        "name": "offline-2",
+        "active_wall_sec": 100.7564622,
+        "producer_wall_sec": 15.947261600000004,
+        "worker_wall_sec": 84.8092006,
+        "cpu_sec": 37.03125,
+        "worker_starts": 1,
+        "model_loads": 1,
+        "asr_calls": 714,
+        "windows": 1608,
+        "text_lines": 704,
+        "stop_to_ready_sec": 85.2991072
+      },
+      {
+        "name": "incremental-2",
+        "active_wall_sec": 125.9002417,
+        "producer_wall_sec": 26.583556799999997,
+        "worker_wall_sec": 99.3166849,
+        "cpu_sec": 34.3125,
+        "worker_starts": 1,
+        "model_loads": 1,
+        "asr_calls": 714,
+        "windows": 1608,
+        "text_lines": 704,
+        "stop_to_ready_sec": 14.4389162
+      },
+      {
+        "name": "offline-3",
+        "active_wall_sec": 97.9714374,
+        "producer_wall_sec": 16.225723099999996,
+        "worker_wall_sec": 81.7457143,
+        "cpu_sec": 33.703125,
+        "worker_starts": 1,
+        "model_loads": 1,
+        "asr_calls": 714,
+        "windows": 1608,
+        "text_lines": 704,
+        "stop_to_ready_sec": 82.2932319
+      },
+      {
+        "name": "incremental-3",
+        "active_wall_sec": 129.2911247,
+        "producer_wall_sec": 26.955621100000002,
+        "worker_wall_sec": 102.3355036,
+        "cpu_sec": 34.71875,
+        "worker_starts": 1,
+        "model_loads": 1,
+        "asr_calls": 714,
+        "windows": 1608,
+        "text_lines": 704,
+        "stop_to_ready_sec": 6.6887617
+      }
+    ]
+  },
+  {
+    "workspace": "target\\incremental-wal-reference-20261111",
+    "complete": true,
+    "pass": false,
+    "aggregate_overhead": 0.2301687414975484,
+    "pairs": [
+      {
+        "batch_chunks": 1,
+        "overhead": 0.15685959551858608,
+        "pair": 1,
+        "pass": true,
+        "same_asr_calls": true,
+        "same_text": true,
+        "same_windows": true,
+        "stop_to_ready_sec": 5.7609291
+      },
+      {
+        "batch_chunks": 3,
+        "overhead": 0.26349848072102344,
+        "pair": 2,
+        "pass": false,
+        "same_asr_calls": true,
+        "same_text": true,
+        "same_windows": true,
+        "stop_to_ready_sec": 12.4426419
+      },
+      {
+        "batch_chunks": 1,
+        "overhead": 0.27711980575227835,
+        "pair": 3,
+        "pass": false,
+        "same_asr_calls": true,
+        "same_text": true,
+        "same_windows": true,
+        "stop_to_ready_sec": 5.7454993
+      }
+    ],
+    "runs": [
+      {
+        "name": "offline-1",
+        "active_wall_sec": 85.7612163,
+        "producer_wall_sec": 1.4337322,
+        "worker_wall_sec": 84.3274841,
+        "cpu_sec": 36.234375,
+        "worker_starts": 1,
+        "model_loads": 1,
+        "asr_calls": 714,
+        "windows": 1608,
+        "text_lines": 704,
+        "stop_to_ready_sec": 84.3824885
+      },
+      {
+        "name": "incremental-1",
+        "active_wall_sec": 99.21368599999998,
+        "producer_wall_sec": 5.394988299999999,
+        "worker_wall_sec": 93.81869769999999,
+        "cpu_sec": 34.46875,
+        "worker_starts": 1,
+        "model_loads": 1,
+        "asr_calls": 714,
+        "windows": 1608,
+        "text_lines": 704,
+        "stop_to_ready_sec": 5.7609291
+      },
+      {
+        "name": "offline-2",
+        "active_wall_sec": 78.382247,
+        "producer_wall_sec": 1.4309412,
+        "worker_wall_sec": 76.9513058,
+        "cpu_sec": 36.96875,
+        "worker_starts": 1,
+        "model_loads": 1,
+        "asr_calls": 714,
+        "windows": 1608,
+        "text_lines": 704,
+        "stop_to_ready_sec": 76.9918596
+      },
+      {
+        "name": "incremental-2",
+        "active_wall_sec": 99.03585000000001,
+        "producer_wall_sec": 5.4566065,
+        "worker_wall_sec": 93.5792435,
+        "cpu_sec": 33.546875,
+        "worker_starts": 1,
+        "model_loads": 1,
+        "asr_calls": 714,
+        "windows": 1608,
+        "text_lines": 704,
+        "stop_to_ready_sec": 12.4426419
+      },
+      {
+        "name": "offline-3",
+        "active_wall_sec": 78.2649282,
+        "producer_wall_sec": 1.4341437999999997,
+        "worker_wall_sec": 76.8307844,
+        "cpu_sec": 34.21875,
+        "worker_starts": 1,
+        "model_loads": 1,
+        "asr_calls": 714,
+        "windows": 1608,
+        "text_lines": 704,
+        "stop_to_ready_sec": 76.8852607
+      },
+      {
+        "name": "incremental-3",
+        "active_wall_sec": 99.95368990000001,
+        "producer_wall_sec": 5.395912099999999,
+        "worker_wall_sec": 94.55777780000001,
+        "cpu_sec": 35.59375,
+        "worker_starts": 1,
+        "model_loads": 1,
+        "asr_calls": 714,
+        "windows": 1608,
+        "text_lines": 704,
+        "stop_to_ready_sec": 5.7454993
+      }
+    ]
+  }
+]

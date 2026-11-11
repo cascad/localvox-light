@@ -2,6 +2,56 @@ use super::*;
 use crate::incremental::test_support::Fixture;
 
 #[test]
+fn transaction_revalidates_new_records_and_recovers_from_disk_on_the_next_request() {
+    let f = Fixture::new([&[10, 20], &[10, 20]], true);
+    let _lease = f.lease();
+    let cache = Cache::open(&f.session, &f.identity).unwrap();
+    let transaction = cache.begin(&f.horizon).unwrap();
+    let accepted = cache
+        .resolve(f.window(0, 0), |_| Ok("слова".into()))
+        .unwrap()
+        .0;
+    let key = accepted.key.clone();
+    cache
+        .wal
+        .lock()
+        .unwrap()
+        .replace(&key, b"broken after result")
+        .unwrap();
+    assert!(transaction.finish(&f.session, &[accepted]).is_err());
+    assert!(!f.session.join("incremental/current.json").exists());
+    let transaction = cache.begin(&f.horizon).unwrap();
+    let mut all = Vec::new();
+    for id in [0, 1] {
+        for n in 0..2 {
+            all.push(
+                cache
+                    .resolve(f.window(id, n), |_| Ok("слова".into()))
+                    .unwrap()
+                    .0,
+            );
+        }
+    }
+    let state = transaction.finish(&f.session, &all).unwrap();
+    assert!(state.complete);
+    assert!(crate::incremental::Published::current(&f.session)
+        .unwrap()
+        .unwrap()
+        .read(&f.session)
+        .is_ok());
+    cache
+        .wal
+        .lock()
+        .unwrap()
+        .replace(&key, b"broken between requests")
+        .unwrap();
+    assert_eq!(
+        cache.begin(&f.horizon).unwrap().state().sources[&0].end_sample,
+        0
+    );
+}
+
+#[test]
 fn result_before_checkpoint_is_revalidated_and_reused_without_asr_or_duplicate_lines() {
     let f = Fixture::new([&[10, 20], &[10, 20]], true);
     let _lease = f.lease();
@@ -74,8 +124,12 @@ fn corrupt_cache_rolls_back_only_its_source_prefix_and_repairs_only_missing_work
     }
     cache.checkpoint(&f.horizon, &all).unwrap();
     let key = cache.key(&f.horizon.windows[&0][1]).unwrap();
-    let path = cache.root.join("windows").join(format!("{key}.json"));
-    fs::write(&path, b"{partial result before sync").unwrap();
+    cache
+        .wal
+        .lock()
+        .unwrap()
+        .replace(&key, b"{partial result before sync")
+        .unwrap();
     let (rolled, _) = cache.read_checkpoint(&f.horizon).unwrap();
     assert_eq!(rolled.sources[&0].end_sample, 10);
     assert_eq!(rolled.sources[&1].end_sample, 30);
@@ -291,7 +345,7 @@ fn unpublished_temporary_result_is_ignored_and_foreign_or_stale_results_cannot_c
         .resolve(f.window(0, 0), |_| Ok("первый".into()))
         .unwrap()
         .0;
-    let path = cache.root.join("windows").join(format!("{}.json", a.key));
+    let path = cache.wal.lock().unwrap().location(&a.key);
     let pending = path.with_extension("pending");
     fs::rename(&path, &pending).unwrap();
     File::options()
@@ -348,11 +402,17 @@ fn corrupted_descriptor_and_invalid_empty_outcome_never_become_coverage() {
         .resolve(f.window(0, 0), |_| Ok("содержимое".into()))
         .unwrap()
         .0;
-    let path = cache.root.join("windows").join(format!("{}.json", a.key));
-    let (mut bad, _) = read_envelope::<Record>(&path).unwrap();
+    let (mut bad, _) =
+        decode_envelope::<Record>(&cache.wal.lock().unwrap().get(&a.key).unwrap().unwrap())
+            .unwrap();
     bad.outcome = Output::Empty;
     bad.text = None;
-    fs::write(&path, envelope(&bad).unwrap()).unwrap();
+    cache
+        .wal
+        .lock()
+        .unwrap()
+        .replace(&a.key, &envelope(&bad).unwrap())
+        .unwrap();
     let mut calls = 0;
     let (fixed, reused) = cache
         .resolve(f.window(0, 0), |_| {
@@ -378,6 +438,38 @@ fn corrupted_descriptor_and_invalid_empty_outcome_never_become_coverage() {
         || true
     )
     .is_err());
+}
+
+#[test]
+fn legacy_json_result_remains_reusable_without_asr_or_migration() {
+    let f = Fixture::new([&[10], &[10]], true);
+    let _lease = f.lease();
+    let cache = Cache::open(&f.session, &f.identity).unwrap();
+    let input = f.horizon.windows[&0][0].clone();
+    let record = Record {
+        version: 1,
+        input: input.clone(),
+        recognizer: cache.identity.clone(),
+        outcome: Output::Text,
+        raw_text: Some("старый результат".into()),
+        text: Some("старый результат".into()),
+    };
+    let key = cache.key(&input).unwrap();
+    let path = cache.root.join("windows").join(format!("{key}.json"));
+    let bytes = envelope(&record).unwrap();
+    fs::write(&path, &bytes).unwrap();
+    let (accepted, reused) = cache
+        .resolve(f.window(0, 0), |_| panic!("legacy hit must not call ASR"))
+        .unwrap();
+    assert!(reused);
+    cache.checkpoint(&f.horizon, &[accepted]).unwrap();
+    let reopened = Cache::open(&f.session, &f.identity).unwrap();
+    assert_eq!(
+        reopened.read_checkpoint(&f.horizon).unwrap().0.sources[&0].end_sample,
+        10
+    );
+    assert_eq!(fs::read(path).unwrap(), bytes);
+    assert!(reopened.wal.lock().unwrap().get(&key).unwrap().is_none());
 }
 
 #[test]

@@ -73,6 +73,9 @@ fn pump(file: &mut File, stream: Stream, observer: &OutputObserver, limit: u64) 
 
 pub const CONTAINED_ENV: &str = "LOCALVOX_PROCESS_CONTAINED";
 
+mod stdio_session;
+pub use stdio_session::{StdioReply, StdioSession};
+
 #[derive(Clone, Copy, Debug, Default)]
 pub enum Scope {
     #[default]
