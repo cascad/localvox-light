@@ -431,3 +431,9 @@ auto-expiring hint проверены; 28 snapshots меняют только q 
 y/н копирует выбранный SummaryBlock.text, Ctrl+Y — всю сводку; 185 lib,
 4 ConPTY, IO/run-script passed, 12 snapshots просмотрены. Ручной clipboard not-run;
 main specs и прежние свидетельства не переписаны.
+
+## Раскладки команд UI/TUI · 2026-11-11
+
+| ID | Delta / код | Свидетельство | Граница |
+|---|---|---|---|
+| ARCH-001; ARCH-017 в delta | [delta](../changes/configure-command-keymaps/specs/archive-playback/spec.md), [UI](../../ui/src/DocumentPane.tsx), [TUI keymap](../../crates/localvox-light-terminal/src/keymap.rs) | [test-run](../changes/configure-command-keymaps/evidence/implementation.md): 189 lib / 5 ConPTY / IO/run-script; UI build, 14 unit / 2 browser e2e; прежние snapshots | Physical code для UI, явные символьные overrides для TUI. Реальные hosts/IME/Mac not-run; main specs не изменены |

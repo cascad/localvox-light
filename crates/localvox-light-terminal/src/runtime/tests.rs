@@ -27,8 +27,11 @@ fn terminal_error_fixture() {
 #[test]
 fn clipboard_hotkey_and_terminal_paste_have_one_safe_path_without_reading_real_clipboard() {
     use crossterm::event::{KeyEvent, KeyModifiers};
-    for key in ['v', 'V', 'м', 'М'] {
+    for key in ['v', 'V', 'м', 'М', 'ω', 'Ω'] {
         let mut app = App::default();
+        app.keymap =
+            crate::keymap::Keymap::from_json(r#"{"version":1,"keys":{"ω":"v"}}"#.as_bytes())
+                .unwrap();
         dispatch(
             &mut app,
             Event::Key(KeyEvent::new(KeyCode::Char(key), KeyModifiers::CONTROL)),

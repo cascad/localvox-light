@@ -100,6 +100,7 @@ pub fn run(mut client: Client, mut app: App) -> Result<()> {
                         let light = app.light;
                         let monochrome = app.monochrome;
                         let color16 = app.color16;
+                        let keymap = app.keymap.clone();
                         app.console.recover_operation(&crate::diagnostics::Context {
                             source: "Клиент".into(),
                             operation: "Подключение".into(),
@@ -112,6 +113,7 @@ pub fn run(mut client: Client, mut app: App) -> Result<()> {
                             light,
                             monochrome,
                             color16,
+                            keymap,
                             address: client.address().into(),
                             ..Default::default()
                         };
@@ -215,7 +217,10 @@ fn dispatch(app: &mut App, event: Event, clipboard: impl FnOnce() -> Result<Stri
         Event::Key(key) if key.kind != KeyEventKind::Release => {
             if key.modifiers.contains(KeyModifiers::CONTROL)
                 && !key.modifiers.contains(KeyModifiers::ALT)
-                && matches!(key.code, KeyCode::Char('v' | 'V' | 'м' | 'М' | '\u{16}'))
+                && matches!(
+                    app.shortcut_key(key).code,
+                    KeyCode::Char('v' | 'V' | '\u{16}')
+                )
             {
                 app.cancel_quit_confirmation();
                 match clipboard() {

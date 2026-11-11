@@ -443,6 +443,13 @@ fn real_terminal_accepts_paste_resize_and_restores_screen_on_quit() {
 #[test]
 fn unauthorized_start_can_reconnect_through_the_masked_form_without_replaying_stop() {
     const TOKEN: &str = "synthetic-reconnect-secret";
+    let config = tempfile::tempdir().unwrap();
+    let keymap = config.path().join("keys.json");
+    std::fs::write(
+        &keymap,
+        r#"{"version":1,"keys":{"λ":"j","ω":"q"}}"#.as_bytes(),
+    )
+    .unwrap();
     let api = ApiFixture::with_token(Some(TOKEN));
     let pair = native_pty_system()
         .openpty(PtySize {
@@ -454,6 +461,8 @@ fn unauthorized_start_can_reconnect_through_the_masked_form_without_replaying_st
         .unwrap();
     let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_localvox-tui"));
     command.args(["--address", &api.address, "--ascii", "--no-color"]);
+    command.arg("--keymap");
+    command.arg(&keymap);
     command.env("LOCALVOX_API_TOKEN", "");
     let mut child = OwnedChild(pair.slave.spawn_command(command).unwrap());
     drop(pair.slave);
@@ -509,7 +518,7 @@ fn unauthorized_start_can_reconnect_through_the_masked_form_without_replaying_st
         .iter()
         .position(|(action, _)| *action == Action::Connection)
         .unwrap();
-    writer.write_all(&vec![b'j'; connection]).unwrap();
+    writer.write_all("λ".repeat(connection).as_bytes()).unwrap();
     writer.write_all(b"\r").unwrap();
     writer.flush().unwrap();
     see!("Подключение к демону");
@@ -523,7 +532,7 @@ fn unauthorized_start_can_reconnect_through_the_masked_form_without_replaying_st
     writer.flush().unwrap();
     see!("Архитектура и следующие шаги");
     assert_eq!(api.stops.load(Ordering::Relaxed), 0);
-    writer.write_all(b"\tqq").unwrap(); // leave the list input; confirm exit without Ctrl+Q
+    writer.write_all("\tωω".as_bytes()).unwrap(); // custom mapping must survive reconnect
     writer.flush().unwrap();
     see!("\x1b[?1049l");
     assert!(child.0.wait().unwrap().success());
@@ -536,6 +545,26 @@ fn unauthorized_start_can_reconnect_through_the_masked_form_without_replaying_st
         "token must not appear in terminal capture"
     );
     assert_eq!(api.stops.load(Ordering::Relaxed), 0);
+}
+
+#[test]
+fn invalid_keymap_fails_before_entering_the_terminal_or_connecting() {
+    let config = tempfile::tempdir().unwrap();
+    for name in ["missing.json", "invalid.json"] {
+        let path = config.path().join(name);
+        if name == "invalid.json" {
+            std::fs::write(&path, b"not JSON").unwrap();
+        }
+        let result = std::process::Command::new(env!("CARGO_BIN_EXE_localvox-tui"))
+            .args(["--address", "http://127.0.0.1:1", "--keymap"])
+            .arg(path)
+            .output()
+            .unwrap();
+        assert!(!result.status.success());
+        let error = String::from_utf8_lossy(&result.stderr);
+        assert!(error.contains("клавиш"), "{error}");
+        assert!(!result.stdout.windows(8).any(|s| s == b"\x1b[?1049h"));
+    }
 }
 
 #[test]

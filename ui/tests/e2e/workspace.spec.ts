@@ -363,6 +363,29 @@ test("raw Text is a single body and the copy shortcut includes offscreen text wi
   expect(copied[2]).toBe(full);
 });
 
+test("copy shortcut uses the physical key across layouts and respects IME and editors", async ({ page }) => {
+  await workspace(page);
+  const copied: string[] = [];
+  await page.exposeFunction("captureKeyCopy", (text: string) => { copied.push(text); });
+  await page.evaluate(() => Object.defineProperty(navigator, "clipboard", { value: { writeText: (text: string) => (window as unknown as { captureKeyCopy: (text: string) => Promise<void> }).captureKeyCopy(text) } }));
+  await page.getByRole("button", { name: "Текст", exact: true }).click();
+  await expect(page.locator(".book")).not.toBeEmpty();
+  for (const [index, key] of ["с", "ψ", "ч", "中"].entries()) {
+    const handled = await page.evaluate(key => !window.dispatchEvent(new KeyboardEvent("keydown", { key, code: "KeyC", ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true })), key);
+    expect(handled).toBe(true);
+    await expect.poll(() => copied.length).toBe(index + 1);
+  }
+  for (const extra of [{ code: "KeyV" }, { isComposing: true }, { repeat: true }, { altKey: true }]) {
+    const handled = await page.evaluate(extra => !window.dispatchEvent(new KeyboardEvent("keydown", { key: "c", code: "KeyC", ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true, ...extra })), extra);
+    expect(handled).toBe(false);
+  }
+  await page.getByPlaceholder("Поиск по архиву…").evaluate(element => element.dispatchEvent(new KeyboardEvent("keydown", { key: "с", code: "KeyC", ctrlKey: true, shiftKey: true, bubbles: true })));
+  expect(copied.length).toBe(4);
+  await page.evaluate(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "ц", code: "KeyC", metaKey: true, shiftKey: true, bubbles: true })));
+  await expect.poll(() => copied.length).toBe(5);
+  expect(new Set(copied).size).toBe(1);
+});
+
 for (const endpoint of ["sessions", "jobs", "record"]) {
   test(`workspace ${endpoint} polling never overlaps a slow background GET`, async ({ page }) => {
     await workspace(page);

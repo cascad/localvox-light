@@ -81,7 +81,7 @@ export function DocumentPane({ session, tab, setTab, pos, onSeek, onChanged, say
   useEffect(() => {
     if (tab !== "processed") return;
     const keydown = (event: KeyboardEvent) => {
-      if (!(event.ctrlKey || event.metaKey) || !event.shiftKey || event.altKey || event.repeat || event.key.toLowerCase() !== "c") return;
+      if (!(event.ctrlKey || event.metaKey) || !event.shiftKey || event.altKey || event.repeat || event.isComposing || event.code !== "KeyC") return;
       if (event.target instanceof Element && event.target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])')) return;
       event.preventDefault();
       void copy();

@@ -2,6 +2,7 @@ pub mod app;
 pub mod diagnostics;
 pub mod io;
 pub mod journal;
+pub mod keymap;
 pub mod launcher;
 pub mod player;
 #[cfg(windows)]

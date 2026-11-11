@@ -164,6 +164,7 @@ pub struct App {
     pub quit: bool,
     pub quit_sequence: Option<QuitSequence>,
     pub detail_parent: Option<DetailParent>,
+    pub keymap: crate::keymap::Keymap,
     pub ascii: bool,
     pub monochrome: bool,
     pub color16: bool,
@@ -253,6 +254,7 @@ impl Default for App {
             quit: false,
             quit_sequence: None,
             detail_parent: None,
+            keymap: crate::keymap::Keymap::default(),
             ascii: false,
             monochrome: false,
             color16: false,
@@ -1025,6 +1027,11 @@ impl App {
             self.route_hints.clear();
         }
     }
+    pub fn shortcut_key(&self, key: KeyEvent) -> KeyEvent {
+        self.keymap
+            .translate(key)
+            .unwrap_or_else(|| archive_list::command_key(key))
+    }
     pub fn key(&mut self, mut key: KeyEvent) {
         if key.kind == crossterm::event::KeyEventKind::Release {
             return;
@@ -1032,14 +1039,15 @@ impl App {
         if self.view != View::Archive || self.focus != 1 {
             self.archive_filter_editing = false;
         }
-        if self.quit_key(key) {
+        let shortcut = self.shortcut_key(key);
+        if self.quit_key(shortcut) {
             return;
         }
         if self.archive_filter_key(key) {
             return;
         }
         if self.form.is_none() {
-            key = archive_list::command_key(key);
+            key = shortcut;
         }
         if self.console_key(key) {
             return;
@@ -1074,7 +1082,7 @@ impl App {
         }
         if self.form.is_some() {
             if key.modifiers.contains(KeyModifiers::CONTROL)
-                && matches!(key.code, KeyCode::Char('r' | 'R' | 'к' | 'К'))
+                && matches!(shortcut.code, KeyCode::Char('r' | 'R'))
                 && self
                     .form
                     .as_ref()
@@ -1088,10 +1096,7 @@ impl App {
                 return;
             }
             if key.modifiers.contains(KeyModifiers::CONTROL)
-                && matches!(
-                    key.code,
-                    KeyCode::Enter | KeyCode::Char('s' | 'S' | 'ы' | 'Ы')
-                )
+                && matches!(shortcut.code, KeyCode::Enter | KeyCode::Char('s' | 'S'))
             {
                 if let Err(e) = self.submit_form() {
                     if let Some(f) = &mut self.form {

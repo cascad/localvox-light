@@ -56,7 +56,7 @@ impl App {
             if !key
                 .modifiers
                 .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
-                && command_key(key).code == KeyCode::Char('/')
+                && self.shortcut_key(key).code == KeyCode::Char('/')
             {
                 self.archive_filter_editing = true;
                 return true;
@@ -64,7 +64,7 @@ impl App {
             return false;
         }
         if key.modifiers.contains(KeyModifiers::CONTROL) {
-            if matches!(key.code, KeyCode::Char('u' | 'U' | 'г' | 'Г')) {
+            if matches!(self.shortcut_key(key).code, KeyCode::Char('u' | 'U')) {
                 self.set_archive_filter(String::new());
                 return true;
             }

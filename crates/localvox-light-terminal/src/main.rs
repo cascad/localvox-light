@@ -24,13 +24,23 @@ struct Cli {
     color16: bool,
     #[arg(long)]
     light: bool,
+    /// Optional JSON command keymap; ordinary text and paste remain unchanged.
+    #[arg(long, env = "LOCALVOX_TUI_KEYMAP")]
+    keymap: Option<std::path::PathBuf>,
 }
 
 fn main() -> anyhow::Result<()> {
     let mut cli = Cli::parse();
     cli.token = std::env::var("LOCALVOX_API_TOKEN").unwrap_or_default();
+    let keymap = cli
+        .keymap
+        .as_deref()
+        .map(localvox_light_terminal::keymap::Keymap::load)
+        .transpose()?
+        .unwrap_or_default();
     let client = localvox_light_client::Client::new(&cli.address, cli.token)?;
     let app = localvox_light_terminal::app::App {
+        keymap,
         ascii: cli.ascii,
         monochrome: cli.no_color || std::env::var_os("NO_COLOR").is_some(),
         color16: cli.color16
