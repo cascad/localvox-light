@@ -143,6 +143,7 @@ impl App {
                 self.search_query = get(0);
                 self.search_mode = get(1);
                 self.switch(View::Search);
+                self.focus = 1;
                 self.pending_forms.insert(Resource::Search, retained);
                 self.effects.push((
                     Resource::Search,

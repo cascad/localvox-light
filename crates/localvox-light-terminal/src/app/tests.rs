@@ -842,6 +842,52 @@ fn search_and_chat_failures_keep_the_unicode_query_for_editing() {
 }
 
 #[test]
+fn submitted_search_focuses_results_without_a_late_reply_stealing_focus_or_audio() {
+    let mut a = App::default();
+    a.focus = 2;
+    a.command(Action::Search);
+    a.paste("обсуждение");
+    a.submit_form().unwrap();
+    assert_eq!(a.view, View::Search);
+    assert_eq!(a.focus, 1);
+    assert!(a.form.is_none() && a.player_effects.is_empty());
+    let hits = || {
+        vec![
+            Hit {
+                session: "one".into(),
+                snippet: "Первое совпадение".into(),
+                ..Default::default()
+            },
+            Hit {
+                session: "two".into(),
+                snippet: "Второе совпадение".into(),
+                ..Default::default()
+            },
+        ]
+    };
+    a.apply(Response {
+        id: 1,
+        epoch: a.epoch,
+        resource: Resource::Search,
+        result: Ok(Data::Search(hits())),
+    });
+    a.key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+    assert_eq!(a.selected, 1);
+    assert!(a.document_text().contains("Второе совпадение"));
+    assert!(a.player_effects.is_empty());
+    a.key(KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT));
+    assert_eq!(a.focus, 0);
+    a.apply(Response {
+        id: 2,
+        epoch: a.epoch,
+        resource: Resource::Search,
+        result: Ok(Data::Search(hits())),
+    });
+    assert_eq!(a.focus, 0);
+    assert!(a.player_effects.is_empty());
+}
+
+#[test]
 fn rejected_submission_keeps_its_draft_beside_a_new_form() {
     let mut a = App::default();
     a.command(Action::Chat);

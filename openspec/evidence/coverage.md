@@ -409,3 +409,8 @@ attempt/revival и не дописывают recovery progress до сохран
 170 lib / 4 ConPTY / IO/run-script passed, сроки/контексты/вставка/Unicode и
 auto-expiring hint проверены; 28 snapshots меняют только q → qq в footer.
 Обычный release TUI и прежний review-кандидат обновлены; ручная приёмка not-run.
+
+Продолжение ARCH-001 / delta ARCH-012 от 2026-11-11:
+[фокус списка после отправки поиска](../changes/add-terminal-session-activity/evidence/search-focus.md).
+171 lib / 4 ConPTY / IO/run-script passed; поздний ответ не перехватывает фокус,
+плеер не запускается. Обычная/review сборки обновлены, ручной прогон not-run.
