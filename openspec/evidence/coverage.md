@@ -426,3 +426,8 @@ auto-expiring hint проверены; 28 snapshots меняют только q 
 | ID | Delta / код | Свидетельство | Граница |
 |---|---|---|---|
 | ARCH-001; ARCH-011/016 в delta | [delta](../changes/refine-terminal-copy-and-back/specs/archive-playback/spec.md), [navigation](../../crates/localvox-light-terminal/src/app/navigation.rs), [copy](../../crates/localvox-light-terminal/src/app/documents.rs) | [test-run](../changes/refine-terminal-copy-and-back/evidence/implementation.md): 183 lib, 4 ConPTY, IO/run-script; selected reply/whole text, back/parent/reorder/late replies/player state, 37 reviewed snapshots | Ручной clipboard/аудио и внешний вид not-run. ARCH-011 зависит от исходной delta add-terminal-session-activity; sync/archive не выполнялся, main specs не менялись |
+
+Дополнение ARCH-016: [выбранный блок сводки](../changes/refine-terminal-copy-and-back/evidence/summary-copy.md).
+y/н копирует выбранный SummaryBlock.text, Ctrl+Y — всю сводку; 185 lib,
+4 ConPTY, IO/run-script passed, 12 snapshots просмотрены. Ручной clipboard not-run;
+main specs и прежние свидетельства не переписаны.

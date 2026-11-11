@@ -27,6 +27,7 @@ pub enum Action {
     ResetSetting,
     CopyDocument,
     CopyReply,
+    CopySummaryBlock,
     SaveDocument,
     TogglePlayback,
     PlayFragment,
@@ -76,6 +77,7 @@ pub const COMMANDS: &[(Action, &str)] = &[
     (Action::ResetSetting, "Сбросить настройку"),
     (Action::CopyDocument, "Копировать документ"),
     (Action::CopyReply, "Копировать выбранную реплику"),
+    (Action::CopySummaryBlock, "Копировать выбранный блок сводки"),
     (Action::SaveDocument, "Сохранить документ"),
     (Action::TogglePlayback, "Play / pause"),
     (Action::PlayFragment, "Слушать фрагмент"),
@@ -491,6 +493,14 @@ impl App {
                 let text = self.selected_reply_text();
                 if text.trim().is_empty() {
                     self.status = "Нет выбранной реплики для копирования".into();
+                } else {
+                    self.action(Task::Copy(text));
+                }
+            }
+            Action::CopySummaryBlock => {
+                let text = self.selected_summary_text();
+                if text.trim().is_empty() {
+                    self.status = "Нет выбранного блока сводки для копирования".into();
                 } else {
                     self.action(Task::Copy(text));
                 }

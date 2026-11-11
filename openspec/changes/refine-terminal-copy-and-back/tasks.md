@@ -8,3 +8,7 @@
 ## 2. Проверка и поставка
 
 - [x] 2.1 Просмотреть изменённые baselines, пройти terminal/ConPTY с INSTA_UPDATE=no, strict main/оба затронутых change/check-openspec/diff; собрать проверенный TUI без завершения процессов, сохранить evidence и коммит.
+
+## 3. Выбранный блок сводки
+
+- [x] 3.1 Добавить y/н и действие палитры для SummaryBlock.text без служебных полей, сохранить весь Ctrl+Y/CopyDocument/Текст; проверить Unicode/виды блоков/пустой item/ошибку и буквальный ввод, обновить hints/US-ID и выполнить terminal tests с просмотром snapshots и INSTA_UPDATE=no. Обновить evidence/coverage, проверить strict change/main/check-openspec/diff, собрать release TUI без остановки процессов и закоммитить.

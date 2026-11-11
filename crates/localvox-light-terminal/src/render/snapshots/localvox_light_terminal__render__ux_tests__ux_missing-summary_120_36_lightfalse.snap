@@ -40,7 +40,7 @@ Buffer {
         "│                          │                                                                                            ",
         "│                          │                                                                                            ",
         " Подключение…                                                                                                           ",
-        " Tab фокус   1–5 вкладка   : действия   y/Ctrl+Y копия   Esc список   F8 stop   qq/F10 выход                            ",
+        " Tab фокус   1–5 вкладка   : действия   y блок · Ctrl+Y всё   Esc список   F8 stop   qq/F10 выход                       ",
     ],
     styles: [
         x: 0, y: 0, fg: Rgb(216, 220, 227), bg: Rgb(23, 25, 29), underline: Reset, modifier: BOLD,

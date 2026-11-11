@@ -300,10 +300,10 @@ pub fn draw(f: &mut Frame, a: &App) {
         }
     }
     let status = a.status.clone();
-    let copy_hint = if a.view == View::Archive && a.tab == Tab::Transcript {
-        "y реплика · Ctrl+Y всё"
-    } else {
-        "y/Ctrl+Y копия"
+    let copy_hint = match (a.view, a.tab) {
+        (View::Archive, Tab::Summary) => "y блок · Ctrl+Y всё",
+        (View::Archive, Tab::Transcript) => "y реплика · Ctrl+Y всё",
+        _ => "y/Ctrl+Y копия",
     };
     let back_hint = match a.focus {
         3 => "Esc документ",
@@ -379,7 +379,7 @@ pub fn draw(f: &mut Frame, a: &App) {
     if a.help {
         let rect = modal(area, 78, 26);
         f.render_widget(Clear, rect);
-        f.render_widget(Paragraph::new("УПРАВЛЕНИЕ\nSpace play/pause; p fragment; g/п time; Alt+Left/Right +/-15s\nF6 — стрелки плееру; повтор — к документу\n\nTab / Shift+Tab — фокус панели\nEsc — окно → детали → список → меню\n↑↓ — выбрать строку; Enter — открыть\nМеню разделов: l/Enter — выбрать\nСписок архива: j/k или ↑↓, l/Enter — открыть, / — поиск\nВ поиске буквы и / — текст; Esc — сброс и выход\n1–5 — вкладки; y — реплика/текст; Ctrl+Y — весь документ\n/ или точка в RU — поиск в выбранной панели; : / F2 — действия; n — создать; i — URL → Enter\nF8 — остановить запись; F9 — начать запись\nX — отменить обработку; R — продолжить этап\nPgUp / PgDn, Home / End — чтение документа\n← / → или h/l — свернуть / раскрыть подробности\n\nВ форме: Tab — поле; Enter — новая строка\nCtrl+Enter — отправить; Esc — отменить\nURL, настройка, время: Enter — подтвердить\nВставка остаётся текстом, команды не исполняются.\nI — сведения в «Ход»; A / S — все настройки / сохранить\n~ / ё — консоль ошибок; F12 — также из формы\n\nF10 / Ctrl+Q — выход; qq/йй за 0.5 с — вне ввода.\nДругая клавиша или вставка отменяет первое q.\nДемон и запись продолжают работать.\n\nЛюбая клавиша — закрыть справку").block(borders(a.ascii).title(" Помощь ").title_style(t.heading_style()).style(Style::default().bg(t.bg).fg(t.ink))).wrap(Wrap{trim:false}),rect);
+        f.render_widget(Paragraph::new("УПРАВЛЕНИЕ\nSpace play/pause; p fragment; g/п time; Alt+Left/Right +/-15s\nF6 — стрелки плееру; повтор — к документу\n\nTab / Shift+Tab — фокус панели\nEsc — окно → детали → список → меню\n↑↓ — выбрать строку; Enter — открыть\nМеню разделов: l/Enter — выбрать\nСписок архива: j/k или ↑↓, l/Enter — открыть, / — поиск\nВ поиске буквы и / — текст; Esc — сброс и выход\n1–5 — вкладки; y — блок/реплика; Ctrl+Y — всё; 3 → y — весь текст\n/ или точка в RU — поиск в выбранной панели; : / F2 — действия; n — создать; i — URL → Enter\nF8 — остановить запись; F9 — начать запись\nX — отменить обработку; R — продолжить этап\nPgUp / PgDn, Home / End — чтение документа\n← / → или h/l — свернуть / раскрыть подробности\n\nВ форме: Tab — поле; Enter — новая строка\nCtrl+Enter — отправить; Esc — отменить\nURL, настройка, время: Enter — подтвердить\nВставка остаётся текстом, команды не исполняются.\nI — сведения в «Ход»; A / S — все настройки / сохранить\n~ / ё — консоль ошибок; F12 — также из формы\n\nF10 / Ctrl+Q — выход; qq/йй за 0.5 с — вне ввода.\nДругая клавиша или вставка отменяет первое q.\nДемон и запись продолжают работать.\n\nЛюбая клавиша — закрыть справку").block(borders(a.ascii).title(" Помощь ").title_style(t.heading_style()).style(Style::default().bg(t.bg).fg(t.ink))).wrap(Wrap{trim:false}),rect);
     }
     if let Some(form) = &a.form {
         let desired = match &form.kind {
@@ -1606,6 +1606,8 @@ fn context(f: &mut Frame, a: &App, area: Rect, t: Theme) {
     if a.view != View::Archive || a.tab != Tab::Progress || !a.metadata_open {
         let hints = if a.view == View::Settings {
             "Enter изменить\nS сохранить\nA основные / все\n/ найти настройку\n\n~ консоль ошибок"
+        } else if a.view == View::Archive && a.tab == Tab::Summary {
+            "y копировать блок сводки\nCtrl+Y вся сводка\n3 весь текст\nI сведения о записи\nEsc назад к списку\n\nSpace play / pause\np слушать источник\ng перейти ко времени\nF6 стрелки плееру\n\n~ консоль ошибок\n: все действия"
         } else if a.view == View::Archive && a.tab == Tab::Transcript {
             "y копировать реплику\nCtrl+Y весь документ\n3 весь текст\nEsc назад к списку\n\nSpace play / pause\np слушать фрагмент\ng перейти ко времени\nF6 стрелки плееру\n\n~ консоль ошибок\n: все действия"
         } else {

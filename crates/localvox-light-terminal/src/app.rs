@@ -1171,13 +1171,11 @@ impl App {
                     .modifiers
                     .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
             {
-                self.command(
-                    if self.view == View::Archive && self.tab == Tab::Transcript {
-                        Action::CopyReply
-                    } else {
-                        Action::CopyDocument
-                    },
-                )
+                self.command(match (self.view, self.tab) {
+                    (View::Archive, Tab::Summary) => Action::CopySummaryBlock,
+                    (View::Archive, Tab::Transcript) => Action::CopyReply,
+                    _ => Action::CopyDocument,
+                })
             }
             KeyCode::Char('g' | 'G') => self.command(Action::Seek),
             KeyCode::Char('?') => self.help = true,

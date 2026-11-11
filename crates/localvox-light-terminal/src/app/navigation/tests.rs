@@ -36,6 +36,119 @@ fn copied(app: &App) -> Option<&str> {
     })
 }
 
+fn summary(kind: &str) -> App {
+    let mut app = document();
+    app.tab = Tab::Summary;
+    app.summary = Summary {
+        blocks: vec![
+            SummaryBlock {
+                kind: "heading".into(),
+                text: "Вся сводка".into(),
+                ..Default::default()
+            },
+            SummaryBlock {
+                kind: kind.into(),
+                text: "Выбранный блок 🦀\nВторая строка".into(),
+                sources: vec![Citation {
+                    line: 42,
+                    start_sec: 12.0,
+                    end_sec: 24.0,
+                }],
+            },
+            SummaryBlock {
+                text: "Последний блок".into(),
+                ..Default::default()
+            },
+        ],
+        provenance: Some(Provenance {
+            model: "private-meta".into(),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    app
+}
+
+#[test]
+fn summary_y_copies_the_selected_block_for_every_kind_while_control_y_keeps_all_blocks() {
+    for kind in ["heading", "bullet", "paragraph"] {
+        for c in ['y', 'н'] {
+            let mut app = summary(kind);
+            app.expanded = true;
+            app.scroll = 100;
+            key(&mut app, KeyCode::Char(c));
+            assert_eq!(copied(&app), Some("Выбранный блок 🦀\nВторая строка"));
+            assert_eq!((app.item, app.scroll), (1, 100));
+            assert!(app.player_effects.is_empty());
+
+            let mut app = summary(kind);
+            app.key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL));
+            assert_eq!(
+                copied(&app),
+                Some("Вся сводка\n\nВыбранный блок 🦀\nВторая строка\n\nПоследний блок")
+            );
+        }
+        let mut app = summary(kind);
+        app.command(Action::CopyDocument);
+        assert_eq!(copied(&app), Some(app.copy_text().as_str()));
+    }
+    let mut app = summary("bullet");
+    app.palette = true;
+    app.palette_index = COMMANDS
+        .iter()
+        .position(|(a, _)| *a == Action::CopySummaryBlock)
+        .unwrap();
+    key(&mut app, KeyCode::Enter);
+    assert_eq!(copied(&app), Some("Выбранный блок 🦀\nВторая строка"));
+    assert!(!app.palette);
+
+    let mut app = summary("paragraph");
+    key(&mut app, KeyCode::Down);
+    key(&mut app, KeyCode::Char('y'));
+    assert_eq!(copied(&app), Some("Последний блок"));
+}
+
+#[test]
+fn missing_summary_block_does_not_copy_other_text_and_clipboard_error_preserves_selection() {
+    for item in [1, 100] {
+        let mut app = summary("paragraph");
+        app.item = item;
+        app.summary.blocks[1].text = " \n ".into();
+        key(&mut app, KeyCode::Char('y'));
+        assert!(copied(&app).is_none());
+        assert!(app.status.contains("Нет выбранного блока сводки"));
+    }
+    let mut app = summary("paragraph");
+    app.summary.blocks.clear();
+    key(&mut app, KeyCode::Char('y'));
+    assert!(copied(&app).is_none());
+    app.tab = Tab::Transcript;
+    app.command(Action::CopySummaryBlock);
+    assert!(copied(&app).is_none());
+
+    let mut app = summary("paragraph");
+    key(&mut app, KeyCode::Char('y'));
+    app.apply(Response {
+        id: 1,
+        epoch: app.epoch,
+        resource: Resource::Action,
+        result: Err("clipboard unavailable".into()),
+    });
+    assert_eq!(app.item, 1);
+    assert_eq!(
+        app.selected_summary_text(),
+        "Выбранный блок 🦀\nВторая строка"
+    );
+    assert!(app.console.unread() > 0 && app.player_effects.is_empty());
+
+    let mut app = summary("paragraph");
+    app.command(Action::NewAsk);
+    key(&mut app, KeyCode::Char('y'));
+    key(&mut app, KeyCode::Char('н'));
+    assert_eq!(app.form.as_ref().unwrap().fields[0].value, "yн");
+    assert!(copied(&app).is_none());
+}
+
 #[test]
 fn reply_shortcut_and_palette_copy_selected_text_while_control_y_keeps_whole_document() {
     for c in ['y', 'н'] {

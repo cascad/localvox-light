@@ -280,6 +280,17 @@ impl App {
             String::new()
         }
     }
+    pub fn selected_summary_text(&self) -> String {
+        if self.view == View::Archive && self.tab == Tab::Summary {
+            self.summary
+                .blocks
+                .get(self.item)
+                .map(|block| safe_text(&block.text))
+                .unwrap_or_default()
+        } else {
+            String::new()
+        }
+    }
     pub fn metadata_text(&self) -> String {
         if self.view != View::Archive {
             return String::new();
