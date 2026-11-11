@@ -197,7 +197,7 @@ fn active_pane_border_and_overlay_titles_use_focus_in_all_color_modes() {
             let t = Theme::for_app(&app);
             let buffer = screen(&app);
             let rows = workspace_rows(buffer.area);
-            let cols = workspace_columns(rows[2]);
+            let cols = workspace_columns(rows[2], app.list_width);
             let left = left_rows(cols[0]);
             for (index, rect) in [left[0], left[1], cols[1], rows[1]].into_iter().enumerate() {
                 assert_eq!(
@@ -221,5 +221,24 @@ fn active_pane_border_and_overlay_titles_use_focus_in_all_color_modes() {
             assert_eq!(buffer[(x - 2, y)].fg, t.focus);
             assert!(buffer[(x, y)].modifier.contains(Modifier::BOLD));
         }
+    }
+}
+
+#[test]
+fn resizing_moves_the_actual_pane_boundary_in_every_theme_and_updates_document_measurement() {
+    for mode in 0..4 {
+        let mut a = App {
+            light: mode == 1,
+            color16: mode == 2,
+            monochrome: mode == 3,
+            ..Default::default()
+        };
+        a.command(crate::app::Action::WidenList);
+        let buffer = screen(&a);
+        assert_eq!(buffer[(31, 6)].symbol(), "┌");
+        assert_eq!(document_dimensions(&a).0, 88);
+        a.command(crate::app::Action::ResetListWidth);
+        assert_eq!(screen(&a)[(27, 6)].symbol(), "┌");
+        assert_eq!(document_dimensions(&a).0, 92);
     }
 }

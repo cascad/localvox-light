@@ -298,6 +298,31 @@ fn real_terminal_accepts_paste_resize_and_restores_screen_on_quit() {
         &mut queries,
         deadline,
     );
+    writer.write_all(b"\x1b[1;5C").unwrap(); // Control+Right: wider list, independent of layout.
+    writer.flush().unwrap();
+    wait_until(
+        "wider list boundary",
+        |_, s| s.cell(6, 31).is_some_and(|c| c.contents() == "+"),
+        &mut all,
+        &mut screen,
+        &rx,
+        &mut writer,
+        &mut queries,
+        deadline,
+    );
+    writer.write_all(b"\x1b[1;5D").unwrap();
+    writer.flush().unwrap();
+    wait_until(
+        "restored list boundary",
+        |_, s| s.cell(6, 27).is_some_and(|c| c.contents() == "+"),
+        &mut all,
+        &mut screen,
+        &rx,
+        &mut writer,
+        &mut queries,
+        deadline,
+    );
+    assert_eq!(api.stops.load(Ordering::Relaxed), 0);
     writer.write_all(b"\t\r5").unwrap();
     writer.flush().unwrap();
     wait_for(
@@ -509,6 +534,9 @@ fn unauthorized_start_can_reconnect_through_the_masked_form_without_replaying_st
     writer.write_all(b"\x1b[24~").unwrap(); // F12 works even in the archive filter
     writer.flush().unwrap();
     see!("F8 stop");
+    writer.write_all(b"\x1b[1;5C").unwrap();
+    writer.flush().unwrap();
+    see!("Ширина списка: 31");
     // This control action is rejected locally while disconnected, never queued
     // for automatic replay after the token is entered.
     writer.write_all(b"\x1b[19~:").unwrap();
@@ -531,6 +559,11 @@ fn unauthorized_start_can_reconnect_through_the_masked_form_without_replaying_st
     writer.write_all(b"\x13").unwrap();
     writer.flush().unwrap();
     see!("Архитектура и следующие шаги");
+    assert_eq!(
+        screen.screen().cell(6, 31).unwrap().contents(),
+        "+",
+        "list width must survive reconnect"
+    );
     assert_eq!(api.stops.load(Ordering::Relaxed), 0);
     writer.write_all("\tωω".as_bytes()).unwrap(); // custom mapping must survive reconnect
     writer.flush().unwrap();

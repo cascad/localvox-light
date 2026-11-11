@@ -49,6 +49,9 @@ pub enum Action {
     DocumentInfo,
     ToggleAdvancedSettings,
     ErrorConsole,
+    NarrowList,
+    WidenList,
+    ResetListWidth,
 }
 
 /// Only this list defines palette order; shortcuts dispatch by Action.
@@ -99,6 +102,9 @@ pub const COMMANDS: &[(Action, &str)] = &[
     (Action::DocumentInfo, "Сведения о записи"),
     (Action::ToggleAdvancedSettings, "Основные / все настройки"),
     (Action::ErrorConsole, "Консоль ошибок"),
+    (Action::NarrowList, "Список: уже · Ctrl+← в списке"),
+    (Action::WidenList, "Список: шире · Ctrl+→ в списке"),
+    (Action::ResetListWidth, "Список: стандартная ширина"),
 ];
 
 impl App {
@@ -107,6 +113,9 @@ impl App {
         self.palette = false;
         let s = self.current.clone().unwrap_or_default();
         match action {
+            Action::NarrowList => self.resize_list(-4),
+            Action::WidenList => self.resize_list(4),
+            Action::ResetListWidth => self.reset_list_width(),
             Action::AddLlmServer => {
                 if self.view != View::Settings
                     || !self.settings.settings.iter().any(|s| s.kind == "servers")

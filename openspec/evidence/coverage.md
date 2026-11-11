@@ -1,5 +1,11 @@
 # Покрытие требований и состояние реализации
 
+Дополнение ARCH-001 от 2026-11-11:
+[регулировка колонки списков TUI](../changes/resize-terminal-list-pane/evidence/implementation.md).
+196 library / 5 ConPTY прошли, включая Control arrows и ширину после reconnect;
+прежние visual baselines сохранены. ARCH-019 остаётся delta; внешние bindings/
+ручное отображение у владельца not-run.
+
 Дополнение ARCH-001/015 от 2026-11-11: [активная область и детали TUI](../changes/refine-terminal-focus-details/evidence/implementation.md).
 190 lib / 5 ConPTY прошли; 38 style baselines обновлены после подтверждения
 побайтного равенства area/content, focus/contrast проверены во всех темах.
@@ -452,5 +458,6 @@ main specs и прежние свидетельства не переписан�
 | ID | Delta / код | Свидетельство | Граница |
 |---|---|---|---|
 | PIPE-002/008/010/011/012, CFG-001/002; PIPE-019 в delta | [delta](../changes/reuse-asr-worker-between-horizons/specs/processing-pipeline/spec.md), [worker](../../crates/localvox-light-asr/src/bin/worker_server/mod.rs), [cache](../../crates/localvox-light-core/src/incremental/cache.rs) | [test-run](../changes/reuse-asr-worker-between-horizons/evidence/implementation.md): core/worker/process/coordinator/API/TUI; [native](../changes/reuse-asr-worker-between-horizons/evidence/native-reference.md) | Один engine, fresh identity, durable recovery; legacy gate fail, default off; hardware/Mac not-run |
+| ARCH-001; ARCH-019 в delta | [delta](../changes/resize-terminal-list-pane/specs/archive-playback/spec.md), [geometry](../../crates/localvox-light-terminal/src/render/geometry.rs), [actions](../../crates/localvox-light-terminal/src/app/pane_width.rs) | [test-run](../changes/resize-terminal-list-pane/evidence/implementation.md): 196 lib / 5 ConPTY, input/resize/reconnect/anchor, unchanged snapshots | Session preference; compact unchanged, external OS/terminal bindings not-run |
 | ARCH-001/015; ARCH-018 в delta | [delta](../changes/refine-terminal-focus-details/specs/archive-playback/spec.md), [Theme/render](../../crates/localvox-light-terminal/src/render.rs) | [test-run](../changes/refine-terminal-focus-details/evidence/implementation.md): 190 lib / 5 ConPTY, focus/contrast, 38 style-only snapshots | Панели/текст/действия сохранены; владелец и реальные terminal palettes not-run |
 | ARCH-001; ARCH-017 в delta | [delta](../changes/configure-command-keymaps/specs/archive-playback/spec.md), [UI](../../ui/src/DocumentPane.tsx), [TUI keymap](../../crates/localvox-light-terminal/src/keymap.rs) | [test-run](../changes/configure-command-keymaps/evidence/implementation.md): 189 lib / 5 ConPTY / IO/run-script; UI build, 14 unit / 2 browser e2e; прежние snapshots | Physical code для UI, явные символьные overrides для TUI. Реальные hosts/IME/Mac not-run; main specs не изменены |

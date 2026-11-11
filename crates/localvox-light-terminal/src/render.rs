@@ -6,6 +6,7 @@ mod documents;
 mod geometry;
 pub(crate) use geometry::{document_dimensions, list_metrics};
 use geometry::{document_rows, left_rows, workspace_columns, workspace_rows};
+pub(crate) use geometry::{effective_list_width, list_width_bounds, DEFAULT_LIST_WIDTH};
 #[cfg(test)]
 mod label_tests;
 #[cfg(test)]
@@ -302,7 +303,7 @@ pub fn draw(f: &mut Frame, a: &App) {
             _ => document(f, a, rows[2], t, &title),
         };
     } else {
-        let cols = workspace_columns(rows[2]);
+        let cols = workspace_columns(rows[2], a.list_width);
         let left = left_rows(cols[0]);
         nav(f, a, left[0], t);
         items(f, a, left[1], t);
@@ -392,7 +393,7 @@ pub fn draw(f: &mut Frame, a: &App) {
     if a.help {
         let rect = modal(area, 78, 26);
         f.render_widget(Clear, rect);
-        f.render_widget(Paragraph::new("УПРАВЛЕНИЕ\nSpace play/pause; p fragment; g/п time; Alt+Left/Right +/-15s\nF6 — стрелки плееру; повтор — к документу\n\nTab / Shift+Tab — фокус панели\nEsc — окно → детали → список → меню\n↑↓ — выбрать строку; Enter — открыть\nМеню разделов: l/Enter — выбрать\nСписок архива: j/k или ↑↓, l/Enter — открыть, / — поиск\nВ поиске буквы и / — текст; Esc — сброс и выход\n1–5 — вкладки; y — блок/реплика; Ctrl+Y — всё; 3 → y — весь текст\n/ или точка в RU — поиск в выбранной панели; : / F2 — действия; n — создать; i — URL → Enter\nF8 — остановить запись; F9 — начать запись\nX — отменить обработку; R — продолжить этап\nPgUp / PgDn, Home / End — чтение документа\n← / → или h/l — свернуть / раскрыть подробности\n\nВ форме: Tab — поле; Enter — новая строка\nCtrl+Enter — отправить; Esc — отменить\nURL, настройка, время: Enter — подтвердить\nВставка остаётся текстом, команды не исполняются.\nI — сведения в «Ход»; A / S — все настройки / сохранить\n~ / ё — консоль ошибок; F12 — также из формы\n\nF10 / Ctrl+Q — выход; qq/йй за 0.5 с — вне ввода.\nДругая клавиша или вставка отменяет первое q.\nДемон и запись продолжают работать.\n\nЛюбая клавиша — закрыть справку").block(borders(a.ascii).title(" Помощь ").title_style(t.focus_style()).border_style(Style::default().fg(t.focus)).style(Style::default().bg(t.bg).fg(t.ink))).wrap(Wrap{trim:false}),rect);
+        f.render_widget(Paragraph::new("УПРАВЛЕНИЕ\nSpace play/pause; p fragment; g/п time; Alt+Left/Right +/-15s\nF6 — стрелки плееру; повтор — к документу\n\nTab / Shift+Tab — фокус панели\nEsc — окно → детали → список → меню\n↑↓ — выбрать строку; Enter — открыть\nМеню разделов: l/Enter — выбрать\nСписок: j/k ↑↓; l/Enter открыть; / поиск; Ctrl+←/→ ширина\nВ поиске буквы и / — текст; Esc — сброс и выход\n1–5 — вкладки; y — блок/реплика; Ctrl+Y — всё; 3 → y — весь текст\n/ или точка в RU — поиск в выбранной панели; : / F2 — действия; n — создать; i — URL → Enter\nF8 — остановить запись; F9 — начать запись\nX — отменить обработку; R — продолжить этап\nPgUp / PgDn, Home / End — чтение документа\n← / → или h/l — свернуть / раскрыть подробности\n\nВ форме: Tab — поле; Enter — новая строка\nCtrl+Enter — отправить; Esc — отменить\nURL, настройка, время: Enter — подтвердить\nВставка остаётся текстом, команды не исполняются.\nI — сведения в «Ход»; A / S — все настройки / сохранить\n~ / ё — консоль ошибок; F12 — также из формы\n\nF10 / Ctrl+Q — выход; qq/йй за 0.5 с — вне ввода.\nДругая клавиша или вставка отменяет первое q.\nДемон и запись продолжают работать.\n\nЛюбая клавиша — закрыть справку").block(borders(a.ascii).title(" Помощь ").title_style(t.focus_style()).border_style(Style::default().fg(t.focus)).style(Style::default().bg(t.bg).fg(t.ink))).wrap(Wrap{trim:false}),rect);
     }
     if let Some(form) = &a.form {
         let desired = match &form.kind {
@@ -2535,6 +2536,51 @@ mod tests {
         assert_eq!(new_row - app.scroll as usize, row - previous as usize);
         assert_eq!(app.item, 1);
     }
+    #[test]
+    fn resizing_the_list_keeps_the_manual_journal_anchor_across_wrapped_operations() {
+        let mut app = App {
+            current: Some("fixture".into()),
+            tab: Tab::Progress,
+            focus: 2,
+            item: 14,
+            follow_selection: false,
+            viewport: (120, 36),
+            ..Default::default()
+        };
+        app.journal.entries = (0..30)
+            .map(|i| localvox_light_client::JournalEntry {
+                id: i.to_string(),
+                run: "run".into(),
+                operation: Some(format!("op{i}")),
+                stage: "transcribe".into(),
+                kind: "operation_start".into(),
+                label: format!(
+                    "Операция {i}: {}",
+                    "длинное описание обработки аудио ".repeat(6)
+                ),
+                ..Default::default()
+            })
+            .collect();
+        app.journal.follow = false;
+        let projection = journal_projection(&app, Theme::for_app(&app));
+        let width = journal_dimensions(&app).0;
+        app.scroll =
+            (wrapped_offsets(&projection.lines, width)[projection.markers[14].1] + 1) as u16;
+        let before = journal_anchor(&app).unwrap();
+        let previous_scroll = app.scroll;
+        for _ in 0..3 {
+            app.command(crate::app::Action::WidenList);
+        }
+        let after = journal_anchor(&app).unwrap();
+        assert_eq!(after.group, before.group);
+        assert_eq!(after.relative, before.relative);
+        assert_eq!(app.item, 14);
+        assert_ne!(
+            app.scroll, previous_scroll,
+            "wrapped rows changed but the anchor stays fixed"
+        );
+    }
+
     #[test]
     fn selecting_a_long_transcript_block_brings_it_into_view() {
         let mut app = App {

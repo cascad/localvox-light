@@ -7,6 +7,7 @@ mod forms;
 mod input;
 mod navigation;
 mod paging;
+mod pane_width;
 pub use navigation::DetailParent;
 mod quit;
 use crate::io::{Data, Resource, Response, Task};
@@ -103,6 +104,7 @@ pub struct App {
     pub nav: usize,
     pub selected: usize,
     pub list_scroll: usize,
+    pub list_width: u16,
     pub item: usize,
     pub epoch: u64,
     pub sessions: Vec<Session>,
@@ -193,6 +195,7 @@ impl Default for App {
             nav: 0,
             selected: 0,
             list_scroll: 0,
+            list_width: crate::render::DEFAULT_LIST_WIDTH,
             item: 0,
             epoch: 1,
             sessions: vec![],
@@ -1141,6 +1144,19 @@ impl App {
                 _ => {}
             }
             return;
+        }
+        if self.focus <= 1 && key.modifiers == KeyModifiers::CONTROL {
+            let action = match key.code {
+                KeyCode::Left => Some(Action::NarrowList),
+                KeyCode::Right => Some(Action::WidenList),
+                _ => None,
+            };
+            if let Some(action) = action {
+                if !self.archive_filter_editing {
+                    self.command(action);
+                }
+                return;
+            }
         }
         if self.view == View::Archive && self.focus == 2 && key.modifiers.is_empty() {
             key.code = match key.code {

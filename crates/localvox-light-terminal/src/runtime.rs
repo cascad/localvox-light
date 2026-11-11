@@ -101,6 +101,7 @@ pub fn run(mut client: Client, mut app: App) -> Result<()> {
                         let monochrome = app.monochrome;
                         let color16 = app.color16;
                         let keymap = app.keymap.clone();
+                        let list_width = app.list_width;
                         app.console.recover_operation(&crate::diagnostics::Context {
                             source: "Клиент".into(),
                             operation: "Подключение".into(),
@@ -114,6 +115,7 @@ pub fn run(mut client: Client, mut app: App) -> Result<()> {
                             monochrome,
                             color16,
                             keymap,
+                            list_width,
                             address: client.address().into(),
                             ..Default::default()
                         };
