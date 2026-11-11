@@ -1,0 +1,314 @@
+{
+  "date": "2026-11-11",
+  "bundle": "target/review/incremental-default-on",
+  "manifest": {
+    "date": "2026-11-11",
+    "source_base": "ff22c12",
+    "default_incremental": "on",
+    "files": [
+      {
+        "name": ".env.defaults",
+        "bytes": 1128,
+        "sha256": "41b5638b66ad617b3c4bda2bf51bf11fd90fea95818562742fae1d870172a14f"
+      },
+      {
+        "name": "DirectML.dll",
+        "bytes": 18527776,
+        "sha256": "9c9e6d822561c6c41b90e6994b3e8857cf1d66dbfb1e0c4c799c7c89b4e92da1"
+      },
+      {
+        "name": "libgcc_s_seh-1.dll",
+        "bytes": 1266641,
+        "sha256": "e16de83d48247cde2581ec36279102dda00b7d7b36558cad72164e3c4caae0a4"
+      },
+      {
+        "name": "libstdc++-6.dll",
+        "bytes": 19442799,
+        "sha256": "1766f6e252410086c26400ab085e017e7ad5e8993f3d19dda87a13a1e978f0a2"
+      },
+      {
+        "name": "libvosk.dll",
+        "bytes": 25989632,
+        "sha256": "7a242909fe36436a7660037d85c75eb18eefbd963455cd4ab1b665cb9b0074bc"
+      },
+      {
+        "name": "libwinpthread-1.dll",
+        "bytes": 592104,
+        "sha256": "5b60907df42009f1ba437e7f2a6278651be97f4993869105d8a31086138e4570"
+      },
+      {
+        "name": "localvox-light.exe",
+        "bytes": 39057920,
+        "sha256": "a9640266a2fd3784243f8fbf75d685260512469dfe765d35411c33e6dc7f3c34"
+      },
+      {
+        "name": "localvox-process.exe",
+        "bytes": 45860864,
+        "sha256": "5966fa00b598b6f31e5b074d4c5c8afbfa6a52089836345700a38964a86fcc36"
+      },
+      {
+        "name": "localvox-tui.exe",
+        "bytes": 6026752,
+        "sha256": "834d5e8e58e0fddb092bb19f388494e9e138341fd155dbd580a2c120e871588e"
+      }
+    ]
+  },
+  "raw_workspace": "target\\incremental-default-bundle-smoke-20261111",
+  "raw_report_sha256": "7889f061861c9c1b2e37c9791f54215d0d156df421388612b6af557c602f0726",
+  "raw_plan_sha256": "157c75765316124ab3ed1b07940bb18ad088dad40b6d1d5512b88dcf738b36ce",
+  "plan": {
+    "cpu_count": 6,
+    "diarization": "off; independent hardware/model acceptance",
+    "gate": {
+      "active_wall_overhead": 0.2,
+      "aggregate": true,
+      "every_pair": true
+    },
+    "input": "\\\\?\\D:\\rust_repo\\localvox-light\\target\\profile-current-release-20261109-stt\\sessions\\podlodka-109-r1\\audio\\src0_chunk000000.wav",
+    "input_file_sha256": "96e50ce45af3988b3b069c0ebd4363842eb06b3fe5b536490a8dc9d81f02cd46",
+    "model": {
+      "engine": "gigaam-v3-e2e-ctc",
+      "files": {
+        "model": "2e3fcb7a7b66030336fd10c2fcfb033bd1dc7e1bf238fe5cfd83b1d0cfc9d28e",
+        "vocabulary": "142de7570b3de5b3035ce111a89c228e80e6085273731d944093ddf24fa539cd"
+      },
+      "language": "ru",
+      "recipe": "gigaam-int8/w15-c8-s500-r7",
+      "revision": 1
+    },
+    "offline_capture": "current capture and planner; ASR only after Stop",
+    "samples": 5280000,
+    "schedule": [
+      "offline-1",
+      "incremental-1-steady",
+      "offline-2",
+      "incremental-2-burst3",
+      "offline-3",
+      "incremental-3-steady"
+    ],
+    "source1": "actual zero PCM",
+    "transport_samples": 4800000,
+    "whole_source_samples": 114344438,
+    "window_params": {
+      "max_sec": 15,
+      "min_sec": 8,
+      "silence_ms": 500
+    },
+    "worker": "\\\\?\\D:\\rust_repo\\localvox-light\\target\\review\\incremental-default-on\\localvox-process.exe",
+    "worker_lifecycle": "resident incremental; one-shot offline",
+    "worker_sha256": "5966fa00b598b6f31e5b074d4c5c8afbfa6a52089836345700a38964a86fcc36"
+  },
+  "report": {
+    "aggregate_overhead": -0.012117808753426385,
+    "complete": true,
+    "pairs": [
+      {
+        "batch_chunks": 1,
+        "overhead": -0.012117808753426385,
+        "pair": 1,
+        "pass": true,
+        "same_asr_calls": true,
+        "same_text": true,
+        "same_windows": true,
+        "stop_to_ready_sec": 0.8774738
+      }
+    ],
+    "pass": true,
+    "reference": false,
+    "runs": [
+      {
+        "active_wall_sec": 5.7876718,
+        "asr_calls": 33,
+        "batch_chunks": 1,
+        "cpu_sec": 1.53125,
+        "early_asr_calls": 0,
+        "final_asr_calls": 33,
+        "final_cache_hits": 0,
+        "incremental": false,
+        "input_samples": 5280000,
+        "model_loads": 1,
+        "name": "offline-1",
+        "observed_run_wall_sec": 5.7963249,
+        "producer_cpu_sec": 0.0,
+        "producer_logical_read_bytes": 31917467.0,
+        "producer_logical_write_bytes": 21183500.0,
+        "producer_process_after": {
+          "availability": "available",
+          "commit_bytes": 3174400,
+          "cpu_sec": 0.046875,
+          "peak_commit_bytes": 42692608,
+          "peak_working_set_bytes": 49246208,
+          "read_bytes": 531412033,
+          "scope": "worker_process_only",
+          "working_set_bytes": 10502144,
+          "write_bytes": 21185617
+        },
+        "producer_wall_sec": 0.796212,
+        "stop_to_ready_sec": 5.073269,
+        "text_lines": 33,
+        "text_sha256": "185a36dfd5be18a8473d2659235ad30e35c4afbf0ac0e4576db56d78b38bea50",
+        "window_sha256": "f83e7f73442f6ad8bf26779b708691e8fe95fae9c66be90ceb35e6555a86c56f",
+        "windows": 75,
+        "worker_cpu_sec": 1.53125,
+        "worker_logical_read_bytes": 695899915.0,
+        "worker_logical_write_bytes": 94865.0,
+        "worker_starts": 1,
+        "worker_wall_sec": 4.9914598,
+        "workers": [
+          {
+            "prefix": false,
+            "report": null,
+            "resources": {
+              "availability": "observed",
+              "cpu_sec": 1.53125,
+              "peak_commit_bytes": 304910336,
+              "peak_method": "maximum observed OS high-water mark; final retained-handle query",
+              "peak_working_set_bytes": 317886464,
+              "read_bytes": 695899915,
+              "samples": 247,
+              "sampling_interval_ms": 20,
+              "scope": "worker_process_only",
+              "write_bytes": 94865
+            },
+            "spawned": true,
+            "wall_sec": 4.9914598
+          }
+        ]
+      },
+      {
+        "active_wall_sec": 5.717537900000001,
+        "asr_calls": 33,
+        "batch_chunks": 1,
+        "cpu_sec": 1.578125,
+        "early_asr_calls": 29,
+        "final_asr_calls": 4,
+        "final_cache_hits": 66,
+        "incremental": true,
+        "input_samples": 5280000,
+        "model_loads": 1,
+        "name": "incremental-1",
+        "observed_run_wall_sec": 5.7432544,
+        "producer_cpu_sec": 0.015625,
+        "producer_logical_read_bytes": 31895495.0,
+        "producer_logical_write_bytes": 21184977.0,
+        "producer_process_after": {
+          "availability": "available",
+          "commit_bytes": 3284992,
+          "cpu_sec": 0.0625,
+          "peak_commit_bytes": 42692608,
+          "peak_working_set_bytes": 49717248,
+          "read_bytes": 563341630,
+          "scope": "worker_process_only",
+          "working_set_bytes": 10915840,
+          "write_bytes": 42384529
+        },
+        "producer_wall_sec": 0.7743620999999999,
+        "stop_to_ready_sec": 0.8774738,
+        "text_lines": 33,
+        "text_sha256": "185a36dfd5be18a8473d2659235ad30e35c4afbf0ac0e4576db56d78b38bea50",
+        "window_sha256": "f83e7f73442f6ad8bf26779b708691e8fe95fae9c66be90ceb35e6555a86c56f",
+        "windows": 75,
+        "worker_cpu_sec": 1.5625,
+        "worker_logical_read_bytes": 939849784.0,
+        "worker_logical_write_bytes": 147329.0,
+        "worker_starts": 1,
+        "worker_wall_sec": 4.943175800000001,
+        "workers": [
+          {
+            "model_loads": 1,
+            "pid": 28212,
+            "prefix": true,
+            "report": {
+              "asr_calls": 29,
+              "audio": {
+                "chunks_read": 2,
+                "peak_window_samples": 240000,
+                "samples_supplied": 9414400,
+                "windows": 66
+              },
+              "cache_hits": 0,
+              "checkpoint": {
+                "capture_revision": 6,
+                "common_end": 4678400,
+                "complete": false,
+                "generation": "0199a774-0000-7000-8000-000000000002",
+                "publication_end": 4678400,
+                "recognizer": "20649430a2d80868edc773d55172b2c164aeb7b7502d88500341e1aeb261d10c",
+                "sha256": "e2e7c37727b419b8599b5653ebe357e98f2f3c40b0f6af1071d7a968fc050de9",
+                "sources": {
+                  "0": {
+                    "end_sample": 4678400,
+                    "eof": false
+                  },
+                  "1": {
+                    "end_sample": 4736000,
+                    "eof": false
+                  }
+                },
+                "version": 1
+              },
+              "generation": "0199a774-0000-7000-8000-000000000002",
+              "horizon_revision": 6,
+              "model_loaded": true,
+              "timings": {
+                "audio_journal_sec": 0.01592599999999944,
+                "cache_sec": 0.047379399999999655,
+                "commit_sec": 0.0145373,
+                "model_sec": 0.7081827999999999,
+                "recognize_sec": 3.2484134000000005,
+                "result_journal": {
+                  "bytes": 55582,
+                  "frames": 66,
+                  "max_sync_sec": 0.0013533,
+                  "sync_sec": 0.0110066,
+                  "syncs": 9,
+                  "write_sec": 0.00046129999999999934
+                },
+                "setup_sec": 0.1163256
+              },
+              "wall_sec": 4.1517156
+            },
+            "resources": {
+              "availability": "observed",
+              "cpu_sec": 1.375,
+              "peak_commit_bytes": 303693824,
+              "peak_method": "maximum observed OS high-water mark; final retained-handle query",
+              "peak_working_set_bytes": 316051456,
+              "read_bytes": 693688828.0,
+              "samples": 208,
+              "sampling_interval_ms": 20,
+              "scope": "resident_process_request_delta; peaks are process lifetime high-water",
+              "write_bytes": 109465.0
+            },
+            "spawned": true,
+            "wall_sec": 4.190933
+          },
+          {
+            "model_loads": 0,
+            "pid": 28212,
+            "prefix": false,
+            "report": {
+              "lines": 33,
+              "version_id": 1,
+              "wall_sec": 0.637632
+            },
+            "resources": {
+              "availability": "observed",
+              "cpu_sec": 0.1875,
+              "peak_commit_bytes": 303751168,
+              "peak_method": "maximum observed OS high-water mark; final retained-handle query",
+              "peak_working_set_bytes": 317071360,
+              "read_bytes": 246160956.0,
+              "samples": 39,
+              "sampling_interval_ms": 20,
+              "scope": "resident_process_request_delta; peaks are process lifetime high-water",
+              "write_bytes": 37864.0
+            },
+            "spawned": false,
+            "wall_sec": 0.7522428
+          }
+        ]
+      }
+    ]
+  }
+}

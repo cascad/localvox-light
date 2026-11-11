@@ -2,6 +2,147 @@ use super::*;
 use crate::incremental::test_support::Fixture;
 
 #[test]
+fn restored_checkpoint_resyncs_a_repaired_orphan_even_when_its_digest_matches() {
+    let f = Fixture::new([&[10, 20], &[10, 20]], true);
+    let _lease = f.lease();
+    let cache = Cache::open(&f.session, &f.identity).unwrap();
+    let mut all = Vec::new();
+    for id in [0, 1] {
+        for n in 0..2 {
+            all.push(
+                cache
+                    .resolve(f.window(id, n), |_| Ok("слова".into()))
+                    .unwrap()
+                    .0,
+            );
+        }
+    }
+    cache
+        .begin(&f.horizon)
+        .unwrap()
+        .finish(&f.session, &all)
+        .unwrap();
+    let key = all[0].key.clone();
+    let file = cache.wal.lock().unwrap().location(&key);
+    cache
+        .wal
+        .lock()
+        .unwrap()
+        .replace(&key, b"persistently broken result")
+        .unwrap();
+    fs::OpenOptions::new()
+        .write(true)
+        .open(file)
+        .unwrap()
+        .sync_all()
+        .unwrap();
+    let prepared = cache
+        .prepare(f.window(0, 0), |_| Ok("слова".into()))
+        .unwrap();
+    let PreparedValue::New { key, bytes, .. } = prepared.0 else {
+        panic!("corrupt record was reused")
+    };
+    assert!(cache
+        .wal
+        .lock()
+        .unwrap()
+        .put_refusing_sync(&[(key.as_str(), bytes.as_slice())])
+        .is_err());
+    drop(cache);
+    let recovered = Cache::open(&f.session, &f.identity).unwrap();
+    assert_eq!(recovered.wal.lock().unwrap().stats().syncs, 0);
+    let state = recovered.begin(&f.horizon).unwrap();
+    assert!(state.state().complete);
+    assert_eq!(
+        recovered.wal.lock().unwrap().stats().syncs,
+        1,
+        "matching checkpoint hashes do not replace a durability confirmation"
+    );
+}
+
+#[test]
+fn result_group_is_bounded_and_only_the_last_pending_tail_is_lost_on_drop() {
+    let f = Fixture::new([&[10, 20, 30, 40, 50, 60, 70, 80, 90], &[]], true);
+    let _lease = f.lease();
+    let cache = Cache::open(&f.session, &f.identity).unwrap();
+    let mut batch = crate::incremental::ResultBatch::new(&cache);
+    for n in 0..8 {
+        let result = batch
+            .resolve(f.window(0, n), |_| Ok("слова".into()))
+            .unwrap();
+        assert_eq!(result.durable, n == 7);
+    }
+    assert_eq!(cache.wal.lock().unwrap().stats().syncs, 1);
+    batch
+        .resolve(f.window(0, 8), |_| Ok("хвост".into()))
+        .unwrap();
+    drop(batch);
+    for n in 0..8 {
+        assert!(cache.lookup(&f.window(0, n)).unwrap().is_some());
+    }
+    assert!(cache.lookup(&f.window(0, 8)).unwrap().is_none());
+    assert!(!cache.root.join("checkpoint.json").exists());
+}
+
+#[test]
+fn computed_group_is_not_reusable_until_flushed_and_a_drop_cannot_publish_it() {
+    let f = Fixture::new([&[10, 20], &[10, 20]], true);
+    let _lease = f.lease();
+    let cache = Cache::open(&f.session, &f.identity).unwrap();
+    {
+        let mut batch = crate::incremental::ResultBatch::new(&cache);
+        assert!(
+            !batch
+                .resolve(f.window(0, 0), |_| Ok("слова".into()))
+                .unwrap()
+                .durable
+        );
+        assert!(cache.lookup(&f.window(0, 0)).unwrap().is_none());
+        assert!(
+            batch
+                .resolve(f.window(0, 0), |_| panic!("pending ASR repeated"))
+                .unwrap()
+                .reused
+        );
+    }
+    assert!(cache.lookup(&f.window(0, 0)).unwrap().is_none());
+    assert!(!f.session.join("incremental/current.json").exists());
+    let transaction = cache.begin(&f.horizon).unwrap();
+    let mut batch = crate::incremental::ResultBatch::new(&cache);
+    for id in [0, 1] {
+        for n in 0..2 {
+            batch
+                .resolve(f.window(id, n), |_| Ok("слова".into()))
+                .unwrap();
+        }
+    }
+    let accepted = batch.finish().unwrap();
+    assert_eq!(accepted.len(), 4);
+    assert_eq!(cache.wal.lock().unwrap().stats().syncs, 1);
+    assert!(transaction.finish(&f.session, &accepted).unwrap().complete);
+}
+
+#[test]
+fn refused_group_write_does_not_release_acceptance_or_advance_checkpoint() {
+    let f = Fixture::new([&[10, 20], &[10, 20]], true);
+    let _lease = f.lease();
+    let cache = Cache::open(&f.session, &f.identity).unwrap();
+    let transaction = cache.begin(&f.horizon).unwrap();
+    let mut batch = crate::incremental::ResultBatch::new(&cache);
+    batch
+        .resolve(f.window(0, 0), |_| Ok("слова".into()))
+        .unwrap();
+    let journal = cache.root.join("results");
+    fs::remove_dir(&journal).unwrap();
+    fs::write(&journal, b"refuse journal creation").unwrap();
+    assert!(batch.finish().is_err());
+    assert_eq!(transaction.state().common_end, 0);
+    assert!(!cache.root.join("checkpoint.json").exists());
+    assert!(!f.session.join("incremental/current.json").exists());
+    assert!(!f.window(0, 0).pcm().is_empty());
+}
+
+#[test]
 fn transaction_revalidates_new_records_and_recovers_from_disk_on_the_next_request() {
     let f = Fixture::new([&[10, 20], &[10, 20]], true);
     let _lease = f.lease();

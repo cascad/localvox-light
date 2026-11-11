@@ -122,6 +122,7 @@ pub struct Accepted {
     key: String,
     sha256: String,
     record: Record,
+    from_journal: bool,
 }
 impl Accepted {
     pub fn descriptor(&self) -> &planning::Descriptor {
@@ -167,6 +168,43 @@ impl Checkpoint {
     }
 }
 
+// A computed record is deliberately not an Accepted token.
+enum PreparedValue {
+    Hit(Accepted),
+    New {
+        key: String,
+        record: Record,
+        bytes: Vec<u8>,
+    },
+}
+pub(super) struct Prepared(PreparedValue);
+impl Prepared {
+    pub(super) fn reused(&self) -> bool {
+        matches!(self.0, PreparedValue::Hit(_))
+    }
+    #[cfg(any(feature = "onnx", test))]
+    pub(super) fn key(&self) -> &str {
+        match &self.0 {
+            PreparedValue::Hit(value) => &value.key,
+            PreparedValue::New { key, .. } => key,
+        }
+    }
+    #[cfg(any(feature = "onnx", test))]
+    pub(super) fn text(&self) -> Option<&str> {
+        match &self.0 {
+            PreparedValue::Hit(value) => value.text(),
+            PreparedValue::New { record, .. } => record.text.as_deref(),
+        }
+    }
+    #[cfg(any(feature = "onnx", test))]
+    pub(super) fn bytes(&self) -> usize {
+        match &self.0 {
+            PreparedValue::Hit(_) => 0,
+            PreparedValue::New { bytes, .. } => bytes.len(),
+        }
+    }
+}
+
 /// Like VersionStore, writes require the caller's session execution ownership.
 /// Managed workers are covered by their supervising coordinator's lease.
 pub struct Cache {
@@ -189,6 +227,14 @@ impl Transaction<'_> {
     }
 }
 impl Cache {
+    #[cfg(feature = "onnx")]
+    pub(crate) fn journal_stats(&self) -> Result<super::JournalWriteStats> {
+        Ok(self
+            .wal
+            .lock()
+            .map_err(|_| anyhow::anyhow!("result journal lock poisoned"))?
+            .stats())
+    }
     pub fn open(session: &Path, identity: &Identity) -> Result<Self> {
         let metadata = serde_json::to_vec(identity)?;
         let identity = identity.fingerprint()?;
@@ -213,7 +259,7 @@ impl Cache {
             wal,
         })
     }
-    fn key(&self, d: &planning::Descriptor) -> Result<String> {
+    pub(super) fn key(&self, d: &planning::Descriptor) -> Result<String> {
         validate_descriptor(d)?;
         Ok(hash(&serde_json::to_vec(&(1, &self.identity, d))?))
     }
@@ -231,6 +277,7 @@ impl Cache {
                         key,
                         sha256,
                         record,
+                        from_journal: true,
                     }));
                 }
             }
@@ -247,6 +294,7 @@ impl Cache {
             key,
             sha256,
             record,
+            from_journal: false,
         }))
     }
     /// Returns whether actual ASR was avoided. Silence does not call the recognizer.
@@ -254,10 +302,47 @@ impl Cache {
     pub fn resolve(
         &self,
         window: VerifiedWindow<'_>,
-        mut recognize: impl FnMut(&[i16]) -> Result<String>,
+        recognize: impl FnMut(&[i16]) -> Result<String>,
     ) -> Result<(Accepted, bool)> {
+        let prepared = self.prepare(window, recognize)?;
+        let reused = prepared.reused();
+        let accepted = self
+            .commit_prepared(&[prepared])?
+            .pop()
+            .context("missing committed ASR result")?;
+        Ok((accepted, reused))
+    }
+    pub(super) fn commit_prepared(&self, records: &[Prepared]) -> Result<Vec<Accepted>> {
+        let entries: Vec<_> = records
+            .iter()
+            .filter_map(|p| match &p.0 {
+                PreparedValue::Hit(_) => None,
+                PreparedValue::New { key, bytes, .. } => Some((key.as_str(), bytes.as_slice())),
+            })
+            .collect();
+        if !entries.is_empty() {
+            self.wal
+                .lock()
+                .map_err(|_| anyhow::anyhow!("result journal lock poisoned"))?
+                .put_many(&entries)?;
+        }
+        records
+            .iter()
+            .map(|p| match &p.0 {
+                PreparedValue::Hit(value) => Ok(value.clone()),
+                PreparedValue::New { record, .. } => self
+                    .record(&record.input)?
+                    .context("published ASR result failed verification"),
+            })
+            .collect()
+    }
+    pub(super) fn prepare(
+        &self,
+        window: VerifiedWindow<'_>,
+        mut recognize: impl FnMut(&[i16]) -> Result<String>,
+    ) -> Result<Prepared> {
         if let Some(accepted) = self.lookup(&window)? {
-            return Ok((accepted, true));
+            return Ok(Prepared(PreparedValue::Hit(accepted)));
         }
         let raw = match window.input.kind {
             WindowKind::Speech => Some(recognize(window.pcm)?),
@@ -280,18 +365,25 @@ impl Cache {
             bytes.len() <= 8 * 1024 * 1024,
             "ASR cache record exceeds its limit"
         );
-        self.wal
-            .lock()
-            .map_err(|_| anyhow::anyhow!("result journal lock poisoned"))?
-            .put(&key, &bytes)?;
-        let accepted = self
-            .record(window.input)?
-            .context("published ASR result failed verification")?;
-        Ok((accepted, false))
+        Ok(Prepared(PreparedValue::New { key, record, bytes }))
     }
     /// Read-only lookup against already verified actual PCM; never repairs a miss.
     pub fn lookup(&self, window: &VerifiedWindow<'_>) -> Result<Option<Accepted>> {
-        self.record(window.input)
+        let accepted = self.record(window.input)?;
+        if let Some(record) = &accepted {
+            self.ensure_durable(record)?;
+        }
+        Ok(accepted)
+    }
+    fn ensure_durable(&self, record: &Accepted) -> Result<()> {
+        if record.from_journal {
+            let mut wal = self
+                .wal
+                .lock()
+                .map_err(|_| anyhow::anyhow!("result journal lock poisoned"))?;
+            wal.ensure_durable(&record.key)?;
+        }
+        Ok(())
     }
     fn empty(&self, horizon: &Horizon) -> Result<Checkpoint> {
         Ok(Checkpoint {
@@ -341,6 +433,7 @@ impl Cache {
                 else {
                     break;
                 };
+                self.ensure_durable(&record)?;
                 accepted.push(record);
             }
         }

@@ -153,6 +153,7 @@ mod tests {
         }
         assert_eq!(number::<u64>("LOCALVOX_LIGHT_AUTOCOOK_INTERVAL_SEC"), 5);
         assert_eq!(baked("LOCALVOX_API_TOKEN"), "");
+        assert_eq!(baked("LOCALVOX_LIGHT_INCREMENTAL_TRANSCRIBE"), "on");
         assert!(parse("LOCALVOX_LIGHT_PREROLL_SEC=oops").is_err());
         assert!(parse("LOCALVOX_API_TOKEN=secret").is_err());
     }

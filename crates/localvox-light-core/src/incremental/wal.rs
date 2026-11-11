@@ -7,6 +7,16 @@ const MAGIC: &[u8; 8] = b"\0LVXASR1";
 const HEADER: usize = 108;
 const MAX_RECORD: usize = 8 * 1024 * 1024;
 const MAX_SEGMENT: u64 = 16 * 1024 * 1024;
+pub(super) const MAX_GROUP_RECORDS: usize = 8;
+#[derive(Clone, Copy, Default, Serialize)]
+pub struct JournalWriteStats {
+    pub frames: u64,
+    pub bytes: u64,
+    pub syncs: u64,
+    pub write_sec: f64,
+    pub sync_sec: f64,
+    pub max_sync_sec: f64,
+}
 #[derive(Clone)]
 struct Location {
     segment: u32,
@@ -18,6 +28,8 @@ pub(super) struct Store {
     current: u32,
     writer: Option<File>,
     directory_synced: bool,
+    durable_segments: std::collections::BTreeSet<u32>,
+    stats: JournalWriteStats,
 }
 fn key_bytes(key: &str) -> Result<[u8; 32]> {
     ensure!(is_hash(key), "invalid result journal key");
@@ -62,6 +74,8 @@ impl Store {
             current: 0,
             writer: None,
             directory_synced: false,
+            durable_segments: Default::default(),
+            stats: JournalWriteStats::default(),
         };
         store.refresh()?;
         Ok(store)
@@ -73,6 +87,7 @@ impl Store {
         self.writer = None;
         self.directory_synced = false;
         self.index.clear();
+        self.durable_segments.clear();
         let mut segments = Vec::new();
         for entry in fs::read_dir(&self.root)? {
             let entry = entry?;
@@ -179,13 +194,38 @@ impl Store {
         }
         Ok(Some(bytes))
     }
+    #[cfg(test)]
     pub fn put(&mut self, key: &str, bytes: &[u8]) -> Result<()> {
+        self.put_many(&[(key, bytes)])
+    }
+    pub fn put_many(&mut self, entries: &[(&str, &[u8])]) -> Result<()> {
+        self.put_many_with_sync(entries, |file| file.sync_all())
+    }
+    fn put_many_with_sync(
+        &mut self,
+        entries: &[(&str, &[u8])],
+        mut sync: impl FnMut(&File) -> std::io::Result<()>,
+    ) -> Result<()> {
         ensure!(
-            self.index.contains_key(key) || self.index.len() < 262144,
+            entries.len() <= MAX_GROUP_RECORDS,
+            "result journal group exceeds limit"
+        );
+        // Validate the complete bounded batch before any bytes are written.
+        let frames: Vec<_> = entries
+            .iter()
+            .map(|(key, bytes)| Ok(((*key).to_owned(), frame(key, bytes)?)))
+            .collect::<Result<_>>()?;
+        let new_keys: std::collections::BTreeSet<_> = entries
+            .iter()
+            .map(|(key, _)| *key)
+            .filter(|key| !self.index.contains_key(*key))
+            .collect();
+        ensure!(
+            self.index.len() + new_keys.len() <= 262144,
             "result journal index exceeds limit"
         );
-        let bytes = frame(key, bytes)?;
-        loop {
+        let mut next = 0;
+        while next < frames.len() {
             let path = self.path(self.current);
             if self.writer.is_none() || !path.is_file() {
                 self.writer = Some(
@@ -207,8 +247,8 @@ impl Store {
                 }
             }
             let lock = Unlock(file);
-            let offset = file.metadata()?.len();
-            if offset + bytes.len() as u64 > MAX_SEGMENT {
+            let mut offset = file.metadata()?.len();
+            if offset + frames[next].1.len() as u64 > MAX_SEGMENT {
                 drop(lock);
                 self.writer = None;
                 self.current = self
@@ -218,8 +258,32 @@ impl Store {
                 ensure!(self.current < 4096, "result journal segment limit exceeded");
                 continue;
             }
-            (&*file).write_all(&bytes)?;
-            file.sync_all()?;
+            let mut written = Vec::new();
+            while next < frames.len() && offset + frames[next].1.len() as u64 <= MAX_SEGMENT {
+                let (key, bytes) = &frames[next];
+                let started = std::time::Instant::now();
+                let write = (&*file).write_all(bytes);
+                self.stats.write_sec += started.elapsed().as_secs_f64();
+                write?;
+                self.stats.frames += 1;
+                self.stats.bytes += bytes.len() as u64;
+                written.push((
+                    key.clone(),
+                    Location {
+                        segment: self.current,
+                        offset,
+                    },
+                ));
+                offset += bytes.len() as u64;
+                next += 1;
+            }
+            let started = std::time::Instant::now();
+            let flushed = sync(file);
+            let elapsed = started.elapsed().as_secs_f64();
+            self.stats.sync_sec += elapsed;
+            self.stats.max_sync_sec = self.stats.max_sync_sec.max(elapsed);
+            self.stats.syncs += 1;
+            flushed?;
             if !self.directory_synced {
                 #[cfg(unix)]
                 {
@@ -227,16 +291,61 @@ impl Store {
                 }
                 self.directory_synced = true;
             }
-            self.index.insert(
-                key.into(),
-                Location {
-                    segment: self.current,
-                    offset,
-                },
-            );
+            // No new location is reusable before the entire segment group is durable.
+            self.index.extend(written);
+            self.durable_segments.insert(self.current);
             drop(lock);
+        }
+        Ok(())
+    }
+    /// Orphan frames may be complete after a refused flush. A fresh reader must
+    /// confirm their segment before returning them as accepted work.
+    pub fn ensure_durable(&mut self, key: &str) -> Result<()> {
+        self.ensure_durable_with_sync(key, |file| file.sync_all())
+    }
+    fn ensure_durable_with_sync(
+        &mut self,
+        key: &str,
+        mut sync: impl FnMut(&File) -> std::io::Result<()>,
+    ) -> Result<()> {
+        let segment = self
+            .index
+            .get(key)
+            .context("result journal entry missing")?
+            .segment;
+        if self.durable_segments.contains(&segment) {
             return Ok(());
         }
+        let file = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(self.path(segment))?;
+        let started = std::time::Instant::now();
+        let result = sync(&file);
+        let elapsed = started.elapsed().as_secs_f64();
+        self.stats.sync_sec += elapsed;
+        self.stats.max_sync_sec = self.stats.max_sync_sec.max(elapsed);
+        self.stats.syncs += 1;
+        result?;
+        if !self.directory_synced {
+            #[cfg(unix)]
+            {
+                File::open(&self.root)?.sync_all()?;
+            }
+            self.directory_synced = true;
+        }
+        self.durable_segments.insert(segment);
+        Ok(())
+    }
+    #[cfg(any(feature = "onnx", test))]
+    pub fn stats(&self) -> JournalWriteStats {
+        self.stats
+    }
+    #[cfg(test)]
+    pub(super) fn put_refusing_sync(&mut self, entries: &[(&str, &[u8])]) -> Result<()> {
+        self.put_many_with_sync(entries, |_| {
+            Err(std::io::Error::other("injected sync refusal"))
+        })
     }
     #[cfg(test)]
     pub fn location(&self, key: &str) -> PathBuf {

@@ -364,7 +364,7 @@ fn child_result_and_checkpoint_crashes_reuse_verified_windows_and_empty_coverage
             !empty,
         );
         r.run(true, Some("after_result"), &[]);
-        assert_eq!(r.calls().len(), 1);
+        assert!(!r.calls().is_empty(), "crash happens after a durable group");
         r.assert_no_final();
         r.run(true, Some("after_checkpoint"), &[]);
         let calls = r.calls();
@@ -392,6 +392,29 @@ fn child_result_and_checkpoint_crashes_reuse_verified_windows_and_empty_coverage
         assert_eq!(r.calls(), final_calls);
         r.assert_final(empty);
     }
+}
+
+#[test]
+fn crash_before_group_flush_recomputes_only_uncommitted_work_without_publishing_it() {
+    let mut r = Recording::new("слова из записи", true);
+    r.run(true, Some("after_pending_result"), &[]);
+    let pending_calls = r.calls();
+    assert_eq!(pending_calls.len(), 1);
+    assert!(
+        localvox_light_core::incremental::Published::current(&r.session())
+            .unwrap()
+            .is_none()
+    );
+    r.assert_no_final();
+    r.run(true, None, &[]);
+    assert_eq!(
+        r.calls().iter().filter(|v| **v == pending_calls[0]).count(),
+        2,
+        "only the uncommitted computation is repeated"
+    );
+    r.stop();
+    r.run(false, None, &[]);
+    r.assert_final(false);
 }
 
 #[test]

@@ -194,6 +194,7 @@ fn finite_prefix_coordinator_handles_growth_stop_disable_cancel_and_retry() {
         fs::create_dir(path).expect("evidence output must be a new directory");
     }
     for action in [
+        "default",
         "stop",
         "disable",
         "cancel",
@@ -205,7 +206,14 @@ fn finite_prefix_coordinator_handles_growth_stop_disable_cancel_and_retry() {
         let fault = matches!(action, "timeout" | "asr_error" | "missing" | "changed");
         localvox_light_core::settings::apply_live(&[
             (keys[0].into(), Some("off".into())),
-            (keys[1].into(), Some("on".into())),
+            (
+                keys[1].into(),
+                if action == "default" {
+                    None
+                } else {
+                    Some("on".into())
+                },
+            ),
         ]);
         let mut producer = Producer::new(evidence.as_deref());
         producer.feed(43);

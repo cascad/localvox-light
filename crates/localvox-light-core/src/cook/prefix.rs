@@ -10,6 +10,7 @@ pub struct PrefixTimings {
     pub cache_sec: f64,
     pub audio_journal_sec: f64,
     pub commit_sec: f64,
+    pub result_journal: crate::incremental::JournalWriteStats,
 }
 #[derive(serde::Serialize)]
 pub struct PrefixReport {
@@ -142,7 +143,7 @@ fn prefix_impl(
         .map(|(id, s)| (*id, s.end_sample))
         .collect();
     let loads_before = runtime.loads();
-    let mut accepted = Vec::new();
+    let mut results = crate::incremental::ResultBatch::new(&cache);
     let mut hits = 0;
     let mut asr_calls = 0;
     let total = horizon.windows().values().map(|w| w.len()).sum::<usize>();
@@ -193,7 +194,7 @@ fn prefix_impl(
             );
             let cache_started = Instant::now();
             let recognize_before = timings.recognize_sec + timings.model_sec;
-            let (result, reused) = cache
+            let result = results
                 .resolve(window, |pcm| {
                     let model_started = Instant::now();
                     let engine = runtime.engine_for(&selection, session)?;
@@ -213,14 +214,17 @@ fn prefix_impl(
             timings.cache_sec += (resolve_sec
                 - (timings.recognize_sec + timings.model_sec - recognize_before))
                 .max(0.0);
-            hits += usize::from(reused);
-            accepted.push(result);
-            selection.crash_if_fixture("after_result");
+            hits += usize::from(result.reused);
+            if result.durable {
+                selection.crash_if_fixture("after_result");
+            } else {
+                selection.crash_if_fixture("after_pending_result");
+            }
             if progress_at.elapsed() >= std::time::Duration::from_secs(1) {
                 crate::progress::progress(
                     session,
                     crate::progress::Stage::Transcribe,
-                    (done_before + accepted.len()) as u32,
+                    (done_before + results.len()) as u32,
                     total.max(1) as u32,
                 );
                 progress_at = Instant::now();
@@ -229,6 +233,12 @@ fn prefix_impl(
         },
     )
     .inspect_err(|_| operation.failed())?;
+    let flush_started = Instant::now();
+    let accepted = results.finish().inspect_err(|_| operation.failed())?;
+    let flush_sec = flush_started.elapsed().as_secs_f64();
+    timings.cache_sec += flush_sec;
+    cache_total += flush_sec;
+    selection.crash_if_fixture("after_result");
     crate::progress::progress(
         session,
         crate::progress::Stage::Transcribe,
@@ -241,6 +251,7 @@ fn prefix_impl(
         .finish(session, &accepted)
         .inspect_err(|_| operation.failed())?;
     timings.commit_sec = commit_started.elapsed().as_secs_f64();
+    timings.result_journal = cache.journal_stats()?;
     selection.crash_if_fixture("after_checkpoint");
     operation.log(&format!(
         "Готово до {} сэмплов; новых ASR окон: {asr_calls}, cache hits: {hits}",

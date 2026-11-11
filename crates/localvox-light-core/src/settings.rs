@@ -394,6 +394,10 @@ mod tests {
         assert_eq!(applies("LOCALVOX_FUTURE_CREDENTIAL"), Applies::Restart);
         assert_eq!(applies("LOCALVOX_LIGHT_MIC"), Applies::Capture);
         assert_eq!(applies("LOCALVOX_LIGHT_AUTOCOOK_SUMMARY"), Applies::Live);
+        assert_eq!(
+            applies("LOCALVOX_LIGHT_INCREMENTAL_TRANSCRIBE"),
+            Applies::Live
+        );
         assert!(RETIRED_AUTOCLEAN_KEYS
             .iter()
             .all(|key| !CATALOGUE.iter().any(|s| s.key == *key)));

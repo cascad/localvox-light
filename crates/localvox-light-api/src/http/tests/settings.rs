@@ -56,6 +56,7 @@ fn settings_http_masks_unknown_values_and_reports_snapshot_restart_before_and_af
         .env("LOCALVOX_LLM_MODEL", "before")
         .env_remove("LOCALVOX_LIGHT_MIC")
         .env_remove("LOCALVOX_LIGHT_LOOPBACK_DEVICE")
+        .env_remove("LOCALVOX_LIGHT_INCREMENTAL_TRANSCRIBE")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
@@ -114,6 +115,56 @@ fn settings_http_masks_unknown_values_and_reports_snapshot_restart_before_and_af
         "LOCALVOX_LLM_SERVER_URLS"
     ]
     .contains(s)));
+    let early = || {
+        client
+            .settings()
+            .unwrap()
+            .settings
+            .into_iter()
+            .find(|s| s.key == "LOCALVOX_LIGHT_INCREMENTAL_TRANSCRIBE")
+            .unwrap()
+    };
+    let early_enabled = || {
+        client
+            .request::<Value>(
+                "GET",
+                &["fixture", "early-enabled"],
+                &[],
+                None,
+                Duration::from_secs(3),
+            )
+            .unwrap()["enabled"]
+            .as_bool()
+            .unwrap()
+    };
+    assert_eq!(early().default_value.as_deref(), Some("on"));
+    assert!(early().value.is_none() && early_enabled());
+    for (value, expected) in [(Some("off"), false), (Some("on"), true), (None, true)] {
+        let reply = client
+            .save_settings(
+                [(
+                    "LOCALVOX_LIGHT_INCREMENTAL_TRANSCRIBE".into(),
+                    value.map(str::to_owned),
+                )]
+                .into(),
+            )
+            .unwrap();
+        assert!(reply.need_restart.is_empty());
+        assert_eq!(
+            early_enabled(),
+            expected,
+            "the actual scheduler flag must change live"
+        );
+        assert_eq!(early().value.as_deref(), value);
+        assert_eq!(early().default_value.as_deref(), Some("on"));
+        let saved = localvox_light_core::env_file::parse(&fs::read_to_string(&env_path).unwrap());
+        assert_eq!(
+            saved
+                .get("LOCALVOX_LIGHT_INCREMENTAL_TRANSCRIBE")
+                .map(String::as_str),
+            value
+        );
+    }
     let token = doc
         .settings
         .iter()
@@ -316,6 +367,15 @@ fn settings_fixture() {
     let deadline = Instant::now() + Duration::from_secs(20);
     while !root.join("stop").exists() && Instant::now() < deadline {
         if let Some(request) = server.recv_timeout(Duration::from_millis(20)).unwrap() {
+            // Test-only observation of the live scheduler, not the saved settings view.
+            if request.url() == "/fixture/early-enabled" {
+                request
+                    .respond(Response::from_string(
+                        json!({"enabled":localvox_light_core::jobs::prefix::enabled()}).to_string(),
+                    ))
+                    .unwrap();
+                continue;
+            }
             handle_request(&archive, &config, request);
         }
     }

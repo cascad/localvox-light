@@ -12,14 +12,19 @@ use crate::windowing::pcm_sha256 as pcm_hash;
 use crate::windowing::WindowKind;
 
 mod audio;
+#[cfg(any(feature = "onnx", test))]
+mod batch;
 mod cache;
 mod media;
 mod publication;
 mod wal;
 pub use audio::{consume_windows, AudioStats};
+#[cfg(any(feature = "onnx", test))]
+pub(crate) use batch::ResultBatch;
 pub use cache::{Accepted, Cache, Checkpoint, Output, Transaction, VerifiedWindow};
 pub use media::AudioReader;
 pub use publication::{FrozenInput, PartialLine, Published, Snapshot};
+pub use wal::JournalWriteStats;
 
 #[cfg(test)]
 mod test_support;

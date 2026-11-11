@@ -30,6 +30,7 @@ HTTP/CLI, модели/параметры и визуал. План и испо�
 | Worker execution | finite Job/Request → Completed/Cancelled/Failed; supervisor владеет деревом | autocook/execution и warm; process; worker_server |
 | Import | настройки tools и PCM recorder общие; manual/queued policies отдельны | ingest/MediaTools; asr/prepare и prepare/manual |
 | Artifact acceptance | checksums/receipts → confirmed transition | core/artifacts, processing, jobs, workflow |
+| ASR result storage | bounded prepared outputs → durable Accepted → checkpoint/publication | core/incremental/{batch,cache,wal}; cook и cook/prefix |
 | Application API | session/document/query/command DTO | API archive feature operations и client |
 | Terminal input | Event → Action; поля имеют приоритет | terminal runtime/input и app input |
 | Client presentation | preferences + accepted data → view | terminal App/render; React document views/controller |

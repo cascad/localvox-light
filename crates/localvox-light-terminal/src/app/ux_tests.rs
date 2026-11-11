@@ -513,6 +513,75 @@ fn console_folds_repeated_polling_errors_acknowledges_and_preserves_an_open_form
     response(&mut app, 4, Resource::Summary, Err("offline".into()));
     assert_eq!(app.console.unread(), 1);
 }
+
+#[test]
+fn early_transcription_is_in_basic_settings_and_can_be_disabled_or_reset_to_on() {
+    let key_name = "LOCALVOX_LIGHT_INCREMENTAL_TRANSCRIBE";
+    let mut app = App {
+        view: View::Settings,
+        ..Default::default()
+    };
+    app.settings.settings = vec![
+        Setting {
+            key: key_name.into(),
+            kind: "bool".into(),
+            default_value: Some("on".into()),
+            applies: "live".into(),
+            ..Default::default()
+        },
+        Setting {
+            key: "LOCALVOX_LLM_MODEL".into(),
+            kind: "text".into(),
+            ..Default::default()
+        },
+        Setting {
+            key: "LOCALVOX_LIGHT_AUTOCOOK_INTERVAL_SEC".into(),
+            kind: "number".into(),
+            ..Default::default()
+        },
+    ];
+    assert!(!app.settings_advanced);
+    assert_eq!(
+        app.visible_settings()
+            .iter()
+            .map(|s| s.key.as_str())
+            .collect::<Vec<_>>(),
+        [key_name, "LOCALVOX_LLM_MODEL"]
+    );
+    assert_eq!(
+        app.setting_value(app.selected_setting().unwrap(), true),
+        "Включено"
+    );
+    app.command(Action::EditSetting);
+    key(&mut app, KeyCode::End);
+    key(&mut app, KeyCode::Enter);
+    assert_eq!(app.settings_edits[key_name].as_deref(), Some("off"));
+    assert_eq!(
+        app.setting_value(app.selected_setting().unwrap(), true),
+        "Выключено"
+    );
+    app.command(Action::SaveSettings);
+    assert!(
+        matches!(&app.form.as_ref().unwrap().kind, FormKind::Confirm(Task::SaveSettings(set)) if set[key_name].as_deref() == Some("off"))
+    );
+    key(&mut app, KeyCode::Esc);
+
+    // An accepted settings response supplies the stored override on the next read.
+    app.settings.settings[0].value = Some("off".into());
+    app.settings_edits.clear();
+    app.command(Action::EditSetting);
+    key(&mut app, KeyCode::Home);
+    key(&mut app, KeyCode::Enter);
+    assert_eq!(app.settings_edits[key_name], None);
+    assert_eq!(
+        app.setting_value(app.selected_setting().unwrap(), true),
+        "Включено"
+    );
+    app.command(Action::SaveSettings);
+    assert!(
+        matches!(&app.form.as_ref().unwrap().kind, FormKind::Confirm(Task::SaveSettings(set)) if set[key_name].is_none())
+    );
+}
 #[test]
 fn late_action_failure_keeps_the_original_session_and_operation_in_the_console() {
     let mut app = App::default();

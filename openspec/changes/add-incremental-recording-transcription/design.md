@@ -309,7 +309,24 @@ User-guide обновлять вместе с доступным поведен�
 и сохранённый публичный PCM. Рабочий daemon/личный архив не затрагиваются.
 Owner microphone/loopback длительный сеанс и Mac — отдельные not-run до приёмки.
 
-## Planned traceability
+## Default activation decision — 2026-11-11
+
+По новому прямому поручению владельца выполнить полный контроль и включить on
+продолжается 7.3. Для default сегодняшнего переключателя сравниваются одинаковые
+current capture/planner с ASR после Stop и с ранним ASR. Capture/planner уже
+работают при обоих значениях настройки; старый legacy offline — другой путь.
+Порог остаётся ≤20% по каждой из трёх пар и суммарно, parity/reuse обязательны.
+Это отдельное решение о default; старые R4/PIPE-019 результаты и их gates сохранены.
+См. [зафиксированный план](evidence/default-on-plan.md). Аппаратный 7.4 не закрывается.
+
+Первый новый контроль не прошёл из-за задержек storage; владелец выбрал исправить
+их до включения. [Repair plan](evidence/default-on-repair-plan.md) сохраняет
+попытки и фиксирует bounded group commit результатов до Accepted/publication.
+Повторены оба исходных comparator: legacy и current, по три полные пары;
+[R3 и регрессии](evidence/default-on-validation.md) прошли. Default on включён,
+7.3 закрыт; 7.4 остаётся not-run. Исторические failed результаты не изменены.
+
+## Planned traceability (исходный план)
 
 Здесь ссылки на будущие точки реализации, не доказательство готовности. Main specs
 и coverage не получают новые принятые IDs до принятия/синхронизации delta.

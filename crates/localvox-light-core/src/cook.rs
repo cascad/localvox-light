@@ -335,6 +335,7 @@ fn cook_session_impl(
     } else {
         None
     };
+    let mut result_batch = cache.as_ref().map(crate::incremental::ResultBatch::new);
     let window_fingerprint = use_cache.then(|| window_recipe.fingerprint()).transpose()?;
     let (mut engine, model_name) = if let Some(selection) = &selection {
         (None, selection.name.clone())
@@ -442,7 +443,7 @@ fn cook_session_impl(
                     .transcribe(&pcm)
                     .context("recognizing the window")
             };
-            let text = if let Some(cache) = &cache {
+            let text = if let Some(batch) = result_batch.as_mut() {
                 let descriptor = crate::chunks::planning::Descriptor::from_pcm(
                     &capture.as_ref().unwrap().generation,
                     window_fingerprint.as_deref().unwrap(),
@@ -451,15 +452,19 @@ fn cook_session_impl(
                     window.pcm,
                     window.kind,
                 )?;
-                let (result, reused) = cache.resolve(
+                let result = batch.resolve(
                     crate::incremental::VerifiedWindow::new(&descriptor, window.pcm)?,
                     &mut recognize,
                 )?;
                 if let Some(selection) = &selection {
-                    selection.crash_if_fixture("after_result");
+                    if result.durable {
+                        selection.crash_if_fixture("after_result");
+                    } else {
+                        selection.crash_if_fixture("after_pending_result");
+                    }
                 }
-                cache_hits += usize::from(reused);
-                result.text().map(str::to_owned)
+                cache_hits += usize::from(result.reused);
+                result.text
             } else if window.kind == crate::windowing::WindowKind::Speech {
                 let text = recognize(window.pcm)?.trim().to_string();
                 has_real_word(&text).then_some(text)
@@ -567,6 +572,14 @@ fn cook_session_impl(
                 // The labelling failed — the transcript does not disappear because of it.
                 Err(e) => tracing::error!("diarization of track {source_id} failed: {e:#}"),
             }
+        }
+    }
+    // Only memory previews existed above. Flush and verify every pending result
+    // before any transcript/version/receipt may be published.
+    if let Some(batch) = result_batch.take() {
+        batch.finish()?;
+        if let Some(selection) = &selection {
+            selection.crash_if_fixture("after_result");
         }
     }
     if !any_chunks {

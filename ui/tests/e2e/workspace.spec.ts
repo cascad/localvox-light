@@ -293,6 +293,50 @@ test("journal folds exactly 35 lines and command arguments have separate styles"
   await expect(page.locator(".journal")).toHaveScreenshot("journal-expanded-dark.png");
 });
 
+test("early transcription defaults to on and can be saved off on or reset without restart", async ({page}) => {
+  await workspace(page);
+  const key = "LOCALVOX_LIGHT_INCREMENTAL_TRANSCRIBE";
+  let value: string | null = null;
+  const sent: Record<string,string|null>[] = [];
+  await page.route("**/api/settings", route => {
+    if (route.request().method() === "POST") {
+      const {set} = route.request().postDataJSON();
+      sent.push(set); value = set[key];
+      return route.fulfill({json:{msg:"Сохранено и применено",need_restart:[]}});
+    }
+    return route.fulfill({json:{path:"synthetic/.env",defaults_path:"synthetic/.env.defaults",exists:true,extra:[],settings:[{
+      key,group:"Автоварка",label:"Распознавать во время записи",kind:"bool",value,default_value:"on",applies:"live",set:value !== null,
+      hint:"Готовые фрагменты обрабатываются заранее. Выключение сохраняет текущую порцию; после Stop — обычная обработка",
+    }]}});
+  });
+  await page.getByRole("button",{name:/⚙ Настройки/}).click();
+  const toggle = page.getByRole("combobox",{name:"Распознавать во время записи",exact:true});
+  const save = async () => {
+    await page.getByRole("button",{name:"Сохранить (1)",exact:true}).click();
+    await expect(page.getByRole("button",{name:"Сохранено",exact:true})).toBeVisible();
+  };
+  await expect(toggle).toBeVisible();
+  await expect(toggle).toHaveValue("on");
+  await expect(page.locator(".set-source")).toHaveText("Предустановка");
+  await toggle.selectOption("off");
+  await save();
+  await expect(toggle).toHaveValue("off");
+  await expect(page.getByText("Перезапускать ничего не нужно.",{exact:false})).toBeVisible();
+  await expect(page.locator(".set-source")).toHaveText("Из .env");
+  await toggle.selectOption("on");
+  await page.getByRole("button",{name:"Отменить правки",exact:true}).click();
+  await expect(toggle).toHaveValue("off");
+  expect(sent).toEqual([{[key]:"off"}]);
+  await toggle.selectOption("on");
+  await save();
+  await expect(toggle).toHaveValue("on");
+  await toggle.selectOption("");
+  await save();
+  await expect(toggle).toHaveValue("on");
+  await expect(page.locator(".set-source")).toHaveText("Предустановка");
+  expect(sent).toEqual([{[key]:"off"},{[key]:"on"},{[key]:null}]);
+});
+
 test("only summary is optional and the Text tab reads the primary transcript without cleanup", async ({ page }) => {
   await workspace(page);
   const setting = { key: "LOCALVOX_LIGHT_AUTOCOOK_SUMMARY", group: "После распознавания", label: "Сводка · summary", hint: "включено", kind: "bool", value: "on", applies: "live", set: true };

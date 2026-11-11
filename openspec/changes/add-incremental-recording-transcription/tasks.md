@@ -8,7 +8,7 @@
 | R1 · Готовые куски распознаются, Stop завершает полную запись с reuse | 1.1–3.2 | Готово: worker/crash fixtures и native 150 s smoke прошли; reference performance в R4 |
 | R2 · Очередь, настройка и отмена работают во время записи | 4.1–4.2 | Готово: real coordinator stop/disable/cancel/Retry; default gate в R4 |
 | R3 · Готовое можно читать, копировать и слушать в UI/TUI без прыжков | 4.3, 6.1–6.3 | Готово: HTTP/оба клиента/ConPTY, native mpv и FLAC; hardware отдельно |
-| R4 · Кандидат проходит общий прогон и запускается по короткой инструкции | 7.1–7.3 | Кандидат собран и регрессии прошли; reference +48.12% > 20%, default gate 7.3 не закрыт |
+| R4 · Кандидат проходит общий прогон и запускается по короткой инструкции | 7.1–7.3 | Готово 2026-11-11: grouped cache; полные legacy/current R3 6/6 пар прошли, default on; регрессии и новый комплект проверены |
 
 После R4 передать кандидата владельцу и остановиться на проверке 7.4. Новые фичи,
 подбор моделей и общий рефакторинг не добавлять к этому выпуску. Далее — баги по
@@ -53,10 +53,16 @@
 
 - [x] 7.1 Прогнать единую fault/restart серию с синтетическим producer и реальными coordinator/worker/API: VAD seam, тишина, lost/empty chunk, disk refusal, decoder/ASR timeout, две дорожки, FLAC race, смена входа и crash на финализации; сохранить input/output receipts и воспроизводимые assertions без микрофона/пользовательского архива.
 - [x] 7.2 Выполнить alternating offline/incremental native серии на сохранённом публичном двухчасовом PCM: сравнить окно за окном PCM hashes/coverage, ASR cache calls, final text differences, wall/active CPU/I/O/RAM/startup и Stop→ready; проверить reference-budget из design, при провале не включать default и не менять пороги/алгоритм ради результата.
-- [ ] 7.3 После автономных gate обновить evidence затронутых принятых требований и локальную карту новых IDs; включить обещанный default только для проверенного полного пути, прогнать соответствующие Rust/API/browser/ConPTY regressions и strict main/change/check-openspec/diff; коммитить проверенные этапы без push, не sync/archive невыполненное.
+- [x] 7.3 После автономных gate обновить evidence затронутых принятых требований и локальную карту новых IDs; включить обещанный default только для проверенного полного пути, прогнать соответствующие Rust/API/browser/ConPTY regressions и strict main/change/check-openspec/diff; коммитить проверенные этапы без push, не sync/archive невыполненное.
 - [ ] 7.4 Выполнить с владельцем аппаратную проверку длительной записи microphone/loopback и слабого Mac: качество стыков, capture backlog/звук, отзывчивость, Stop и восстановление; до фактического прогона оставить not-run и не объявлять готовность на этом железе.
 
-Срез R4 от 2026-11-10: [fault/restart и receipts](evidence/fault-series.md),
+Текущий срез R4 от 2026-11-11: [исправление кеша, полные gates, default и регрессии](evidence/default-on-validation.md),
+[новый комплект и native smoke](evidence/default-on-bundle.json).
+7.3 завершён; 7.4 аппаратная приёмка остаётся not-run. Новый комплект:
+`target/review/incremental-default-on`, запуск — в [короткой инструкции](../../../docs/incremental-acceptance.md).
+Новые фичи/оптимизации не добавляются; change не sync/archive.
+
+Исторический срез R4 от 2026-11-10: [fault/restart и receipts](evidence/fault-series.md),
 [native reference — correctness pass, budget fail](evidence/native-reference.md),
 [кандидат/регрессии/traceability](evidence/review-candidate.md),
 [короткая проверка владельцем](../../../docs/incremental-acceptance.md).

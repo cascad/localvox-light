@@ -1,5 +1,14 @@
 # Покрытие требований и состояние реализации
 
+Дополнение PIPE-002/008/010/011/012, CFG-001/002, ARCH-001/002 от 2026-11-11:
+[grouped durable cache, default on и проверка переключателя](../changes/add-incremental-recording-transcription/evidence/default-on-validation.md).
+Новые полные R3: legacy 3/3 (+6.25% суммарно), current capture 3/3 (+4.03%);
+в каждой паре ≤20%, окна/текст/714 ASR calls совпали. Ранее failed gates сохранены
+как исторические результаты ниже. Default on теперь реализован; PIPE-016/018 и
+ARCH-006 остаются delta, аппаратная microphone/loopback/Mac приёмка 7.4 not-run.
+915 Rust, 6 actual worker fixtures, real coordinator/shared UI/TUI HTTP и UI 14/81
+прошли; подробности, границы и команды в новом отчёте.
+
 Дополнение ARCH-001/002, PIPE-002/008/010/011/012, CFG-001/002 от 2026-11-11:
 [inference/execution/import границы](../changes/refactor-modular-feature-boundaries/evidence/processing.md),
 [итоговый рефакторинг и комплект](../changes/refactor-modular-feature-boundaries/evidence/validation.md).
@@ -477,7 +486,7 @@ main specs и прежние свидетельства не переписан�
 
 | ID | Delta / код | Свидетельство | Граница |
 |---|---|---|---|
-| PIPE-002/008/010/011/012, CFG-001/002; PIPE-019 в delta | [delta](../changes/reuse-asr-worker-between-horizons/specs/processing-pipeline/spec.md), [worker](../../crates/localvox-light-asr/src/bin/worker_server/mod.rs), [cache](../../crates/localvox-light-core/src/incremental/cache.rs) | [test-run](../changes/reuse-asr-worker-between-horizons/evidence/implementation.md): core/worker/process/coordinator/API/TUI; [native](../changes/reuse-asr-worker-between-horizons/evidence/native-reference.md) | Один engine, fresh identity, durable recovery; legacy gate fail, default off; hardware/Mac not-run |
+| PIPE-002/008/010/011/012, CFG-001/002; PIPE-019 в delta | [delta](../changes/reuse-asr-worker-between-horizons/specs/processing-pipeline/spec.md), [worker](../../crates/localvox-light-asr/src/bin/worker_server/mod.rs), [cache](../../crates/localvox-light-core/src/incremental/cache.rs) | [test-run](../changes/reuse-asr-worker-between-horizons/evidence/implementation.md): core/worker/process/coordinator/API/TUI; [прежний native](../changes/reuse-asr-worker-between-horizons/evidence/native-reference.md); [grouped cache R3](../changes/add-incremental-recording-transcription/evidence/default-on-validation.md) | Один engine, fresh identity, durable recovery; новые legacy/current R3 6/6 pass, default on; прежний fail сохранён; hardware/Mac not-run |
 | ARCH-001; ARCH-019 в delta | [delta](../changes/resize-terminal-list-pane/specs/archive-playback/spec.md), [geometry](../../crates/localvox-light-terminal/src/render/geometry.rs), [actions](../../crates/localvox-light-terminal/src/app/pane_width.rs) | [test-run](../changes/resize-terminal-list-pane/evidence/implementation.md): 196 lib / 5 ConPTY, input/resize/reconnect/anchor, unchanged snapshots | Session preference; compact unchanged, external OS/terminal bindings not-run |
 | ARCH-001/015; ARCH-018 в delta | [delta](../changes/refine-terminal-focus-details/specs/archive-playback/spec.md), [Theme/render](../../crates/localvox-light-terminal/src/render.rs) | [test-run](../changes/refine-terminal-focus-details/evidence/implementation.md): 190 lib / 5 ConPTY, focus/contrast, 38 style-only snapshots | Панели/текст/действия сохранены; владелец и реальные terminal palettes not-run |
 | ARCH-001; ARCH-017 в delta | [delta](../changes/configure-command-keymaps/specs/archive-playback/spec.md), [UI](../../ui/src/DocumentPane.tsx), [TUI keymap](../../crates/localvox-light-terminal/src/keymap.rs) | [test-run](../changes/configure-command-keymaps/evidence/implementation.md): 189 lib / 5 ConPTY / IO/run-script; UI build, 14 unit / 2 browser e2e; прежние snapshots | Physical code для UI, явные символьные overrides для TUI. Реальные hosts/IME/Mac not-run; main specs не изменены |
