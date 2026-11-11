@@ -29,6 +29,7 @@ pub struct Theme {
     pub dim: Color,
     pub label: Color,
     pub line: Color,
+    pub focus: Color,
     pub command: Color,
     pub argument: Color,
     pub value: Color,
@@ -47,6 +48,7 @@ impl Theme {
                 dim: Color::Reset,
                 label: Color::Reset,
                 line: Color::Reset,
+                focus: Color::Reset,
                 command: Color::Reset,
                 argument: Color::Reset,
                 value: Color::Reset,
@@ -64,6 +66,7 @@ impl Theme {
                 dim: Color::DarkGray,
                 label: Color::Cyan,
                 line: Color::DarkGray,
+                focus: Color::Yellow,
                 command: Color::Cyan,
                 argument: Color::Magenta,
                 value: Color::Yellow,
@@ -81,29 +84,31 @@ impl Theme {
                 dim: Color::Rgb(94, 101, 108),
                 label: Color::Rgb(62, 104, 126),
                 line: Color::Rgb(207, 207, 199),
+                focus: Color::Rgb(137, 74, 25),
                 command: Color::Rgb(42, 94, 133),
                 argument: Color::Rgb(113, 70, 144),
                 value: Color::Rgb(120, 93, 36),
                 ok: Color::Rgb(35, 112, 72),
                 busy: Color::Rgb(137, 96, 26),
                 error: Color::Rgb(171, 54, 54),
-                selection: Color::Rgb(225, 230, 229),
+                selection: Color::Rgb(235, 224, 209),
                 ascii: a.ascii,
             };
         }
         Self {
-            bg: Color::Rgb(23, 25, 29),
+            bg: Color::Rgb(27, 28, 39),
             ink: Color::Rgb(216, 220, 227),
             dim: Color::Rgb(156, 164, 175),
             label: Color::Rgb(135, 166, 185),
-            line: Color::Rgb(52, 57, 66),
+            line: Color::Rgb(61, 66, 85),
+            focus: Color::Rgb(229, 161, 97),
             command: Color::Rgb(133, 180, 220),
             argument: Color::Rgb(194, 165, 216),
             value: Color::Rgb(214, 194, 139),
             ok: Color::Rgb(127, 189, 154),
             busy: Color::Rgb(216, 183, 119),
             error: Color::Rgb(227, 141, 133),
-            selection: Color::Rgb(42, 48, 57),
+            selection: Color::Rgb(52, 43, 38),
             ascii: a.ascii,
         }
     }
@@ -117,6 +122,9 @@ impl Theme {
     }
     fn heading_style(self) -> Style {
         Style::default().fg(self.label).add_modifier(Modifier::BOLD)
+    }
+    fn focus_style(self) -> Style {
+        Style::default().fg(self.focus).add_modifier(Modifier::BOLD)
     }
 }
 fn borders<'a>(ascii: bool) -> Block<'a> {
@@ -149,15 +157,19 @@ fn panel<'a>(title: &str, focused: bool, t: Theme) -> Block<'a> {
         .borders(Borders::TOP | Borders::LEFT)
         .title(format!(
             " {}{} ",
-            if focused && t.command == Color::Reset {
+            if focused && t.focus == Color::Reset {
                 "> "
             } else {
                 ""
             },
             safe_label(title)
         ))
-        .title_style(t.heading_style())
-        .border_style(Style::default().fg(if focused { t.command } else { t.line }))
+        .title_style(if focused {
+            t.focus_style()
+        } else {
+            t.heading_style()
+        })
+        .border_style(Style::default().fg(if focused { t.focus } else { t.line }))
 }
 pub fn draw(f: &mut Frame, a: &App) {
     let t = Theme::for_app(a);
@@ -364,7 +376,8 @@ pub fn draw(f: &mut Frame, a: &App) {
                 .block(
                     borders(a.ascii)
                         .title(" Действия · Enter / Esc ")
-                        .title_style(t.heading_style())
+                        .title_style(t.focus_style())
+                        .border_style(Style::default().fg(t.focus))
                         .style(Style::default().bg(t.bg).fg(t.ink)),
                 )
                 .highlight_style(
@@ -379,7 +392,7 @@ pub fn draw(f: &mut Frame, a: &App) {
     if a.help {
         let rect = modal(area, 78, 26);
         f.render_widget(Clear, rect);
-        f.render_widget(Paragraph::new("УПРАВЛЕНИЕ\nSpace play/pause; p fragment; g/п time; Alt+Left/Right +/-15s\nF6 — стрелки плееру; повтор — к документу\n\nTab / Shift+Tab — фокус панели\nEsc — окно → детали → список → меню\n↑↓ — выбрать строку; Enter — открыть\nМеню разделов: l/Enter — выбрать\nСписок архива: j/k или ↑↓, l/Enter — открыть, / — поиск\nВ поиске буквы и / — текст; Esc — сброс и выход\n1–5 — вкладки; y — блок/реплика; Ctrl+Y — всё; 3 → y — весь текст\n/ или точка в RU — поиск в выбранной панели; : / F2 — действия; n — создать; i — URL → Enter\nF8 — остановить запись; F9 — начать запись\nX — отменить обработку; R — продолжить этап\nPgUp / PgDn, Home / End — чтение документа\n← / → или h/l — свернуть / раскрыть подробности\n\nВ форме: Tab — поле; Enter — новая строка\nCtrl+Enter — отправить; Esc — отменить\nURL, настройка, время: Enter — подтвердить\nВставка остаётся текстом, команды не исполняются.\nI — сведения в «Ход»; A / S — все настройки / сохранить\n~ / ё — консоль ошибок; F12 — также из формы\n\nF10 / Ctrl+Q — выход; qq/йй за 0.5 с — вне ввода.\nДругая клавиша или вставка отменяет первое q.\nДемон и запись продолжают работать.\n\nЛюбая клавиша — закрыть справку").block(borders(a.ascii).title(" Помощь ").title_style(t.heading_style()).style(Style::default().bg(t.bg).fg(t.ink))).wrap(Wrap{trim:false}),rect);
+        f.render_widget(Paragraph::new("УПРАВЛЕНИЕ\nSpace play/pause; p fragment; g/п time; Alt+Left/Right +/-15s\nF6 — стрелки плееру; повтор — к документу\n\nTab / Shift+Tab — фокус панели\nEsc — окно → детали → список → меню\n↑↓ — выбрать строку; Enter — открыть\nМеню разделов: l/Enter — выбрать\nСписок архива: j/k или ↑↓, l/Enter — открыть, / — поиск\nВ поиске буквы и / — текст; Esc — сброс и выход\n1–5 — вкладки; y — блок/реплика; Ctrl+Y — всё; 3 → y — весь текст\n/ или точка в RU — поиск в выбранной панели; : / F2 — действия; n — создать; i — URL → Enter\nF8 — остановить запись; F9 — начать запись\nX — отменить обработку; R — продолжить этап\nPgUp / PgDn, Home / End — чтение документа\n← / → или h/l — свернуть / раскрыть подробности\n\nВ форме: Tab — поле; Enter — новая строка\nCtrl+Enter — отправить; Esc — отменить\nURL, настройка, время: Enter — подтвердить\nВставка остаётся текстом, команды не исполняются.\nI — сведения в «Ход»; A / S — все настройки / сохранить\n~ / ё — консоль ошибок; F12 — также из формы\n\nF10 / Ctrl+Q — выход; qq/йй за 0.5 с — вне ввода.\nДругая клавиша или вставка отменяет первое q.\nДемон и запись продолжают работать.\n\nЛюбая клавиша — закрыть справку").block(borders(a.ascii).title(" Помощь ").title_style(t.focus_style()).border_style(Style::default().fg(t.focus)).style(Style::default().bg(t.bg).fg(t.ink))).wrap(Wrap{trim:false}),rect);
     }
     if let Some(form) = &a.form {
         let desired = match &form.kind {
@@ -404,7 +417,8 @@ pub fn draw(f: &mut Frame, a: &App) {
         f.render_widget(Clear, rect);
         let block = borders(a.ascii)
             .title(format!(" {} ", safe_label(&form.title)))
-            .title_style(t.heading_style())
+            .title_style(t.focus_style())
+            .border_style(Style::default().fg(t.focus))
             .style(Style::default().bg(t.bg).fg(t.ink));
         let inner = block.inner(rect);
         f.render_widget(block, rect);
@@ -902,6 +916,8 @@ fn document(f: &mut Frame, a: &App, area: Rect, t: Theme, title: &str) {
     let block = panel(title, a.focus == 2, t).title_style(
         if a.view == View::Archive && a.current.is_some() {
             Style::default().fg(t.ink).add_modifier(Modifier::BOLD)
+        } else if a.focus == 2 {
+            t.focus_style()
         } else {
             t.heading_style()
         },

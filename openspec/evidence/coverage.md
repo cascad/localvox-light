@@ -1,5 +1,10 @@
 # Покрытие требований и состояние реализации
 
+Дополнение ARCH-001/015 от 2026-11-11: [активная область и детали TUI](../changes/refine-terminal-focus-details/evidence/implementation.md).
+190 lib / 5 ConPTY прошли; 38 style baselines обновлены после подтверждения
+побайтного равенства area/content, focus/contrast проверены во всех темах.
+ARCH-018 остаётся delta; эстетическая оценка владельца/hardware/Mac not-run.
+
 Дополнение чтения ARCH-001 и ручного журнала PIPE-011 от 2026-11-10:
 [Page Up/Down по видимой странице TUI](../changes/fix-terminal-page-navigation/evidence/implementation.md).
 145 library tests/4 ConPTY прошли, прежние visual baselines сохранены; ARCH-013
@@ -436,4 +441,5 @@ main specs и прежние свидетельства не переписан�
 
 | ID | Delta / код | Свидетельство | Граница |
 |---|---|---|---|
+| ARCH-001/015; ARCH-018 в delta | [delta](../changes/refine-terminal-focus-details/specs/archive-playback/spec.md), [Theme/render](../../crates/localvox-light-terminal/src/render.rs) | [test-run](../changes/refine-terminal-focus-details/evidence/implementation.md): 190 lib / 5 ConPTY, focus/contrast, 38 style-only snapshots | Панели/текст/действия сохранены; владелец и реальные terminal palettes not-run |
 | ARCH-001; ARCH-017 в delta | [delta](../changes/configure-command-keymaps/specs/archive-playback/spec.md), [UI](../../ui/src/DocumentPane.tsx), [TUI keymap](../../crates/localvox-light-terminal/src/keymap.rs) | [test-run](../changes/configure-command-keymaps/evidence/implementation.md): 189 lib / 5 ConPTY / IO/run-script; UI build, 14 unit / 2 browser e2e; прежние snapshots | Physical code для UI, явные символьные overrides для TUI. Реальные hosts/IME/Mac not-run; main specs не изменены |

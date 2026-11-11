@@ -7,8 +7,11 @@ use ratatui::{
 };
 
 fn position(buffer: &Buffer, text: &str, min_x: u16) -> (u16, u16) {
+    position_from_row(buffer, text, min_x, 0)
+}
+fn position_from_row(buffer: &Buffer, text: &str, min_x: u16, min_y: u16) -> (u16, u16) {
     let chars: Vec<_> = text.chars().map(|c| c.to_string()).collect();
-    for y in 0..buffer.area.height {
+    for y in min_y..buffer.area.height {
         for x in min_x..buffer.area.width.saturating_sub(chars.len() as u16) + 1 {
             if chars
                 .iter()
@@ -56,7 +59,8 @@ fn rgb_labels_and_values_keep_readable_contrast_on_background_and_selection() {
         });
         assert_ne!(t.label, t.ink);
         assert_ne!(t.label, t.value);
-        for foreground in [t.label, t.ink, t.value] {
+        assert_ne!(t.focus, t.command);
+        for foreground in [t.label, t.ink, t.value, t.focus] {
             for background in [t.bg, t.selection] {
                 let (a, b) = (luminance(foreground), luminance(background));
                 let ratio = (a.max(b) + 0.05) / (a.min(b) + 0.05);
@@ -95,7 +99,12 @@ fn rendered_captions_values_and_hints_have_distinct_roles_in_all_color_modes() {
         let buffer = screen(&app);
         assert_eq!(word(&buffer, "Разделы", 0).fg, t.label);
         assert_eq!(word(&buffer, "значение", 26).fg, t.label);
-        assert_eq!(word(&buffer, "Модель", 26).fg, t.label);
+        let (x, y) = position(&buffer, "Модель", 26);
+        assert_eq!(buffer[(x, y)].fg, t.focus); // Active technical panel title.
+        assert_eq!(
+            buffer[position_from_row(&buffer, "Модель", 26, y + 1)].fg,
+            t.label
+        );
         assert_eq!(word(&buffer, "QwenFixture", 26).fg, t.value);
         assert_eq!(word(&buffer, "Пояснение настройки", 26).fg, t.dim);
         assert!(word(&buffer, "Модель", 26)
@@ -170,4 +179,47 @@ fn document_title_and_user_text_remain_primary_data_without_changing_copy() {
     assert_eq!(word(&buffer, "Пользовательский текст", 26).fg, t.ink);
     assert_eq!(app.copy_text(), copied);
     assert_eq!(copied, "Пользовательский текст");
+}
+
+#[test]
+fn active_pane_border_and_overlay_titles_use_focus_in_all_color_modes() {
+    for mode in 0..4 {
+        for focus in 0..4 {
+            let mut app = App {
+                current: Some("fixture".into()),
+                focus,
+                viewport: (120, 36),
+                light: mode == 1,
+                color16: mode == 2,
+                monochrome: mode == 3,
+                ..Default::default()
+            };
+            let t = Theme::for_app(&app);
+            let buffer = screen(&app);
+            let rows = workspace_rows(buffer.area);
+            let cols = workspace_columns(rows[2]);
+            let left = left_rows(cols[0]);
+            for (index, rect) in [left[0], left[1], cols[1], rows[1]].into_iter().enumerate() {
+                assert_eq!(
+                    buffer[(rect.x, rect.y)].fg,
+                    if index == focus { t.focus } else { t.line },
+                    "mode={mode}, focus={focus}, pane={index}"
+                );
+            }
+            assert_eq!(
+                word(&buffer, "Разделы", 0).fg,
+                if focus == 0 { t.focus } else { t.label }
+            );
+            assert_eq!(
+                word(&buffer, "Аудио", 0).fg,
+                if focus == 3 { t.focus } else { t.label }
+            );
+            app.palette = true;
+            let buffer = screen(&app);
+            let (x, y) = position(&buffer, "Действия · Enter / Esc", 0);
+            assert_eq!(buffer[(x, y)].fg, t.focus);
+            assert_eq!(buffer[(x - 2, y)].fg, t.focus);
+            assert!(buffer[(x, y)].modifier.contains(Modifier::BOLD));
+        }
+    }
 }

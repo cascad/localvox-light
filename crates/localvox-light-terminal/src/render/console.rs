@@ -10,6 +10,8 @@ pub(super) fn render_console(f: &mut Frame, a: &App, t: Theme) {
     f.render_widget(Clear, rect);
     let block = borders(a.ascii)
         .title(" Консоль ошибок · просмотрено ")
+        .title_style(t.focus_style())
+        .border_style(Style::default().fg(t.focus))
         .style(Style::default().fg(t.ink).bg(t.bg));
     let inner = block.inner(rect);
     f.render_widget(block, rect);
