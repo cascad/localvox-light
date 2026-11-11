@@ -46,6 +46,106 @@ fn navigation_letters_and_arrows_select_without_starting_search_or_opening_docum
 }
 
 #[test]
+fn vim_right_opens_the_visible_row_only_in_idle_archive_list() {
+    for c in ['l', 'д'] {
+        let mut a = fixture();
+        key(&mut a, '/');
+        a.paste("план");
+        a.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        a.key(KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT));
+        a.selected = 1;
+        key(&mut a, c);
+        assert_eq!(a.current.as_deref(), Some("c"));
+        assert_eq!(a.focus, 2);
+        assert_eq!(a.archive_filter, "план");
+
+        let mut a = fixture();
+        key(&mut a, '/');
+        key(&mut a, c);
+        assert_eq!(a.archive_filter, c.to_string());
+        assert_eq!(a.current.as_deref(), Some("a"));
+        assert!(a.effects.is_empty());
+
+        let mut a = fixture();
+        a.sessions.clear();
+        key(&mut a, c);
+        assert_eq!(a.focus, 1);
+        assert!(a.effects.is_empty());
+
+        let mut a = fixture();
+        a.focus = 2;
+        key(&mut a, c);
+        assert_eq!(a.current.as_deref(), Some("a"));
+        assert!(a.effects.is_empty());
+
+        let mut a = fixture();
+        for modifiers in [KeyModifiers::CONTROL, KeyModifiers::ALT] {
+            a.key(KeyEvent::new(KeyCode::Char(c), modifiers));
+            assert_eq!(a.focus, 1);
+            assert!(a.effects.is_empty());
+        }
+        a.command(Action::NewAsk);
+        key(&mut a, c);
+        assert_eq!(a.form.as_ref().unwrap().fields[0].value, c.to_string());
+        assert!(a.effects.is_empty());
+    }
+}
+
+#[test]
+fn vim_horizontal_keys_match_document_arrows_and_remain_literal_in_input() {
+    for (left, right) in [('h', 'l'), ('р', 'д')] {
+        let mut a = fixture();
+        a.focus = 2;
+        a.tab = Tab::Progress;
+        a.journal.entries = vec![localvox_light_client::JournalEntry {
+            id: "entry".into(),
+            run: "run".into(),
+            operation: Some("op".into()),
+            kind: "operation_start".into(),
+            stage: "summary".into(),
+            ..Default::default()
+        }];
+        key(&mut a, right);
+        assert!(a.expanded && a.journal.expanded.contains("run/op"));
+        key(&mut a, left);
+        assert!(!a.expanded && !a.journal.expanded.contains("run/op"));
+        assert_eq!(a.focus, 2);
+        assert_eq!(a.current.as_deref(), Some("a"));
+        assert!(a.effects.is_empty() && a.player_effects.is_empty());
+
+        a.command(Action::NewAsk);
+        key(&mut a, left);
+        key(&mut a, right);
+        assert_eq!(
+            a.form.as_ref().unwrap().fields[0].value,
+            format!("{left}{right}")
+        );
+        a.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        a.focus = 1;
+        key(&mut a, '/');
+        key(&mut a, left);
+        key(&mut a, right);
+        assert_eq!(a.archive_filter, format!("{left}{right}"));
+        assert_eq!(a.focus, 1);
+        assert!(a.effects.is_empty());
+
+        let mut a = fixture();
+        a.view = View::Queue;
+        a.focus = 2;
+        key(&mut a, right);
+        assert!(!a.expanded);
+        a.view = View::Archive;
+        for modifiers in [KeyModifiers::CONTROL, KeyModifiers::ALT] {
+            a.key(KeyEvent::new(KeyCode::Char(right), modifiers));
+            assert!(!a.expanded);
+        }
+        a.palette = true;
+        key(&mut a, right);
+        assert!(a.palette && !a.expanded && a.effects.is_empty());
+    }
+}
+
+#[test]
 fn first_slash_starts_search_and_further_slashes_and_command_letters_are_literal() {
     for first in ['/', '.'] {
         let mut a = fixture();

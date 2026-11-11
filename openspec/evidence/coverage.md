@@ -397,3 +397,9 @@ attempt/revival и не дописывают recovery progress до сохран
 | ID | Delta / код | Свидетельство | Граница |
 |---|---|---|---|
 | PIPE-011 / PIPE-012, RV-021 | [delta](../changes/fix-recook-next-stage-plan/specs/processing-pipeline/spec.md), [view/execution](../../crates/localvox-light-core/src/workflow.rs) | [test-run](../changes/fix-recook-next-stage-plan/evidence/implementation.md): 422 core, 81 API и 3 integration; actual WAV/HTTP, force/next/current phase, corruption/missing/Done guards; исправлена атомарная публикация test readiness | Исправлена реализация; реальная запись владельца/аппаратная приёмка not-run. Исполнение/очередь/модели и main specs не менялись |
+
+## Vim-навигация списка и документа · 2026-11-11
+
+| ID | Delta / код | Свидетельство | Граница |
+|---|---|---|---|
+| ARCH-001; ARCH-011/012 в delta | [delta](../changes/add-terminal-session-activity/specs/archive-playback/spec.md), [keys](../../crates/localvox-light-terminal/src/app.rs) | [test-run](../changes/add-terminal-session-activity/evidence/vim-navigation.md): l/д открывает запись; h/l и р/д как стрелки в документе; 164 lib, 4 ConPTY, IO/run-script, проверенный release кандидат | Обычный exe удерживает открытый TUI; кандидат готов отдельно. Ручная приёмка not-run; main specs не изменены |

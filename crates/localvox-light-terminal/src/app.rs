@@ -1130,6 +1130,13 @@ impl App {
             }
             return;
         }
+        if self.view == View::Archive && self.focus == 2 && key.modifiers.is_empty() {
+            key.code = match key.code {
+                KeyCode::Char('h') => KeyCode::Left,
+                KeyCode::Char('l') => KeyCode::Right,
+                other => other,
+            };
+        }
         match key.code {
             KeyCode::F(6) => self.focus = if self.focus == 3 { 2 } else { 3 },
             KeyCode::Left if self.focus == 3 => {
@@ -1318,6 +1325,11 @@ impl App {
                         self.journal.expanded.insert(g.id.clone());
                     }
                 }
+            }
+            KeyCode::Char('l')
+                if self.view == View::Archive && self.focus == 1 && key.modifiers.is_empty() =>
+            {
+                self.enter()
             }
             KeyCode::Enter => self.enter(),
             KeyCode::Esc => {
