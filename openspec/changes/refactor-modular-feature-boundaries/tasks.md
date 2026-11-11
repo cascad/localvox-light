@@ -7,7 +7,7 @@
 ## 2. Клиенты и прикладные операции
 
 - [x] 2.1 Собрать TUI preferences и reset/reconnect, отделить input/data responses/render modules; пройти TUI library/ConPTY/IO/run-script с INSTA_UPDATE=no, сохранением snapshots и tests preferences/reset/input boundary.
-- [ ] 2.2 Разделить React document views/controller и Archive API по feature operations при прежних DTO/HTTP/DOM/copy; UI build/unit/browser e2e и API regression подтверждают поведение, обновить карту владельцев.
+- [x] 2.2 Разделить React document views/controller и Archive API по feature operations при прежних DTO/HTTP/DOM/copy; UI build/unit/browser e2e и API regression подтверждают поведение, обновить карту владельцев.
 
 ## 3. Обработка и сменяемые реализации
 

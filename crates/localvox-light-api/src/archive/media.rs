@@ -303,3 +303,128 @@ mod tests {
         }
     }
 }
+
+impl Archive {
+    /// Audio clip of a fragment (F6 player): sample-accurately glues the needed range
+    /// out of the source's chunks → WAV 16 kHz mono s16. For "found it in search →
+    /// listened to it". `dur_sec` is bounded, the audio may have been deleted by
+    /// retention. A piece of the recording as WAV.
+    ///
+    /// `source_id`: 0 — microphone, 1 — system audio, `None` — a MIX of both. The mix
+    /// is needed so that the recording can simply be listened to: a conversation
+    /// consists of both tracks, and listening to half a dialogue is pointless.
+    pub fn audio_clip(
+        &self,
+        session: &str,
+        source_id: Option<u8>,
+        start_sec: f64,
+        dur_sec: f64,
+    ) -> Result<Vec<u8>> {
+        let dir = self.session_dir(session)?;
+        anyhow::ensure!(
+            self.partial_document(&dir)?.is_none(),
+            "во время ранней обработки используйте опубликованный audio snapshot"
+        );
+        let meta_txt = fs::read_to_string(dir.join("meta.json")).context("нет meta.json сессии")?;
+        let meta: localvox_light_core::chunks::SessionMeta =
+            serde_json::from_str(&meta_txt).context("meta.json повреждён")?;
+
+        let dur = dur_sec.clamp(0.1, MAX_CLIP_SEC);
+        let want_start = (start_sec.max(0.0) * SR) as u64;
+        let want_end = ((start_sec.max(0.0) + dur) * SR) as u64;
+
+        let pcm = match source_id {
+            Some(id) => source_pcm(&dir, &meta, id, want_start, want_end)?,
+            None => {
+                // The mix: the tracks are glued sample-to-sample from the start of the
+                // recording, so they add up position by position. A missing track (a
+                // monologue into the microphone, audio without a microphone) is not an
+                // error — we play the one that exists; it is an error only if there is
+                // NOT A SINGLE one.
+                let mic = source_pcm(&dir, &meta, 0, want_start, want_end).unwrap_or_default();
+                let sys = source_pcm(&dir, &meta, 1, want_start, want_end).unwrap_or_default();
+                anyhow::ensure!(
+                    !mic.is_empty() || !sys.is_empty(),
+                    "нет аудио для фрагмента ({:.1}–{:.1} c)",
+                    start_sec.max(0.0),
+                    start_sec.max(0.0) + dur
+                );
+                mix(&mic, &sys)
+            }
+        };
+        Ok(wav_16k_mono(&pcm))
+    }
+
+    /// The shape of the recording: peak loudness per bucket, for the waveform in the player.
+    ///
+    /// It is REAL. A drawn wave (a sine, noise, anything "pretty") is worse than no wave at all:
+    /// people navigate a recording by it — they aim at the loud part where the argument was — and
+    /// a wave that does not match the sound sends them to the wrong place while looking exactly
+    /// as trustworthy as one that does.
+    ///
+    /// One pass over the audio, cached in `peaks.json`. The cache is derived data and therefore
+    /// disposable: delete it and it is recomputed from the chunks, which are the truth.
+    pub fn peaks(&self, name: &str, buckets: usize) -> Result<Value> {
+        let buckets = buckets.clamp(32, 2000);
+        let dir = self.session_dir(name)?;
+        let meta: localvox_light_core::chunks::SessionMeta =
+            serde_json::from_slice(&fs::read(dir.join("meta.json")).context("нет meta.json")?)
+                .context("meta.json не читается")?;
+
+        let duration = meta
+            .chunks
+            .iter()
+            .map(|c| c.start_offset_sec + c.duration_sec)
+            .fold(0.0_f64, f64::max);
+        if duration <= 0.0 {
+            return Ok(json!({ "duration_sec": 0.0, "peaks": [] }));
+        }
+
+        let cache = dir.join("peaks.json");
+        if let Some(v) = fs::read(&cache)
+            .ok()
+            .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+            .filter(|v| v["buckets"] == json!(buckets))
+            .filter(|v| (v["duration_sec"].as_f64().unwrap_or(0.0) - duration).abs() < 0.5)
+        {
+            return Ok(v);
+        }
+
+        // In windows, not all at once: an hour of a track is 115 MB, and holding two of them in
+        // the daemon's memory to draw a strip 300 pixels wide is not an honest trade.
+        const WINDOW_SEC: f64 = 60.0;
+        let mut acc = vec![0f32; buckets];
+        let mut from = 0.0_f64;
+        while from < duration {
+            let to = (from + WINDOW_SEC).min(duration);
+            for source_id in 0..2u8 {
+                // A chunk that cannot be read must not cost us the whole wave: the player is more
+                // useful with a gap in the picture than absent because of one broken file.
+                let pcm = source_pcm(&dir, &meta, source_id, (from * SR) as u64, (to * SR) as u64)
+                    .unwrap_or_default();
+                for (i, s) in pcm.chunks_exact(2).enumerate() {
+                    let v = f32::from(i16::from_le_bytes([s[0], s[1]]).saturating_abs());
+                    let at = from + i as f64 / SR;
+                    let b = ((at / duration) * buckets as f64) as usize;
+                    let b = b.min(buckets - 1);
+                    // The two tracks are NOT summed but taken at their max: the wave answers
+                    // "was it loud here", and a sum would make a moment where both speak at once
+                    // look twice as loud as the argument that followed it.
+                    if v > acc[b] {
+                        acc[b] = v;
+                    }
+                }
+            }
+            from = to;
+        }
+
+        // Normalized against the loudest moment of THIS recording, and through a square root: a
+        // quiet conversation must be visible as speech, not as a flat line at the bottom.
+        let loudest = acc.iter().copied().fold(0f32, f32::max).max(1.0);
+        let peaks: Vec<f32> = acc.iter().map(|v| (v / loudest).sqrt()).collect();
+
+        let out = json!({ "duration_sec": duration, "buckets": buckets, "peaks": peaks });
+        let _ = fs::write(&cache, serde_json::to_vec(&out).unwrap_or_default());
+        Ok(out)
+    }
+}

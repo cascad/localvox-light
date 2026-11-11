@@ -1,5 +1,11 @@
 # Покрытие требований и состояние реализации
 
+Дополнение ARCH-001/002, PIPE-011/012, SEARCH-001/002 и CFG-001/002 от 2026-11-11:
+[UI/API feature operations](../changes/refactor-modular-feature-boundaries/evidence/ui-api.md).
+React document controller/views и Archive operations разделены при прежних DTO/DOM;
+UI build/14 unit/80 browser и API 81 unit/integrations прошли, screenshots сохранены.
+Это срез рефакторинга, не новая аппаратная/модельная приёмка.
+
 Дополнение ARCH-001/002, CFG-001/002 от 2026-11-11:
 [модульный TUI](../changes/refactor-modular-feature-boundaries/evidence/tui.md),
 [карта всех US-сценариев и границ](../../docs/modularity.md).
