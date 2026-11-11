@@ -6,7 +6,7 @@ use crate::{
 use anyhow::Result;
 use crossterm::{
     cursor::Show,
-    event::{self, DisableBracketedPaste, EnableBracketedPaste, Event, KeyCode, KeyEventKind},
+    event::{DisableBracketedPaste, EnableBracketedPaste, Event, KeyCode, KeyEventKind},
     execute,
     terminal::{self, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -16,6 +16,7 @@ use std::{
     io::{self, IsTerminal},
     time::{Duration, Instant},
 };
+mod input;
 
 struct TerminalGuard;
 impl Drop for TerminalGuard {
@@ -50,6 +51,7 @@ pub fn run(mut client: Client, mut app: App) -> Result<()> {
     let start = Instant::now();
     app.status = "Проверка API LocalVox… Подключение и токен доступны через палитру".into();
     with_terminal(|terminal| {
+        let mut input = input::Input::new()?;
         let mut last_poll = Instant::now();
         let mut last_record = Instant::now();
         let mut dirty = true;
@@ -190,22 +192,49 @@ pub fn run(mut client: Client, mut app: App) -> Result<()> {
                 last_animation = animation;
                 dirty = false;
             }
-            if event::poll(Duration::from_millis(50))? {
+            if let Some(event) = input.read(Duration::from_millis(50))? {
                 dirty = true;
-                match event::read()? {
-                    Event::Key(k) if k.kind != KeyEventKind::Release => match k.code {
-                        KeyCode::F(8) => app.command(Action::StopRecording),
-                        KeyCode::F(9) => app.command(Action::StartRecording),
-                        _ => app.key(k),
-                    },
-                    Event::Paste(text) => app.paste(&text),
-                    _ => {}
-                }
+                dispatch(&mut app, event, || {
+                    Ok(arboard::Clipboard::new()?.get_text()?)
+                });
             }
         }
         Ok(())
     })
 }
 
+fn dispatch(app: &mut App, event: Event, clipboard: impl FnOnce() -> Result<String>) {
+    use crossterm::event::KeyModifiers;
+    match event {
+        Event::Key(key) if key.kind != KeyEventKind::Release => {
+            if key.modifiers.contains(KeyModifiers::CONTROL)
+                && !key.modifiers.contains(KeyModifiers::ALT)
+                && matches!(key.code, KeyCode::Char('v' | 'V' | 'м' | 'М' | '\u{16}'))
+            {
+                match clipboard() {
+                    Ok(text) => app.paste(&text),
+                    Err(error) => {
+                        app.client_error(
+                            "Вставка",
+                            &format!("Не удалось прочитать текст буфера обмена: {error}"),
+                        );
+                        app.status = "Вставка недоступна · ~ консоль ошибок".into();
+                    }
+                }
+            } else {
+                match key.code {
+                    KeyCode::F(8) => app.command(Action::StopRecording),
+                    KeyCode::F(9) => app.command(Action::StartRecording),
+                    _ => app.key(key),
+                }
+            }
+        }
+        Event::Paste(text) => app.paste(&text),
+        _ => {}
+    }
+}
+
+#[cfg(all(test, windows))]
+mod paste_probe;
 #[cfg(test)]
 mod tests;

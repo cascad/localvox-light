@@ -25,7 +25,8 @@ tempfile.workspace = true
 tokio = { version = "1", features = ["rt", "net", "time", "io-util"] }
 
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.62.2", features = ["Win32_Security_Authorization", "Win32_System_Pipes"] }
+windows = { version = "0.62.2", features = ["Win32_Security_Authorization", "Win32_System_Pipes", "Win32_System_Console", "Win32_System_Threading"] }
+termwiz = { version = "=0.23.3", default-features = false }
 
 [dev-dependencies]
 insta = "1"

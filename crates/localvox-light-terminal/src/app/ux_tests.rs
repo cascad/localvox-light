@@ -551,6 +551,48 @@ fn import_shortcut_pastes_one_url_without_running_or_replaying_it() {
 }
 
 #[test]
+fn pasted_url_opens_explicit_import_from_list_or_document_but_never_replaces_input() {
+    const URL: &str = "https://example.org/qri:Русский🦀";
+    for focus in [1, 2] {
+        let mut app = App::default();
+        app.focus = focus;
+        app.paste(&format!("  {URL}\r\n"));
+        assert_eq!(app.form.as_ref().unwrap().fields[0].value, URL);
+        assert!(!app.quit);
+        assert!(app.effects.is_empty());
+        key(&mut app, KeyCode::Esc);
+        assert!(app.form.is_none());
+        assert!(app.effects.is_empty());
+        app.paste(URL);
+        key(&mut app, KeyCode::Enter);
+        assert_eq!(app.effects.len(), 1);
+        assert!(matches!(&app.effects[0].1, Task::Ingest(value) if value == URL));
+    }
+    let mut app = App::default();
+    app.focus = 1;
+    key(&mut app, KeyCode::Char('/'));
+    app.paste(URL);
+    assert!(app.form.is_none());
+    assert_eq!(app.archive_filter, URL);
+    key(&mut app, KeyCode::Esc);
+    app.command(Action::NewAsk);
+    app.paste(URL);
+    assert!(matches!(app.form.as_ref().unwrap().kind, FormKind::Ask));
+    assert_eq!(app.form.as_ref().unwrap().fields[0].value, URL);
+    let mut app = App::default();
+    for text in [
+        "qri:\n\x11",
+        "https://one.example\nhttps://two.example",
+        "план 🦀",
+    ] {
+        app.paste(text);
+        assert!(app.form.is_none());
+        assert!(app.effects.is_empty());
+        assert!(!app.quit);
+    }
+}
+
+#[test]
 fn model_failure_is_logged_with_the_ask_stage_and_not_dumped_into_the_document() {
     let mut app = App::default();
     app.ask_id = Some("question".into());

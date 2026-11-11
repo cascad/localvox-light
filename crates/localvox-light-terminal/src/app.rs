@@ -977,6 +977,16 @@ impl App {
             self.append_archive_filter(text);
             return;
         }
+        let url = text.trim();
+        if self.form.is_none()
+            && (url.starts_with("https://") || url.starts_with("http://"))
+            && !url.chars().any(char::is_whitespace)
+            && url.len() <= 400_000
+        {
+            self.palette = false;
+            self.open("Импорт", FormKind::Import, &[("URL", url)]);
+            return;
+        }
         if self.constrained_paste(text) {
             return;
         }

@@ -10,6 +10,7 @@ fn terminal_error_fixture() {
         return;
     }
     let result: Result<()> = with_terminal(|terminal| {
+        let _input = input::Input::new()?;
         terminal.draw(|frame| {
             frame.render_widget(
                 ratatui::widgets::Paragraph::new("Ошибка отрисовки"),
@@ -21,6 +22,44 @@ fn terminal_error_fixture() {
     assert!(result.is_err());
     assert!(!terminal::is_raw_mode_enabled().unwrap());
     println!("guard-restored");
+}
+
+#[test]
+fn clipboard_hotkey_and_terminal_paste_have_one_safe_path_without_reading_real_clipboard() {
+    use crossterm::event::{KeyEvent, KeyModifiers};
+    for key in ['v', 'V', 'м', 'М'] {
+        let mut app = App::default();
+        dispatch(
+            &mut app,
+            Event::Key(KeyEvent::new(KeyCode::Char(key), KeyModifiers::CONTROL)),
+            || Ok("https://example.org/q:Русский🦀".into()),
+        );
+        assert!(!app.quit);
+        assert!(app.effects.is_empty());
+        assert_eq!(
+            app.form.unwrap().fields[0].value,
+            "https://example.org/q:Русский🦀"
+        );
+    }
+    let mut app = App::default();
+    dispatch(
+        &mut app,
+        Event::Paste("https://example.org/q".into()),
+        || panic!("protocol paste must not read clipboard"),
+    );
+    assert!(app.effects.is_empty());
+    let draft = app.form.as_ref().unwrap().fields[0].value.clone();
+    dispatch(
+        &mut app,
+        Event::Key(KeyEvent::new(KeyCode::Char('v'), KeyModifiers::CONTROL)),
+        || anyhow::bail!("synthetic unavailable clipboard"),
+    );
+    assert_eq!(app.form.as_ref().unwrap().fields[0].value, draft);
+    assert!(app
+        .console
+        .text()
+        .contains("synthetic unavailable clipboard"));
+    assert!(!app.quit);
 }
 
 #[test]
