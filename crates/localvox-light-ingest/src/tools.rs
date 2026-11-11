@@ -20,6 +20,26 @@ pub struct Settings {
     pub output_dir: Option<String>,
 }
 
+/// A resolved download/decode toolchain. Entry points retain their own settings-file
+/// policy and progress/verification; path/env precedence is shared here.
+pub struct MediaTools {
+    pub yt_dlp: String,
+    pub ffmpeg: String,
+    pub ffmpeg_location: Option<String>,
+    pub js_runtime: Option<String>,
+}
+impl MediaTools {
+    pub fn resolve(settings: &Settings) -> Self {
+        let ffmpeg = resolve_ffmpeg(settings, None);
+        Self {
+            yt_dlp: resolve_yt_dlp(settings, None),
+            ffmpeg_location: resolve_ffmpeg_location_for_ytdlp(&ffmpeg),
+            js_runtime: resolve_js_runtime(settings, None, None),
+            ffmpeg,
+        }
+    }
+}
+
 /// Candidates for finding the settings file: every name is looked for both next to the
 /// exe and in the cwd.
 fn settings_candidates(filenames: &[&str]) -> Vec<PathBuf> {
@@ -187,7 +207,10 @@ pub fn resolve_js_runtime(
     let runtime = cli_runtime
         .map(str::trim)
         .filter(|s| !s.is_empty())
-        .or(env_runtime.as_deref().map(str::trim).filter(|s| !s.is_empty()))
+        .or(env_runtime
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty()))
         .or_else(|| {
             settings
                 .js_runtime

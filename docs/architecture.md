@@ -3,7 +3,7 @@
 Черновое описание по коду: [пайплайн PIPE](../openspec/specs/processing-pipeline/spec.md). Проверки и известные
 расхождения: [приёмка](../openspec/evidence/pipeline.md), [бэклог](../openspec/backlog.md).
 
-Актуальное решение на ветке `new_course`, 27 сентября 2026. Детали фаз и статусов — в
+Описание исполнения сверено с кодом 11 ноября 2026. Детали фаз и статусов — в
 [описании PIPE](../openspec/specs/processing-pipeline/spec.md); разбор медленного видео и логи — в
 [processing-pipeline.md](processing-pipeline.md).
 
@@ -22,16 +22,19 @@ flowchart TD
     C --> P[Общий исполнитель процессов]
     P --> D[Prepare: загрузка и извлечение]
     P --> T[Transcribe: STT]
-    P --> L[Text: refine → cleanup]
-    P --> S[Summary]
+    P --> S[Summary: опционально после STT]
     P --> I[Индексы: только при пустой очереди]
     D --> A[Аудио / расшифровки / текст / сводка]
     T --> A
-    L --> A
     S --> A
     A --> V[Проверка артефактов]
     V --> Q
 ```
+
+Штатная автоматическая цепочка: Prepare для ссылки → обязательный Transcribe →
+опциональный Summary. Без правки текста читаемое представление берётся из первичной
+расшифровки. Text/refine/cleanup остаются совместимыми фазами старых заданий и
+явными CLI-операциями; автоматическая цепочка их не добавляет.
 
 Все рабочие роли запускает `localvox-process`; отдельный бинарник для каждого этапа
 не нужен. Сейчас поставляются основной процесс и этот обработчик. ONNX остаётся
@@ -64,6 +67,10 @@ flowchart TD
 |---|---|
 | `localvox-light/src/main.rs` | Запуск приложения, запись, API и интерфейс |
 | `localvox-light/src/autocook.rs` | Конфигурация исполнения, выдача фаз, ограничение параллелизма, принятие результата |
+| `localvox-light/src/autocook/execution.rs` | Команда worker, resident/one-shot transport, heartbeat и исход исполнения; без переходов очереди |
+| `localvox-light-asr/src/prepare` | Ручной и queued import policies; общий PCM recorder и настройки media tools |
+| `localvox-light-core/src/asr/package.rs` | Конкретная ASR-модель, зависимости и загрузка; cook сохраняет проверки identity |
+| `localvox-light-llm/src/backend` | Messages/options → raw content/error через HTTP/Ollama/CLI; общий клиент проверяет ответ |
 | `localvox-light-process` | Запуск, владение деревом ОС, таймаут, отмена, ограниченная диагностика |
 | `localvox-light-asr/src/bin/localvox-process.rs` | CLI и диспетчер операций обработчика |
 | `localvox-light-asr/src/prepare.rs` | Заполнение существующей сессии аудио из ссылки |
@@ -97,8 +104,10 @@ flowchart TD
 6. Stdin/stdout/stderr используют временные файлы: нет взаимной блокировки pipe и потоков,
    бесконечно ждущих EOF от потомка. Вывод в памяти ограничен 8 MiB на поток; рост файлов
    проверяется каждые 100 мс. Это наблюдаемый порог остановки, а не дисковая квота.
-   Результат и диагностика передаются в журнал после завершения; текущая работа видна
-   по `progress.jsonl` и heartbeat координатора каждые 15 секунд.
+   В журнале во время работы видны безопасные факты о доставленном выводе, а не его
+   содержимое; подробная диагностика остаётся у обработчика. Текущая работа видна
+   по `progress.jsonl` и heartbeat координатора каждые 15 секунд. Resident ASR
+   использует отдельный bounded stdin/stdout request/reply, описанный ниже.
 7. Индексация тоже исполняется в контролируемом процессе. Запускается после освобождения
    очереди, отменяется при появлении задания, имеет отдельный таймаут. Ошибка индекса
    не откатывает расшифровку и не переводит готовую запись в незавершённую.
@@ -135,7 +144,8 @@ Pause закрывает текущие файлы, сохраняя generation 
 закрывает хвосты обоих источников и затем публикует terminal с точными концами.
 Без terminal обычный full cook/discovery не принимает новую запись. Отсутствующий
 или повреждённый manifest новой записи не включает legacy fallback. Архивы без
-capture marker используют прежний путь. Ранний ASR на этом этапе ещё не подключён.
+capture marker используют прежний путь. Ранний ASR подключён отдельным опциональным
+сценарием, описанным ниже; по умолчанию он выключен.
 
 После получения workspace ownership recovery дополнительно получает capture lease.
 Оно проверяет сохранённое аудио, восстанавливает meta и публикует interrupted EOF
@@ -182,8 +192,9 @@ Stop подтверждает primary EOF независимо от планир
 capture lease до выхода. Engine manager владеет максимум двумя потоками (предыдущая
 и текущая запись); при занятости первичное аудио сохраняется для полной обработки.
 Shutdown отменяет чтение/decoder и join-ит принадлежащие потоки. Отказ планировщика
-пишется в capture-журнал, primary recording продолжается. Ни ASR/LLM, ни версии,
-best, summary или UI-префикс этим этапом ещё не запускаются/публикуются.
+пишется в capture-журнал, primary recording продолжается. Сам планировщик не
+запускает ASR/LLM и не пишет версии/best/summary: finite horizon обрабатывает
+координатор, а подтверждённый префикс читают UI/TUI через API.
 Проверки: [capture planner](../openspec/changes/add-incremental-recording-transcription/evidence/capture-planner.md).
 
 STT cache library (`core/incremental`) проверяет finite horizon и actual model/vocab
@@ -196,7 +207,8 @@ execution ownership (standalone CLI или supervising coordinator), как Vers
 Сам cache не пишет best/версии/полные receipts и не разрешает summary.
 [Проверки кеша](../openspec/changes/add-incremental-recording-transcription/evidence/asr-cache.md).
 
-Transcribe-линия использует один управляемый stdio worker (`localvox-worker/3`):
+Transcribe-линия использует один управляемый stdio worker: общий handshake
+`localvox-worker/3`, resident request/reply `localvox-asr/1`.
 порции и финал идут последовательно через bounded request/reply с protocol/id.
 Одна ASR-модель остаётся в нём до 600 секунд простоя; настройка
 `LOCALVOX_ASR_KEEP_ALIVE_SEC=0` возвращает одноразовые запуски. На каждом запросе

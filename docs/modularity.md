@@ -25,16 +25,34 @@ HTTP/CLI, модели/параметры и визуал. План и испо�
 | Граница | Данные и владелец | Точки реализации |
 |---|---|---|
 | Audio input | PCM/FrameMsg, stop/join и capture lease | core/audio, engine, pipeline → chunks/capture |
-| ASR | AsrEngine; model dependencies/identity; один owned runtime | core/asr, cook/model, cook/runtime |
-| LLM | ChatMessage + options → text/error | llm client и transport adapters |
-| Worker execution | finite Job/Request → exit/reply; supervisor владеет деревом | process, worker_server, autocook |
+| ASR | AsrEngine; model dependencies/identity; один owned runtime | core/asr/package; cook/model policy и cook/runtime |
+| LLM | ChatMessage + GenerationOptions → raw content/error; client guards | llm/backend/{http,claude}; LlmClient |
+| Worker execution | finite Job/Request → Completed/Cancelled/Failed; supervisor владеет деревом | autocook/execution и warm; process; worker_server |
+| Import | настройки tools и PCM recorder общие; manual/queued policies отдельны | ingest/MediaTools; asr/prepare и prepare/manual |
 | Artifact acceptance | checksums/receipts → confirmed transition | core/artifacts, processing, jobs, workflow |
 | Application API | session/document/query/command DTO | API archive feature operations и client |
 | Terminal input | Event → Action; поля имеют приоритет | terminal runtime/input и app input |
 | Client presentation | preferences + accepted data → view | terminal App/render; React document views/controller |
 
-Существующие порты сохраняются. Целевые внутренние перемещения выполняются по
-этапам; эта карта не объявляет ещё не созданные adapters доступными.
+Существующие порты сохраняются. Конкретные точки замены приведены в таблице;
+добавление backend не требует изменения UI/TUI, очереди или правил приёмки.
+
+## Сохранённая совместимость
+
+- Cook определяет язык/recipe и проверяет свежие SHA до reuse и после load. ASR
+  package знает файлы/конструктор backend, но не управляет кешем и очередью.
+- HTTP dialect выбирается внутри adapter по прежнему правилу URL; Claude CLI
+  сохраняет собственные env/model/deadline и stdin. Это не новые настройки.
+- Queue принимает только проверенные артефакты, сохраняет исход и повторяет запись
+  при отказе storage без нового worker. Execution не меняет очередь. Его journal
+  guard остаётся жив до завершения приёмки, включая ожидание сохранения.
+- Text/refine/cleanup и старые disk/wire-поля сохранены для явного CLI и старых
+  заданий. Штатная цепочка — обязательный ASR и опциональный summary.
+- Ручной и queued import сохраняют свои settings filenames, создание сессии,
+  feedback, title/receipt/retry правила. Общие tool resolution/PCM recorder не
+  означают выполнения полного критерия BL-006.
+- User-guide сохраняет те же US-ID и действия. Контракты/значения defaults/модели/
+  рецепты не меняются; эту карту не следует читать как аппаратную приёмку.
 
 ## Карта пользовательских сценариев
 

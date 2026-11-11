@@ -3,18 +3,13 @@
 //! directory; a repeated run is idempotent (a version with the same label is skipped).
 
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
 use clap::Parser;
-use localvox_light_core::chunks::{ChunkParams, ChunkRecorder, SessionMeta};
+use localvox_light_asr::prepare::ingest_new_session as ingest_to_session;
+use localvox_light_core::chunks::SessionMeta;
 use localvox_light_core::cook::{cook_session_asr, CookOutcome, CookParams};
 use localvox_light_core::export::{export_session, ExportFormat};
-use localvox_light_ingest::{
-    load_settings_named,
-    progress::{convert_to_pcm_with_progress, download_audio_with_progress},
-    resolve_ffmpeg, resolve_ffmpeg_location_for_ytdlp, resolve_js_runtime, resolve_yt_dlp,
-};
 
 #[path = "worker_server/mod.rs"]
 mod worker_server;
@@ -1075,82 +1070,6 @@ fn has_transcript_lines(session: &Path) -> bool {
         .and_then(|(s, v)| s.resolve(v.id))
         .and_then(|p| read_transcript_lines(&p).ok())
         .is_some_and(|l| !l.is_empty())
-}
-
-/// An external source (URL/file) → PCM 16k mono → a new session with chunks.
-/// From then on the session is indistinguishable from one recorded live — a common pipeline.
-fn ingest_to_session(input: &str, work_dir: &Path) -> Result<PathBuf> {
-    let settings = load_settings_named(&["localvox-asr-settings.json", "settings.json"]);
-    let ffmpeg = resolve_ffmpeg(&settings, None);
-
-    let is_url = input.starts_with("http://") || input.starts_with("https://");
-    let (pcm_bytes, label) = if is_url {
-        let yt_dlp = resolve_yt_dlp(&settings, None);
-        let ffmpeg_location = resolve_ffmpeg_location_for_ytdlp(&ffmpeg);
-        let js_runtime = resolve_js_runtime(&settings, None, None);
-        let temp = download_audio_with_progress(
-            false,
-            &yt_dlp,
-            input,
-            ffmpeg_location.as_deref(),
-            js_runtime.as_deref(),
-            false,
-        )
-        .with_context(|| format!("downloading {input}"))?;
-        let pcm =
-            convert_to_pcm_with_progress(false, &ffmpeg, &temp, false).context("ffmpeg → pcm")?;
-        let _ = std::fs::remove_file(&temp);
-        let label = temp
-            .file_stem()
-            .map(|s| s.to_string_lossy().to_string())
-            .unwrap_or_else(|| "youtube".into());
-        (pcm, label)
-    } else {
-        let path = PathBuf::from(input);
-        anyhow::ensure!(path.is_file(), "neither a file nor a URL: {input}");
-        let pcm =
-            convert_to_pcm_with_progress(false, &ffmpeg, &path, false).context("ffmpeg → pcm")?;
-        let label = path
-            .file_stem()
-            .map(|s| s.to_string_lossy().to_string())
-            .unwrap_or_else(|| "file".into());
-        (pcm, label)
-    };
-
-    let samples: Vec<i16> = pcm_bytes
-        .chunks_exact(2)
-        .map(|c| i16::from_le_bytes([c[0], c[1]]))
-        .collect();
-    anyhow::ensure!(!samples.is_empty(), "empty audio after conversion");
-
-    let (audio_dir, meta_path) =
-        localvox_light_core::chunks::create_session_dir(work_dir, Some(&label))?;
-    let session_dir = meta_path.parent().unwrap_or(&audio_dir).to_path_buf();
-    let params = Arc::new(ChunkParams {
-        audio_dir,
-        meta_path: meta_path.clone(),
-        chunk_sec: 300.0,
-        flac: false,
-        ffmpeg: PathBuf::from(&ffmpeg),
-    });
-    let meta = Arc::new(Mutex::new(SessionMeta {
-        started_at: localvox_light_core::versions::now_rfc3339(),
-        sample_rate: 16_000,
-        chunks: Vec::new(),
-        ..Default::default()
-    }));
-    let mut rec = ChunkRecorder::new(0, params, meta.clone());
-    for block in samples.chunks(64 * 1024) {
-        rec.feed(block);
-    }
-    rec.finalize_current();
-    // The directory could have been swept away (a neighbouring daemon's sweep of empty sessions
-    // in the moment between creation and the first chunk) — the loss must be loud.
-    anyhow::ensure!(
-        !meta.lock().unwrap().chunks.is_empty(),
-        "not a single audio chunk was written (did the session directory vanish?) — repeat the ingest"
-    );
-    Ok(session_dir)
 }
 
 fn list_sessions(work_dir: &std::path::Path) -> Result<Vec<PathBuf>> {

@@ -1,11 +1,41 @@
 //! Preparation of an existing queued source session, executed only inside the worker.
 use anyhow::Result;
-use std::path::Path;
+use localvox_light_core::chunks::{ChunkParams, ChunkRecorder, SessionMeta};
+use std::{
+    path::{Path, PathBuf},
+    sync::{Arc, Mutex},
+};
+mod manual;
+pub use manual::ingest_new_session;
+
+fn pcm_samples(bytes: &[u8]) -> Vec<i16> {
+    bytes
+        .chunks_exact(2)
+        .map(|b| i16::from_le_bytes([b[0], b[1]]))
+        .collect()
+}
+
+fn recorder(
+    audio_dir: PathBuf,
+    meta_path: PathBuf,
+    ffmpeg: &str,
+    meta: Arc<Mutex<SessionMeta>>,
+) -> ChunkRecorder {
+    ChunkRecorder::new(
+        0,
+        Arc::new(ChunkParams {
+            audio_dir,
+            meta_path,
+            chunk_sec: 300.0,
+            flac: false,
+            ffmpeg: ffmpeg.into(),
+        }),
+        meta,
+    )
+}
 
 pub fn ingest_into_session(session: &Path) -> Result<()> {
-    use localvox_light_core::chunks::{ChunkParams, ChunkRecorder, SessionMeta};
     use localvox_light_core::progress::{activity, step, Stage};
-    use std::sync::{Arc, Mutex};
 
     let meta_path = session.join("meta.json");
     let mut meta: SessionMeta = serde_json::from_slice(&std::fs::read(&meta_path)?)?;
@@ -18,8 +48,9 @@ pub fn ingest_into_session(session: &Path) -> Result<()> {
     // The tools are checked BEFORE the download: "yt-dlp is not installed" must be said at the
     // start, not after a minute of waiting for a network that was never going to be used.
     let settings = localvox_light_ingest::load_settings();
-    let yt_dlp = localvox_light_ingest::resolve_yt_dlp(&settings, None);
-    let ffmpeg = localvox_light_ingest::resolve_ffmpeg(&settings, None);
+    let tools = localvox_light_ingest::MediaTools::resolve(&settings);
+    let yt_dlp = &tools.yt_dlp;
+    let ffmpeg = &tools.ffmpeg;
     activity(
         session,
         Stage::Download,
@@ -30,8 +61,6 @@ pub fn ingest_into_session(session: &Path) -> Result<()> {
             Ok(())
         },
     )?;
-    let ffmpeg_location = localvox_light_ingest::resolve_ffmpeg_location_for_ytdlp(&ffmpeg);
-    let js_runtime = localvox_light_ingest::resolve_js_runtime(&settings, None, None);
 
     // The title, if the source names itself. A session called "youtube" is useless in a list —
     // a person looks for the lecture by its name, not by where it was hosted.
@@ -58,8 +87,8 @@ pub fn ingest_into_session(session: &Path) -> Result<()> {
                 localvox_light_ingest::download::download_audio(
                     &yt_dlp,
                     &source.url,
-                    ffmpeg_location.as_deref(),
-                    js_runtime.as_deref(),
+                    tools.ffmpeg_location.as_deref(),
+                    tools.js_runtime.as_deref(),
                     false,
                 )
             },
@@ -74,26 +103,16 @@ pub fn ingest_into_session(session: &Path) -> Result<()> {
             || -> Result<f64> {
                 let pcm =
                     localvox_light_ingest::download::convert_to_pcm_s16le(&ffmpeg, &file, false)?;
-                let samples: Vec<i16> = pcm
-                    .chunks_exact(2)
-                    .map(|b| i16::from_le_bytes([b[0], b[1]]))
-                    .collect();
+                let samples = pcm_samples(&pcm);
                 if samples.is_empty() {
                     anyhow::bail!("в источнике нет звуковой дорожки");
                 }
-                let params = Arc::new(ChunkParams {
-                    audio_dir: session.join("audio"),
-                    meta_path: meta_path.clone(),
-                    chunk_sec: 300.0,
-                    flac: false,
-                    ffmpeg: std::path::PathBuf::from(&ffmpeg),
-                });
                 // A retry replaces the downloaded track; old partial metadata must not duplicate it.
                 meta.chunks.clear();
                 let shared = Arc::new(Mutex::new(meta));
                 // Track 0 — as if it were the microphone: a lecture has one voice line, and inventing a
                 // second, empty track would only make the player lie about a silent interlocutor.
-                let mut rec = ChunkRecorder::new(0, params, shared);
+                let mut rec = recorder(session.join("audio"), meta_path.clone(), ffmpeg, shared);
                 rec.feed(&samples);
                 rec.finalize_current();
                 localvox_light_core::artifacts::commit_preparation(session, samples.len() as u64)?;
@@ -147,4 +166,54 @@ fn source_title(yt_dlp: &str, url: &str) -> Option<String> {
     }
     let title = String::from_utf8_lossy(&out.stdout).trim().to_string();
     (!title.is_empty()).then_some(title)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn both_import_feeds_preserve_all_pcm_with_their_existing_rotation_policy() {
+        // Include a final partial second and both signed extrema; neither entry point
+        // may truncate, duplicate or reorder data when using the common recorder.
+        let samples: Vec<i16> = (0..(305 * 16_000 + 137)).map(|i| i as i16).collect();
+        // ChunkRecorder rotates after a whole feed call (not at exactly 300 s).
+        // This fixture includes a nonempty tail after that rotation. Queued import feeds the whole
+        // track; the manual CLI feeds blocks. Preserve both existing layouts.
+        for (block_size, expected_chunks) in [(samples.len(), 1), (64 * 1024, 2)] {
+            let root = tempfile::tempdir().unwrap();
+            let audio = root.path().join("audio");
+            std::fs::create_dir(&audio).unwrap();
+            let meta_path = root.path().join("meta.json");
+            let meta = Arc::new(Mutex::new(SessionMeta {
+                sample_rate: 16_000,
+                ..Default::default()
+            }));
+            let mut rec = recorder(audio.clone(), meta_path.clone(), "not-used-for-wav", meta);
+            for block in samples.chunks(block_size) {
+                rec.feed(block);
+            }
+            rec.finalize_current();
+            let saved: SessionMeta =
+                serde_json::from_slice(&std::fs::read(meta_path).unwrap()).unwrap();
+            assert_eq!(saved.chunks.len(), expected_chunks);
+            let mut restored = Vec::new();
+            for chunk in &saved.chunks {
+                assert_eq!(chunk.source_id, 0);
+                assert_eq!(chunk.start_offset_sec, restored.len() as f64 / 16_000.0);
+                let path = audio.join(format!("{}.wav", chunk.file));
+                let count = localvox_light_core::chunks::codec::samples(&path).unwrap();
+                restored.extend(pcm_samples(
+                    &localvox_light_core::chunks::codec::range(
+                        &path,
+                        0,
+                        count,
+                        Path::new("unused"),
+                    )
+                    .unwrap(),
+                ));
+            }
+            assert_eq!(restored, samples);
+        }
+    }
 }

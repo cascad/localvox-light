@@ -1,5 +1,12 @@
 # Покрытие требований и состояние реализации
 
+Дополнение ARCH-001/002, PIPE-002/008/010/011/012, CFG-001/002 от 2026-11-11:
+[inference/execution/import границы](../changes/refactor-modular-feature-boundaries/evidence/processing.md),
+[итоговый рефакторинг и комплект](../changes/refactor-modular-feature-boundaries/evidence/validation.md).
+908 Rust, 8 explicit worker, real UI/TUI shared HTTP, UI 14/80 и native ASR smoke
+прошли; модели/форматы/defaults/visual baselines сохранены. Короткий native smoke
+не заменяет прежние performance gates; аппаратная/Mac приёмка и BL-006 открыты.
+
 Дополнение ARCH-001/002, PIPE-011/012, SEARCH-001/002 и CFG-001/002 от 2026-11-11:
 [UI/API feature operations](../changes/refactor-modular-feature-boundaries/evidence/ui-api.md).
 React document controller/views и Archive operations разделены при прежних DTO/DOM;

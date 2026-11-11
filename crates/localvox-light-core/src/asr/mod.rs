@@ -1,11 +1,13 @@
 //! Modular ASR engine trait + noise gate.
-//! Currently implements Vosk; others (Whisper, GigaAM, Parakeet) can be added
-//! by implementing the `AsrEngine` trait.
+//! Vosk and ONNX adapters implement `AsrEngine`; `package` owns native model
+//! selection/dependencies/loading, independently of transcription workflow policy.
 
 pub mod vosk;
 
 #[cfg(feature = "onnx")]
 pub mod onnx;
+#[cfg(feature = "onnx")]
+pub mod package;
 
 use anyhow::Result;
 use webrtc_vad::{SampleRate, Vad, VadMode};

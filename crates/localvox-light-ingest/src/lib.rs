@@ -23,5 +23,5 @@ pub use progress::with_spinner;
 pub use tools::{
     load_settings, load_settings_named, resolve_ffmpeg, resolve_ffmpeg_location_for_ytdlp,
     resolve_js_runtime, resolve_yt_dlp, verify_ffmpeg, verify_js_runtime_path_if_explicit,
-    verify_yt_dlp, Settings,
+    verify_yt_dlp, MediaTools, Settings,
 };

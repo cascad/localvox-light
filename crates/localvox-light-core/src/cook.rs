@@ -27,8 +27,6 @@ use std::time::Instant;
 use anyhow::{bail, ensure, Context, Result};
 use webrtc_vad::{SampleRate, Vad, VadMode};
 
-use crate::asr::onnx::adapters::GigaamV3E2eCtc;
-use crate::asr::onnx::OnnxEngine;
 use crate::asr::AsrEngine;
 use crate::lang;
 use crate::versions::{now_rfc3339, TranscriptLine, VersionEntry, VersionStore};
@@ -816,21 +814,6 @@ fn chunk_seconds(path: &Path) -> Result<f64> {
     crate::chunks::codec::with_read(audio, stem, |path| {
         Ok(crate::chunks::codec::samples(path)? as f64 / f64::from(SAMPLE_RATE))
     })
-}
-
-fn find_model_file(dir: &Path) -> Result<PathBuf> {
-    let mut candidates: Vec<PathBuf> = fs::read_dir(dir)
-        .with_context(|| format!("model directory: {}", dir.display()))?
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| p.extension().and_then(|x| x.to_str()) == Some("onnx"))
-        .collect();
-    if candidates.is_empty() {
-        bail!("no *.onnx in {}", dir.display());
-    }
-    // with several, take int8 (our speed default)
-    candidates.sort_by_key(|p| !p.to_string_lossy().contains("int8"));
-    Ok(candidates.remove(0))
 }
 
 #[cfg(test)]

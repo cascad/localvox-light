@@ -1,11 +1,13 @@
 //! LLM processing of transcripts (F1, WP-A4).
 //!
-//! One client for all providers: OpenAI-compatible chat-completions covers
-//! Ollama (`http://localhost:11434/v1`), OpenAI and OpenRouter — only
-//! `base_url` / `api_key` / `model` change (decision from `docs/feature-registry.md`).
+//! One client for all providers. Backend adapters speak OpenAI-compatible HTTP,
+//! Ollama native chat or the owned Claude CLI. Messages and generation options
+//! stay independent of wire formats; the client validates the resulting content.
 //! Processing does not mutate the sources: the result is written as new files
 //! alongside (`processed.md`, `summary.md`) — principle P2.
 
+mod backend;
+pub use backend::{ChatBackend, GenerationOptions};
 pub mod claude_cli;
 pub mod correction_guard;
 pub mod glossary;
@@ -14,8 +16,8 @@ pub mod pipeline;
 pub mod routing;
 pub mod templates;
 
-use anyhow::{bail, Context, Result};
-use serde::{Deserialize, Serialize};
+use anyhow::{bail, Result};
+use serde::Serialize;
 
 /// Where a chat request is answered. `Http` — the OpenAI-compatible / Ollama-native endpoint at
 /// `base_url` (the normal path). `Claude` — the official `claude` CLI as a subprocess, drawing on a
@@ -111,24 +113,6 @@ impl Default for LlmProfile {
     }
 }
 
-/// API dialect. Ollama's OpenAI-compat endpoint cannot turn thinking off (verified:
-/// `think:false` and `/no_think` are ignored, reasoning burns through max_tokens and
-/// content comes back empty) — so with Ollama we speak its native `/api/chat`
-/// with an honest `think: false`. For everyone else — OpenAI chat-completions.
-#[derive(Clone, Copy, Debug, PartialEq)]
-enum ApiFlavor {
-    OpenAiCompat,
-    OllamaNative,
-}
-
-fn detect_flavor(base_url: &str) -> ApiFlavor {
-    if base_url.contains(":11434") {
-        ApiFlavor::OllamaNative
-    } else {
-        ApiFlavor::OpenAiCompat
-    }
-}
-
 #[derive(Serialize, Clone)]
 pub struct ChatMessage {
     pub role: &'static str,
@@ -157,39 +141,19 @@ pub fn assistant(content: impl Into<String>) -> ChatMessage {
     }
 }
 
-#[derive(Serialize)]
-struct ChatRequest<'a> {
-    model: &'a str,
-    messages: &'a [ChatMessage],
-    temperature: f32,
-    max_tokens: u32,
-    stream: bool,
-}
-
-#[derive(Deserialize)]
-struct ChatResponse {
-    choices: Vec<Choice>,
-}
-#[derive(Deserialize)]
-struct Choice {
-    message: AssistantMessage,
-}
-#[derive(Deserialize)]
-struct AssistantMessage {
-    content: String,
-}
-
 pub struct LlmClient {
     profile: LlmProfile,
-    agent: ureq::Agent,
+    backend: Box<dyn ChatBackend>,
 }
 
 impl LlmClient {
     pub fn new(profile: LlmProfile) -> Self {
-        let agent = ureq::AgentBuilder::new()
-            .timeout(std::time::Duration::from_secs(profile.timeout_sec))
-            .build();
-        Self { profile, agent }
+        let backend = backend::configured(&profile);
+        Self::with_backend(profile, backend)
+    }
+
+    pub fn with_backend(profile: LlmProfile, backend: Box<dyn ChatBackend>) -> Self {
+        Self { profile, backend }
     }
 
     pub fn model(&self) -> &str {
@@ -205,178 +169,14 @@ impl LlmClient {
 
     /// A single chat request; reasoning is stripped/disabled depending on the dialect.
     pub fn chat(&self, messages: &[ChatMessage]) -> Result<String> {
-        let raw = match self.profile.provider {
-            Provider::Claude => self.chat_claude(messages)?,
-            Provider::Http => match detect_flavor(&self.profile.base_url) {
-                ApiFlavor::OllamaNative => self.chat_ollama_native(messages)?,
-                ApiFlavor::OpenAiCompat => self.chat_openai(messages)?,
-            },
-        };
+        let raw = self
+            .backend
+            .chat(messages, &GenerationOptions::from(&self.profile))?;
         let content = strip_think_blocks(&raw).trim().to_string();
         if content.is_empty() {
             bail!("the LLM returned an empty answer (for thinking models — raise max_tokens)");
         }
         Ok(content)
-    }
-
-    /// The Claude subscription path: the official `claude` CLI as a subprocess (see [`claude_cli`]).
-    ///
-    /// Our summary/refine prompts carry their whole instruction in the message text, and one part of
-    /// a summary can be tens of KB — past Windows' command-line limit — so the material ALWAYS rides
-    /// stdin (`content`) and the `-p` slot gets only the system text, or a short directive when there
-    /// is none. A multi-turn re-ask (user → assistant → user) is flattened into one stdin document,
-    /// because `claude -p` is single-shot; the model still sees the full confrontation as text.
-    fn chat_claude(&self, messages: &[ChatMessage]) -> Result<String> {
-        let sys: String = messages
-            .iter()
-            .filter(|m| m.role == "system")
-            .map(|m| m.content.as_str())
-            .collect::<Vec<_>>()
-            .join("\n\n");
-        let body: String = messages
-            .iter()
-            .filter(|m| m.role != "system")
-            .map(|m| {
-                if m.role == "assistant" {
-                    format!("[Твой предыдущий ответ]\n{}", m.content)
-                } else {
-                    m.content.clone()
-                }
-            })
-            .collect::<Vec<_>>()
-            .join("\n\n");
-        let prompt = if sys.trim().is_empty() {
-            "Выполни задачу, описанную во входных данных ниже, и верни ТОЛЬКО результат — без \
-             вступлений, без пояснений, без markdown-обёртки вокруг всего ответа."
-        } else {
-            sys.as_str()
-        };
-        let cfg = claude_cli::ClaudeCliConfig::from_env();
-        Ok(claude_cli::run(&cfg, prompt, Some(&body))?.text)
-    }
-
-    fn chat_openai(&self, messages: &[ChatMessage]) -> Result<String> {
-        let url = format!(
-            "{}/chat/completions",
-            self.profile.base_url.trim_end_matches('/')
-        );
-        let body = ChatRequest {
-            model: &self.profile.model,
-            messages,
-            temperature: self.profile.temperature,
-            max_tokens: self.profile.max_tokens,
-            stream: false,
-        };
-        let mut req = self
-            .agent
-            .post(&url)
-            .set("Content-Type", "application/json");
-        if let Some(key) = &self.profile.api_key {
-            req = req.set("Authorization", &format!("Bearer {key}"));
-        }
-        let resp = req
-            .send_json(serde_json::to_value(&body)?)
-            .map_err(flatten_ureq_error)
-            .with_context(|| format!("LLM request to {url} (model {})", self.profile.model))?;
-        let parsed: ChatResponse = resp.into_json().context("parsing the LLM answer")?;
-        let Some(choice) = parsed.choices.into_iter().next() else {
-            bail!("the LLM returned an empty choices list");
-        };
-        Ok(choice.message.content)
-    }
-
-    fn chat_ollama_native(&self, messages: &[ChatMessage]) -> Result<String> {
-        // base_url is stored in OpenAI form (`…:11434/v1`) — the native root has no /v1
-        let base = self
-            .profile
-            .base_url
-            .trim_end_matches('/')
-            .trim_end_matches("/v1")
-            .to_string();
-        let url = format!("{base}/api/chat");
-        let body = serde_json::json!({
-            "model": self.profile.model,
-            "messages": messages,
-            "stream": false,
-            "think": false,
-            // EVERY sampling parameter is pinned HERE, explicitly.
-            //
-            // We used to send only `num_predict` and `temperature`, and let the rest come from
-            // whatever the model ships in its own params blob. That is not a default — it is
-            // hidden entropy in someone else's file, and it changes our behaviour when they
-            // re-publish the model.
-            //
-            // What it cost us, measured: `ollama show --parameters qwen3.5:9b` ships
-            // `presence_penalty 1.5`. That penalises tokens which have ALREADY APPEARED — and the
-            // correct output of the cleanup is ~90 % the very same tokens as its input, because
-            // the task is «repeat this text, tidied». So we were mechanically penalising the model
-            // for doing exactly what we asked, and pushing it towards the one thing that earns
-            // fresh tokens: writing something of its own. On a live recording (16.07.2026) it did
-            // precisely that — the readable text opened with «Вот структурированный анализ…»
-            // instead of the conversation.
-            //
-            // Faithful retelling needs NO repetition penalty. Repeating the source is the job.
-            "options": {
-                // The one that was missing. See `num_ctx_for`.
-                "num_ctx": num_ctx_for(
-                    messages.iter().map(|m| m.content.len()).sum(),
-                    self.profile.max_ctx,
-                ),
-                "num_predict": self.profile.max_tokens,
-                "temperature": self.profile.temperature,
-                "presence_penalty": 0.0,
-                "frequency_penalty": 0.0,
-                "repeat_penalty": 1.0,
-                "top_p": self.profile.top_p,
-                "top_k": self.profile.top_k,
-            },
-        });
-        let resp = self
-            .agent
-            .post(&url)
-            .set("Content-Type", "application/json")
-            .send_json(body)
-            .map_err(flatten_ureq_error)
-            .with_context(|| format!("Ollama request to {url} (model {})", self.profile.model))?;
-        #[derive(Deserialize)]
-        struct NativeResponse {
-            message: NativeMessage,
-            #[serde(default)]
-            load_duration: u64,
-            #[serde(default)]
-            prompt_eval_duration: u64,
-            #[serde(default)]
-            eval_duration: u64,
-            #[serde(default)]
-            eval_count: u64,
-        }
-        #[derive(Deserialize)]
-        struct NativeMessage {
-            #[serde(default)]
-            content: String,
-        }
-        let parsed: NativeResponse = resp.into_json().context("parsing the Ollama answer")?;
-        tracing::info!(model = %self.profile.model,
-            load_sec = parsed.load_duration as f64 / 1e9,
-            prompt_sec = parsed.prompt_eval_duration as f64 / 1e9,
-            generation_sec = parsed.eval_duration as f64 / 1e9,
-            output_tokens = parsed.eval_count, "Ollama request completed");
-        Ok(parsed.message.content)
-    }
-}
-
-/// The body of a ureq error (e.g. a 404 from Ollama about a model that is not pulled)
-/// holds the most valuable part.
-fn flatten_ureq_error(e: ureq::Error) -> anyhow::Error {
-    match e {
-        ureq::Error::Status(code, resp) => {
-            let body = resp.into_string().unwrap_or_default();
-            anyhow::anyhow!(
-                "HTTP {code}: {}",
-                body.chars().take(400).collect::<String>()
-            )
-        }
-        other => anyhow::anyhow!(other),
     }
 }
 
