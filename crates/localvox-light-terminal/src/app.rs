@@ -5,7 +5,9 @@ mod diagnostics;
 mod documents;
 mod forms;
 mod input;
+mod navigation;
 mod paging;
+pub use navigation::DetailParent;
 mod quit;
 use crate::io::{Data, Resource, Response, Task};
 pub use commands::{Action, COMMANDS};
@@ -161,6 +163,7 @@ pub struct App {
     pub errors: HashMap<Resource, String>,
     pub quit: bool,
     pub quit_sequence: Option<QuitSequence>,
+    pub detail_parent: Option<DetailParent>,
     pub ascii: bool,
     pub monochrome: bool,
     pub color16: bool,
@@ -249,6 +252,7 @@ impl Default for App {
             errors: HashMap::new(),
             quit: false,
             quit_sequence: None,
+            detail_parent: None,
             ascii: false,
             monochrome: false,
             color16: false,
@@ -382,6 +386,7 @@ impl App {
         }
     }
     pub fn switch(&mut self, v: View) {
+        self.detail_parent = None;
         self.llm_server_pending = false;
         self.view = v;
         self.nav = VIEWS.iter().position(|(view, _)| *view == v).unwrap_or(0);
@@ -394,6 +399,7 @@ impl App {
         self.refresh_view();
     }
     pub fn select_session(&mut self, name: String) {
+        self.detail_parent = None;
         self.archive_filter_editing = false;
         if self.current.as_ref() != Some(&name) {
             self.player_effects
@@ -1165,7 +1171,13 @@ impl App {
                     .modifiers
                     .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
             {
-                self.command(Action::CopyDocument)
+                self.command(
+                    if self.view == View::Archive && self.tab == Tab::Transcript {
+                        Action::CopyReply
+                    } else {
+                        Action::CopyDocument
+                    },
+                )
             }
             KeyCode::Char('g' | 'G') => self.command(Action::Seek),
             KeyCode::Char('?') => self.help = true,
@@ -1327,9 +1339,7 @@ impl App {
                 self.enter()
             }
             KeyCode::Enter => self.enter(),
-            KeyCode::Esc => {
-                self.focus = 0;
-            }
+            KeyCode::Esc => self.back(),
             _ => {}
         }
     }
@@ -1476,8 +1486,11 @@ impl App {
             View::Queue => {
                 if let Some(i) = self.queue.get(self.selected) {
                     let s = i.session.clone();
-                    self.tab = Tab::Progress;
-                    self.select_session(s);
+                    self.open_list_record(s, Tab::Progress, None);
+                }
+            }
+            View::Notes if self.focus == 1 => {
+                if self.notes.get(self.selected).is_some() {
                     self.focus = 2;
                 }
             }
@@ -1496,10 +1509,7 @@ impl App {
             View::Search => {
                 if let Some(h) = self.hits.get(self.selected) {
                     let (session, time) = (h.session.clone(), h.start_sec);
-                    self.tab = Tab::Transcript;
-                    self.select_session(session);
-                    self.document_target = time;
-                    self.focus = 2;
+                    self.open_list_record(session, Tab::Transcript, time);
                 }
             }
             View::Settings => {

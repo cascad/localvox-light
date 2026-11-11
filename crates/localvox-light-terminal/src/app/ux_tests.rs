@@ -61,6 +61,7 @@ fn growing_partial_keeps_anchor_scroll_copy_and_playback_and_rejects_stale_or_la
         })),
     );
     assert_eq!((app.item, app.scroll, app.playback.position), (1, 7, 6.0));
+    assert_eq!(app.selected_reply_text(), "реплика 1");
     assert!(!app.playback.paused);
     assert!(app.player_effects.is_empty());
     response(

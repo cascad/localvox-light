@@ -420,3 +420,9 @@ auto-expiring hint проверены; 28 snapshots меняют только q 
 | ID | Delta / код | Свидетельство | Граница |
 |---|---|---|---|
 | ARCH-001; ARCH-015 в delta | [delta](../changes/refine-terminal-label-colors/specs/archive-playback/spec.md), [Theme/labels](../../crates/localvox-light-terminal/src/render.rs), [documents](../../crates/localvox-light-terminal/src/render/documents.rs) | [test-run](../changes/refine-terminal-label-colors/evidence/implementation.md): 174 lib, 4 ConPTY, IO/run-script; contrast/style tests 4 modes, 40 snapshots со строго прежним текстом/геометрией, release | Только TUI presentation. Внешний вид в реальном терминале владельца not-run; управление, копируемый текст, UI/сервер и main specs не менялись |
+
+## Контекстное копирование и возврат TUI · 2026-11-11
+
+| ID | Delta / код | Свидетельство | Граница |
+|---|---|---|---|
+| ARCH-001; ARCH-011/016 в delta | [delta](../changes/refine-terminal-copy-and-back/specs/archive-playback/spec.md), [navigation](../../crates/localvox-light-terminal/src/app/navigation.rs), [copy](../../crates/localvox-light-terminal/src/app/documents.rs) | [test-run](../changes/refine-terminal-copy-and-back/evidence/implementation.md): 183 lib, 4 ConPTY, IO/run-script; selected reply/whole text, back/parent/reorder/late replies/player state, 37 reviewed snapshots | Ручной clipboard/аудио и внешний вид not-run. ARCH-011 зависит от исходной delta add-terminal-session-activity; sync/archive не выполнялся, main specs не менялись |

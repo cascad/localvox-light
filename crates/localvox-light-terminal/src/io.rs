@@ -359,7 +359,7 @@ pub fn perform(c: &Client, task: Task) -> anyhow::Result<Data> {
                 Ok(())
             })?;
             Data::Reply(Reply {
-                msg: Some("Документ скопирован без служебных сведений".into()),
+                msg: Some("Скопировано в буфер обмена".into()),
                 ..Default::default()
             })
         }

@@ -28,7 +28,7 @@ Buffer {
         "|                                                                               ",
         "|                                                                               ",
         " Подключение…                                                                   ",
-        " F8 stop  F10 выход  Enter открыть  Esc сброс  F2 действия                      ",
+        " F8 stop  F10 выход  Enter открыть  Esc меню  F2 действия                       ",
     ],
     styles: [
         x: 0, y: 0, fg: Rgb(216, 220, 227), bg: Rgb(23, 25, 29), underline: Reset, modifier: BOLD,

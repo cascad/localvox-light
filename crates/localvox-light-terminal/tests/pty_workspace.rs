@@ -1,4 +1,5 @@
 //! Exercise the real terminal binary using the platform PTY (ConPTY on Windows).
+use localvox_light_terminal::app::{Action, COMMANDS};
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -504,7 +505,11 @@ fn unauthorized_start_can_reconnect_through_the_masked_form_without_replaying_st
     writer.write_all(b"\x1b[19~:").unwrap();
     writer.flush().unwrap();
     see!("Действия");
-    writer.write_all(&[b'j'; 31]).unwrap();
+    let connection = COMMANDS
+        .iter()
+        .position(|(action, _)| *action == Action::Connection)
+        .unwrap();
+    writer.write_all(&vec![b'j'; connection]).unwrap();
     writer.write_all(b"\r").unwrap();
     writer.flush().unwrap();
     see!("Подключение к демону");
@@ -779,8 +784,21 @@ fn real_terminal_animates_server_activity_filters_names_and_accepts_russian_comm
         &mut queries,
         deadline,
     );
+    writer.write_all(b"\x1b").unwrap();
+    writer.flush().unwrap();
+    see!("Esc меню");
+    assert!(screen.screen().contents().contains("Список · 1/2"));
+    writer.write_all(b"\x1b").unwrap();
+    writer.flush().unwrap();
+    see!("Enter/l раздел");
+    assert!(screen.screen().contents().contains("Список · 1/2"));
+    writer.write_all(b"\t\r").unwrap();
+    writer.flush().unwrap();
+    see!("Esc список");
     api.activity.store(7, Ordering::Relaxed);
-    writer.write_all(b"\x1b[Z\x1b").unwrap();
+    // Leave details, explicitly edit and clear the saved filter. Idle Esc now
+    // returns to the sections menu without discarding the filter.
+    writer.write_all(b"\x1b[Z/\x1b").unwrap();
     writer.flush().unwrap();
     see!("Встреча 00");
     writer.write_all(b"\x1b[1~").unwrap();

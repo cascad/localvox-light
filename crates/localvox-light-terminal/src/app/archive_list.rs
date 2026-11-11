@@ -61,10 +61,6 @@ impl App {
                 self.archive_filter_editing = true;
                 return true;
             }
-            if key.code == KeyCode::Esc && !self.archive_filter.is_empty() {
-                self.set_archive_filter(String::new());
-                return true;
-            }
             return false;
         }
         if key.modifiers.contains(KeyModifiers::CONTROL) {

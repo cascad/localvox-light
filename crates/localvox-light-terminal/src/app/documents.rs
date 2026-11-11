@@ -270,6 +270,16 @@ impl App {
             _ => String::new(),
         })
     }
+    pub fn selected_reply_text(&self) -> String {
+        if self.view == View::Archive && self.tab == Tab::Transcript {
+            self.transcript
+                .get(self.item)
+                .map(|line| safe_text(&line.text))
+                .unwrap_or_default()
+        } else {
+            String::new()
+        }
+    }
     pub fn metadata_text(&self) -> String {
         if self.view != View::Archive {
             return String::new();
