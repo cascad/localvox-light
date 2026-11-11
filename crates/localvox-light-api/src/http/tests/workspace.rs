@@ -473,6 +473,90 @@ fn progress_explains_missing_job_and_corrupt_queue_after_stt() {
 }
 
 #[test]
+fn forced_link_recook_keeps_audio_proof_and_only_future_steps_through_http() {
+    use localvox_light_core::{processing, progress};
+    let root = tempfile::tempdir().unwrap();
+    session(root.path(), "recook-plan");
+    let dir = root.path().join("sessions/recook-plan");
+    fs::create_dir(dir.join("audio")).unwrap();
+    let wav = dir.join("audio/source.wav");
+    let mut writer = hound::WavWriter::create(
+        &wav,
+        hound::WavSpec {
+            channels: 1,
+            sample_rate: 16000,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        },
+    )
+    .unwrap();
+    for _ in 0..1600 {
+        writer.write_sample(1i16).unwrap();
+    }
+    writer.finalize().unwrap();
+    fs::write(
+        dir.join("meta.json"),
+        json!({
+            "started_at":"2026-11-11T00:00:00Z", "sample_rate":16000,
+            "source":{"url":"https://example.org/fixture"},
+            "chunks":[{"file":"source","source_id":0,"start_offset_sec":0,"duration_sec":0.1}]
+        })
+        .to_string(),
+    )
+    .unwrap();
+    processing::record(
+        &dir,
+        processing::TRANSCRIPT,
+        "fixture",
+        processing::Outcome::Ok,
+        None,
+        Some(2),
+    )
+    .unwrap();
+    progress::new_run(&dir);
+    let job = jobs::JobQueue::mutate(root.path(), |queue| {
+        assert!(queue.enqueue_recook("recook-plan", true, false, false));
+        let job = queue.start_phase(0, &[jobs::JobPhase::Prepare]).unwrap();
+        queue.finish_phase(job.id, job.phase).unwrap();
+        queue.start_phase(0, &[jobs::JobPhase::Transcribe]).unwrap()
+    });
+    assert!(job.force);
+    progress::mark(
+        &dir,
+        progress::Stage::Transcribe,
+        progress::StageState::Running,
+        None,
+    );
+    let queue_before = fs::read(root.path().join("jobs.json")).unwrap();
+    let audio_before = fs::read(&wav).unwrap();
+    let server = journal_http_fixture(root.path(), Some("synthetic-token"));
+    let client = Client::new(&server.address, "synthetic-token".into()).unwrap();
+    let view = client.progress("recook-plan").unwrap();
+    for stage in ["download", "extract"] {
+        let row = view.stages.iter().find(|s| s.stage == stage).unwrap();
+        assert_eq!(row.state, "done");
+        assert_eq!(row.files, ["audio/source.wav"]);
+        assert!(row.started_at.is_none());
+    }
+    let execution = view.execution.unwrap();
+    assert_eq!(execution.current.as_deref(), Some("transcribe"));
+    assert_eq!(execution.next, ["summary"]);
+    assert_eq!(
+        fs::read(root.path().join("jobs.json")).unwrap(),
+        queue_before
+    );
+    assert_eq!(fs::read(&wav).unwrap(), audio_before);
+    fs::write(&wav, b"damaged").unwrap();
+    let view = client.progress("recook-plan").unwrap();
+    assert!(view
+        .stages
+        .iter()
+        .filter(|s| matches!(s.stage.as_str(), "download" | "extract"))
+        .all(|s| s.state != "done"));
+    assert_eq!(view.execution.unwrap().next, ["summary"]);
+}
+
+#[test]
 fn mixed_worker_and_journal_records_keep_stage_boundaries_through_real_http() {
     use localvox_light_core::{journal, processing, progress};
     let directory = tempfile::tempdir().unwrap();

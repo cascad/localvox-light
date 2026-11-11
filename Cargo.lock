@@ -3016,6 +3016,7 @@ dependencies = [
  "chrono",
  "clap",
  "dotenvy",
+ "hound",
  "localvox-light-client",
  "localvox-light-core",
  "localvox-light-integrations",

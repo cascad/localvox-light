@@ -3,7 +3,9 @@
 Дополнение 2026-11-10: RV-021 / PIPE-011 — после полного recook уже подготовленного
 YouTube-аудио `execution.next` ошибочно включает прошлые `download`/`extract`, пока
 Transcribe реально выполняется. [Настоящий HTTP и граница проверки](changes/fix-long-recording-diarization/evidence/deployment.md).
-Gap открыт; оптимизация группировки голосов его не закрывает.
+Исправление 2026-11-11: [план повторного запуска](changes/fix-recook-next-stage-plan/evidence/implementation.md)
+сохраняет proof аудио при force и исключает прошлые фазы из next. Core/API и реальный
+HTTP fixture — test-run; повтор на пользовательской записи новым бинарником — not-run.
 
 **Main specs приняты как источник правды.** Этот файл хранит фактические
 несоответствия и ограничения проверки; открытый RV не является разрешением нарушать

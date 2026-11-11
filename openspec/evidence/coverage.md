@@ -391,3 +391,9 @@ attempt/revival и не дописывают recovery progress до сохран
 | ID | Delta / код | Свидетельство | Граница |
 |---|---|---|---|
 | ARCH-001; ARCH-014 и TERM-007 в delta | [paste delta](../changes/fix-windows-terminal-paste/specs/archive-playback/spec.md), [input](../../crates/localvox-light-terminal/src/runtime/input.rs), [App](../../crates/localvox-light-terminal/src/app.rs) | [test-run](../changes/fix-windows-terminal-paste/evidence/implementation.md): 162 lib, native Unicode/split paste/mode guard, 4 workspace ConPTY, IO/run-script, release TUI | Общий протокол без emulator branches; реальные Windows hosts, Unix, SSH/tmux/audio not-run. [Матрица](../../docs/terminal-compatibility.md), main specs не изменены |
+
+## План повторного STT · 2026-11-11
+
+| ID | Delta / код | Свидетельство | Граница |
+|---|---|---|---|
+| PIPE-011 / PIPE-012, RV-021 | [delta](../changes/fix-recook-next-stage-plan/specs/processing-pipeline/spec.md), [view/execution](../../crates/localvox-light-core/src/workflow.rs) | [test-run](../changes/fix-recook-next-stage-plan/evidence/implementation.md): 422 core, 81 API и 3 integration; actual WAV/HTTP, force/next/current phase, corruption/missing/Done guards; исправлена атомарная публикация test readiness | Исправлена реализация; реальная запись владельца/аппаратная приёмка not-run. Исполнение/очередь/модели и main specs не менялись |

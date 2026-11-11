@@ -22,6 +22,7 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 
 [dev-dependencies]
+hound.workspace = true
 localvox-light-client = { path = "../localvox-light-client" }
 localvox-light-terminal = { path = "../localvox-light-terminal" }
 tempfile.workspace = true

@@ -308,9 +308,9 @@ fn settings_fixture() {
     let server = Server::http("127.0.0.1:0").unwrap();
     let config = cfg(Some("synthetic-token"));
     let archive = Archive::new(root.join("archive"));
-    fs::write(
-        root.join("address"),
-        format!("http://{}", server.server_addr()),
+    localvox_light_core::artifacts::atomic_write(
+        &root.join("address"),
+        format!("http://{}", server.server_addr()).as_bytes(),
     )
     .unwrap();
     let deadline = Instant::now() + Duration::from_secs(20);
@@ -319,9 +319,9 @@ fn settings_fixture() {
             handle_request(&archive, &config, request);
         }
     }
-    fs::write(
-        root.join("result.json"),
-        json!({"model":std::env::var("LOCALVOX_LLM_MODEL").unwrap(),"chunk":std::env::var("LOCALVOX_LIGHT_CHUNK_SEC").unwrap()}).to_string(),
+    localvox_light_core::artifacts::atomic_write(
+        &root.join("result.json"),
+        json!({"model":std::env::var("LOCALVOX_LLM_MODEL").unwrap(),"chunk":std::env::var("LOCALVOX_LIGHT_CHUNK_SEC").unwrap()}).to_string().as_bytes(),
     )
     .unwrap();
 }

@@ -126,6 +126,14 @@ fn execution(
     coordinator: Option<&crate::jobs::CoordinatorStatus>,
 ) -> Execution {
     let active = stages.iter().find(|s| s.state == StageState::Running);
+    let requested_here = |stage| {
+        job.map_or(!matches!(stage, Stage::Refine | Stage::Cleanup), |j| {
+            requested(stage, j)
+        })
+    };
+    let incomplete_results = stages.iter().any(|s| {
+        requested_here(s.stage) && !matches!(s.state, StageState::Done | StageState::Skipped)
+    });
     let mut value = Execution {
         run: None,
         operation: None,
@@ -139,11 +147,8 @@ fn execution(
         next: stages
             .iter()
             .filter(|s| !matches!(s.state, StageState::Done | StageState::Skipped))
-            .filter(|s| {
-                job.map_or(!matches!(s.stage, Stage::Refine | Stage::Cleanup), |j| {
-                    requested(s.stage, j)
-                })
-            })
+            .filter(|s| requested_here(s.stage))
+            .filter(|s| job.is_none_or(|j| remaining_phase(stage_phase(s.stage), j.phase)))
             .map(|s| s.stage)
             .collect(),
     };
@@ -267,7 +272,7 @@ fn execution(
             "Есть событие запуска, но задания в очереди нет; выполнение не подтверждено".into();
     }
     if job.is_none_or(|j| j.state == JobState::Done) {
-        if value.next.is_empty()
+        if !incomplete_results
             && !stages
                 .iter()
                 .any(|s| matches!(s.state, StageState::Invalid | StageState::Failed))
@@ -294,6 +299,15 @@ fn stage_phase(stage: Stage) -> JobPhase {
         Stage::Transcribe => JobPhase::Transcribe,
         Stage::Refine | Stage::Cleanup => JobPhase::Text,
         Stage::Summary => JobPhase::Summary,
+    }
+}
+
+fn remaining_phase(stage: JobPhase, current: JobPhase) -> bool {
+    match current {
+        JobPhase::Prepare => true,
+        JobPhase::Transcribe => stage != JobPhase::Prepare,
+        JobPhase::Text => matches!(stage, JobPhase::Text | JobPhase::Summary),
+        JobPhase::Summary => stage == JobPhase::Summary,
     }
 }
 
@@ -392,7 +406,8 @@ pub fn view(session: &Path, job: Option<&Job>, from_link: bool, now: &str) -> Vi
             Stage::Summary => Some(processing::SUMMARY),
             _ => None,
         };
-        let force_pending = live && job.is_some_and(|j| j.force);
+        // --force replaces transcript/derived results, never already verified input audio.
+        let force_pending = live && artifact.is_some() && job.is_some_and(|j| j.force);
         if force_pending && !executing {
             row.state = StageState::Waiting;
             row.started_at = None;
@@ -546,6 +561,162 @@ pub fn view(session: &Path, job: Option<&Job>, from_link: bool, now: &str) -> Vi
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn recook_keeps_verified_preparation_without_reusing_old_stt() {
+        let root = tempfile::tempdir().unwrap();
+        let session = root.path().join("sessions/video");
+        std::fs::create_dir_all(session.join("audio")).unwrap();
+        crate::artifacts::tests::fixture(&session);
+        processing::record(
+            &session,
+            processing::TRANSCRIPT,
+            "fixture",
+            processing::Outcome::Ok,
+            None,
+            Some(1),
+        )
+        .unwrap();
+        let audio = session.join("audio/source.wav");
+        let mut writer = hound::WavWriter::create(
+            &audio,
+            hound::WavSpec {
+                channels: 1,
+                sample_rate: 16000,
+                bits_per_sample: 16,
+                sample_format: hound::SampleFormat::Int,
+            },
+        )
+        .unwrap();
+        for _ in 0..1600 {
+            writer.write_sample(1i16).unwrap();
+        }
+        writer.finalize().unwrap();
+        std::fs::write(
+            session.join("meta.json"),
+            serde_json::to_vec(&serde_json::json!({
+                "started_at":"2026-11-11T00:00:00Z", "sample_rate":16000,
+                "chunks":[{"file":"source","source_id":0,"start_offset_sec":0,"duration_sec":0.1}]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let mut queue = crate::jobs::JobQueue::load(root.path());
+        assert!(queue.enqueue_recook("video", true, false, false));
+        let mut job = queue.jobs()[0].clone();
+        for phase in [JobPhase::Prepare, JobPhase::Transcribe] {
+            job.phase = phase;
+            let result = view(&session, Some(&job), true, &crate::versions::now_rfc3339());
+            for stage in [Stage::Download, Stage::Extract] {
+                let row = result.stages.iter().find(|s| s.stage == stage).unwrap();
+                assert_eq!(row.state, StageState::Done, "{phase:?}/{stage:?}");
+                assert_eq!(row.files, ["audio/source.wav"]);
+                assert!(
+                    row.started_at.is_none(),
+                    "artifact proof does not invent a start"
+                );
+                assert!(!result.execution.next.contains(&stage));
+            }
+            assert_ne!(
+                result
+                    .stages
+                    .iter()
+                    .find(|s| s.stage == Stage::Transcribe)
+                    .unwrap()
+                    .state,
+                StageState::Done
+            );
+            assert_eq!(result.execution.next, [Stage::Transcribe, Stage::Summary]);
+        }
+        std::fs::write(&audio, b"damaged").unwrap();
+        let result = view(&session, Some(&job), true, &crate::versions::now_rfc3339());
+        for stage in [Stage::Download, Stage::Extract] {
+            assert_ne!(
+                result
+                    .stages
+                    .iter()
+                    .find(|s| s.stage == stage)
+                    .unwrap()
+                    .state,
+                StageState::Done
+            );
+            assert!(
+                !result.execution.next.contains(&stage),
+                "past failures are not future tasks"
+            );
+        }
+        std::fs::remove_file(audio).unwrap();
+        job.phase = JobPhase::Prepare;
+        let result = view(&session, Some(&job), true, &crate::versions::now_rfc3339());
+        assert_eq!(
+            &result.execution.next[..2],
+            &[Stage::Download, Stage::Extract]
+        );
+    }
+
+    #[test]
+    fn next_plan_never_schedules_a_past_phase_or_marks_its_failures_done() {
+        let root = tempfile::tempdir().unwrap();
+        let mut queue = crate::jobs::JobQueue::load(root.path());
+        queue.enqueue_cook("fixture", true, true, true);
+        let mut job = queue.jobs()[0].clone();
+        let stages: Vec<_> = Stage::CHAIN
+            .iter()
+            .map(|stage| status(*stage, StageState::Invalid, None, None))
+            .collect();
+        for (phase, expected) in [
+            (
+                JobPhase::Prepare,
+                vec![
+                    Stage::Download,
+                    Stage::Extract,
+                    Stage::Transcribe,
+                    Stage::Refine,
+                    Stage::Cleanup,
+                    Stage::Summary,
+                ],
+            ),
+            (
+                JobPhase::Transcribe,
+                vec![
+                    Stage::Transcribe,
+                    Stage::Refine,
+                    Stage::Cleanup,
+                    Stage::Summary,
+                ],
+            ),
+            (
+                JobPhase::Text,
+                vec![Stage::Refine, Stage::Cleanup, Stage::Summary],
+            ),
+            (JobPhase::Summary, vec![Stage::Summary]),
+        ] {
+            job.phase = phase;
+            let result = execution(Some(&job), &stages, &crate::versions::now_rfc3339(), None);
+            assert_eq!(result.next, expected, "{phase:?}");
+            assert!(stages.iter().all(|s| s.state == StageState::Invalid));
+        }
+        job.state = JobState::Done;
+        let mut incomplete = stages;
+        incomplete
+            .iter_mut()
+            .for_each(|s| s.state = StageState::Done);
+        incomplete[2].state = StageState::Waiting;
+        let result = execution(
+            Some(&job),
+            &incomplete,
+            &crate::versions::now_rfc3339(),
+            None,
+        );
+        assert_eq!(
+            result.state, "attention",
+            "missing past output is not success"
+        );
+        assert!(
+            result.next.is_empty(),
+            "finished queue has no future past stage"
+        );
+    }
+
     #[test]
     fn orphaned_running_event_is_not_a_running_worker() {
         let dir = tempfile::tempdir().unwrap();
