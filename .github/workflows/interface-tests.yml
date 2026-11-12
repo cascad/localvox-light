@@ -49,6 +49,8 @@ jobs:
         run: |
           cargo test --locked -p localvox-light --lib
           cargo test --locked -p localvox-light --bin localvox-light
+          cargo test --locked -p localvox-light --test setup
+          cargo test --locked -p localvox-light-core doctor:: --lib
           cargo test --locked -p localvox-light --test launcher_modes -- --ignored
           cargo check --locked -p localvox-light --no-default-features
       - name: Journal, legacy progress and real HTTP

@@ -505,3 +505,10 @@ main specs и прежние свидетельства не переписан�
 | Requirement | Код / delta | Проверка | Граница |
 |---|---|---|---|
 | SETUP-001/002/003; SETUP-004 в delta | [delta](../changes/prepare-promo-and-platform-releases/specs/installation-models/spec.md), [packager](../../scripts/package-release.py), [Windows](../../scripts/install-release.ps1), [Unix](../../scripts/install-release.sh) | [test-run](../changes/prepare-promo-and-platform-releases/evidence/implementation.md): 12 delivery, real Windows startup/install/update, Mac shell fixtures, UI 14/81; 11 PNG + 4 GIF настоящих интерфейсов | Runtime обработки сохранён; remote release/hosted jobs/native Mac/Linux/устройства not-run; main specs не sync/archive |
+
+
+Продолжение SETUP-001/002/003, INV-SETUP-001 от 2026-11-12:
+
+| Requirement | Код / delta | Проверка | Граница |
+|---|---|---|---|
+| SETUP-001/002/003, INV-SETUP-001; SETUP-005/006 в delta | [delta](../changes/add-install-reconciliation-wizard/specs/installation-models/spec.md), [setup](../../crates/localvox-light/src/setup/mod.rs), [doctor](../../crates/localvox-light-core/src/doctor.rs), [installers](../../scripts/install-release.ps1) | [test-run](../changes/add-install-reconciliation-wizard/evidence/implementation.md): 10 setup integration / 16 lib / 1 main / 6 doctor; 16 delivery без skips, настоящий Windows bundle, Mac shell fixtures | Read-only discovery, plan/confirm, ownership, repeat no-op; настоящие Ollama installer/pull/GGUF/Mac first-run not-run; main specs не sync/archive |

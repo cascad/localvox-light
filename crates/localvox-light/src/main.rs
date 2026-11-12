@@ -146,6 +146,10 @@ fn main() -> Result<()> {
     // BEFORE validate_vosk_model — the doctor exists precisely for the case where something is
     // missing. A check that refuses to run until everything is in place answers only the
     // question nobody asks.
+    if cli.setup || cli.setup_check {
+        std::process::exit(localvox_light::setup::run(&cli)?);
+    }
+
     if cli.doctor {
         std::process::exit(run_doctor(&cli));
     }
@@ -221,7 +225,13 @@ fn main() -> Result<()> {
 /// Server and one-shot modes take precedence over an environment/default TUI.
 /// Decided before models, capture controls, Ctrl+C handlers or engine threads.
 fn terminal_mode(cli: &Cli, interactive: bool, environment_override: bool) -> bool {
-    !(cli.no_tui || cli.daemon || cli.doctor || cli.list_devices || cli.update_yt_dlp)
+    !(cli.no_tui
+        || cli.daemon
+        || cli.doctor
+        || cli.setup
+        || cli.setup_check
+        || cli.list_devices
+        || cli.update_yt_dlp)
         && (cli.tui || (cfg!(feature = "tui") && interactive && !environment_override))
 }
 
@@ -266,6 +276,8 @@ mod launch_tests {
             "--daemon",
             "--no-tui",
             "--doctor",
+            "--setup",
+            "--setup-check",
             "--list-devices",
             "--update-yt-dlp",
         ] {
@@ -335,10 +347,18 @@ fn run_doctor(cli: &Cli) -> i32 {
     let vosk = std::path::PathBuf::from(localvox_light_core::cli::normalized_model_path(cli));
     let layout = doctor::Layout::from_env(vosk, std::path::PathBuf::from(&cli.audio_dir));
     let mut findings = doctor::inspect(&layout);
-    findings.push(probe_llm(&layout));
+    findings.extend(localvox_light::setup::probe::ollama_findings(&layout));
     findings.push(probe_api_port(&layout));
     findings.push(probe_yt_dlp());
 
+    if cli.doctor_json {
+        println!("{}", serde_json::json!({"schema": 1, "findings": findings}));
+        return match doctor::worst(&findings) {
+            State::Ok => 0,
+            State::Warn => 1,
+            State::Fail => 2,
+        };
+    }
     println!("localvox — проверка установки\n");
     for f in &findings {
         println!("  [{}] {}", f.state.mark(), f.what);
@@ -366,65 +386,20 @@ fn run_doctor(cli: &Cli) -> i32 {
     }
 }
 
-/// Отвечает ли что-нибудь там, где должна быть Ollama.
-///
-/// Именно TCP-проверка, и об её границе сказано вслух: она НЕ проверяет, что модель скачана.
-/// Проверка, которая молчит о том, чего не смотрела, — та же ложь, только вежливая.
-fn probe_llm(l: &localvox_light_core::doctor::Layout) -> localvox_light_core::doctor::Finding {
-    use localvox_light_core::doctor::{Finding, State};
-    let host = l
-        .llm_base_url
-        .split("://")
-        .nth(1)
-        .unwrap_or(&l.llm_base_url)
-        .split('/')
-        .next()
-        .unwrap_or_default()
-        .to_string();
-    let alive = std::net::ToSocketAddrs::to_socket_addrs(&host)
-        .map(|addrs| {
-            addrs.into_iter().any(|a| {
-                std::net::TcpStream::connect_timeout(&a, std::time::Duration::from_millis(700))
-                    .is_ok()
-            })
-        })
-        .unwrap_or(false);
-    if alive {
-        Finding {
-            what: "LLM (сводка и чистовик)".into(),
-            state: State::Ok,
-            detail: format!(
-                "{host} отвечает; модель в настройках: {}. Скачана ли она — здесь НЕ проверяется, \
-                 это видно по первой же варке",
-                l.llm_model
-            ),
-            fix: None,
-        }
-    } else {
-        Finding {
-            what: "LLM (сводка и чистовик)".into(),
-            state: State::Warn,
-            detail: format!("{host} не отвечает — расшифровка будет, сводки и чистовика нет"),
-            fix: Some(format!(
-                "запустить Ollama и скачать модель: ollama pull {}",
-                l.llm_model
-            )),
-        }
-    }
-}
-
 /// Свободен ли порт, на котором поднимется интерфейс. Занятый порт — самая частая причина
 /// «демон работает, а страница не открывается», и узнать о ней надо до запуска, а не после.
 fn probe_api_port(l: &localvox_light_core::doctor::Layout) -> localvox_light_core::doctor::Finding {
     use localvox_light_core::doctor::{Finding, State};
     match std::net::TcpListener::bind(&l.api_bind) {
         Ok(_) => Finding {
+            id: "api".into(),
             what: "Порт интерфейса".into(),
             state: State::Ok,
             detail: format!("{} свободен", l.api_bind),
             fix: None,
         },
         Err(e) => Finding {
+            id: "api".into(),
             what: "Порт интерфейса".into(),
             state: State::Warn,
             detail: format!("{} занят ({e}) — возможно, демон уже запущен", l.api_bind),

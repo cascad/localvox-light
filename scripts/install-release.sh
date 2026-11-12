@@ -2,7 +2,7 @@
 # Install the complete macOS/Linux bundle. --archive=path installs an Actions archive.
 set -euo pipefail
 REPO=cascad/localvox-light TAG=latest INSTALL_DIR="$(pwd)/localvox-light"
-ARCHIVE='' SKIP_MODELS=0 SKIP_BINARY=0
+ARCHIVE='' SKIP_MODELS=0 SKIP_BINARY=0 CHECK=0 WIZARD=0 RECONCILE=0
 MODEL_ARGS=()
 for arg in "$@"; do
   case "$arg" in
@@ -11,13 +11,21 @@ for arg in "$@"; do
     --branch=*) : ;; # Helpers are pinned to the selected package now.
     --required-only) MODEL_ARGS+=(--required-only);;
     --skip-models) SKIP_MODELS=1;; --skip-binary) SKIP_BINARY=1;;
-    -h|--help) echo 'install-release.sh [--install-dir=PATH] [--tag=TAG] [--archive=PATH] [--required-only] [--skip-models] [--skip-binary]'; exit 0;;
+    --check) CHECK=1;; --wizard) WIZARD=1;; --reconcile) RECONCILE=1;;
+    -h|--help) echo 'install-release.sh [--install-dir=PATH] [--tag=TAG] [--archive=PATH] [--required-only] [--skip-models] [--skip-binary] [--check | --wizard | --reconcile]'; exit 0;;
     *) echo "Unknown argument: $arg" >&2; exit 2;;
   esac
 done
 fail() { echo "$*" >&2; exit 1; }
 [[ -z "$ARCHIVE" || "$SKIP_BINARY" = 0 ]] || fail '--archive and --skip-binary cannot be combined'
-for tool in curl tar jq; do command -v "$tool" >/dev/null || fail "Required: $tool (macOS: brew install jq)"; done
+if [[ "$CHECK" = 1 ]]; then
+ [[ "$WIZARD" = 0 && "$RECONCILE" = 0 ]] || fail '--check cannot be combined with --wizard/--reconcile'
+ [[ -f "$INSTALL_DIR/bundle.json" && -x "$INSTALL_DIR/localvox-light" ]] || { echo "Missing installation: $INSTALL_DIR"; exit 2; }
+ # Hash validation below is read-only; curl/tar are not needed by check.
+fi
+[[ "$WIZARD" = 0 || "$SKIP_MODELS" = 0 ]] || fail '--wizard and --skip-models cannot be combined'
+TOOLS=(jq); if [[ "$CHECK" = 0 ]]; then TOOLS+=(curl tar); fi
+for tool in "${TOOLS[@]}"; do command -v "$tool" >/dev/null || fail "Required: $tool (macOS: brew install jq)"; done
 if command -v shasum >/dev/null; then SHA=(shasum -a 256); elif command -v sha256sum >/dev/null; then SHA=(sha256sum); else fail 'Required: shasum or sha256sum'; fi
 sha256() { "${SHA[@]}" "$1" | cut -d ' ' -f1; }
 case "$(uname -s)/$(uname -m)" in
@@ -27,9 +35,29 @@ case "$(uname -s)/$(uname -m)" in
  Linux/aarch64|Linux/arm64) TARGET=aarch64-unknown-linux-gnu; NATIVE=libvosk.so;;
  *) fail "Unsupported platform: $(uname -s)/$(uname -m)";;
 esac
+REQUIRED=(localvox-light localvox-process localvox-tui "$NATIVE" .env.defaults scripts/models.json scripts/fetch-models.sh scripts/setup-ollama.sh licenses/rs-morphy4/NOTICE)
+installed_bundle_valid() {
+ local name expected
+ [[ -f "$INSTALL_DIR/bundle.json" ]] || return 1
+ jq -e --arg target "$TARGET" '.schema == 1 and .target == $target and (.files | type == "array")' "$INSTALL_DIR/bundle.json" >/dev/null || return 1
+ for name in "${REQUIRED[@]}"; do jq -e --arg name "$name" 'any(.files[]; .name == $name)' "$INSTALL_DIR/bundle.json" >/dev/null || return 1; done
+ while IFS= read -r name; do
+  case "$name" in ''|.env|/*|*\\*|*:*|../*|*/../*|*/..) return 1;; esac
+  [[ -f "$INSTALL_DIR/$name" && ! -L "$INSTALL_DIR/$name" ]] || return 1
+  expected="$(jq -r --arg name "$name" '.files[] | select(.name == $name) | .sha256' "$INSTALL_DIR/bundle.json")"
+  [[ "$(sha256 "$INSTALL_DIR/$name")" = "$expected" ]] || return 1
+ done < <(jq -r '.files[].name' "$INSTALL_DIR/bundle.json")
+}
+if [[ "$CHECK" = 1 ]]; then
+ installed_bundle_valid || { echo "Missing or invalid complete installation: $INSTALL_DIR"; exit 2; }
+ exec "$INSTALL_DIR/localvox-light" --cwd "$INSTALL_DIR" --setup-check
+fi
+if [[ "$RECONCILE" = 1 ]]; then
+ if installed_bundle_valid; then SKIP_BINARY=1; echo 'Installed bundle is intact; download and unpack skipped.'; fi
+ if [[ "$SKIP_MODELS" = 0 ]]; then WIZARD=1; fi
+fi
 WORK="$(mktemp -d -t localvox-install.XXXXXXXX)"
 trap 'rm -rf "$WORK"' EXIT
-REQUIRED=(localvox-light localvox-process localvox-tui "$NATIVE" .env.defaults scripts/models.json scripts/fetch-models.sh licenses/rs-morphy4/NOTICE)
 if [[ "$SKIP_BINARY" = 0 ]]; then
  if [[ -z "$ARCHIVE" ]]; then
   if [[ "$TAG" = latest ]]; then API="https://api.github.com/repos/$REPO/releases/latest"; else API="https://api.github.com/repos/$REPO/releases/tags/$TAG"; fi
@@ -70,11 +98,15 @@ mkdir -p "$INSTALL_DIR"
 INSTALL_DIR="$(cd "$INSTALL_DIR" && pwd)"
 for name in "${REQUIRED[@]}"; do [[ -f "$INSTALL_DIR/$name" ]] || fail "Installation missing: $name"; done
 for name in localvox-light localvox-process localvox-tui localvox-desktop; do
- if [[ -f "$INSTALL_DIR/$name" ]]; then chmod +x "$INSTALL_DIR/$name"; fi
+ if [[ -f "$INSTALL_DIR/$name" && ! -x "$INSTALL_DIR/$name" ]]; then chmod +x "$INSTALL_DIR/$name"; fi
 done
 "$INSTALL_DIR/localvox-process" --worker-protocol >/dev/null
 "$INSTALL_DIR/localvox-tui" --version >/dev/null
 "$INSTALL_DIR/localvox-light" --help >/dev/null
+if [[ "$WIZARD" = 1 ]]; then
+ "$INSTALL_DIR/localvox-light" --cwd "$INSTALL_DIR" --setup
+ exit 0
+fi
 if [[ "$SKIP_MODELS" = 0 ]]; then bash "$INSTALL_DIR/scripts/fetch-models.sh" --root "$INSTALL_DIR" ${MODEL_ARGS[@]+"${MODEL_ARGS[@]}"}; fi
 if [[ ! -f "$INSTALL_DIR/.env" ]]; then
  # dotenv quoted paths also work when the chosen directory contains spaces.

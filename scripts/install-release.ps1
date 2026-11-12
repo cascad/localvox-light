@@ -9,7 +9,10 @@ param(
     [string]$Archive = '',
     [switch]$RequiredOnly,
     [switch]$SkipModels,
-    [switch]$SkipBinary
+    [switch]$SkipBinary,
+    [switch]$Check,
+    [switch]$Wizard,
+    [switch]$Reconcile
 )
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
@@ -21,17 +24,43 @@ if ($architecture -ne 'AMD64') { throw "Windows package requires x64 PowerShell;
 $target = 'x86_64-pc-windows-msvc'
 $required = @('localvox-light.exe','localvox-process.exe','localvox-tui.exe','libvosk.dll',
     'libgcc_s_seh-1.dll','libstdc++-6.dll','libwinpthread-1.dll','.env.defaults',
-    'scripts/models.json','scripts/fetch-models.ps1','licenses/rs-morphy4/NOTICE')
-$tempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath())
-$scratch = Join-Path $tempRoot ('localvox-install-' + [Guid]::NewGuid())
-New-Item -ItemType Directory -Path $scratch | Out-Null
-
+    'scripts/models.json','scripts/fetch-models.ps1','scripts/setup-ollama.ps1','licenses/rs-morphy4/NOTICE')
 function CheckedPath([string]$Root, [string]$Name) {
     if ([IO.Path]::IsPathRooted($Name) -or $Name -match '(^|[/\\])\.\.([/\\]|$)|:') { throw "Unsafe archive path: $Name" }
     $resolved = [IO.Path]::GetFullPath((Join-Path $Root $Name))
     if (-not $resolved.StartsWith($Root.TrimEnd('\','/') + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw "Path outside archive: $Name" }
     return $resolved
 }
+
+function TestInstalledBundle {
+    try {
+        $path = Join-Path $InstallDir 'bundle.json'
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return $false }
+        $manifest = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
+        if ($manifest.schema -ne 1 -or $manifest.target -cne $target) { return $false }
+        $names = @($manifest.files | ForEach-Object { $_.name })
+        foreach ($name in $required) { if ($names -cnotcontains $name) { return $false } }
+        foreach ($file in $manifest.files) {
+            $path = CheckedPath $InstallDir $file.name
+            if ($file.name -eq '.env' -or -not (Test-Path -LiteralPath $path -PathType Leaf)) { return $false }
+            if ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() -cne $file.sha256) { return $false }
+        }
+        return $true
+    } catch { return $false }
+}
+if ($Check) {
+    if ($Wizard -or $Reconcile) { throw '-Check cannot be combined with -Wizard/-Reconcile' }
+    if (-not (TestInstalledBundle)) { Write-Host "Missing or invalid complete installation: $InstallDir"; exit 2 }
+    & (Join-Path $InstallDir 'localvox-light.exe') --cwd $InstallDir --setup-check
+    exit $LASTEXITCODE
+}
+if ($Wizard -and $SkipModels) { throw '-Wizard and -SkipModels cannot be combined' }
+if ($Reconcile -and (TestInstalledBundle)) { $SkipBinary = $true; Write-Host 'Installed bundle is intact; download and unpack skipped.' }
+if ($Reconcile -and -not $SkipModels) { $Wizard = $true }
+$tempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath())
+$scratch = Join-Path $tempRoot ('localvox-install-' + [Guid]::NewGuid())
+New-Item -ItemType Directory -Path $scratch | Out-Null
+
 
 try {
     if (-not $SkipBinary) {
@@ -84,6 +113,11 @@ try {
     foreach ($probe in @(@('localvox-process.exe','--worker-protocol'),@('localvox-tui.exe','--version'),@('localvox-light.exe','--help'))) {
         & (Join-Path $InstallDir $probe[0]) $probe[1] | Out-Null
         if ($LASTEXITCODE -ne 0) { throw "Packaged startup failed: $($probe[0]) ($LASTEXITCODE)" }
+    }
+    if ($Wizard) {
+        & (Join-Path $InstallDir 'localvox-light.exe') --cwd $InstallDir --setup
+        if ($LASTEXITCODE -ne 0) { throw "Setup failed ($LASTEXITCODE); rerun with -Reconcile to keep completed work" }
+        exit 0
     }
     if (-not $SkipModels) {
         $engine = Join-Path $PSHOME $(if ($PSVersionTable.PSEdition -eq 'Core') { 'pwsh.exe' } else { 'powershell.exe' })

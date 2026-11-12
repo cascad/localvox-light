@@ -1,4 +1,4 @@
-# Модели localvox → <корень>\models\ (Windows).
+﻿# Модели localvox → <корень>\models\ (Windows).
 #
 # Список качаемого лежит в scripts\models.json — это ДАННЫЕ. Здесь только механика:
 # докачать недостающее, сверить sha256, распаковать. Повторный запуск ничего не
@@ -18,6 +18,7 @@ param(
     [string[]]$Skip = @(),
     [switch]$RequiredOnly,
     [switch]$Check,
+    [switch]$RepairZip,
     [string]$Root = ""
 )
 
@@ -27,8 +28,8 @@ $manifestPath = Join-Path $here 'models.json'
 if (-not $Root) { $Root = Split-Path -Parent $here }
 
 if (-not (Test-Path -LiteralPath $manifestPath)) { throw "Не найден $manifestPath" }
-New-Item -ItemType Directory -Force -Path $Root | Out-Null
-$Root = (Resolve-Path -LiteralPath $Root).Path
+$Root = [IO.Path]::GetFullPath($Root)
+if (-not $Check) { New-Item -ItemType Directory -Force -Path $Root | Out-Null }
 $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
 
 # Прогресс-бар Invoke-WebRequest режет скорость закачки в разы — на 1.8 ГБ это разница
@@ -90,7 +91,7 @@ foreach ($comp in $manifest.components) {
             }
             'zip' {
                 $unpackTo = Join-Path $Root $item.unpack_to
-                if (Test-Path -LiteralPath (Join-Path $unpackTo $item.marker)) {
+                if (-not $RepairZip -and (Test-Path -LiteralPath (Join-Path $unpackTo $item.marker))) {
                     Write-Host "  уже на месте: $($item.unpack_to)"; break
                 }
                 if ($Check) { Write-Host "  НЕТ: $($item.unpack_to)"; $script:missing = $true; break }

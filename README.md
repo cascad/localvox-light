@@ -16,7 +16,7 @@
 ```powershell
 $u='https://github.com/cascad/localvox-light/releases/latest/download/install-release.ps1'
 $p=Join-Path $env:TEMP 'localvox-install.ps1'; Invoke-WebRequest $u -OutFile $p
-powershell -NoProfile -ExecutionPolicy Bypass -File $p -RequiredOnly
+powershell -NoProfile -ExecutionPolicy Bypass -File $p -Wizard
 cd localvox-light
 .\localvox-light.exe --daemon
 ```
@@ -25,15 +25,18 @@ cd localvox-light
 
 ```bash
 curl -fsSL https://github.com/cascad/localvox-light/releases/latest/download/install-release.sh -o /tmp/localvox-install.sh
-bash /tmp/localvox-install.sh --required-only
+bash /tmp/localvox-install.sh --wizard
 cd localvox-light
 ./localvox-light --daemon
 ```
 
 Открой **http://127.0.0.1:3017/**. Для TUI во втором терминале из установленной
 папки запусти `localvox-tui.exe` (Windows) или `./localvox-tui` (Mac).
-Установщик скачивает полный комплект и обязательные модели, проверяет запуск;
-при обновлении сохраняет `.env`. Для сводки нужна выбранная LLM, например Ollama.
+Мастер проверит готовое и предложит выбрать папки моделей, скачать недостающее
+и настроить Ollama или свой LLM-сервер для сводки. Перед изменениями покажет план.
+Повторный `-Reconcile` / `--reconcile` переиспользует исправный комплект;
+`-Check` / `--check` только проверяет. Настроить установленное приложение заново:
+`localvox-light --setup`; проверить: `localvox-light --setup-check`.
 
 [Другой каталог, модели и обновление](docs/release-installation.md) ·
 [Проверка демона на Mac](docs/release-installation.md#проверка-mac-владельцем).

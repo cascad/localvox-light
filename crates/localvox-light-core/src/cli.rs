@@ -139,6 +139,18 @@ pub struct Cli {
     #[arg(long)]
     pub doctor: bool,
 
+    /// Structured doctor report (schema 1), with no setup side effects.
+    #[arg(long, requires = "doctor")]
+    pub doctor_json: bool,
+
+    /// Check setup without changing files or starting services.
+    #[arg(long, conflicts_with_all = ["setup", "daemon", "list_devices", "doctor"])]
+    pub setup_check: bool,
+
+    /// Interactive terminal setup: inspect, choose, review, confirm, reconcile.
+    #[arg(long, conflicts_with_all = ["setup_check", "daemon", "list_devices", "doctor"])]
+    pub setup: bool,
+
     /// Update the bundled yt-dlp in place (to the nightly channel) and exit. YouTube breaks old
     /// versions every few weeks (HTTP 403 on download); this is the one-command fix `--doctor`
     /// points to. Uses yt-dlp's own in-place updater — it rewrites its own binary for this OS.

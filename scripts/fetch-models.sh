@@ -23,6 +23,7 @@ ONLY=()
 SKIP=()
 REQUIRED_ONLY=0
 CHECK_ONLY=0
+REPAIR_ZIP=0
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -32,6 +33,7 @@ while [ $# -gt 0 ]; do
         --skip=*) SKIP+=("${1#*=}"); shift ;;
         --required-only) REQUIRED_ONLY=1; shift ;;
         --check) CHECK_ONLY=1; shift ;;
+        --repair-zip) REPAIR_ZIP=1; shift ;;
         --root) ROOT="$2"; shift 2 ;;
         --root=*) ROOT="${1#*=}"; shift ;;
         -h|--help) sed -n '2,18p' "$0"; exit 0 ;;
@@ -44,8 +46,7 @@ command -v jq   >/dev/null || { echo "Нужен jq (читать models.json). 
 command -v unzip >/dev/null || { echo "Нужен unzip" >&2; exit 1; }
 [ -f "$MANIFEST" ] || { echo "Не найден $MANIFEST" >&2; exit 1; }
 
-mkdir -p "$ROOT"
-ROOT="$(cd "$ROOT" && pwd)"
+if [ "$CHECK_ONLY" = 0 ]; then mkdir -p "$ROOT"; ROOT="$(cd "$ROOT" && pwd)"; fi
 
 sha256_of() {
     if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1
@@ -122,7 +123,7 @@ for ci in $(seq 0 $((n_comp - 1))); do
         zip)
             unpack_to="$ROOT/$(jq -r '.unpack_to' <<<"$item")"
             marker="$(jq -r '.marker' <<<"$item")"
-            if [ -f "$unpack_to/$marker" ]; then echo "  уже на месте: $(jq -r '.unpack_to' <<<"$item")"; continue; fi
+            if [ "$REPAIR_ZIP" = 0 ] && [ -f "$unpack_to/$marker" ]; then echo "  уже на месте: $(jq -r '.unpack_to' <<<"$item")"; continue; fi
             if [ "$CHECK_ONLY" = 1 ]; then echo "  НЕТ: $(jq -r '.unpack_to' <<<"$item")"; MISSING=1; continue; fi
 
             tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT

@@ -15,7 +15,7 @@ import zipfile
 ROOT = Path(__file__).resolve().parent.parent
 BINARIES = ('localvox-light', 'localvox-process', 'localvox-tui')
 SCRIPTS = ('install-release.ps1', 'install-release.sh', 'fetch-models.ps1',
-           'fetch-models.sh', 'models.json', 'setup-mpv.mjs')
+           'fetch-models.sh', 'setup-ollama.ps1', 'setup-ollama.sh', 'models.json', 'setup-mpv.mjs')
 
 
 def digest(path):

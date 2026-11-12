@@ -17,7 +17,8 @@
 
 use std::path::{Path, PathBuf};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum State {
     /// Работает.
     Ok,
@@ -37,8 +38,9 @@ impl State {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct Finding {
+    pub id: String,
     pub what: String,
     pub state: State,
     pub detail: String,
@@ -47,16 +49,24 @@ pub struct Finding {
 }
 
 impl Finding {
-    fn ok(what: &str, detail: impl Into<String>) -> Self {
+    pub fn ok(id: &str, what: &str, detail: impl Into<String>) -> Self {
         Finding {
+            id: id.into(),
             what: what.into(),
             state: State::Ok,
             detail: detail.into(),
             fix: None,
         }
     }
-    fn bad(what: &str, state: State, detail: impl Into<String>, fix: impl Into<String>) -> Self {
+    pub fn bad(
+        id: &str,
+        what: &str,
+        state: State,
+        detail: impl Into<String>,
+        fix: impl Into<String>,
+    ) -> Self {
         Finding {
+            id: id.into(),
             what: what.into(),
             state,
             detail: detail.into(),
@@ -77,6 +87,8 @@ pub struct Layout {
     pub work_dir: PathBuf,
     pub llm_base_url: String,
     pub llm_model: String,
+    pub summary_enabled: bool,
+    pub summary_provider: String,
     pub api_bind: String,
 }
 
@@ -111,6 +123,9 @@ impl Layout {
                 .unwrap_or_else(|_| crate::presets::baked("LOCALVOX_LLM_BASE_URL").into()),
             llm_model: std::env::var("LOCALVOX_LLM_MODEL")
                 .unwrap_or_else(|_| crate::presets::baked("LOCALVOX_LLM_MODEL").into()),
+            summary_enabled: crate::jobs::post_processing_from_env().0,
+            summary_provider: std::env::var("LOCALVOX_SUMMARY_PROVIDER")
+                .unwrap_or_else(|_| crate::presets::baked("LOCALVOX_SUMMARY_PROVIDER").into()),
             api_bind: std::env::var("LOCALVOX_API_BIND")
                 .unwrap_or_else(|_| crate::presets::baked("LOCALVOX_API_BIND").into()),
         }
@@ -130,10 +145,12 @@ pub fn inspect(l: &Layout) -> Vec<Finding> {
     //    вызывается в main() безусловно.
     out.push(match crate::cli::validate_vosk_model_dir(&l.vosk_model) {
         Ok(()) => Finding::ok(
+            "vosk",
             "Vosk (живое распознавание)",
             l.vosk_model.display().to_string(),
         ),
         Err(e) => Finding::bad(
+            "vosk",
             "Vosk (живое распознавание)",
             State::Fail,
             format!("{}: {e}", l.vosk_model.display()),
@@ -152,8 +169,13 @@ pub fn inspect(l: &Layout) -> Vec<Finding> {
                 "v3_e2e_ctc_vocab.txt",
             ],
         ) {
-            None => Finding::ok("GigaAM (расшифровка архива)", d.display().to_string()),
+            None => Finding::ok(
+                "gigaam",
+                "GigaAM (расшифровка архива)",
+                d.display().to_string(),
+            ),
             Some(f) => Finding::bad(
+                "gigaam",
                 "GigaAM (расшифровка архива)",
                 State::Fail,
                 format!("в {} нет {f}", d.display()),
@@ -161,6 +183,7 @@ pub fn inspect(l: &Layout) -> Vec<Finding> {
             ),
         },
         None => Finding::bad(
+            "gigaam",
             "GigaAM (расшифровка архива)",
             State::Fail,
             "каталог модели не найден",
@@ -171,8 +194,13 @@ pub fn inspect(l: &Layout) -> Vec<Finding> {
     // ── Повар. Его отсутствие — самая тихая из поломок: демон пишет звук, автоварка молча
     //    выключается, и человек узнаёт об этом по пустому архиву через неделю.
     out.push(match &l.cook {
-        Some(p) => Finding::ok("Повар (localvox-process)", p.display().to_string()),
+        Some(p) => Finding::ok(
+            "worker",
+            "Повар (localvox-process)",
+            p.display().to_string(),
+        ),
         None => Finding::bad(
+            "worker",
             "Повар (localvox-process)",
             State::Fail,
             format!("нет {} рядом с демоном", cook_exe_name()),
@@ -184,8 +212,13 @@ pub fn inspect(l: &Layout) -> Vec<Finding> {
     // ── Необязательное: продукт работает, но чего-то не умеет. Именно поэтому ЖДЁТ, а не НЕТ.
     out.push(match &l.diarize {
         Some(d) => match first_missing(d, &["segmentation.onnx", "embedding.onnx"]) {
-            None => Finding::ok("Диаризация (кто говорит)", d.display().to_string()),
+            None => Finding::ok(
+                "diarize",
+                "Диаризация (кто говорит)",
+                d.display().to_string(),
+            ),
             Some(f) => Finding::bad(
+                "diarize",
                 "Диаризация (кто говорит)",
                 State::Warn,
                 format!("в {} нет {f}", d.display()),
@@ -193,6 +226,7 @@ pub fn inspect(l: &Layout) -> Vec<Finding> {
             ),
         },
         None => Finding::bad(
+            "diarize",
             "Диаризация (кто говорит)",
             State::Warn,
             "модели нет — записи расшифруются, но без разметки говорящих",
@@ -202,8 +236,9 @@ pub fn inspect(l: &Layout) -> Vec<Finding> {
 
     out.push(match &l.ner {
         Some(d) => match first_missing(d, &["tokenizer.json", "gliner_config.json"]) {
-            None => Finding::ok("GLiNER (проверка имён)", d.display().to_string()),
+            None => Finding::ok("ner", "GLiNER (проверка имён)", d.display().to_string()),
             Some(f) => Finding::bad(
+                "ner",
                 "GLiNER (проверка имён)",
                 State::Warn,
                 format!("в {} нет {f}", d.display()),
@@ -211,6 +246,7 @@ pub fn inspect(l: &Layout) -> Vec<Finding> {
             ),
         },
         None => Finding::bad(
+            "ner",
             "GLiNER (проверка имён)",
             State::Warn,
             "модели нет — имена в ответах LLM не проверяются (числа проверяются всегда)",
@@ -221,9 +257,10 @@ pub fn inspect(l: &Layout) -> Vec<Finding> {
     // ── Архив. Каталог создаётся при первой записи, поэтому «его ещё нет» это не отказ;
     //    отказ — это когда он есть и НЕ КАТАЛОГ.
     out.push(if l.work_dir.is_dir() {
-        Finding::ok("Архив", l.work_dir.display().to_string())
+        Finding::ok("archive", "Архив", l.work_dir.display().to_string())
     } else if l.work_dir.exists() {
         Finding::bad(
+            "archive",
             "Архив",
             State::Fail,
             format!("{} — это файл, а не каталог", l.work_dir.display()),
@@ -231,6 +268,7 @@ pub fn inspect(l: &Layout) -> Vec<Finding> {
         )
     } else {
         Finding::bad(
+            "archive",
             "Архив",
             State::Warn,
             format!(
@@ -264,21 +302,21 @@ pub fn parse_yt_dlp_date(version: &str) -> Option<chrono::NaiveDate> {
 pub fn yt_dlp_finding(resolved: &str, version: Option<&str>, age_days: Option<i64>) -> Finding {
     match (version, age_days) {
         (None, _) => Finding::bad(
-            "yt-dlp (запись по ссылке)",
+            "yt_dlp", "yt-dlp (запись по ссылке)",
             State::Warn,
             format!("{resolved}: не найден или не отвечает"),
             "поставить yt-dlp (nightly) и указать путь в LOCALVOX_LIGHT_YT_DLP; \
              без него запись по ссылке не работает",
         ),
         (Some(v), Some(age)) if age > YT_DLP_STALE_DAYS => Finding::bad(
-            "yt-dlp (запись по ссылке)",
+            "yt_dlp", "yt-dlp (запись по ссылке)",
             State::Warn,
             format!("{v} — {age} дн.: YouTube ломает старые версии (HTTP 403)"),
             format!(
                 "обновить по месту: localvox-light --update-yt-dlp  (или напрямую: {resolved} --update-to nightly)"
             ),
         ),
-        (Some(v), _) => Finding::ok("yt-dlp (запись по ссылке)", format!("{v}  ({resolved})")),
+        (Some(v), _) => Finding::ok("yt_dlp", "yt-dlp (запись по ссылке)", format!("{v}  ({resolved})")),
     }
 }
 
@@ -312,6 +350,8 @@ mod tests {
             work_dir: root.join("arch"),
             llm_base_url: "http://localhost:11434/v1".into(),
             llm_model: "m".into(),
+            summary_enabled: true,
+            summary_provider: "ollama".into(),
             api_bind: "127.0.0.1:3017".into(),
         }
     }

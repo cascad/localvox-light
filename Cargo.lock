@@ -2999,12 +2999,15 @@ dependencies = [
  "localvox-light-process",
  "localvox-light-voice",
  "portable-pty",
+ "serde",
  "serde_json",
  "tempfile",
  "tiny_http",
  "tracing",
  "tracing-subscriber",
  "tray-item",
+ "ureq 2.12.1",
+ "url",
  "winres",
 ]
 

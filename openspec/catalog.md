@@ -196,3 +196,10 @@ Mac и качество summary не проверены.
 164 s на RTX 5080. Прежние опасные controls сохранены, но 5 audio_required и
 16 style_review row-visits не дают общей приёмки. Прямой profiler без скрытого
 proxy; native counters неизвестны. Default модели, Mac/audio приёмка не менялись.
+
+
+Установка и доустановка: [add-install-reconciliation-wizard](changes/add-install-reconciliation-wizard/proposal.md).
+[Реализация и проверки](changes/add-install-reconciliation-wizard/evidence/implementation.md):
+read-only doctor/JSON, терминальный мастер, выбор готовых ASR folders/Ollama/GGUF,
+план перед изменениями и повтор без повторной загрузки. SETUP-005/006 остаются delta;
+first-run Windows/Mac Ollama и настоящие большие downloads — not-run владельца.

@@ -137,6 +137,16 @@ function Invoke-WebRequest { throw 'Unexpected download of an incomplete release
             self.assertIn(expected, result.stderr.decode(errors='replace'))
             self.assertFalse(install.exists())
 
+    @unittest.skipUnless(os.name == 'nt' and POWERSHELL, 'Windows readonly installer')
+    def test_windows_check_before_install_does_not_create_anything(self):
+        destination = self.root / 'absent installation'
+        before = sorted(str(p) for p in self.root.rglob('*'))
+        result = subprocess.run([POWERSHELL, '-NoProfile', '-File', str(ROOT / 'scripts/install-release.ps1'),
+                                 '-InstallDir', str(destination), '-Check'], capture_output=True, timeout=30)
+        self.assertEqual(result.returncode, 2, result.stderr.decode(errors='replace'))
+        self.assertFalse(destination.exists())
+        self.assertEqual(before, sorted(str(p) for p in self.root.rglob('*')))
+
     @unittest.skipUnless(os.name == 'nt' and os.getenv('LOCALVOX_DELIVERY_ARCHIVE'), 'Explicit complete native Windows archive')
     def test_actual_windows_archive_installs_starts_and_preserves_settings(self):
         install = self.root / 'real LocalVox install'
@@ -158,6 +168,18 @@ Set-Content -LiteralPath (Join-Path $Destination 'direct-call-completed') -Value
                 (install / '.env').write_bytes(b'# owner override\nLOCALVOX_LIGHT_INCREMENTAL_TRANSCRIBE=off\n')
         self.assertEqual((install / '.env').read_bytes(), b'# owner override\nLOCALVOX_LIGHT_INCREMENTAL_TRANSCRIBE=off\n')
         self.assertTrue((install / 'direct-call-completed').is_file())
+        before = {p.relative_to(install): (p.read_bytes(), p.stat().st_mtime_ns) for p in install.rglob('*') if p.is_file()}
+        result = subprocess.run([POWERSHELL, '-NoProfile', '-File', str(ROOT / 'scripts/install-release.ps1'),
+                                 '-InstallDir', str(install), '-Archive', str(self.root / 'must-not-open.zip'), '-Reconcile', '-SkipModels'],
+                                capture_output=True, timeout=90)
+        self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
+        self.assertIn('download and unpack skipped', result.stdout.decode(errors='replace'))
+        self.assertEqual(before, {p.relative_to(install): (p.read_bytes(), p.stat().st_mtime_ns) for p in install.rglob('*') if p.is_file()})
+        result = subprocess.run([POWERSHELL, '-NoProfile', '-File', str(ROOT / 'scripts/install-release.ps1'),
+                                 '-InstallDir', str(install), '-Check'], capture_output=True, timeout=90)
+        self.assertEqual(result.returncode, 2)  # Models deliberately skipped.
+        self.assertEqual(before, {p.relative_to(install): (p.read_bytes(), p.stat().st_mtime_ns) for p in install.rglob('*') if p.is_file()})
+
 
 
 @unittest.skipUnless(BASH and Path(BASH).is_file() and shutil.which('jq'), 'bash and jq for portable installer fixtures')
@@ -192,6 +214,7 @@ class UnixInstallerContracts(unittest.TestCase):
             'localvox-tui': '#!/usr/bin/env bash\necho localvox-tui\n',
             'libvosk.dylib': 'native fixture', '.env.defaults': 'LOCALVOX_LIGHT_INCREMENTAL_TRANSCRIBE=on\n',
             'scripts/models.json': '{}',
+            'scripts/setup-ollama.sh': '#!/usr/bin/env bash\nexit 99\n',
             'scripts/fetch-models.sh': '#!/usr/bin/env bash\nprintf "%s\\n" "$@" > "$2/model-args"\n',
             'licenses/rs-morphy4/NOTICE': 'fixture notice',
         }.items():
@@ -218,6 +241,37 @@ class UnixInstallerContracts(unittest.TestCase):
         return subprocess.run([BASH, '-c', prefix, 'fixture', self.bin.as_posix(), unix_path(ROOT / 'scripts/install-release.sh'),
                                '--archive=' + unix_path(archive), '--install-dir=' + unix_path(self.install), *extra],
                               env=self.environment, capture_output=True, timeout=45)
+
+    def test_mac_check_before_install_is_readonly_and_needs_no_network(self):
+        result = self.install_archive(self.root / 'absent.tar.gz', '--check')
+        self.assertEqual(result.returncode, 2, result.stderr.decode(errors='replace'))
+        self.assertFalse(self.install.exists())
+        self.assertNotIn('unexpected network', result.stderr.decode(errors='replace'))
+
+    def test_mac_reconcile_reuses_bundle_even_if_archive_is_not_available(self):
+        result = self.install_archive(self.archive(), '--skip-models')
+        self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
+        before = {p.relative_to(self.install): (p.read_bytes(), p.stat().st_mtime_ns)
+                  for p in self.install.rglob('*') if p.is_file()}
+        result = self.install_archive(self.root / 'must-not-open.tar.gz', '--skip-models', '--reconcile')
+        self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
+        self.assertIn('download and unpack skipped', result.stdout.decode(errors='replace'))
+        after = {p.relative_to(self.install): (p.read_bytes(), p.stat().st_mtime_ns)
+                 for p in self.install.rglob('*') if p.is_file()}
+        self.assertEqual(before, after)
+        result = self.install_archive(self.root / 'must-not-open.tar.gz', '--check')
+        self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
+        self.assertEqual(after, {p.relative_to(self.install): (p.read_bytes(), p.stat().st_mtime_ns)
+                                for p in self.install.rglob('*') if p.is_file()})
+        (self.install / 'localvox-process').write_text('corrupted')
+        result = self.install_archive(self.root / 'absent.tar.gz', '--check')
+        self.assertEqual(result.returncode, 2)
+
+    def test_mac_wizard_does_not_fetch_models_or_pin_env_before_user_choices(self):
+        result = self.install_archive(self.archive(), '--wizard')
+        self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
+        self.assertFalse((self.install / 'model-args').exists())
+        self.assertFalse((self.install / '.env').exists())
 
     def test_mac_arm64_local_archive_and_required_only_preserve_existing_env(self):
         self.install.mkdir()
