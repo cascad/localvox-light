@@ -1,162 +1,92 @@
 #!/usr/bin/env bash
-# Установка localvox одной папкой (macOS / Linux).
-#
-#   curl -fsSL https://raw.githubusercontent.com/cascad/localvox-light/main/scripts/install-release.sh | bash
-#
-# Что получится в <каталог>:
-#   localvox-light        демон: запись, варка, HTTP-интерфейс
-#   localvox-process      повар: расшифровка и сводка (БЕЗ НЕГО АРХИВ НЕ РАСШИФРУЕТСЯ)
-#   localvox-desktop      окно (если есть в релизе; иначе интерфейс в браузере)
-#   localvox-tui          независимый терминальный клиент HTTP API
-#   libvosk.dylib/.so     нативная библиотека — грузится ДО main(), поэтому лежит рядом
-#   models/               vosk-model-ru-0.42, gigaam-v3-e2e-ctc, diarize, ner-gliner
-#   .env                  пути, прописанные абсолютно
-#
-# Порядок: бинари → модели → ПРОВЕРКА. Проверяет сам продукт (`localvox-light --doctor`), а не
-# этот скрипт: демон знает, ГДЕ он ищет, а скрипт знает только то, что сам разложил. Эти два
-# ответа уже расходились — модель на другом диске по LOCALVOX_LIGHT_MODEL скрипт считает
-# отсутствующей, хотя всё работает.
-#
-# Ключи: --install-dir=~/lv  --tag=v0.1.0  --repo=owner/repo  --branch=main
-#        --required-only (без диаризации и проверки имён, экономит ~630 МБ)
-#        --skip-models  --skip-binary
-#
-# Нужны: curl, unzip, tar, jq.
-
+# Install the complete macOS/Linux bundle. --archive=path installs an Actions archive.
 set -euo pipefail
-
-REPO="cascad/localvox-light"
-TAG="latest"
-BRANCH="main"
-INSTALL_DIR="$(pwd)/localvox-light"
+REPO=cascad/localvox-light TAG=latest INSTALL_DIR="$(pwd)/localvox-light"
+ARCHIVE='' SKIP_MODELS=0 SKIP_BINARY=0
 MODEL_ARGS=()
-SKIP_MODELS=0
-SKIP_BINARY=0
-
-for a in "$@"; do
-  case "$a" in
-    --repo=*) REPO="${a#*=}" ;;
-    --tag=*) TAG="${a#*=}" ;;
-    --install-dir=*) INSTALL_DIR="${a#*=}" ;;
-    --branch=*) BRANCH="${a#*=}" ;;
-    --required-only) MODEL_ARGS+=(--required-only) ;;
-    --skip-models) SKIP_MODELS=1 ;;
-    --skip-binary) SKIP_BINARY=1 ;;
-    -h|--help) sed -n '2,23p' "$0"; exit 0 ;;
-    *) echo "Неизвестный аргумент: $a" >&2; exit 2 ;;
+for arg in "$@"; do
+  case "$arg" in
+    --repo=*) REPO="${arg#*=}";; --tag=*) TAG="${arg#*=}";;
+    --install-dir=*) INSTALL_DIR="${arg#*=}";; --archive=*) ARCHIVE="${arg#*=}";;
+    --branch=*) : ;; # Helpers are pinned to the selected package now.
+    --required-only) MODEL_ARGS+=(--required-only);;
+    --skip-models) SKIP_MODELS=1;; --skip-binary) SKIP_BINARY=1;;
+    -h|--help) echo 'install-release.sh [--install-dir=PATH] [--tag=TAG] [--archive=PATH] [--required-only] [--skip-models] [--skip-binary]'; exit 0;;
+    *) echo "Unknown argument: $arg" >&2; exit 2;;
   esac
 done
-
-for t in curl unzip tar jq; do
-  command -v "$t" >/dev/null || { echo "Нужен $t. Поставить: brew install $t / apt install $t" >&2; exit 1; }
-done
-
+fail() { echo "$*" >&2; exit 1; }
+[[ -z "$ARCHIVE" || "$SKIP_BINARY" = 0 ]] || fail '--archive and --skip-binary cannot be combined'
+for tool in curl tar jq; do command -v "$tool" >/dev/null || fail "Required: $tool (macOS: brew install jq)"; done
+if command -v shasum >/dev/null; then SHA=(shasum -a 256); elif command -v sha256sum >/dev/null; then SHA=(sha256sum); else fail 'Required: shasum or sha256sum'; fi
+sha256() { "${SHA[@]}" "$1" | cut -d ' ' -f1; }
+case "$(uname -s)/$(uname -m)" in
+ Darwin/arm64) TARGET=aarch64-apple-darwin; NATIVE=libvosk.dylib;;
+ Darwin/x86_64) TARGET=x86_64-apple-darwin; NATIVE=libvosk.dylib;;
+ Linux/x86_64) TARGET=x86_64-unknown-linux-gnu; NATIVE=libvosk.so;;
+ Linux/aarch64|Linux/arm64) TARGET=aarch64-unknown-linux-gnu; NATIVE=libvosk.so;;
+ *) fail "Unsupported platform: $(uname -s)/$(uname -m)";;
+esac
+WORK="$(mktemp -d -t localvox-install.XXXXXXXX)"
+trap 'rm -rf "$WORK"' EXIT
+REQUIRED=(localvox-light localvox-process localvox-tui "$NATIVE" .env.defaults scripts/models.json scripts/fetch-models.sh licenses/rs-morphy4/NOTICE)
+if [[ "$SKIP_BINARY" = 0 ]]; then
+ if [[ -z "$ARCHIVE" ]]; then
+  if [[ "$TAG" = latest ]]; then API="https://api.github.com/repos/$REPO/releases/latest"; else API="https://api.github.com/repos/$REPO/releases/tags/$TAG"; fi
+  curl -fsSL -A localvox-install/2 "$API" -o "$WORK/release.json"
+  NAME="localvox-$TARGET.tar.gz"
+  URL="$(jq -er --arg name "$NAME" '[.assets[] | select(.name == $name)] | if length == 1 then .[0].browser_download_url else error("No complete platform archive; use a new Actions bundle with --archive or select a newer --tag") end' "$WORK/release.json")"
+  ARCHIVE="$WORK/$NAME"
+  curl -fL -A localvox-install/2 "$URL" -o "$ARCHIVE"
+  EXPECTED="$(jq -r --arg name "$NAME" '.assets[] | select(.name == $name) | .digest // ""' "$WORK/release.json")"
+  if [[ "$EXPECTED" = sha256:* ]]; then [[ "$(sha256 "$ARCHIVE")" = "${EXPECTED#sha256:}" ]] || fail 'Archive SHA-256 mismatch'; fi
+ fi
+ [[ -f "$ARCHIVE" ]] || fail "Archive not found: $ARCHIVE"
+ # Reject paths/links that could escape the staging directory before extraction.
+ tar -tzf "$ARCHIVE" > "$WORK/members"
+ while IFS= read -r name; do
+  case "$name" in /*|*\\*|*:*|../*|*/../*|*/..) fail "Unsafe archive path: $name";; esac
+ done < "$WORK/members"
+ tar -tvzf "$ARCHIVE" > "$WORK/member-details"
+ if grep -Eq '^[lh]' "$WORK/member-details"; then fail 'Archive links are not supported'; fi
+ mkdir "$WORK/bundle"
+ tar -xzf "$ARCHIVE" -C "$WORK/bundle"
+ BUNDLE="$WORK/bundle"
+ [[ -f "$BUNDLE/bundle.json" ]] || fail 'Incomplete package: bundle.json missing'
+ jq -e --arg target "$TARGET" '.schema == 1 and .target == $target and (.files | type == "array")' "$BUNDLE/bundle.json" >/dev/null || fail 'Package platform/schema mismatch'
+ for name in "${REQUIRED[@]}"; do jq -e --arg name "$name" 'any(.files[]; .name == $name)' "$BUNDLE/bundle.json" >/dev/null || fail "Incomplete package: $name"; done
+ jq -r '.files[].name' "$BUNDLE/bundle.json" > "$WORK/files"
+ while IFS= read -r name; do
+  case "$name" in ''|.env|/*|*\\*|*:*|../*|*/../*|*/..) fail "Invalid package member: $name";; esac
+  [[ -f "$BUNDLE/$name" ]] || fail "Package member missing: $name"
+  EXPECTED="$(jq -r --arg name "$name" '.files[] | select(.name == $name) | .sha256' "$BUNDLE/bundle.json")"
+  [[ "$(sha256 "$BUNDLE/$name")" = "$EXPECTED" ]] || fail "Package SHA-256 mismatch: $name"
+ done < "$WORK/files"
+ mkdir -p "$INSTALL_DIR"
+ while IFS= read -r name; do mkdir -p "$INSTALL_DIR/$(dirname "$name")"; cp -f "$BUNDLE/$name" "$INSTALL_DIR/$name"; done < "$WORK/files"
+ cp "$BUNDLE/bundle.json" "$INSTALL_DIR/bundle.json"
+fi
 mkdir -p "$INSTALL_DIR"
 INSTALL_DIR="$(cd "$INSTALL_DIR" && pwd)"
-TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"' EXIT
-
-RAW="https://raw.githubusercontent.com/$REPO/$BRANCH/scripts"
-say() { printf '\n\033[1m%s\033[0m\n' "$*"; }
-
-# ── Целевая тройка. Ошибиться тут — скачать чужой бинарь и получить «Exec format error»
-#    вместо внятного сообщения.
-case "$(uname -s)" in
-  Darwin) case "$(uname -m)" in
-            arm64) TARGET="aarch64-apple-darwin" ;;
-            x86_64) TARGET="x86_64-apple-darwin" ;;
-            *) echo "Неизвестная архитектура macOS: $(uname -m)" >&2; exit 1 ;;
-          esac ;;
-  Linux)  case "$(uname -m)" in
-            x86_64) TARGET="x86_64-unknown-linux-gnu" ;;
-            aarch64|arm64) TARGET="aarch64-unknown-linux-gnu" ;;
-            *) echo "Неизвестная архитектура Linux: $(uname -m)" >&2; exit 1 ;;
-          esac ;;
-  *) echo "Эта ОС не поддерживается: $(uname -s). Для Windows — install-release.ps1" >&2; exit 1 ;;
-esac
-
-# ── Нативная библиотека Vosk. Её грузит загрузчик ДО main(), поэтому она обязана лежать
-#    рядом с бинарём: переменные среды уже запущенного процесса тут не помогают.
-say "Нативная библиотека Vosk"
-curl -fsSL -A "localvox-install/1.0" "$RAW/setup-vosk.sh" -o "$TMP/setup-vosk.sh"
-bash "$TMP/setup-vosk.sh" --install-root="$INSTALL_DIR"
-if [ -d "$INSTALL_DIR/vosk-lib" ]; then
-  find "$INSTALL_DIR/vosk-lib" -maxdepth 1 -name 'libvosk.*' -exec cp -f {} "$INSTALL_DIR/" \;
-fi
-
-# ── Бинари. ОДНИМ архивом на платформу: демон, повар и окно приезжают вместе. Раздельные
-#    файлы уже привели к установке без повара — продукт писал звук и не расшифровывал ничего.
-if [ "$SKIP_BINARY" = 0 ]; then
-  say "Бинари ($TARGET)"
-  if [ "$TAG" = "latest" ]; then API="https://api.github.com/repos/$REPO/releases/latest"
-  else API="https://api.github.com/repos/$REPO/releases/tags/$TAG"; fi
-
-  rel="$(curl -fsSL -H 'Accept: application/vnd.github+json' -A 'localvox-install/1.0' "$API")"
-  url="$(jq -r --arg t "$TARGET" '.assets[] | select(.name | contains($t)) | .browser_download_url' <<<"$rel" | head -1)"
-  if [ -z "$url" ] || [ "$url" = "null" ]; then
-    echo "В релизе нет сборки под $TARGET. Что есть:" >&2
-    jq -r '.assets[].name' <<<"$rel" 2>/dev/null | sed 's/^/  - /' >&2 || true
-    exit 1
-  fi
-  echo "  ⇣ $(basename "$url")"
-  curl -fL --progress-bar -A "localvox-install/1.0" "$url" -o "$TMP/bin.tar.gz"
-  tar -xzf "$TMP/bin.tar.gz" -C "$INSTALL_DIR"
-
-  for f in localvox-light localvox-process localvox-desktop localvox-tui; do
-    [ -f "$INSTALL_DIR/$f" ] && chmod +x "$INSTALL_DIR/$f"
-  done
-  # macOS вешает карантин на всё скачанное, и Gatekeeper убивает бинарь без объяснений
-  # («не удаётся проверить разработчика»). Снимаем метку явно: мы только что сами это
-  # скачали и знаем откуда. Настоящая подпись — отдельный разговор с Apple Developer ID.
-  if [ "$(uname -s)" = "Darwin" ]; then
-    xattr -dr com.apple.quarantine "$INSTALL_DIR" 2>/dev/null || true
-  fi
-  [ -f "$INSTALL_DIR/localvox-process" ] ||
-    echo "  ВНИМАНИЕ: в архиве нет localvox-process — архив не будет расшифровываться" >&2
-fi
-
-# ── Модели. Список — в models.json, механика — в fetch-models.sh. Оба скачиваются рядом,
-#    потому что скрипт ищет манифест возле себя.
-if [ "$SKIP_MODELS" = 0 ]; then
-  say "Модели"
-  mkdir -p "$TMP/s"
-  curl -fsSL -A "localvox-install/1.0" "$RAW/models.json" -o "$TMP/s/models.json"
-  curl -fsSL -A "localvox-install/1.0" "$RAW/fetch-models.sh" -o "$TMP/s/fetch-models.sh"
-  bash "$TMP/s/fetch-models.sh" --root "$INSTALL_DIR" ${MODEL_ARGS[@]+"${MODEL_ARGS[@]}"}
-fi
-
-# ── .env. Пути АБСОЛЮТНЫЕ намеренно: под launchd рабочий каталог не наш, и относительный
-#    `models/…` не найдётся — ровно тот отказ, который потом ищут полдня.
-say "Настройки"
-ENV_PATH="$INSTALL_DIR/.env"
-if [ -f "$ENV_PATH" ]; then
-  echo "  .env уже есть — не трогаю, правки ваши"
-else
-  cat > "$ENV_PATH" <<EOF
-# Создано install-release.sh. Пути абсолютные намеренно: рабочий каталог демона под
-# автозапуском не совпадает с этой папкой.
-LOCALVOX_LIGHT_MODEL=$INSTALL_DIR/models/vosk-model-ru-0.42
-LOCALVOX_ASR_MODEL_DIR=$INSTALL_DIR/models/gigaam-v3-e2e-ctc
-LOCALVOX_LIGHT_AUDIO_DIR=$INSTALL_DIR/archive
-
-# Остальные предустановки — в .env.defaults; свои изменения добавляйте здесь.
-EOF
-  echo "  записан $ENV_PATH"
-fi
-
-# ── Проверка. Спрашиваем сам продукт.
-say "Проверка"
-if [ -x "$INSTALL_DIR/localvox-light" ]; then
-  ( cd "$INSTALL_DIR" && ./localvox-light --doctor ) || true
-else
-  echo "  бинаря нет — проверять нечего"
-fi
-
-say "Готово: $INSTALL_DIR"
-cat <<EOF
-  Запуск:            cd "$INSTALL_DIR" && ./localvox-light --daemon
-  Проверить ещё раз: cd "$INSTALL_DIR" && ./localvox-light --doctor
-  Интерфейс:         http://127.0.0.1:3017/
-  Терминал:          cd "$INSTALL_DIR" && ./localvox-tui
-  Звук в TUI: mpv >= 0.38; установка описана в docs/terminal-workspace.md
-EOF
+for name in "${REQUIRED[@]}"; do [[ -f "$INSTALL_DIR/$name" ]] || fail "Installation missing: $name"; done
+for name in localvox-light localvox-process localvox-tui localvox-desktop; do
+ if [[ -f "$INSTALL_DIR/$name" ]]; then chmod +x "$INSTALL_DIR/$name"; fi
+done
+"$INSTALL_DIR/localvox-process" --worker-protocol >/dev/null
+"$INSTALL_DIR/localvox-tui" --version >/dev/null
+"$INSTALL_DIR/localvox-light" --help >/dev/null
+if [[ "$SKIP_MODELS" = 0 ]]; then bash "$INSTALL_DIR/scripts/fetch-models.sh" --root "$INSTALL_DIR" ${MODEL_ARGS[@]+"${MODEL_ARGS[@]}"}; fi
+if [[ ! -f "$INSTALL_DIR/.env" ]]; then
+ # dotenv quoted paths also work when the chosen directory contains spaces.
+ ENV_DIR="${INSTALL_DIR//\\/\\\\}"; ENV_DIR="${ENV_DIR//\"/\\\"}"; ENV_DIR="${ENV_DIR//\$/\\\$}"
+ printf '%s\n' '# Created by install-release.sh; presets are in .env.defaults.' \
+  "LOCALVOX_LIGHT_MODEL=\"$ENV_DIR/models/vosk-model-ru-0.42\"" \
+  "LOCALVOX_ASR_MODEL_DIR=\"$ENV_DIR/models/gigaam-v3-e2e-ctc\"" \
+  "LOCALVOX_LIGHT_AUDIO_DIR=\"$ENV_DIR/archive\"" > "$INSTALL_DIR/.env"
+else echo 'Existing .env preserved.'; fi
+DOCTOR=0
+(cd "$INSTALL_DIR" && ./localvox-light --doctor) || DOCTOR=$?
+if [[ "$DOCTOR" -gt 2 || ("$DOCTOR" = 2 && "$SKIP_MODELS" = 0) ]]; then fail "Doctor failed ($DOCTOR)"; fi
+echo "Installed: $INSTALL_DIR"
+if [[ "$SKIP_MODELS" = 1 ]]; then echo 'Models skipped. Install them before recording/transcription.'; fi
+printf 'Run: cd "%s" && ./localvox-light --daemon\nUI: http://127.0.0.1:3017/   TUI: ./localvox-tui\n' "$INSTALL_DIR"

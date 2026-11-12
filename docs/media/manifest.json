@@ -1,0 +1,119 @@
+{
+  "captured_at": "2026-11-12T06:54:35.863Z",
+  "fixture": "fictional demonstration data; actual React UI and TUI via PTY",
+  "files": [
+    {
+      "name": "gui-journal.png",
+      "bytes": 116530,
+      "sha256": "3ac6f1bbb8b955d46c33ec8a68a8c15d5f1f4125a3409a40bd0960e9bead2f13",
+      "width": 1440,
+      "height": 930
+    },
+    {
+      "name": "gui-light.png",
+      "bytes": 98307,
+      "sha256": "7cf34a603059b5aa63781538af77ad3a7c1a3c343b0378ead1b30faa6a96b104",
+      "width": 1440,
+      "height": 930
+    },
+    {
+      "name": "gui-reading.gif",
+      "bytes": 202771,
+      "sha256": "d463ecec322c20de74daf238462a98fd79a3f38da48bc705c724134c8f82b8fb",
+      "width": 1440,
+      "height": 930,
+      "frames": 45,
+      "duration_sec": 9
+    },
+    {
+      "name": "gui-settings.png",
+      "bytes": 123753,
+      "sha256": "24c7797bd11439be95f18533b71e22fedcf180b4034f157c5eb0b73e45f1211e",
+      "width": 1440,
+      "height": 930
+    },
+    {
+      "name": "gui-summary.png",
+      "bytes": 98175,
+      "sha256": "8893694c1afefb63b67e31d7627190218cd1fca84cfdd111aac62671cbe8d1cc",
+      "width": 1440,
+      "height": 930
+    },
+    {
+      "name": "gui-text.png",
+      "bytes": 129897,
+      "sha256": "7418be70fcf041f15a519321abb1050f07189d1234c094a695b355903493c8de",
+      "width": 1440,
+      "height": 930
+    },
+    {
+      "name": "gui-transcript.png",
+      "bytes": 142150,
+      "sha256": "1cc521c3cfeac2034061f2eeea81d8061f6887467f6edff6fd4f5ca748814fd1",
+      "width": 1440,
+      "height": 930
+    },
+    {
+      "name": "gui-workflow.gif",
+      "bytes": 129644,
+      "sha256": "059e7cd8c759f14c1f83eb089c131571c1061db50ff6416a4bedcd2d364205aa",
+      "width": 1440,
+      "height": 930,
+      "frames": 50,
+      "duration_sec": 10
+    },
+    {
+      "name": "tui-archive.png",
+      "bytes": 124320,
+      "sha256": "0a306e1f9e81ed26120afea2f88c162057c7bb1a51e9fec9f54950726e5616c8",
+      "width": 1440,
+      "height": 930
+    },
+    {
+      "name": "tui-navigation.gif",
+      "bytes": 297691,
+      "sha256": "3129703e38d3b1bd7bf54d2693f220d387914c77bf0b2e660e4d97044bf8542e",
+      "width": 1440,
+      "height": 930,
+      "frames": 60,
+      "duration_sec": 12
+    },
+    {
+      "name": "tui-search.gif",
+      "bytes": 185013,
+      "sha256": "275aed7919052988796aecb98bd9df3e8a7b2f7d138a1c58bb51acb550ec7b4c",
+      "width": 1440,
+      "height": 930,
+      "frames": 48,
+      "duration_sec": 9.6
+    },
+    {
+      "name": "tui-search.png",
+      "bytes": 113453,
+      "sha256": "c07005de5e796cacb123947cb824130634b63b026e50eda9275c90fb1810057c",
+      "width": 1440,
+      "height": 930
+    },
+    {
+      "name": "tui-summary.png",
+      "bytes": 124061,
+      "sha256": "e5373faba0be334c62ed0ad7f34b067dc54ff3d6456b564248d3927ccd78b0db",
+      "width": 1440,
+      "height": 930
+    },
+    {
+      "name": "tui-text.png",
+      "bytes": 138982,
+      "sha256": "d485363c57a28c6feaf4986d0626fec8cfbe69fdd9abbca39d6a080194ecc95d",
+      "width": 1440,
+      "height": 930
+    },
+    {
+      "name": "tui-transcript.png",
+      "bytes": 129038,
+      "sha256": "f853a4e2979b42483c106b5a0f0ed237ddedff96b06291bdce949123f60544f5",
+      "width": 1440,
+      "height": 930
+    }
+  ]
+}

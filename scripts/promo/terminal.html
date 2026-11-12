@@ -1,0 +1,15 @@
+<!doctype html><html lang="ru"><meta charset="utf-8">
+<link rel="stylesheet" href="/xterm/css/xterm.css">
+<style>
+@font-face{font-family:Plex;src:url('/fonts/ibm-plex-mono-latin-400-normal.woff2')}@font-face{font-family:Plex;src:url('/fonts/ibm-plex-mono-cyrillic-400-normal.woff2');unicode-range:U+0400-052F}
+*{box-sizing:border-box}body{margin:0;background:#101216;color:#e2e5ec;font-family:Plex,monospace;min-height:100vh;display:grid;place-content:center;gap:22px}
+.headline{display:flex;justify-content:space-between;align-items:center}.brand{font-size:27px;letter-spacing:-1px}.brand span{color:#91cbb5}.demo{font-size:11px;letter-spacing:1.5px;color:#737f93;text-transform:uppercase}
+.frame{background:#17191d;border:1px solid #3b424e;border-radius:10px;box-shadow:0 22px 65px #0006;overflow:hidden}.chrome{height:34px;border-bottom:1px solid #303640;padding:0 16px;display:flex;align-items:center;justify-content:space-between;font-size:11px;color:#8e98aa}.dots{color:#58647a;letter-spacing:5px}#screen{padding:12px}.caption{display:flex;align-items:center;gap:14px;min-height:38px;font-size:14px;color:#a9b1c1}kbd{font:inherit;color:#b5e2d0;border:1px solid #44534e;background:#1f2c27;padding:6px 11px;border-radius:5px}.caption strong{font-weight:400;color:#e3e8ee}
+</style>
+<div class="headline"><div class="brand">localvox<span> / </span>встречи под рукой</div><div class="demo">TUI · демонстрационные данные</div></div>
+<div class="frame"><div class="chrome"><span class="dots">● ● ●</span><span>localvox-tui</span><span>⌘ / &gt;_</span></div><div id="screen"></div></div>
+<div class="caption"><kbd id="keys">j / k</kbd><strong id="caption">Перемещение без мыши</strong></div>
+<script src="/xterm/lib/xterm.js"></script>
+<script>
+window.ready=(async()=>{await document.fonts.ready;const params=new URLSearchParams(location.search);window.term=new Terminal({cols:Number(params.get('cols')||140),rows:Number(params.get('rows')||36),fontFamily:'Plex, monospace',fontSize:14,lineHeight:1.1,cursorBlink:false,scrollback:0,theme:{background:'#17191d',foreground:'#c4c9d9',black:'#17191d',red:'#e18b84',green:'#a7c79a',yellow:'#e4bc85',blue:'#91aee0',magenta:'#c3a3d5',cyan:'#8fc5c6',white:'#c4c9d9',brightBlack:'#697587',brightWhite:'#e5e9f0'}});term.open(document.getElementById('screen'));await document.fonts.ready;window.writeTerminal=bytes=>new Promise(resolve=>term.write(new Uint8Array(bytes),resolve));})();
+</script></html>

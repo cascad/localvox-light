@@ -1,9 +1,10 @@
 # Сборка release-бинарников + опционально GitHub Release с вложениями.
-# Триггеры: push в main (по paths), push тега v*, ручной запуск.
+# Триггеры: PR, push рабочих веток (по paths), tag v* и ручной запуск.
 
 name: Build binaries
 
 on:
+  pull_request:
   workflow_dispatch:
     inputs:
       publish_release:
@@ -16,7 +17,7 @@ on:
         required: false
         default: ""
   push:
-    branches: [main, master]
+    branches: ["**"]
     tags: ["v*"]
     paths:
       - "Cargo.toml"
@@ -31,14 +32,17 @@ on:
       - "scripts/install-release.sh"
       - "scripts/install-release.ps1"
       - "scripts/setup-mpv.mjs"
+      - "scripts/package-release.py"
+      - "scripts/tests/test_release_delivery.py"
+      - "docs/release-installation.md"
       - "docs/terminal-workspace.md"
 
 env:
   CARGO_TERM_COLOR: always
+  CARGO_BUILD_JOBS: "2"
 
 permissions:
   contents: read
-  actions: write
 
 jobs:
   build:
@@ -90,7 +94,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libasound2-dev pkg-config
+          sudo apt-get install -y libasound2-dev pkg-config patchelf
 
       - name: Install Vosk native library (Unix)
         if: runner.os != 'Windows'
@@ -103,9 +107,9 @@ jobs:
         shell: pwsh
         run: ./scripts/setup-vosk.ps1
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
-          node-version: "22"
+          node-version: "24"
 
       # Интерфейс ВШИВАЕТСЯ в бинарь на этапе компиляции (rust-embed из ui/dist). Без этого
       # шага build.rs подкладывает заглушку «Интерфейс не собран» — и ровно она уезжала в
@@ -118,9 +122,13 @@ jobs:
       - name: Fail if the interface did not build
         shell: bash
         run: |
-          grep -q "Интерфейс не собран" ui/dist/index.html &&
-            { echo "ui/dist — это заглушка, а не интерфейс" >&2; exit 1; } || true
+          set -euo pipefail
           test -s ui/dist/index.html
+          if grep -q "Интерфейс не собран" ui/dist/index.html; then
+            echo "ui/dist contains the placeholder" >&2
+            exit 1
+          fi
+          test -n "$(find ui/dist/assets -name '*.js' -print -quit)"
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -147,39 +155,40 @@ jobs:
 
       # ОДИН архив на платформу. Раздельные файлы — это приглашение установить половину:
       # именно так релиз оказался без повара.
-      - name: Pack
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Delivery contracts
+        run: python -m unittest discover -s scripts/tests -p test_release_delivery.py -v
+
+      - name: Pack and probe the complete product
         shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+          DESKTOP: ${{ matrix.desktop }}
         run: |
           set -euo pipefail
-          out="dist/${{ matrix.artifact }}"
-          mkdir -p "$out"
-          src="target/${{ matrix.target }}/release"
-          for b in localvox-light localvox-process localvox-desktop localvox-tui; do
-            for f in "$src/$b" "$src/$b.exe"; do
-              [ -f "$f" ] && cp "$f" "$out/"
-            done
-          done
-          ls -la "$out"
-          test -f "$out/localvox-light" -o -f "$out/localvox-light.exe"
-          test -f "$out/localvox-process" -o -f "$out/localvox-process.exe"
-          test -f "$out/localvox-tui" -o -f "$out/localvox-tui.exe"
-          # The media backend is installed separately; keep the verified Windows
-          # installer and instructions in the same bundle as the client.
-          mkdir -p "$out/scripts" "$out/docs"
-          cp scripts/setup-mpv.mjs "$out/scripts/"
-          cp docs/terminal-workspace.md "$out/docs/"
-          cp .env.defaults "$out/"
-          cp -R licenses "$out/"
-          test -f "$out/licenses/rs-morphy4/NOTICE"
-          test -f "$out/licenses/rs-morphy4/LICENSE-CC-BY-SA-3.0.txt"
-          cd dist
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            pushd "${{ matrix.artifact }}"
-            7z a "../${{ matrix.artifact }}.zip" ./* .env.defaults
-            popd
-          else
-            tar -czf "${{ matrix.artifact }}.tar.gz" -C "${{ matrix.artifact }}" .
-          fi
+          args=()
+          if [ "$DESKTOP" = true ]; then args+=(--desktop); fi
+          python scripts/package-release.py --target "$TARGET" \
+            --source "target/$TARGET/release" --output dist "${args[@]}"
+
+      - name: Install the Windows archive (no models or devices)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          ./scripts/install-release.ps1 -Archive "dist/${{ matrix.artifact }}.zip" -InstallDir "$env:RUNNER_TEMP/LocalVox install" -SkipModels
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Install the Unix archive (no models or devices)
+        if: runner.os != 'Windows'
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          bash scripts/install-release.sh --archive="dist/localvox-$TARGET.tar.gz" \
+            --install-dir="$RUNNER_TEMP/LocalVox install" --skip-models
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
@@ -210,29 +219,37 @@ jobs:
           set -euo pipefail
           mkdir -p release-assets
           find dist -type f \( -name '*.zip' -o -name '*.tar.gz' \) -exec cp {} release-assets/ \;
+          cp scripts/install-release.ps1 scripts/install-release.sh release-assets/
           ls -la release-assets/
           test "$(ls -1 release-assets | wc -l)" -gt 0
 
       - name: Set release tag name
         id: tag
+        env:
+          REQUESTED_TAG: ${{ inputs.release_tag }}
         run: |
-          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             echo "name=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
           else
-            echo "name=${{ github.event.inputs.release_tag }}" >> "$GITHUB_OUTPUT"
+            [[ "$REQUESTED_TAG" =~ ^v[0-9][A-Za-z0-9._-]*$ ]] || { echo "Invalid release tag" >&2; exit 1; }
+            echo "name=$REQUESTED_TAG" >> "$GITHUB_OUTPUT"
           fi
 
       # Вместо softprops/action-gh-release (в его action.yml всё ещё node20 — снова предупреждение в логе).
       - name: Create GitHub Release (gh)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.name }}
+          RELEASE_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          TAG="${{ steps.tag.outputs.name }}"
           shopt -s nullglob
           assets=(release-assets/*)
           if [ ${#assets[@]} -eq 0 ]; then
             echo "No files in release-assets/" >&2
             exit 1
           fi
-          gh release create "$TAG" "${assets[@]}" --title "$TAG" --generate-notes
+          if git rev-parse --verify "refs/tags/$TAG" >/dev/null 2>&1; then
+            test "$(git rev-list -n 1 "$TAG")" = "$RELEASE_SHA" || { echo "Tag does not match the built commit" >&2; exit 1; }
+          fi
+          gh release create "$TAG" "${assets[@]}" --target "$RELEASE_SHA" --title "$TAG" --generate-notes

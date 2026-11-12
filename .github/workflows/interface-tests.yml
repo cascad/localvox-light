@@ -3,7 +3,7 @@ name: Interface contracts and visuals
 on:
   pull_request:
   push:
-    branches: [main, master]
+    branches: ["**"]
   workflow_dispatch:
 
 permissions:
@@ -18,9 +18,10 @@ jobs:
       PYTHONDONTWRITEBYTECODE: "1"
       # OS fixtures spawn their own children/threads; keep runner contention bounded.
       RUST_TEST_THREADS: "2"
+      CARGO_BUILD_JOBS: "2"
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: "24"
           cache: npm
@@ -103,7 +104,7 @@ jobs:
           cargo test --locked -p localvox-light-core incremental:: --lib
           cargo test --locked -p localvox-light-asr --features asr-fixtures --test incremental_fixture
           $env:LOCALVOX_TEST_ASR_WORKER = (Resolve-Path target/debug/localvox-process.exe).Path
-          cargo test --locked -p localvox-light --lib autocook::prefix_tests -- --ignored --nocapture
+          cargo test --locked -p localvox-light -p localvox-light-asr --lib --features localvox-light-asr/asr-fixtures --jobs 2 autocook::prefix_tests -- --ignored --skip fixture --test-threads=1 --nocapture
       - name: Real worker cancellation and standalone CLI ownership (local HTTP, no models/devices)
         run: cargo test --locked -p localvox-light --lib autocook::cancellation_tests -- --ignored --nocapture
       - name: Background indexes and search (local HTTP, no models/devices)

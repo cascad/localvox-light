@@ -1,0 +1,138 @@
+{
+  "date": "2026-11-12",
+  "runtime_source_commit": "7e35377",
+  "runtime_code_changed": false,
+  "packaging_state": "new scripts/docs in working tree",
+  "native_test_platform": "x86_64-pc-windows-msvc",
+  "raw_archive": "target\\release-delivery-check\\localvox-x86_64-pc-windows-msvc.zip",
+  "archive_bytes": 54923194,
+  "archive_sha256": "4f8a3e5290ebe0ffe62bd1580237edf17d4acd65c7de0b80c8688fd5040596b9",
+  "bundle": {
+    "schema": 1,
+    "target": "x86_64-pc-windows-msvc",
+    "files": [
+      {
+        "name": ".env.defaults",
+        "bytes": 1128,
+        "sha256": "41b5638b66ad617b3c4bda2bf51bf11fd90fea95818562742fae1d870172a14f"
+      },
+      {
+        "name": "DirectML.dll",
+        "bytes": 18527776,
+        "sha256": "9c9e6d822561c6c41b90e6994b3e8857cf1d66dbfb1e0c4c799c7c89b4e92da1"
+      },
+      {
+        "name": "docs/release-installation.md",
+        "bytes": 5296,
+        "sha256": "82337b0c7518e3e3a2a6f7dca7df3c59a35d2735ec30aaa72a7548844dde6163"
+      },
+      {
+        "name": "docs/terminal-workspace.md",
+        "bytes": 35087,
+        "sha256": "e5ebe76899a35097e8f3df578657e1a38a04643ef253b0f992d360bc0fc27e5c"
+      },
+      {
+        "name": "libgcc_s_seh-1.dll",
+        "bytes": 1266641,
+        "sha256": "e16de83d48247cde2581ec36279102dda00b7d7b36558cad72164e3c4caae0a4"
+      },
+      {
+        "name": "libstdc++-6.dll",
+        "bytes": 19442799,
+        "sha256": "1766f6e252410086c26400ab085e017e7ad5e8993f3d19dda87a13a1e978f0a2"
+      },
+      {
+        "name": "libvosk.dll",
+        "bytes": 25989632,
+        "sha256": "7a242909fe36436a7660037d85c75eb18eefbd963455cd4ab1b665cb9b0074bc"
+      },
+      {
+        "name": "libwinpthread-1.dll",
+        "bytes": 592104,
+        "sha256": "5b60907df42009f1ba437e7f2a6278651be97f4993869105d8a31086138e4570"
+      },
+      {
+        "name": "LICENSE",
+        "bytes": 1083,
+        "sha256": "3d669f1d486104091ceea887b1a061e89edd7c86c4aca4b9d696e795fe1fdf4a"
+      },
+      {
+        "name": "licenses/rs-morphy4/LICENSE",
+        "bytes": 11353,
+        "sha256": "ef39c60d66061ff92f72a7c5a97bc264e32b886368f6986c62399109a5ae21d7"
+      },
+      {
+        "name": "licenses/rs-morphy4/LICENSE-CC-BY-SA-3.0.txt",
+        "bytes": 22240,
+        "sha256": "3f941b3b89cf7b8370ceb83cc76d2120d471b58735d8ca60238a751a48d7f72f"
+      },
+      {
+        "name": "licenses/rs-morphy4/LICENSE-MIT",
+        "bytes": 1144,
+        "sha256": "ec42d6ffd86090c5e078b296e67192940f21f874dce42588faa60d936353686d"
+      },
+      {
+        "name": "licenses/rs-morphy4/LICENSE-MIT-DAWG",
+        "bytes": 1060,
+        "sha256": "2e5e7d32243cec7f102512b909db245c1c83b56823ec2b5fa1020cbe4fc7c3f0"
+      },
+      {
+        "name": "licenses/rs-morphy4/NOTICE",
+        "bytes": 1934,
+        "sha256": "be440832a515109e6c3d27bc4364b0a517feeab3d9ea4b38d1b9e7a1fa5dfb70"
+      },
+      {
+        "name": "licenses/rs-morphy4/README.md",
+        "bytes": 1299,
+        "sha256": "5b93500b92e534f4765e897c0b0411d4442d68e94af3b367a8a3b4e24af972ba"
+      },
+      {
+        "name": "localvox-light.exe",
+        "bytes": 39057920,
+        "sha256": "a9640266a2fd3784243f8fbf75d685260512469dfe765d35411c33e6dc7f3c34"
+      },
+      {
+        "name": "localvox-process.exe",
+        "bytes": 45860864,
+        "sha256": "5966fa00b598b6f31e5b074d4c5c8afbfa6a52089836345700a38964a86fcc36"
+      },
+      {
+        "name": "localvox-tui.exe",
+        "bytes": 6026752,
+        "sha256": "834d5e8e58e0fddb092bb19f388494e9e138341fd155dbd580a2c120e871588e"
+      },
+      {
+        "name": "scripts/fetch-models.ps1",
+        "bytes": 7902,
+        "sha256": "984b8071094195972193b11ea131c5f9b128131fa4459c823088445558fec6c1"
+      },
+      {
+        "name": "scripts/fetch-models.sh",
+        "bytes": 7556,
+        "sha256": "b8ab4fe8bce712fc3d392adb2681a4faf168d187796fc3c3b927b5ac08ee125b"
+      },
+      {
+        "name": "scripts/install-release.ps1",
+        "bytes": 7801,
+        "sha256": "594ba14ed20f6c872f56e3ec8018f34d5a6ff65ce373273d00ff24d06f7559e7"
+      },
+      {
+        "name": "scripts/install-release.sh",
+        "bytes": 6083,
+        "sha256": "22c92f1bb79d76a2f15ef859c070a9786dc1dd4d66680fbe2d1ae99dcbfb408e"
+      },
+      {
+        "name": "scripts/models.json",
+        "bytes": 7964,
+        "sha256": "8168b491389233e0417b2c1a4753e173065d5c3cbd27dd6e0452aed6a6773628"
+      },
+      {
+        "name": "scripts/setup-mpv.mjs",
+        "bytes": 2901,
+        "sha256": "eaf1029f3a53d21d6fc3553a5a1dd860c8005e84590c13f147a2da22140eb98b"
+      }
+    ]
+  },
+  "mac_native_run": "not-run",
+  "hosted_workflows": "not-run"
+}

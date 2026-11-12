@@ -1,9 +1,64 @@
 # localvox-light
 
-Локальный голосовой секретарь: запись микрофона и системного звука, расшифровка,
-обработка текста, поиск и вопросы к архиву. Окно Tauri и браузер используют один демон.
-Есть локальные модели и выбираемые удалённые провайдеры; раздел «Спросить» сейчас
-по умолчанию предлагает Claude.
+Локальный голосовой секретарь: записывает микрофон и системный звук, расшифровывает
+встречи, готовит опциональную сводку и помогает искать по архиву. Браузер, окно
+приложения и терминальный TUI работают с одним демоном.
+
+## Установить и запустить
+
+До публикации нового полного релиза бери свежий архив из
+[Build binaries](https://github.com/cascad/localvox-light/actions/workflows/build-binaries.yml)
+и ставь через `-Archive` / `--archive` — [инструкция и установщики](docs/release-installation.md#свежая-сборка-из-actions).
+Старый v0.1.5 содержит отдельные бинарники. Команды ниже — для нового полного release.
+
+**Windows x64 — PowerShell:**
+
+```powershell
+$u='https://github.com/cascad/localvox-light/releases/latest/download/install-release.ps1'
+$p=Join-Path $env:TEMP 'localvox-install.ps1'; Invoke-WebRequest $u -OutFile $p
+powershell -NoProfile -ExecutionPolicy Bypass -File $p -RequiredOnly
+cd localvox-light
+.\localvox-light.exe --daemon
+```
+
+**macOS — Apple Silicon или Intel:** нужен `jq` (`brew install jq`).
+
+```bash
+curl -fsSL https://github.com/cascad/localvox-light/releases/latest/download/install-release.sh -o /tmp/localvox-install.sh
+bash /tmp/localvox-install.sh --required-only
+cd localvox-light
+./localvox-light --daemon
+```
+
+Открой **http://127.0.0.1:3017/**. Для TUI во втором терминале из установленной
+папки запусти `localvox-tui.exe` (Windows) или `./localvox-tui` (Mac).
+Установщик скачивает полный комплект и обязательные модели, проверяет запуск;
+при обновлении сохраняет `.env`. Для сводки нужна выбранная LLM, например Ollama.
+
+[Другой каталог, модели и обновление](docs/release-installation.md) ·
+[Проверка демона на Mac](docs/release-installation.md#проверка-mac-владельцем).
+
+## Посмотреть в работе
+
+**GUI:** сводка, реплики, цельный текст и участники в одном окне.
+
+![Чтение встречи в графическом интерфейсе](docs/media/gui-reading.gif)
+
+**TUI:** `j/k` выбирают запись, `l` открывает её, `1–5` меняют вкладку,
+`Esc` возвращает на уровень выше. `/` включает поиск по названию.
+
+![Навигация по встречам в терминале](docs/media/tui-navigation.gif)
+
+[Все скриншоты и GIF для промо](docs/promo.md) ·
+[Что можно сделать и куда нажать](docs/user-guide.md).
+В кадрах — вымышленные демонстрационные встречи, настоящие интерфейсы приложения.
+
+## Возможности и устройство проекта
+
+При записи микрофона и системного звука закрытые фрагменты по умолчанию
+распознаются заранее: готовую часть можно читать в UI/TUI, Stop завершает хвост.
+Нужна включённая автоварка. Отключение без перезапуска — «Настройки → Автоварка →
+Распознавать во время записи»; сводка строится после Stop.
 
 Контракт поведения — [OpenSpec](openspec/README.md), принятый после сверки кода:
 [каталог возможностей](openspec/catalog.md), [полный пайплайн](openspec/specs/processing-pipeline/spec.md),
@@ -16,37 +71,6 @@
 - [Голосовые заметки](openspec/specs/voice-notes/spec.md) и [слоты](openspec/specs/note-integrations/spec.md).
 - [Поиск и чат](openspec/specs/search-chat/spec.md), [плеер и экспорт](openspec/specs/archive-playback/spec.md), [говорящие](openspec/specs/speakers/spec.md).
 - [Доступ с телефона и API](openspec/specs/api-access/spec.md), [настройки и процессы](openspec/specs/runtime-settings/spec.md).
-
-## Установка (готовая сборка)
-
-Один скрипт: качает бинари под вашу платформу, нативную библиотеку и все модели, пишет `.env`
-с абсолютными путями и **проверяет установку** в конце.
-
-```powershell
-# Windows
-cd $HOME\Desktop
-$u='https://raw.githubusercontent.com/cascad/localvox-light/main/scripts/install-release.ps1'
-$p="$env:TEMP\lv-install.ps1"; iwr -useb $u -OutFile $p; & $p
-```
-```bash
-# macOS / Linux   (нужны curl, unzip, tar, jq)
-curl -fsSL https://raw.githubusercontent.com/cascad/localvox-light/main/scripts/install-release.sh | bash
-```
-
-Скачивается ~2.6 ГБ моделей. `-RequiredOnly` / `--required-only` — только то, без чего продукт
-не работает (~2 ГБ): без разметки говорящих и без проверки имён.
-
-Запуск и проверка:
-
-```bash
-./localvox-light --daemon    # запись + варка + интерфейс на http://127.0.0.1:3017/
-./localvox-light --doctor    # что стоит, чего не хватает и что с этим делать
-```
-
-При записи микрофона и системного звука закрытые фрагменты по умолчанию
-распознаются заранее: готовую часть можно читать в UI/TUI, Stop завершает хвост.
-Нужна включённая автоварка. Отключение без перезапуска — «Настройки → Автоварка →
-Распознавать во время записи»; сводка строится после Stop.
 
 ### `--doctor`
 
@@ -70,9 +94,9 @@ curl -fsSL https://raw.githubusercontent.com/cascad/localvox-light/main/scripts/
 
 | Что | Зачем | Обязательно? |
 |---|---|---|
-| **Rust** (edition 2021) | собрать всё | да |
-| **Node 20+ / npm** | собрать интерфейс (`ui/`, Vite 8) | да, если собираешь из исходников |
-| **Ollama** | LLM и эмбеддинги (причёсывание, сводка, поиск по смыслу, «спросить») | да для LLM-части; без неё расшифровка работает, сводки нет |
+| **Rust** (edition 2021) | собрать всё | только для сборки из исходников |
+| **Node 20+ / npm** | собрать интерфейс (`ui/`, Vite 8) | только для сборки из исходников |
+| **Ollama** или выбранный LLM-сервер | сводка, поиск по смыслу, вопросы к архиву | для этих возможностей; исходная расшифровка работает отдельно |
 | **ffmpeg** | извлечь дорожку при ингесте по ссылке; пережать чанки в FLAC | для ингеста и FLAC |
 | **yt-dlp** | скачать звук с YouTube и подобных | только для ингеста по ссылке |
 

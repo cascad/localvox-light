@@ -56,3 +56,7 @@ localvox-light-config.json
 /.claude/
 /.cursor/
 /bin/
+
+# Generated Python tooling caches.
+__pycache__/
+*.py[cod]

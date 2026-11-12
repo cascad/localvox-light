@@ -1,5 +1,13 @@
 # Покрытие требований и состояние реализации
 
+Дополнение SETUP-001/002/003, INV-SETUP-001 от 2026-11-12:
+[полные platform packages, installers и промо](../changes/prepare-promo-and-platform-releases/evidence/implementation.md).
+12 delivery tests прошли, включая настоящую Windows установку/обновление,
+native loader smoke, отказы до копирования и Mac shell fixtures. UI build/14 unit/
+81 browser прошли; настоящие UI/TUI сняты на вымышленных данных.
+Новый hosted CI, native Mac/Linux и аппаратный Mac daemon/capture not-run;
+SETUP-004 остаётся delta. Старые результаты ниже не заменяются новой приёмкой.
+
 Дополнение PIPE-002/008/010/011/012, CFG-001/002, ARCH-001/002 от 2026-11-11:
 [grouped durable cache, default on и проверка переключателя](../changes/add-incremental-recording-transcription/evidence/default-on-validation.md).
 Новые полные R3: legacy 3/3 (+6.25% суммарно), current capture 3/3 (+4.03%);
@@ -169,8 +177,8 @@ grounding и внешние ресурсы с documented scope/gap первог�
 |---|---|---|---|
 | [SETUP-001](../specs/installation-models/spec.md#requirement-setup-001-манифест-загрузки) | [scripts/models.json](../../scripts/models.json), [scripts/fetch-models.ps1](../../scripts/fetch-models.ps1), [scripts/fetch-models.sh](../../scripts/fetch-models.sh) | code-reviewed | Check и сборка пройдены; новые загрузки не выполнялись. |
 | [INV-SETUP-001](../specs/installation-models/spec.md#requirement-inv-setup-001-скачивание-через-временный-файл) | [scripts/fetch-models.ps1](../../scripts/fetch-models.ps1), [scripts/fetch-models.sh](../../scripts/fetch-models.sh) | code-reviewed | Скачивание/hash mismatch в этом проходе не воспроизводились. |
-| [SETUP-002](../specs/installation-models/spec.md#requirement-setup-002-разрешение-зависимостей) | [localvox-light-core/build.rs](../../crates/localvox-light-core/build.rs), [src/lang.rs](../../crates/localvox-light-core/src/lang.rs), [src/doctor.rs](../../crates/localvox-light-core/src/doctor.rs) | code-reviewed | Dev bundle собран; прочие ОС и новые варианты установки не прогонялись. |
-| [SETUP-003](../specs/installation-models/spec.md#requirement-setup-003-doctor-и-границы-проверки) | [src/doctor.rs](../../crates/localvox-light-core/src/doctor.rs), [src/main.rs](../../crates/localvox-light/src/main.rs) | code-reviewed | Наличие/доступность не равны качеству inference; реальный набор моделей не переустанавливался. |
+| [SETUP-002](../specs/installation-models/spec.md#requirement-setup-002-разрешение-зависимостей) | [localvox-light-core/build.rs](../../crates/localvox-light-core/build.rs), [src/lang.rs](../../crates/localvox-light-core/src/lang.rs), [src/doctor.rs](../../crates/localvox-light-core/src/doctor.rs), [packager](../../scripts/package-release.py) | [test-run: Windows package](../changes/prepare-promo-and-platform-releases/evidence/implementation.md) | Native startup/состав/установка проверены; model path resolution в этой работе не меняется, native Mac/Linux not-run. |
+| [SETUP-003](../specs/installation-models/spec.md#requirement-setup-003-doctor-и-границы-проверки) | [src/doctor.rs](../../crates/localvox-light-core/src/doctor.rs), [src/main.rs](../../crates/localvox-light/src/main.rs) | [test-run: installer invocation](../changes/prepare-promo-and-platform-releases/evidence/implementation.md) | Doctor вызван из установленной fixture; SkipModels явно отмечен, реальный набор моделей не переустанавливался и качество inference не проверялось. |
 
 ## live-transcription
 
@@ -490,3 +498,10 @@ main specs и прежние свидетельства не переписан�
 | ARCH-001; ARCH-019 в delta | [delta](../changes/resize-terminal-list-pane/specs/archive-playback/spec.md), [geometry](../../crates/localvox-light-terminal/src/render/geometry.rs), [actions](../../crates/localvox-light-terminal/src/app/pane_width.rs) | [test-run](../changes/resize-terminal-list-pane/evidence/implementation.md): 196 lib / 5 ConPTY, input/resize/reconnect/anchor, unchanged snapshots | Session preference; compact unchanged, external OS/terminal bindings not-run |
 | ARCH-001/015; ARCH-018 в delta | [delta](../changes/refine-terminal-focus-details/specs/archive-playback/spec.md), [Theme/render](../../crates/localvox-light-terminal/src/render.rs) | [test-run](../changes/refine-terminal-focus-details/evidence/implementation.md): 190 lib / 5 ConPTY, focus/contrast, 38 style-only snapshots | Панели/текст/действия сохранены; владелец и реальные terminal palettes not-run |
 | ARCH-001; ARCH-017 в delta | [delta](../changes/configure-command-keymaps/specs/archive-playback/spec.md), [UI](../../ui/src/DocumentPane.tsx), [TUI keymap](../../crates/localvox-light-terminal/src/keymap.rs) | [test-run](../changes/configure-command-keymaps/evidence/implementation.md): 189 lib / 5 ConPTY / IO/run-script; UI build, 14 unit / 2 browser e2e; прежние snapshots | Physical code для UI, явные символьные overrides для TUI. Реальные hosts/IME/Mac not-run; main specs не изменены |
+
+
+Продолжение SETUP-001/002/003 от 2026-11-12:
+
+| Requirement | Код / delta | Проверка | Граница |
+|---|---|---|---|
+| SETUP-001/002/003; SETUP-004 в delta | [delta](../changes/prepare-promo-and-platform-releases/specs/installation-models/spec.md), [packager](../../scripts/package-release.py), [Windows](../../scripts/install-release.ps1), [Unix](../../scripts/install-release.sh) | [test-run](../changes/prepare-promo-and-platform-releases/evidence/implementation.md): 12 delivery, real Windows startup/install/update, Mac shell fixtures, UI 14/81; 11 PNG + 4 GIF настоящих интерфейсов | Runtime обработки сохранён; remote release/hosted jobs/native Mac/Linux/устройства not-run; main specs не sync/archive |
