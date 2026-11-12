@@ -8,7 +8,7 @@ $original = (Get-Location).Path
 $repo = Split-Path -Parent (Split-Path -Parent $RunScript)
 $artifacts = Join-Path $Directory 'custom-target'
 New-Item -ItemType Directory -Path $artifacts | Out-Null
-foreach ($name in @('localvox-light', 'localvox-process', 'localvox-desktop', 'localvox-tui')) {
+foreach ($name in @('localvox-light', 'localvox-process', 'localvox-desktop', 'localvox-tui', 'vox')) {
     $body = @'
 $entry = @{ name = [IO.Path]::GetFileNameWithoutExtension($PSCommandPath); cwd = (Get-Location).Path; arguments = @($args) }
 $entry | ConvertTo-Json -Compress | Add-Content -LiteralPath (Join-Path $global:localvoxRunFixture 'executed.jsonl')

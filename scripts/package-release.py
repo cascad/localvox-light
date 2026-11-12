@@ -13,7 +13,7 @@ import tempfile
 import zipfile
 
 ROOT = Path(__file__).resolve().parent.parent
-BINARIES = ('localvox-light', 'localvox-process', 'localvox-tui')
+BINARIES = ('localvox-light', 'localvox-process', 'localvox-tui', 'vox')
 SCRIPTS = ('install-release.ps1', 'install-release.sh', 'fetch-models.ps1',
            'fetch-models.sh', 'setup-ollama.ps1', 'setup-ollama.sh', 'models.json', 'setup-mpv.mjs')
 
@@ -101,7 +101,7 @@ def stage(source, native, folder, target, desktop=False, extra_native=()):
 
 def smoke(folder, target):
     suffix = '.exe' if 'windows' in target else ''
-    for name, flag in [('localvox-light', '--help'), ('localvox-process', '--worker-protocol'), ('localvox-tui', '--version')]:
+    for name, flag in [('localvox-light', '--help'), ('localvox-process', '--worker-protocol'), ('localvox-tui', '--version'), ('vox', '--version')]:
         result = subprocess.run([str(folder / (name + suffix)), flag], cwd=folder,
                                 capture_output=True, text=True, timeout=30)
         if result.returncode:

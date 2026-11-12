@@ -57,7 +57,8 @@ def check(archive):
         install = Path(temporary) / 'LocalVox with spaces'
 
         def install_call(*flags, expected=0, input=None):
-            options = ['-InstallDir', install] if windows else [f'--install-dir={install}']
+            # Never change the runner/developer's real PATH or shell profiles.
+            options = ['-InstallDir', install, '-NoPathUpdate'] if windows else [f'--install-dir={install}', '--no-path-update']
             return run(installer + options + list(flags), expected, input=input, environment=environment)
 
         install_call('-Check' if windows else '--check', expected=2)

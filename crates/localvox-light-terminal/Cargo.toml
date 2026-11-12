@@ -3,16 +3,22 @@ name = "localvox-light-terminal"
 version.workspace = true
 edition.workspace = true
 description = "Independent terminal workspace for LocalVox."
+default-run = "localvox-tui"
 
 [[bin]]
 name = "localvox-tui"
 path = "src/main.rs"
+
+[[bin]]
+name = "vox"
+path = "src/bin/vox.rs"
 
 [dependencies]
 localvox-light-client = { path = "../localvox-light-client" }
 localvox-light-process = { path = "../localvox-light-process" }
 anyhow.workspace = true
 clap.workspace = true
+dotenvy.workspace = true
 crossbeam-channel.workspace = true
 crossterm.workspace = true
 ratatui = { workspace = true, features = ["unstable-rendered-line-info"] }
@@ -25,7 +31,8 @@ tempfile.workspace = true
 tokio = { version = "1", features = ["rt", "net", "time", "io-util"] }
 
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.62.2", features = ["Win32_Security_Authorization", "Win32_System_Pipes", "Win32_System_Console", "Win32_System_Threading"] }
+windows = { version = "0.62.2", features = ["Win32_Security_Authorization", "Win32_System_Pipes", "Win32_System_Console", "Win32_System_Threading", "Win32_System_Environment", "Win32_UI_WindowsAndMessaging"] }
+winreg = "0.52"
 termwiz = { version = "=0.23.3", default-features = false }
 
 [dev-dependencies]

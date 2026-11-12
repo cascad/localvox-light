@@ -12,7 +12,8 @@ param(
     [switch]$SkipBinary,
     [switch]$Check,
     [switch]$Wizard,
-    [switch]$Reconcile
+    [switch]$Reconcile,
+    [switch]$NoPathUpdate
 )
 $ErrorActionPreference = 'Stop'
 # Doctor/check use 0/1/2 as data; every native call below checks its exit code.
@@ -25,7 +26,7 @@ $InstallDir = [IO.Path]::GetFullPath($InstallDir)
 $architecture = if ($env:PROCESSOR_ARCHITEW6432) { $env:PROCESSOR_ARCHITEW6432 } else { $env:PROCESSOR_ARCHITECTURE }
 if ($architecture -ne 'AMD64') { throw "Windows package requires x64 PowerShell; detected $architecture" }
 $target = 'x86_64-pc-windows-msvc'
-$required = @('localvox-light.exe','localvox-process.exe','localvox-tui.exe','libvosk.dll',
+$required = @('localvox-light.exe','localvox-process.exe','localvox-tui.exe','vox.exe','libvosk.dll',
     'libgcc_s_seh-1.dll','libstdc++-6.dll','libwinpthread-1.dll','.env.defaults',
     'scripts/models.json','scripts/fetch-models.ps1','scripts/setup-ollama.ps1','licenses/rs-morphy4/NOTICE')
 function CheckedPath([string]$Root, [string]$Name) {
@@ -55,7 +56,9 @@ if ($Check) {
     if ($Wizard -or $Reconcile) { throw '-Check cannot be combined with -Wizard/-Reconcile' }
     if (-not (TestInstalledBundle)) { Write-Host "Missing or invalid complete installation: $InstallDir"; exit 2 }
     & (Join-Path $InstallDir 'localvox-light.exe') --cwd $InstallDir --setup-check
-    exit $LASTEXITCODE
+    $ready = $LASTEXITCODE
+    & (Join-Path $InstallDir 'vox.exe') --check-command
+    exit ([Math]::Max($ready, $LASTEXITCODE))
 }
 if ($Wizard -and $SkipModels) { throw '-Wizard and -SkipModels cannot be combined' }
 if ($Reconcile -and (TestInstalledBundle)) { $SkipBinary = $true; Write-Host 'Installed bundle is intact; download and unpack skipped.' }
@@ -113,9 +116,13 @@ try {
         }
     }
     foreach ($name in $required) { if (-not (Test-Path -LiteralPath (Join-Path $InstallDir $name) -PathType Leaf)) { throw "Installation missing: $name" } }
-    foreach ($probe in @(@('localvox-process.exe','--worker-protocol'),@('localvox-tui.exe','--version'),@('localvox-light.exe','--help'))) {
+    foreach ($probe in @(@('localvox-process.exe','--worker-protocol'),@('localvox-tui.exe','--version'),@('vox.exe','--version'),@('localvox-light.exe','--help'))) {
         & (Join-Path $InstallDir $probe[0]) $probe[1] | Out-Null
         if ($LASTEXITCODE -ne 0) { throw "Packaged startup failed: $($probe[0]) ($LASTEXITCODE)" }
+    }
+    if (-not $NoPathUpdate) {
+        & (Join-Path $InstallDir 'vox.exe') --install-command
+        if ($LASTEXITCODE -gt 1 -or $LASTEXITCODE -lt 0) { throw "vox PATH registration failed ($LASTEXITCODE); use -Reconcile to retry or -NoPathUpdate for portable mode" }
     }
     if ($Wizard) {
         & (Join-Path $InstallDir 'localvox-light.exe') --cwd $InstallDir --setup

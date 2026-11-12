@@ -74,9 +74,9 @@ class PackageContracts(unittest.TestCase):
         with patch.object(package, 'run', side_effect=command):
             package.relocate_macos(self.out)
         changes = [c for c in calls if c[:2] == ('install_name_tool', '-change')]
-        self.assertEqual(len(changes), 3)
+        self.assertEqual(len(changes), 4)
         self.assertTrue(all(c[3] == '@loader_path/libvosk.dylib' for c in changes))
-        self.assertEqual(len([c for c in calls if c[0] == 'codesign']), 4)
+        self.assertEqual(len([c for c in calls if c[0] == 'codesign']), 5)
 
     def test_missing_extra_native_sdk_is_rejected_before_staging(self):
         with self.assertRaisesRegex(RuntimeError, 'Missing native SDK directory'):
@@ -141,7 +141,7 @@ class PackageContracts(unittest.TestCase):
                 if failure == 'traversal':
                     out.writestr('../escaped.txt', 'refuse this')
             result = subprocess.run([POWERSHELL, '-NoProfile', '-File', str(ROOT / 'scripts/install-release.ps1'),
-                                     '-Archive', str(archive), '-InstallDir', str(install), '-SkipModels'],
+                                     '-Archive', str(archive), '-InstallDir', str(install), '-SkipModels', '-NoPathUpdate'],
                                     capture_output=True, timeout=45)
             self.assertNotEqual(result.returncode, 0, failure)
             self.assertEqual(list(p.name for p in install.iterdir()), ['.env'])
@@ -159,7 +159,7 @@ function Invoke-RestMethod {
  return @{tag_name='old';assets=@(@{name='localvox-light-x86_64-pc-windows-msvc.exe';browser_download_url='https://example.invalid/old'})}
 }
 function Invoke-WebRequest { throw 'Unexpected download of an incomplete release' }
-& $Installer -InstallDir $Destination -SkipModels
+& $Installer -InstallDir $Destination -SkipModels -NoPathUpdate
 ''', encoding='utf-8-sig')
         install = self.root / 'must not be created'
         for mode in ('old', 'network'):
@@ -189,12 +189,12 @@ function Invoke-WebRequest { throw 'Unexpected download of an incomplete release
         wrapper.write_text('''param($Installer,$Archive,$Destination)
 $ErrorActionPreference='Stop'
 $PSNativeCommandUseErrorActionPreference=$true
-& $Installer -Archive $Archive -InstallDir $Destination -SkipModels
+& $Installer -Archive $Archive -InstallDir $Destination -SkipModels -NoPathUpdate
 if ($LASTEXITCODE -ne 0) { throw "Installer leaked native exit code $LASTEXITCODE" }
 Set-Content -LiteralPath (Join-Path $Destination 'direct-call-completed') -Value 'ok'
 ''', encoding='utf-8-sig')
         for iteration in range(2):
-            arguments = ([str(ROOT / 'scripts/install-release.ps1'), '-Archive', os.environ['LOCALVOX_DELIVERY_ARCHIVE'], '-InstallDir', str(install), '-SkipModels']
+            arguments = ([str(ROOT / 'scripts/install-release.ps1'), '-Archive', os.environ['LOCALVOX_DELIVERY_ARCHIVE'], '-InstallDir', str(install), '-SkipModels', '-NoPathUpdate']
                          if iteration == 0 else [str(wrapper), '-Installer', str(ROOT / 'scripts/install-release.ps1'), '-Archive', os.environ['LOCALVOX_DELIVERY_ARCHIVE'], '-Destination', str(install)])
             result = subprocess.run([POWERSHELL, '-NoProfile', '-File', *arguments],
                                     capture_output=True, timeout=90)
@@ -207,7 +207,7 @@ Set-Content -LiteralPath (Join-Path $Destination 'direct-call-completed') -Value
         self.assertTrue((install / 'direct-call-completed').is_file())
         before = {p.relative_to(install): (p.read_bytes(), p.stat().st_mtime_ns) for p in install.rglob('*') if p.is_file()}
         result = subprocess.run([POWERSHELL, '-NoProfile', '-File', str(ROOT / 'scripts/install-release.ps1'),
-                                 '-InstallDir', str(install), '-Archive', str(self.root / 'must-not-open.zip'), '-Reconcile', '-SkipModels'],
+                                 '-InstallDir', str(install), '-Archive', str(self.root / 'must-not-open.zip'), '-Reconcile', '-SkipModels', '-NoPathUpdate'],
                                 capture_output=True, timeout=90)
         self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
         self.assertIn('download and unpack skipped', result.stdout.decode(errors='replace'))
@@ -242,13 +242,14 @@ class UnixInstallerContracts(unittest.TestCase):
         file.write_text('#!/usr/bin/env bash\n' + text + '\n', encoding='utf-8', newline='\n')
         file.chmod(0o755)
 
-    def archive(self, target='aarch64-apple-darwin', corrupt=False):
+    def archive(self, target='aarch64-apple-darwin', corrupt=False, registration_status=0):
         folder = self.root / ('bundle-' + target)
         folder.mkdir(exist_ok=True)
         for name, content in {
             'localvox-light': '#!/usr/bin/env bash\nexit 0\n',
             'localvox-process': '#!/usr/bin/env bash\necho localvox-worker/3\n',
             'localvox-tui': '#!/usr/bin/env bash\necho localvox-tui\n',
+            'vox': '#!/usr/bin/env bash\nif [[ "$1" = --install-command ]]; then\n printf called > "${0%/*}/registration-called"\n echo "fixture registration status ' + str(registration_status) + '"\n exit ' + str(registration_status) + '\nfi\nexit 0\n',
             'libvosk.dylib': 'native fixture', '.env.defaults': 'LOCALVOX_LIGHT_INCREMENTAL_TRANSCRIBE=on\n',
             'scripts/models.json': '{}',
             'scripts/setup-ollama.sh': '#!/usr/bin/env bash\nexit 99\n',
@@ -270,14 +271,30 @@ class UnixInstallerContracts(unittest.TestCase):
                     out.add(file, arcname=file.relative_to(folder).as_posix())
         return archive
 
-    def install_archive(self, archive, *extra):
+    def install_archive(self, archive, *extra, register=False):
         prefix = 'export PATH="$(cygpath -u "$1"):$PATH"; shift; exec bash "$@"' if os.name == 'nt' else 'export PATH="$1:$PATH"; shift; exec bash "$@"'
         def unix_path(file):
             value = file.as_posix()
             return '/' + value[0].lower() + value[2:] if os.name == 'nt' else value
         return subprocess.run([BASH, '-c', prefix, 'fixture', self.bin.as_posix(), unix_path(ROOT / 'scripts/install-release.sh'),
-                               '--archive=' + unix_path(archive), '--install-dir=' + unix_path(self.install), *extra],
+                               '--archive=' + unix_path(archive), '--install-dir=' + unix_path(self.install),
+                               *([] if register else ['--no-path-update']), *extra],
                               env=self.environment, capture_output=True, timeout=45)
+
+    def test_command_registration_defaults_conflicts_and_failures_without_real_profile_edits(self):
+        for status in (0, 1, 2):
+            with self.subTest(status=status):
+                self.install = self.root / f'registration-{status}'
+                result = self.install_archive(self.archive(registration_status=status), '--skip-models', register=True)
+                self.assertEqual(result.returncode == 0, status <= 1, result.stderr.decode(errors='replace'))
+                self.assertEqual((self.install / 'registration-called').read_text(), 'called')
+                if status == 2:
+                    self.assertFalse((self.install / '.env').exists())
+
+    def test_path_opt_out_never_calls_the_registration_action(self):
+        result = self.install_archive(self.archive(registration_status=2), '--skip-models')
+        self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
+        self.assertFalse((self.install / 'registration-called').exists())
 
     def test_mac_check_before_install_is_readonly_and_needs_no_network(self):
         result = self.install_archive(self.root / 'absent.tar.gz', '--check')

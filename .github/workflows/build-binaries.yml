@@ -134,13 +134,14 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libasound2-dev pkg-config patchelf jq unzip
+          sudo apt-get install -y libasound2-dev pkg-config patchelf jq unzip zsh fish
 
       - name: Ensure macOS installer JSON tool
         if: runner.os == 'macOS'
         shell: bash
         run: |
           if ! command -v jq >/dev/null; then brew install jq; fi
+          if ! command -v fish >/dev/null; then brew install fish; fi
 
       - name: Install Vosk native library (Unix)
         if: runner.os != 'Windows'
@@ -206,6 +207,11 @@ jobs:
       # именно так релиз оказался без повара.
       - name: Delivery contracts
         run: python -m unittest discover -s scripts/tests -p "test_*delivery.py" -v
+
+      - name: Native vox registration contracts (isolated PATH/profile fixtures)
+        shell: bash
+        run: |
+          cargo test --release --locked -p localvox-light-terminal --target ${{ matrix.target }} --lib command_path::
 
       - name: Pack and probe the complete product
         shell: bash

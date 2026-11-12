@@ -27,7 +27,8 @@ try {
     }
     if ($Tui) {
         $buildArgs += @('-p', 'localvox-light-terminal', '--bin', 'localvox-tui')
-        $required += 'localvox-tui'
+        $buildArgs += @('--bin', 'vox')
+        $required += @('localvox-tui', 'vox')
     }
 
     # Cargo reports the actual paths, including custom target directories/targets.

@@ -3216,6 +3216,7 @@ dependencies = [
  "clap",
  "crossbeam-channel",
  "crossterm",
+ "dotenvy",
  "insta",
  "localvox-light-client",
  "localvox-light-process",
@@ -3230,6 +3231,7 @@ dependencies = [
  "tui-textarea",
  "vt100",
  "windows 0.62.2",
+ "winreg 0.52.0",
 ]
 
 [[package]]

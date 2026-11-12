@@ -256,6 +256,15 @@ fn wait_until(
 
 #[test]
 fn real_terminal_accepts_paste_resize_and_restores_screen_on_quit() {
+    exercise_terminal(false);
+}
+
+#[test]
+fn vox_uses_portable_settings_from_another_directory_and_reuses_the_running_api() {
+    exercise_terminal(true);
+}
+
+fn exercise_terminal(vox: bool) {
     let api = ApiFixture::new();
     let pty = native_pty_system();
     let pair = pty
@@ -266,8 +275,45 @@ fn real_terminal_accepts_paste_resize_and_restores_screen_on_quit() {
             pixel_height: 0,
         })
         .unwrap();
-    let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_localvox-tui"));
-    command.args(["--address", &api.address, "--ascii", "--no-color"]);
+    let portable = tempfile::tempdir().unwrap();
+    let install = portable.path().join("LocalVox журнал");
+    let caller = portable.path().join("caller");
+    let mut command = if vox {
+        std::fs::create_dir(&install).unwrap();
+        std::fs::create_dir(&caller).unwrap();
+        let executable = install.join(if cfg!(windows) { "vox.exe" } else { "vox" });
+        std::fs::copy(env!("CARGO_BIN_EXE_vox"), &executable).unwrap();
+        std::fs::write(
+            install.join(".env.defaults"),
+            include_str!("../../../.env.defaults"),
+        )
+        .unwrap();
+        std::fs::write(
+            install.join(".env"),
+            format!(
+                "LOCALVOX_API_BIND={}\nLOCALVOX_API_TOKEN=\nLOCALVOX_LIGHT_TUI=off\n",
+                api.address.strip_prefix("http://").unwrap()
+            ),
+        )
+        .unwrap();
+        std::fs::write(caller.join(".env"), "LOCALVOX_TUI_URL=http://127.0.0.1:1\n").unwrap();
+        let mut command = CommandBuilder::new(executable);
+        command.cwd(&caller);
+        command.args(["--ascii", "--no-color"]);
+        command
+    } else {
+        let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_localvox-tui"));
+        command.args(["--address", &api.address, "--ascii", "--no-color"]);
+        command
+    };
+    // A broken portable-config implementation must never fall back to a real
+    // developer daemon on 3017. Only the temporary .env may select the fixture.
+    if vox {
+        command.env_remove("LOCALVOX_TUI_URL");
+    } else {
+        command.env("LOCALVOX_TUI_URL", "http://127.0.0.1:1");
+    }
+    command.env("LOCALVOX_API_BIND", "127.0.0.1:1");
     command.env("LOCALVOX_API_TOKEN", "");
     let mut child = OwnedChild(pair.slave.spawn_command(command).unwrap());
     drop(pair.slave);

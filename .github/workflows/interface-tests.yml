@@ -181,6 +181,7 @@ jobs:
           npx --yes @fission-ai/openspec@1.13.2 validate fix-unsupported-russian-word-corrections --type change --strict --no-interactive
           npx --yes @fission-ai/openspec@1.13.2 validate showcase-features-and-repair-ci --type change --strict --no-interactive
           npx --yes @fission-ai/openspec@1.13.2 validate fix-hosted-native-builds --type change --strict --no-interactive
+          npx --yes @fission-ai/openspec@1.13.2 validate add-vox-entry-command --type change --strict --no-interactive
           python scripts/check-openspec.py
           git diff --check
       - name: Upload browser diffs, traces and terminal snapshot proposals

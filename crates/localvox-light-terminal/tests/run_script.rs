@@ -94,3 +94,33 @@ fn terminal_binary_runs_from_a_clean_bundle_without_server_or_native_models() {
     );
     assert!(String::from_utf8_lossy(&output.stdout).starts_with("localvox-tui "));
 }
+
+#[test]
+fn vox_version_and_command_check_need_no_models_tty_or_config_writes() {
+    let root = tempfile::tempdir().unwrap();
+    let exe = root
+        .path()
+        .join(if cfg!(windows) { "vox.exe" } else { "vox" });
+    fs::copy(env!("CARGO_BIN_EXE_vox"), &exe).unwrap();
+    let config = root.path().join(".env");
+    fs::write(
+        &config,
+        "invalid fixture config must not be parsed for maintenance\n",
+    )
+    .unwrap();
+    let before = fs::metadata(&config).unwrap().modified().unwrap();
+    let version = Command::new(&exe).arg("--version").output().unwrap();
+    assert!(version.status.success());
+    assert!(String::from_utf8_lossy(&version.stdout).starts_with("vox "));
+    let check = Command::new(&exe)
+        .arg("--check-command")
+        .env("PATH", root.path())
+        .output()
+        .unwrap();
+    assert!(
+        check.status.success(),
+        "{}",
+        String::from_utf8_lossy(&check.stderr)
+    );
+    assert_eq!(before, fs::metadata(&config).unwrap().modified().unwrap());
+}

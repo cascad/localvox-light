@@ -2,7 +2,7 @@
 # Install the complete macOS/Linux bundle. --archive=path installs an Actions archive.
 set -euo pipefail
 REPO=cascad/localvox-light TAG=latest INSTALL_DIR="$(pwd)/localvox-light"
-ARCHIVE='' SKIP_MODELS=0 SKIP_BINARY=0 CHECK=0 WIZARD=0 RECONCILE=0
+ARCHIVE='' SKIP_MODELS=0 SKIP_BINARY=0 CHECK=0 WIZARD=0 RECONCILE=0 NO_PATH_UPDATE=0
 MODEL_ARGS=()
 for arg in "$@"; do
   case "$arg" in
@@ -12,7 +12,8 @@ for arg in "$@"; do
     --required-only) MODEL_ARGS+=(--required-only);;
     --skip-models) SKIP_MODELS=1;; --skip-binary) SKIP_BINARY=1;;
     --check) CHECK=1;; --wizard) WIZARD=1;; --reconcile) RECONCILE=1;;
-    -h|--help) echo 'install-release.sh [--install-dir=PATH] [--tag=TAG] [--archive=PATH] [--required-only] [--skip-models] [--skip-binary] [--check | --wizard | --reconcile]'; exit 0;;
+    --no-path-update) NO_PATH_UPDATE=1;;
+    -h|--help) echo 'install-release.sh [--install-dir=PATH] [--tag=TAG] [--archive=PATH] [--required-only] [--skip-models] [--skip-binary] [--no-path-update] [--check | --wizard | --reconcile]'; exit 0;;
     *) echo "Unknown argument: $arg" >&2; exit 2;;
   esac
 done
@@ -35,7 +36,7 @@ case "$(uname -s)/$(uname -m)" in
  Linux/aarch64|Linux/arm64) TARGET=aarch64-unknown-linux-gnu; NATIVE=libvosk.so;;
  *) fail "Unsupported platform: $(uname -s)/$(uname -m)";;
 esac
-REQUIRED=(localvox-light localvox-process localvox-tui "$NATIVE" .env.defaults scripts/models.json scripts/fetch-models.sh scripts/setup-ollama.sh licenses/rs-morphy4/NOTICE)
+REQUIRED=(localvox-light localvox-process localvox-tui vox "$NATIVE" .env.defaults scripts/models.json scripts/fetch-models.sh scripts/setup-ollama.sh licenses/rs-morphy4/NOTICE)
 installed_bundle_valid() {
  local name expected
  [[ -f "$INSTALL_DIR/bundle.json" ]] || return 1
@@ -50,7 +51,12 @@ installed_bundle_valid() {
 }
 if [[ "$CHECK" = 1 ]]; then
  installed_bundle_valid || { echo "Missing or invalid complete installation: $INSTALL_DIR"; exit 2; }
- exec "$INSTALL_DIR/localvox-light" --cwd "$INSTALL_DIR" --setup-check
+ READY=0
+ "$INSTALL_DIR/localvox-light" --cwd "$INSTALL_DIR" --setup-check || READY=$?
+ COMMAND_STATUS=0
+ "$INSTALL_DIR/vox" --check-command || COMMAND_STATUS=$?
+ if [[ "$COMMAND_STATUS" -gt "$READY" ]]; then READY=$COMMAND_STATUS; fi
+ exit "$READY"
 fi
 if [[ "$RECONCILE" = 1 ]]; then
  if installed_bundle_valid; then SKIP_BINARY=1; echo 'Installed bundle is intact; download and unpack skipped.'; fi
@@ -97,12 +103,18 @@ fi
 mkdir -p "$INSTALL_DIR"
 INSTALL_DIR="$(cd "$INSTALL_DIR" && pwd)"
 for name in "${REQUIRED[@]}"; do [[ -f "$INSTALL_DIR/$name" ]] || fail "Installation missing: $name"; done
-for name in localvox-light localvox-process localvox-tui localvox-desktop; do
+for name in localvox-light localvox-process localvox-tui vox localvox-desktop; do
  if [[ -f "$INSTALL_DIR/$name" && ! -x "$INSTALL_DIR/$name" ]]; then chmod +x "$INSTALL_DIR/$name"; fi
 done
 "$INSTALL_DIR/localvox-process" --worker-protocol >/dev/null
 "$INSTALL_DIR/localvox-tui" --version >/dev/null
+"$INSTALL_DIR/vox" --version >/dev/null
 "$INSTALL_DIR/localvox-light" --help >/dev/null
+if [[ "$NO_PATH_UPDATE" = 0 ]]; then
+ COMMAND_STATUS=0
+ "$INSTALL_DIR/vox" --install-command || COMMAND_STATUS=$?
+ [[ "$COMMAND_STATUS" -le 1 ]] || fail "vox PATH registration failed ($COMMAND_STATUS); retry --reconcile or use --no-path-update"
+fi
 if [[ "$WIZARD" = 1 ]]; then
  "$INSTALL_DIR/localvox-light" --cwd "$INSTALL_DIR" --setup
  exit 0
