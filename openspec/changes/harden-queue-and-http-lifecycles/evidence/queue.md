@@ -43,6 +43,6 @@ RUST_TEST_THREADS=2. Модели/пользовательский archive/daemo
   artifact verification, timing budgets, pending/live/manual policy, очередь при
   storage contention и coordinator outcome/startup recovery.
 
-HTTP RAII — следующий этап этого change. Hardware/Mac/ONNX/native ASR не проверялись
+HTTP RAII и завершение change — [финальный прогон](final.md). Hardware/Mac/ONNX/native ASR не проверялись
 этим прогоном; новый performance gate не заявлен. Нет общей multi-file транзакции
 архива и очереди; существующие void wrappers не стали новым error API.

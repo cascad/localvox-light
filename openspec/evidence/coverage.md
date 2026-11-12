@@ -523,4 +523,5 @@ main specs и прежние свидетельства не переписан�
 
 | Requirement | Код | Проверка | Граница |
 |---|---|---|---|
-| PIPE-002/008/010/011 | [queue](../../crates/localvox-light-core/src/jobs.rs) | [test-run](../changes/harden-queue-and-http-lifecycles/evidence/queue.md): исходные 2 failed воспроизведены; после fix 78 jobs / 440 core / 16 coordinator passed | Checked update/removal/forced enqueue; прежние reset/budgets/schema сохранены; HTTP этап впереди, hardware/Mac/performance not-run |
+| PIPE-002/008/010/011 | [queue](../../crates/localvox-light-core/src/jobs.rs) | [test-run](../changes/harden-queue-and-http-lifecycles/evidence/queue.md): исходные 2 failed воспроизведены; после fix 78 jobs / 440 core / 16 coordinator passed | Checked update/removal/forced enqueue; прежние reset/budgets/schema сохранены; hardware/Mac/performance not-run |
+| API-003 | [HTTP](../../crates/localvox-light-api/src/http.rs), [budget](../../crates/localvox-light-api/src/http/budget.rs) | [test-run](../changes/harden-queue-and-http-lifecycles/evidence/http.md): 5 budget/concurrency/unwind/real HTTP; [общий прогон](../changes/harden-queue-and-http-lifecycles/evidence/final.md): 440 core / 89 API / 27 app, release/package | 32 slots, spawn failure/503/recovery; LLM limit/body/auth сохранены; process abort/OS exhaustion/native Mac not-run |

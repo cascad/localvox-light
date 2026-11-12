@@ -60,6 +60,7 @@ jobs:
           cargo test --locked -p localvox-light-core processing:: --lib
           cargo test --locked -p localvox-light-core artifacts:: --lib
           cargo test --locked -p localvox-light-api --test journal_http_contract
+          cargo test --locked -p localvox-light-api --lib budget
           cargo test --locked -p localvox-light-api journal_http_ --lib
           cargo test --locked -p localvox-light-api archive::mutations --lib
           cargo test --locked -p localvox-light-api http::tests::workspace --lib

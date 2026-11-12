@@ -37,6 +37,9 @@ use tiny_http::{Header, Method, Response, Server};
 
 use crate::archive::{render_transcript_text, Archive};
 
+mod budget;
+use budget::RequestBudget;
+
 /// Ceiling for the POST body: notes, not file uploads.
 const MAX_BODY_BYTES: usize = 1 << 20;
 /// Ceiling on concurrent requests: a local API, not the public web.
@@ -84,6 +87,33 @@ pub fn run_http(archive: Arc<Archive>, cfg: HttpConfig) -> Result<()> {
 /// The serving loop: a thread per request, so that a slow client does not block the
 /// others; the number of concurrent ones is bounded (otherwise 503).
 pub fn serve(server: Server, archive: Arc<Archive>, cfg: HttpConfig) -> Result<()> {
+    serve_with(
+        &server,
+        archive,
+        cfg,
+        RequestBudget::new(MAX_INFLIGHT),
+        spawn_request,
+    )
+}
+
+type RequestHandler = Box<dyn FnOnce() + Send + 'static>;
+
+fn spawn_request(handler: RequestHandler) -> std::io::Result<()> {
+    std::thread::Builder::new()
+        .name("http-req".into())
+        .spawn(handler)
+        .map(|_| ())
+}
+
+// A narrow spawn boundary also lets tests reject a thread start or hold handlers
+// without exhausting OS threads. Production always uses spawn_request above.
+fn serve_with(
+    server: &Server,
+    archive: Arc<Archive>,
+    cfg: HttpConfig,
+    budget: RequestBudget,
+    mut spawn: impl FnMut(RequestHandler) -> std::io::Result<()>,
+) -> Result<()> {
     tracing::info!(
         "HTTP API: http://{} (token: {})",
         cfg.bind,
@@ -94,23 +124,18 @@ pub fn serve(server: Server, archive: Arc<Archive>, cfg: HttpConfig) -> Result<(
         }
     );
     let cfg = Arc::new(cfg);
-    let inflight = Arc::new(AtomicUsize::new(0));
     for request in server.incoming_requests() {
-        if inflight.load(Ordering::Relaxed) >= MAX_INFLIGHT {
+        let Some(permit) = budget.try_acquire() else {
             respond_json(request, 503, json!({"error": "занято, повторите позже"}));
             continue;
-        }
-        inflight.fetch_add(1, Ordering::Relaxed);
+        };
         let archive = Arc::clone(&archive);
         let cfg = Arc::clone(&cfg);
-        let inflight = Arc::clone(&inflight);
-        std::thread::Builder::new()
-            .name("http-req".into())
-            .spawn(move || {
-                handle_request(&archive, &cfg, request);
-                inflight.fetch_sub(1, Ordering::Relaxed);
-            })
-            .ok();
+        if let Err(error) = spawn(Box::new(move || {
+            permit.run(|| handle_request(&archive, &cfg, request));
+        })) {
+            tracing::warn!("HTTP request thread could not start: {error}");
+        }
     }
     Ok(())
 }
@@ -1176,6 +1201,7 @@ fn percent_decode(s: &str) -> String {
 mod tests {
     #[cfg(windows)]
     mod cross_clients;
+    mod request_budget;
     mod settings;
     use super::*;
     use std::fs;

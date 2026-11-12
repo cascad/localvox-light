@@ -50,6 +50,12 @@ atomic writer артефактов; ни HTTP, ни setup не имеют соб
 
 ## Сохранённая совместимость
 
+Переходы Job публикуются через общие checked update/commit и rollback;
+каждая операция сохраняет собственные правила phase/reset/force/retry. Удаления
+откатывают исходный порядок, а новый forced recook публикуется целиком одним save.
+HTTP-handler владеет RAII permit общего request budget до завершения/drop/unwind;
+отказ создания потока не оставляет занятый slot. Лимиты и протокол сохраняются.
+
 - Cook определяет язык/recipe и проверяет свежие SHA до reuse и после load. ASR
   package знает файлы/конструктор backend, но не управляет кешем и очередью.
 - HTTP dialect выбирается внутри adapter по прежнему правилу URL; Claude CLI

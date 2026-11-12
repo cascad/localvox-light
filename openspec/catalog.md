@@ -208,3 +208,9 @@ first-run Windows/Mac Ollama и настоящие большие downloads — 
 [Проверки](changes/consolidate-settings-persistence/evidence/implementation.md): единый
 snapshot/atomic writer для HTTP и setup, сохранность при Windows replace denial,
 независимые edits и повтор без записи. Контракты CFG и setup не меняются.
+
+Два ограниченных reliability-среза: [queue/HTTP lifecycles](changes/harden-queue-and-http-lifecycles/proposal.md).
+[Queue](changes/harden-queue-and-http-lifecycles/evidence/queue.md): подтверждённый
+rollback при storage failure и единый forced enqueue. [HTTP](changes/harden-queue-and-http-lifecycles/evidence/http.md):
+владение request slot до Drop/unwind, сохранённые 32/4 и реальный overload/recovery.
+Новых действий/форматов нет; native Mac и аппаратная приёмка не закрыты этим срезом.
