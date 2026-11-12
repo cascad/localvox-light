@@ -203,6 +203,11 @@ pub(super) fn draw(f: &mut Frame, a: &App, area: Rect, t: Theme) {
         }
         let hint = if matches!(form.kind, crate::app::FormKind::Note) {
             format!("Ctrl+R предложить слот · {}", a.route_hints.join(", "))
+        } else if matches!(
+            form.kind,
+            crate::app::FormKind::Confirm(crate::io::Task::Shutdown)
+        ) {
+            "Запись закроется. Очередь продолжится при запуске.".into()
         } else {
             String::new()
         };
@@ -214,6 +219,11 @@ pub(super) fn draw(f: &mut Frame, a: &App, area: Rect, t: Theme) {
             Line::from(Span::styled(
                 if matches!(form.kind, crate::app::FormKind::Seek) {
                     "↑↓ число · Tab поле · Enter перейти · Esc отменить"
+                } else if matches!(
+                    form.kind,
+                    crate::app::FormKind::Confirm(crate::io::Task::Shutdown)
+                ) {
+                    "Ctrl+Enter / Ctrl+S завершить · Esc отменить"
                 } else if matches!(form.kind, crate::app::FormKind::Import) {
                     "Enter импортировать · Esc отменить"
                 } else if matches!(

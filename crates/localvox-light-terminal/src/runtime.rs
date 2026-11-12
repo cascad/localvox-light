@@ -138,13 +138,15 @@ pub fn run(mut client: Client, mut app: App) -> Result<()> {
                             | Resource::Queue
                             | Resource::Action
                             | Resource::Control
+                            | Resource::Shutdown
                             | Resource::Route
                     );
                     if !network.submit(if global { 0 } else { app.epoch }, resource, task) {
                         app.submission_rejected(resource);
                     }
                 }
-                if last_record.elapsed() >= Duration::from_secs(1) {
+                if app.shutdown_started.is_none() && last_record.elapsed() >= Duration::from_secs(1)
+                {
                     network.submit(
                         0,
                         Resource::Record,
@@ -152,7 +154,7 @@ pub fn run(mut client: Client, mut app: App) -> Result<()> {
                     );
                     last_record = Instant::now();
                 }
-                if last_poll.elapsed() >= Duration::from_secs(3) {
+                if app.shutdown_started.is_none() && last_poll.elapsed() >= Duration::from_secs(3) {
                     app.refresh();
                     last_poll = Instant::now();
                 }

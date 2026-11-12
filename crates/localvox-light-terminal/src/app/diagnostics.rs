@@ -72,6 +72,7 @@ impl App {
             Task::SaveSettings(_) => ("Сохранение настроек", None),
             Task::Start(_) => ("Начало записи", None),
             Task::Stop => ("Остановка записи", self.record.session.clone()),
+            Task::Shutdown => ("Завершение LocalVox", None),
             Task::CreateAsk(_) | Task::CreateAskFile { .. } => ("Отправка вопроса", None),
             Task::Note(..) => ("Сохранение заметки", None),
             _ => ("Выполнение команды", None),

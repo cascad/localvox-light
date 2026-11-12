@@ -87,10 +87,22 @@ pub fn run_http(archive: Arc<Archive>, cfg: HttpConfig) -> Result<()> {
 /// The serving loop: a thread per request, so that a slow client does not block the
 /// others; the number of concurrent ones is bounded (otherwise 503).
 pub fn serve(server: Server, archive: Arc<Archive>, cfg: HttpConfig) -> Result<()> {
+    serve_application(server, archive, cfg, None)
+}
+
+/// Only a runtime owner can provide application shutdown. Standalone archive
+/// servers remain readable and cannot claim to shut down an unrelated process.
+pub fn serve_application(
+    server: Server,
+    archive: Arc<Archive>,
+    cfg: HttpConfig,
+    application: Option<Arc<crate::application::ApplicationControl>>,
+) -> Result<()> {
     serve_with(
         &server,
         archive,
         cfg,
+        application,
         RequestBudget::new(MAX_INFLIGHT),
         spawn_request,
     )
@@ -111,6 +123,7 @@ fn serve_with(
     server: &Server,
     archive: Arc<Archive>,
     cfg: HttpConfig,
+    application: Option<Arc<crate::application::ApplicationControl>>,
     budget: RequestBudget,
     mut spawn: impl FnMut(RequestHandler) -> std::io::Result<()>,
 ) -> Result<()> {
@@ -131,8 +144,9 @@ fn serve_with(
         };
         let archive = Arc::clone(&archive);
         let cfg = Arc::clone(&cfg);
+        let application = application.clone();
         if let Err(error) = spawn(Box::new(move || {
-            permit.run(|| handle_request(&archive, &cfg, request));
+            permit.run(|| handle_request(&archive, &cfg, application.as_ref(), request));
         })) {
             tracing::warn!("HTTP request thread could not start: {error}");
         }
@@ -277,7 +291,12 @@ fn serve_audio_wav(archive: &Archive, request: tiny_http::Request, name: &str) {
     }
 }
 
-fn handle_request(archive: &Archive, cfg: &HttpConfig, mut request: tiny_http::Request) {
+fn handle_request(
+    archive: &Archive,
+    cfg: &HttpConfig,
+    application: Option<&Arc<crate::application::ApplicationControl>>,
+    mut request: tiny_http::Request,
+) {
     let url = request.url().to_string();
     let method = request.method().clone();
 
@@ -464,6 +483,20 @@ fn handle_request(archive: &Archive, cfg: &HttpConfig, mut request: tiny_http::R
         }
     }
 
+    if method == Method::Post && split_url(&url).0 == "/api/application/shutdown" {
+        shutdown_application(request, application, &body);
+        return;
+    }
+    if !matches!(method, Method::Get | Method::Head | Method::Options)
+        && application.is_some_and(|c| c.is_stopping())
+    {
+        respond_json(
+            request,
+            503,
+            json!({"error": "LocalVox завершается; новые действия не принимаются"}),
+        );
+        return;
+    }
     let (status, payload) = respond(
         archive,
         cfg,
@@ -474,6 +507,42 @@ fn handle_request(archive: &Archive, cfg: &HttpConfig, mut request: tiny_http::R
         &body,
     );
     respond_json(request, status, payload);
+}
+
+fn shutdown_application(
+    request: tiny_http::Request,
+    application: Option<&Arc<crate::application::ApplicationControl>>,
+    body: &str,
+) {
+    let confirmed = serde_json::from_str::<Value>(body)
+        .ok()
+        .is_some_and(|v| v.get("confirm") == Some(&Value::Bool(true)));
+    if !confirmed {
+        respond_json(request, 400, json!({"error": "Нужно явное confirm=true"}));
+        return;
+    }
+    let Some(application) = application else {
+        respond_json(
+            request,
+            501,
+            json!({"error": "Этот сервер не поддерживает завершение приложения; обновите демон"}),
+        );
+        return;
+    };
+    let guard = match application.request() {
+        Ok(guard) => guard,
+        Err(error) => {
+            respond_json(request, 409, json!({"error": error}));
+            return;
+        }
+    };
+    match guard.wait(std::time::Duration::from_secs(60)) {
+        Ok(()) => respond_json(request, 200, json!({"completed": true})),
+        Err(error) => respond_json(request, 500, json!({"error": error})),
+    }
+    // The owner may exit only after the response has been attempted (or its
+    // bounded drain expires). Dropping the request before respond is too early.
+    drop(guard);
 }
 
 fn respond_json(request: tiny_http::Request, status: u16, payload: Value) {
@@ -1199,6 +1268,7 @@ fn percent_decode(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    mod application;
     #[cfg(windows)]
     mod cross_clients;
     mod request_budget;
@@ -1499,7 +1569,7 @@ mod tests {
                     let archive = archive.clone();
                     let config = config.clone();
                     requests.push(std::thread::spawn(move || {
-                        handle_request(&archive, &config, request)
+                        handle_request(&archive, &config, None, request)
                     }));
                     let mut index = 0;
                     while index < requests.len() {

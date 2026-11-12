@@ -19,6 +19,7 @@ struct ApiFixture {
     stop: Arc<AtomicBool>,
     stops: Arc<AtomicUsize>,
     recording: Arc<AtomicBool>,
+    shutdowns: Arc<AtomicUsize>,
     thread: Option<std::thread::JoinHandle<()>>,
 }
 impl ApiFixture {
@@ -34,6 +35,8 @@ impl ApiFixture {
         let stops = Arc::new(AtomicUsize::new(0));
         let stopped = stops.clone();
         let recording = Arc::new(AtomicBool::new(true));
+        let shutdowns = Arc::new(AtomicUsize::new(0));
+        let full_exits = shutdowns.clone();
         let active = recording.clone();
         let preview = Arc::new(AtomicUsize::new(0));
         let progress = preview.clone();
@@ -46,8 +49,9 @@ impl ApiFixture {
                 serde_json::from_str(include_str!("../../../tests/fixtures/workspace.json"))
                     .unwrap();
             while !stopping.load(Ordering::Relaxed) {
-                if let Some(request) = server.recv_timeout(Duration::from_millis(50)).unwrap() {
-                    let path = request.url().split('?').next().unwrap();
+                if let Some(mut request) = server.recv_timeout(Duration::from_millis(50)).unwrap() {
+                    let path = request.url().split('?').next().unwrap().to_owned();
+                    let path = path.as_str();
                     let mode = activity_state.load(Ordering::Relaxed);
                     if matches!(path, "/api/sessions" | "/api/queue") {
                         reads.fetch_add(1, Ordering::Relaxed);
@@ -76,13 +80,27 @@ impl ApiFixture {
                         continue;
                     }
                     let body = if request.method().as_str() == "POST" {
-                        assert_eq!(
-                            path, "/api/record/stop",
-                            "client must not shut down the daemon or replay an action"
-                        );
-                        stopped.fetch_add(1, Ordering::Relaxed);
-                        active.store(false, Ordering::Relaxed);
-                        serde_json::json!({"msg":"Остановлено"})
+                        match path {
+                            "/api/application/shutdown" => {
+                                let mut body = String::new();
+                                request.as_reader().read_to_string(&mut body).unwrap();
+                                assert_eq!(
+                                    serde_json::from_str::<serde_json::Value>(&body).unwrap(),
+                                    serde_json::json!({"confirm":true})
+                                );
+                                full_exits.fetch_add(1, Ordering::Relaxed);
+                                active.store(false, Ordering::Relaxed);
+                                // Let ConPTY observe the pending state before acknowledgement.
+                                std::thread::sleep(Duration::from_millis(150));
+                                serde_json::json!({"completed":true})
+                            }
+                            "/api/record/stop" => {
+                                stopped.fetch_add(1, Ordering::Relaxed);
+                                active.store(false, Ordering::Relaxed);
+                                serde_json::json!({"msg":"Остановлено"})
+                            }
+                            _ => panic!("unexpected mutation: {path}"),
+                        }
                     } else {
                         let revision = progress.load(Ordering::Relaxed);
                         let info = serde_json::json!({"generation":"pty-g1","revision":revision,"snapshot":format!("snapshot{revision}"),"audio_end_sec":revision*20,"text_end_sec":revision*20,"stt_end_sec":revision*20,"sealed_end_sec":revision*25});
@@ -172,6 +190,7 @@ impl ApiFixture {
             stop,
             stops,
             recording,
+            shutdowns,
             thread: Some(thread),
         }
     }
@@ -237,10 +256,13 @@ fn wait_until(
                 screen.process(&bytes);
                 all.extend(bytes);
             }
-            Err(e) => panic!(
-                "PTY waiting for {needle}: {e}; screen: {}",
-                screen.screen().contents()
-            ),
+            Err(e) => {
+                let (rows, cols) = screen.screen().size();
+                let last_rows: Vec<_> = (rows.saturating_sub(2)..rows)
+                    .map(|row| (row, screen.screen().contents_between(row, 0, row, cols)))
+                    .collect();
+                panic!("PTY waiting for {needle}: {e}; size {rows}x{cols}, last rows {last_rows:?}; screen: {}", screen.screen().contents())
+            }
         };
         assert!(all.len() < 1024 * 1024, "terminal output is bounded");
         // ConPTY's inherit-cursor handshake asks its host terminal for a DSR reply.
@@ -256,15 +278,29 @@ fn wait_until(
 
 #[test]
 fn real_terminal_accepts_paste_resize_and_restores_screen_on_quit() {
-    exercise_terminal(false);
+    exercise_terminal(false, false);
+}
+
+#[test]
+fn terminal_regions_keep_unwritten_blank_cells_at_their_columns() {
+    let mut parser = vt100::Parser::new(24, 80, 0);
+    // ConPTY may skip a blank with a cursor move instead of writing a space.
+    parser.process(b"\x1b[24;2HF8\x1b[1Cstop");
+    assert!(parser.screen().cell(23, 3).unwrap().contents().is_empty());
+    assert_eq!(parser.screen().contents_between(23, 1, 23, 12), "F8 stop");
 }
 
 #[test]
 fn vox_uses_portable_settings_from_another_directory_and_reuses_the_running_api() {
-    exercise_terminal(true);
+    exercise_terminal(true, false);
 }
 
-fn exercise_terminal(vox: bool) {
+#[test]
+fn vox_full_exit_requires_confirmation_and_waits_for_shutdown_ack() {
+    exercise_terminal(true, true);
+}
+
+fn exercise_terminal(vox: bool, full_exit: bool) {
     let api = ApiFixture::new();
     let pty = native_pty_system();
     let pair = pty
@@ -484,7 +520,50 @@ fn exercise_terminal(vox: bool) {
         &mut queries,
         deadline,
     );
-    writer.write_all(b"\x1b[21~").unwrap(); // F10, including an open form
+    if full_exit {
+        // Close the existing editor, open palette, select the last named action.
+        writer.write_all(b"\x1b").unwrap();
+        writer.flush().unwrap();
+        wait_until(
+            "closed editor",
+            |_, s| !s.contents().contains("Название"),
+            &mut all,
+            &mut screen,
+            &rx,
+            &mut writer,
+            &mut queries,
+            deadline,
+        );
+        writer.write_all(b":").unwrap();
+        writer.flush().unwrap();
+        wait_for(
+            "Действия",
+            &mut all,
+            &mut screen,
+            &rx,
+            &mut writer,
+            &mut queries,
+            deadline,
+        );
+        writer.write_all(b"\x1b[A\r").unwrap();
+        writer.flush().unwrap();
+        wait_for(
+            "Введите ДА для подтверждения",
+            &mut all,
+            &mut screen,
+            &rx,
+            &mut writer,
+            &mut queries,
+            deadline,
+        );
+        assert_eq!(api.shutdowns.load(Ordering::Relaxed), 0);
+        assert!(screen.screen().contents().contains("Запись закроется"));
+        writer
+            .write_all("\x1b[200~ДА\x1b[201~\x13".as_bytes())
+            .unwrap();
+    } else {
+        writer.write_all(b"\x1b[21~").unwrap(); // F10, including an open form
+    }
     writer.flush().unwrap();
     wait_for(
         "\x1b[?1049l",
@@ -507,7 +586,11 @@ fn exercise_terminal(vox: bool) {
     let text = String::from_utf8_lossy(&all);
     assert!(text.contains("\x1b[?1049l"), "alternate screen restored");
     assert!(text.contains("\x1b[?2004l"), "bracketed paste restored");
-    assert!(api.recording.load(Ordering::Relaxed));
+    assert_eq!(api.recording.load(Ordering::Relaxed), !full_exit);
+    assert_eq!(
+        api.shutdowns.load(Ordering::Relaxed),
+        usize::from(full_exit)
+    );
     assert_eq!(api.stops.load(Ordering::Relaxed), 1);
 }
 
@@ -842,12 +925,7 @@ fn real_terminal_animates_server_activity_filters_names_and_accepts_russian_comm
         "filtered archive frame",
         |_, screen| {
             let list = (0..36)
-                .map(|row| {
-                    (0..27)
-                        .filter_map(|col| screen.cell(row, col))
-                        .map(|c| c.contents())
-                        .collect::<String>()
-                })
+                .map(|row| screen.contents_between(row, 0, row, 27))
                 .collect::<Vec<_>>()
                 .join("\n");
             list.contains("Вторая встреча") && !list.contains("Активная встреча")
@@ -926,10 +1004,8 @@ fn real_terminal_animates_server_activity_filters_names_and_accepts_russian_comm
     wait_until(
         "one document page",
         |_, screen| {
-            (28..40)
-                .filter_map(|x| screen.cell(9, x))
-                .map(|c| c.contents())
-                .collect::<String>()
+            screen
+                .contents_between(9, 28, 9, 40)
                 .starts_with("Строка 023")
         },
         &mut all,
@@ -951,10 +1027,8 @@ fn real_terminal_animates_server_activity_filters_names_and_accepts_russian_comm
     wait_until(
         "compact footer",
         |_, screen| {
-            (1..12)
-                .filter_map(|x| screen.cell(23, x))
-                .map(|c| c.contents())
-                .collect::<String>()
+            screen
+                .contents_between(23, 1, 23, 12)
                 .starts_with("F8 stop")
         },
         &mut all,
@@ -969,10 +1043,8 @@ fn real_terminal_animates_server_activity_filters_names_and_accepts_russian_comm
     wait_until(
         "resized document page",
         |_, screen| {
-            (1..13)
-                .filter_map(|x| screen.cell(9, x))
-                .map(|c| c.contents())
-                .collect::<String>()
+            screen
+                .contents_between(9, 1, 9, 13)
                 .starts_with("Строка 036")
         },
         &mut all,

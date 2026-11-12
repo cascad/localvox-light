@@ -400,7 +400,7 @@ fn settings_fixture() {
                     .unwrap();
                 continue;
             }
-            handle_request(&archive, &config, request);
+            handle_request(&archive, &config, None, request);
         }
     }
     localvox_light_core::artifacts::atomic_write(

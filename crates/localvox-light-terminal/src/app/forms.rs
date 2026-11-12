@@ -35,8 +35,17 @@ impl App {
         );
     }
     pub(super) fn action(&mut self, t: Task) {
+        if self.shutdown_started.is_some() {
+            return;
+        }
         let resource = crate::io::action_resource(&t);
         if self.pending_actions.insert(resource) {
+            if matches!(t, Task::Shutdown) {
+                self.shutdown_started = Some(self.now_ms);
+                self.status = "Завершение LocalVox · закрытие записи и обработчиков…".into();
+                self.player_effects
+                    .push(crate::player::PlaybackCommand::Stop);
+            }
             self.action_diagnostics
                 .insert(resource, self.action_diagnostic(&t));
             if matches!(
@@ -73,6 +82,9 @@ impl App {
         }
     }
     pub fn submission_rejected(&mut self, resource: Resource) {
+        if resource == Resource::Shutdown {
+            self.shutdown_started = None;
+        }
         self.action_diagnostics.remove(&resource);
         if self.pending_actions.remove(&resource) || self.pending_forms.contains_key(&resource) {
             self.pending_context.remove(&resource);
@@ -89,14 +101,17 @@ impl App {
         }
     }
     pub fn submit_form(&mut self) -> Result<(), String> {
+        if self.shutdown_started.is_some() {
+            return Err("Дождитесь результата завершения LocalVox".into());
+        }
         let Some(f) = self.form.clone() else {
             return Ok(());
         };
         let retained = f.clone();
-        let resource = if matches!(f.kind, FormKind::Start) {
-            Resource::Control
-        } else {
-            Resource::Action
+        let resource = match &f.kind {
+            FormKind::Start => Resource::Control,
+            FormKind::Confirm(task) => crate::io::action_resource(task),
+            _ => Resource::Action,
         };
         if matches!(
             f.kind,

@@ -167,6 +167,7 @@ pub struct App {
     pub status: String,
     pub errors: HashMap<Resource, String>,
     pub quit: bool,
+    pub shutdown_started: Option<u64>,
     pub quit_sequence: Option<QuitSequence>,
     pub detail_parent: Option<DetailParent>,
     pub expanded: bool,
@@ -253,6 +254,7 @@ impl Default for App {
             status: "Подключение…".into(),
             errors: HashMap::new(),
             quit: false,
+            shutdown_started: None,
             quit_sequence: None,
             detail_parent: None,
             expanded: false,
@@ -400,12 +402,25 @@ impl App {
     }
     pub fn tick(&mut self, now_ms: u64) {
         self.now_ms = now_ms;
+        self.update_shutdown_status();
         if !self.quit_pending() {
             self.cancel_quit_confirmation();
         }
-        if self.pending_record.is_some() && now_ms.saturating_sub(self.pending_record_at) > 10_000 {
+        if self.shutdown_started.is_none()
+            && self.pending_record.is_some()
+            && now_ms.saturating_sub(self.pending_record_at) > 10_000
+        {
             self.pending_record = None;
             self.status = "Подтверждение записи не получено — проверьте состояние движка".into();
+        }
+    }
+    fn update_shutdown_status(&mut self) {
+        if let Some(start) = self.shutdown_started {
+            self.status = format!(
+                "Завершение LocalVox · {} · ожидание {}",
+                self.address,
+                timecode(self.now_ms.saturating_sub(start) as f64 / 1000.0)
+            );
         }
     }
     pub fn current_title(&self) -> String {
@@ -725,6 +740,8 @@ pub fn state_symbol(state: &str, ascii: bool) -> &'static str {
     }
 }
 
+#[cfg(test)]
+mod application_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

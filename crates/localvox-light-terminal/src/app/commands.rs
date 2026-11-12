@@ -52,6 +52,7 @@ pub enum Action {
     NarrowList,
     WidenList,
     ResetListWidth,
+    Shutdown,
 }
 
 /// Only this list defines palette order; shortcuts dispatch by Action.
@@ -105,14 +106,26 @@ pub const COMMANDS: &[(Action, &str)] = &[
     (Action::NarrowList, "Список: уже · Ctrl+← в списке"),
     (Action::WidenList, "Список: шире · Ctrl+→ в списке"),
     (Action::ResetListWidth, "Список: стандартная ширина"),
+    (Action::Shutdown, "Завершить LocalVox"),
 ];
 
 impl App {
     pub fn command(&mut self, action: Action) {
         self.cancel_quit_confirmation();
         self.palette = false;
+        if self.shutdown_started.is_some() && action != Action::ErrorConsole {
+            return;
+        }
         let s = self.current.clone().unwrap_or_default();
         match action {
+            Action::Shutdown => {
+                let title = format!("Завершить LocalVox · {}", self.address);
+                self.open(
+                    &title,
+                    FormKind::Confirm(Task::Shutdown),
+                    &[("Введите ДА для подтверждения", "")],
+                );
+            }
             Action::NarrowList => self.resize_list(-4),
             Action::WidenList => self.resize_list(4),
             Action::ResetListWidth => self.reset_list_width(),

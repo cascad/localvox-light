@@ -10,6 +10,7 @@
 //! Tools: `search_transcripts`, `list_sessions`, `get_transcript`,
 //! `get_summary`, `append_note`.
 
+pub mod application;
 pub mod archive;
 pub mod chat;
 pub mod http;

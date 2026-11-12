@@ -485,6 +485,9 @@ fn run_update_yt_dlp() -> i32 {
 /// long enough to be invisible on a power meter.
 const IDLE_TICK: std::time::Duration = std::time::Duration::from_millis(300);
 
+#[cfg(test)]
+mod application_tests;
+
 /// Everything localvox IS when nobody is looking: capture, the voice module, background cooking
 /// and the HTTP API.
 ///
@@ -498,6 +501,7 @@ const IDLE_TICK: std::time::Duration = std::time::Duration::from_millis(300);
 /// to stop as deliberately as it starts.
 struct Daemon {
     running: Arc<AtomicBool>,
+    application: Arc<localvox_light_api::application::ApplicationControl>,
     /// Capture on/off, without tearing the streams down. Shared with the engine.
     ///
     /// Only the tray touches it today, so off Windows the daemon records or does not record and
@@ -534,7 +538,9 @@ impl Daemon {
         reload_gen: Arc<std::sync::atomic::AtomicU64>,
         running: Arc<AtomicBool>,
     ) -> Result<Daemon> {
-        let api_addr = spawn_http_api(&cli.audio_dir).map(|bind| connectable(&bind));
+        let application = localvox_light_api::application::ApplicationControl::new(running.clone());
+        let api_addr =
+            spawn_http_api(&cli.audio_dir, application.clone()).map(|bind| connectable(&bind));
 
         let (voice_hook, voice, voice_status) = init_voice(None);
         eprintln!("Voice module: {voice_status}");
@@ -601,6 +607,7 @@ impl Daemon {
 
         Ok(Daemon {
             running,
+            application,
             record_pcm,
             api_addr,
             work_dir: cli.audio_dir.clone(),
@@ -680,8 +687,14 @@ impl Daemon {
         if let Some(e) = fatal {
             errors.push(format!("recording engine died: {e}"));
         }
-        anyhow::ensure!(errors.is_empty(), "{}", errors.join("; "));
-        Ok(())
+        let outcome = if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors.join("; "))
+        };
+        self.application
+            .complete_and_drain(outcome.clone(), std::time::Duration::from_secs(2));
+        outcome.map_err(anyhow::Error::msg)
     }
 }
 
@@ -962,7 +975,10 @@ fn open_window(addr: &str) {
 /// token. The bind is synchronous: "port busy" is visible at startup, not silence in the
 /// background.
 /// Returns the bind address if the API really came up (for the tray item), otherwise None.
-fn spawn_http_api(work_dir: &str) -> Option<String> {
+fn spawn_http_api(
+    work_dir: &str,
+    application: Arc<localvox_light_api::application::ApplicationControl>,
+) -> Option<String> {
     let bind = std::env::var("LOCALVOX_API_BIND")
         .unwrap_or_else(|_| localvox_light_core::presets::baked("LOCALVOX_API_BIND").into());
     let token = std::env::var("LOCALVOX_API_TOKEN").ok();
@@ -987,10 +1003,11 @@ fn spawn_http_api(work_dir: &str) -> Option<String> {
     std::thread::Builder::new()
         .name("http-api".into())
         .spawn(move || {
-            if let Err(e) = localvox_light_api::http::serve(
+            if let Err(e) = localvox_light_api::http::serve_application(
                 server,
                 archive,
                 localvox_light_api::http::HttpConfig { bind, token },
+                Some(application),
             ) {
                 tracing::error!("HTTP API: {e:#}");
             }

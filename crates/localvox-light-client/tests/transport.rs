@@ -47,6 +47,15 @@ fn mutation_scope_encoding_and_authorization_are_preserved() {
 
 #[test]
 fn lost_ack_never_replays_a_mutation() {
+    assert_lost_ack(|c| c.note("text", "ideas").map(|_| ()));
+}
+
+#[test]
+fn shutdown_lost_ack_never_retries_or_bootstraps() {
+    assert_lost_ack(Client::shutdown_application);
+}
+
+fn assert_lost_ack(call: fn(&Client) -> anyhow::Result<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = format!("http://{}", listener.local_addr().unwrap());
     let (done, finished) = std::sync::mpsc::channel();
@@ -71,9 +80,47 @@ fn lost_ack_never_replays_a_mutation() {
         assert!(listener.accept().is_err());
     });
     let c = Client::new(&address, String::new()).unwrap();
-    assert!(c.note("text", "ideas").is_err());
+    assert!(call(&c).is_err());
     done.send(()).unwrap();
     thread.join().unwrap();
+}
+
+#[test]
+fn shutdown_requires_completed_ack_and_sends_explicit_authorized_post() {
+    for (reply, expected) in [
+        ("{\"completed\":true}", true),
+        ("{\"completed\":false}", false),
+        ("{}", false),
+        ("{\"completed\":\"true\"}", false),
+    ] {
+        let server = Server::http("127.0.0.1:0").unwrap();
+        let client = Client::new(
+            &format!("http://{}", server.server_addr()),
+            "synthetic".into(),
+        )
+        .unwrap();
+        let thread = std::thread::spawn(move || {
+            let mut request = server
+                .recv_timeout(Duration::from_secs(3))
+                .unwrap()
+                .unwrap();
+            assert_eq!(request.method().as_str(), "POST");
+            assert_eq!(request.url(), "/api/application/shutdown");
+            assert!(request
+                .headers()
+                .iter()
+                .any(|h| h.field.equiv("Authorization") && h.value.as_str() == "Bearer synthetic"));
+            let mut body = String::new();
+            request.as_reader().read_to_string(&mut body).unwrap();
+            assert_eq!(
+                serde_json::from_str::<serde_json::Value>(&body).unwrap(),
+                json!({"confirm":true})
+            );
+            request.respond(Response::from_string(reply)).unwrap();
+        });
+        assert_eq!(client.shutdown_application().is_ok(), expected);
+        thread.join().unwrap();
+    }
 }
 
 #[test]

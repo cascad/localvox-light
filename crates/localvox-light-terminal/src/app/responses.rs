@@ -46,6 +46,10 @@ impl App {
         }
     }
     pub fn apply(&mut self, r: Response) {
+        self.apply_response(r);
+        self.update_shutdown_status();
+    }
+    fn apply_response(&mut self, r: Response) {
         let global = matches!(
             r.resource,
             Resource::Sessions
@@ -54,6 +58,7 @@ impl App {
                 | Resource::Queue
                 | Resource::Action
                 | Resource::Control
+                | Resource::Shutdown
                 | Resource::Route
         );
         if !global && r.epoch != self.epoch {
@@ -84,7 +89,7 @@ impl App {
                     .unwrap_or_else(|| self.read_diagnostic(r.resource));
                 if matches!(
                     r.resource,
-                    Resource::Action | Resource::Control | Resource::Route
+                    Resource::Action | Resource::Control | Resource::Route | Resource::Shutdown
                 ) {
                     self.console.record_attempt(context, &e, self.wall_ms);
                 } else {
@@ -94,6 +99,9 @@ impl App {
                     self.peaks_retry_at = self.now_ms.saturating_add(30_000);
                 }
                 self.pending_actions.remove(&r.resource);
+                if r.resource == Resource::Shutdown {
+                    self.shutdown_started = None;
+                }
                 self.pending_context.remove(&r.resource);
                 if r.resource == Resource::Action {
                     self.settings_pending = None;
@@ -114,7 +122,7 @@ impl App {
                 // poll must neither persist an old read failure nor erase a command outcome.
                 if matches!(
                     r.resource,
-                    Resource::Action | Resource::Control | Resource::Route
+                    Resource::Action | Resource::Control | Resource::Route | Resource::Shutdown
                 ) {
                     self.status = "Действие не выполнено · ~ консоль ошибок".into();
                 }
@@ -130,6 +138,10 @@ impl App {
         let response_id = r.id;
         let response_resource = r.resource;
         match data {
+            Data::Shutdown => {
+                self.shutdown_started = None;
+                self.quit = true;
+            }
             Data::Sessions(s) => {
                 if let Some(current) = &self.current {
                     if let Some(updated) = s.iter().find(|session| &session.name == current) {

@@ -421,6 +421,23 @@ impl Client {
     pub fn stop_recording(&self) -> Result<Reply> {
         self.post(&["api", "record", "stop"], &[], json!({}))
     }
+    /// One explicit mutation. A missing acknowledgement never triggers a retry
+    /// or bootstrap: the daemon may already have stopped successfully.
+    pub fn shutdown_application(&self) -> Result<()> {
+        #[derive(serde::Deserialize)]
+        struct Outcome {
+            completed: bool,
+        }
+        let outcome: Outcome = self.request(
+            "POST",
+            &["api", "application", "shutdown"],
+            &[],
+            Some(json!({"confirm": true})),
+            Duration::from_secs(75),
+        )?;
+        anyhow::ensure!(outcome.completed, "Завершение LocalVox не подтверждено");
+        Ok(())
+    }
     pub fn ingest(&self, url: &str) -> Result<Reply> {
         self.post(&["api", "ingest"], &[], json!({"url":url}))
     }

@@ -31,11 +31,13 @@ pub enum Resource {
     Chat,
     Action,
     Control,
+    Shutdown,
     Route,
 }
 pub fn action_resource(task: &Task) -> Resource {
     match task {
         Task::Start(_) | Task::Stop => Resource::Control,
+        Task::Shutdown => Resource::Shutdown,
         Task::Route(_) => Resource::Route,
         _ => Resource::Action,
     }
@@ -49,6 +51,7 @@ pub enum Task {
     Chat(String),
     Start(String),
     Stop,
+    Shutdown,
     Ingest(String),
     Recook(String, Scope),
     Retry(String),
@@ -80,6 +83,7 @@ pub enum Task {
 }
 #[derive(Clone, Debug)]
 pub enum Data {
+    Shutdown,
     Sessions(Vec<Session>),
     Record(RecordState),
     Jobs(Jobs),
@@ -189,13 +193,18 @@ impl Io {
             self.set_epoch(epoch);
         }
         if self.pending.contains(&(resource, epoch))
-            || (!matches!(resource, Resource::Record | Resource::Control)
-                && self.pending.len() >= 18)
+            || (!matches!(
+                resource,
+                Resource::Record | Resource::Control | Resource::Shutdown
+            ) && self.pending.len() >= 18)
         {
             return false;
         }
         let id = self.next_id.wrapping_add(1);
-        let sender = if matches!(resource, Resource::Record | Resource::Control) {
+        let sender = if matches!(
+            resource,
+            Resource::Record | Resource::Control | Resource::Shutdown
+        ) {
             &self.control
         } else if matches!(
             task,
@@ -272,6 +281,10 @@ pub fn perform(c: &Client, task: Task) -> anyhow::Result<Data> {
         Task::Chat(q) => Data::Chat(c.ask(&q)?),
         Task::Start(title) => Data::Reply(c.start_recording(&title)?),
         Task::Stop => Data::Reply(c.stop_recording()?),
+        Task::Shutdown => {
+            c.shutdown_application()?;
+            Data::Shutdown
+        }
         Task::Ingest(url) => Data::Reply(c.ingest(&url)?),
         Task::Recook(s, scope) => Data::Reply(c.recook(&s, scope)?),
         Task::Retry(s) => Data::Reply(c.retry(&s)?),
