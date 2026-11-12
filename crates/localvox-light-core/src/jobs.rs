@@ -450,6 +450,48 @@ impl JobQueue {
         Ok(count)
     }
 
+    /// One job changes, and only that job needs an undo record. Callers keep
+    /// their own eligibility/reset policies; persistence is shared.
+    fn update_job(
+        &mut self,
+        index: usize,
+        transition: &str,
+        edit: impl FnOnce(&mut Job),
+    ) -> anyhow::Result<()> {
+        self.ensure_readable()?;
+        let previous = self.file.jobs[index].clone();
+        edit(&mut self.file.jobs[index]);
+        self.commit_jobs(vec![(index, previous)], transition)?;
+        Ok(())
+    }
+
+    /// Removals have a different undo record: retain original positions/order.
+    /// This path is for actual deletion, not the scheduler's per-phase hot path.
+    fn retain_jobs(&mut self, mut keep: impl FnMut(&Job) -> bool) -> anyhow::Result<usize> {
+        self.ensure_readable()?;
+        let mut removed = Vec::new();
+        let mut index = 0;
+        self.file.jobs.retain(|job| {
+            let retain = keep(job);
+            if !retain {
+                removed.push((index, job.clone()));
+            }
+            index += 1;
+            retain
+        });
+        let count = removed.len();
+        if count != 0 && !self.save() {
+            for (index, job) in removed {
+                self.file.jobs.insert(index, job);
+            }
+            return Err(QueueStorageError(
+                "не удалось сохранить удаление заданий в jobs.json".into(),
+            )
+            .into());
+        }
+        Ok(count)
+    }
+
     /// The session was cooked by a stale recipe — put it back into the queue, even if
     /// its job is already `Done`. Without this, dedup by session name would close the
     /// road to a re-cook forever: we improved the cook, but the archive stayed as it was.
@@ -462,26 +504,32 @@ impl JobQueue {
         cleanup: bool,
         refine: bool,
     ) -> bool {
-        let Some(job) = self.file.jobs.iter_mut().find(|j| j.session == session) else {
+        let Some(index) = self.file.jobs.iter().position(|j| j.session == session) else {
             return self.enqueue_cook(session, summary, cleanup, refine);
         };
-        if !matches!(job.state, JobState::Done) {
+        if self.file.jobs[index].state != JobState::Done {
             return false;
         }
-        job.phase = JobPhase::Prepare;
-        job.enqueued_at = Some(now_rfc3339());
-        job.phase_queued_at = job.enqueued_at.clone();
-        job.phase_started_at = None;
-        job.started_at = None;
-        job.finished_at = None;
-        job.state = JobState::Pending;
-        job.attempts = 0;
-        job.last_error = None;
-        job.failed_at = None;
-        job.summary = summary;
-        job.cleanup = cleanup;
-        job.refine = refine;
-        self.save()
+        self.update_job(
+            index,
+            "повтор устаревшего рецепта",
+            |job| {
+                job.phase = JobPhase::Prepare;
+                job.enqueued_at = Some(now_rfc3339());
+                job.phase_queued_at = job.enqueued_at.clone();
+                job.phase_started_at = None;
+                job.started_at = None;
+                job.finished_at = None;
+                job.state = JobState::Pending;
+                job.attempts = 0;
+                job.last_error = None;
+                job.failed_at = None;
+                job.summary = summary;
+                job.cleanup = cleanup;
+                job.refine = refine;
+            },
+        )
+        .is_ok()
     }
 
     /// Force ONE session's stuck-`Running` job back to `Pending`. Used when a human re-cooks a cook
@@ -489,21 +537,25 @@ impl JobQueue {
     /// a Running job — the caller has already judged it abandoned (stale progress). Returns whether a
     /// Running job was reset. Targeted, so it never disturbs a genuinely-live cook of another session.
     pub fn reclaim_session(&mut self, session: &str) -> bool {
-        if let Some(j) = self
+        let Some(index) = self
             .file
             .jobs
-            .iter_mut()
-            .find(|j| j.session == session && j.state == JobState::Running)
-        {
-            j.state = JobState::Pending;
-            j.phase_queued_at = Some(now_rfc3339());
-            j.phase_started_at = None;
-            j.force = false;
-            self.save();
-            true
-        } else {
-            false
-        }
+            .iter()
+            .position(|j| j.session == session && j.state == JobState::Running)
+        else {
+            return false;
+        };
+        self.update_job(
+            index,
+            "возврат прерванного задания",
+            |job| {
+                job.state = JobState::Pending;
+                job.phase_queued_at = Some(now_rfc3339());
+                job.phase_started_at = None;
+                job.force = false;
+            },
+        )
+        .is_ok()
     }
 
     /// A SCOPED re-cook (only the summary, or the text+summary): re-queue with these exact
@@ -522,48 +574,45 @@ impl JobQueue {
         } else {
             JobPhase::Summary
         };
-        let Some(job) = self.file.jobs.iter_mut().find(|j| j.session == session) else {
+        let Some(index) = self.file.jobs.iter().position(|j| j.session == session) else {
             return self.enqueue_new(
                 session,
                 JobKind::Cook,
                 phase,
-                summary,
-                cleanup,
-                refine,
+                (summary, cleanup, refine),
+                false,
                 false,
             );
         };
-        if matches!(job.state, JobState::Running | JobState::Cancelling) {
+        if matches!(
+            self.file.jobs[index].state,
+            JobState::Running | JobState::Cancelling
+        ) {
             return false;
         }
-        let previous = job.clone();
-        job.phase = phase;
-        job.enqueued_at = Some(now_rfc3339());
-        job.phase_queued_at = job.enqueued_at.clone();
-        job.phase_started_at = None;
-        job.started_at = None;
-        job.finished_at = None;
-        job.state = JobState::Pending;
-        job.attempts = 0;
-        job.last_error = None;
-        job.failed_at = None;
-        job.summary = summary;
-        job.cleanup = cleanup;
-        job.refine = refine;
-        job.follow_settings = false;
-        job.force = false;
-        job.revivals = 0;
-        if self.save() {
-            true
-        } else {
-            *self
-                .file
-                .jobs
-                .iter_mut()
-                .find(|j| j.session == session)
-                .unwrap() = previous;
-            false
-        }
+        self.update_job(
+            index,
+            "повтор производных результатов",
+            |job| {
+                job.phase = phase;
+                job.enqueued_at = Some(now_rfc3339());
+                job.phase_queued_at = job.enqueued_at.clone();
+                job.phase_started_at = None;
+                job.started_at = None;
+                job.finished_at = None;
+                job.state = JobState::Pending;
+                job.attempts = 0;
+                job.last_error = None;
+                job.failed_at = None;
+                job.summary = summary;
+                job.cleanup = cleanup;
+                job.refine = refine;
+                job.follow_settings = false;
+                job.force = false;
+                job.revivals = 0;
+            },
+        )
+        .is_ok()
     }
 
     /// Resume the failed phase without invalidating reusable results or changing its request.
@@ -573,26 +622,21 @@ impl JobQueue {
         }) else {
             return false;
         };
-        let previous = self.file.jobs[index].clone();
-        let job = &mut self.file.jobs[index];
-        job.state = JobState::Pending;
-        job.enqueued_at = Some(now_rfc3339());
-        job.phase_queued_at = job.enqueued_at.clone();
-        job.started_at = None;
-        job.phase_started_at = None;
-        job.execution_id = None;
-        job.finished_at = None;
-        job.last_error = None;
-        job.failed_at = None;
-        job.attempts = 0;
-        job.revivals = 0;
-        job.force = false;
-        if self.save() {
-            true
-        } else {
-            self.file.jobs[index] = previous;
-            false
-        }
+        self.update_job(index, "ручной повтор задания", |job| {
+            job.state = JobState::Pending;
+            job.enqueued_at = Some(now_rfc3339());
+            job.phase_queued_at = job.enqueued_at.clone();
+            job.started_at = None;
+            job.phase_started_at = None;
+            job.execution_id = None;
+            job.finished_at = None;
+            job.last_error = None;
+            job.failed_at = None;
+            job.attempts = 0;
+            job.revivals = 0;
+            job.force = false;
+        })
+        .is_ok()
     }
 
     /// «This is bad — re-cook it». A human rejected the result: we throw the derived
@@ -609,10 +653,23 @@ impl JobQueue {
         cleanup: bool,
         refine: bool,
     ) -> bool {
-        if let Some(job) = self.file.jobs.iter_mut().find(|j| j.session == session) {
-            if matches!(job.state, JobState::Running | JobState::Cancelling) {
-                return false;
-            }
+        let Some(index) = self.file.jobs.iter().position(|job| job.session == session) else {
+            return self.enqueue_new(
+                session,
+                JobKind::Cook,
+                JobPhase::Prepare,
+                (summary, cleanup, refine),
+                true,
+                true,
+            );
+        };
+        if matches!(
+            self.file.jobs[index].state,
+            JobState::Running | JobState::Cancelling
+        ) {
+            return false;
+        }
+        self.update_job(index, "полная переобработка", |job| {
             job.phase = JobPhase::Prepare;
             job.enqueued_at = Some(now_rfc3339());
             job.phase_queued_at = job.enqueued_at.clone();
@@ -623,25 +680,15 @@ impl JobQueue {
             job.attempts = 0;
             job.last_error = None;
             job.failed_at = None;
-            // A HUMAN said «try again» — that buys a fresh revival budget. Without this, a job
-            // that had burned through its budget would swallow the button: pressed, and nothing
-            // ever happens again.
+            // A human repeat buys a fresh revival budget; recovery does not.
             job.revivals = 0;
             job.summary = summary;
             job.cleanup = cleanup;
             job.refine = refine;
             job.force = true;
             job.follow_settings = true;
-            return self.save();
-        }
-        let queued = self.enqueue_cook(session, summary, cleanup, refine);
-        if queued {
-            if let Some(job) = self.file.jobs.last_mut() {
-                job.force = true;
-            }
-            return self.save();
-        }
-        queued
+        })
+        .is_ok()
     }
 
     /// The session is cooked, but the required artifact is missing — finish the job.
@@ -657,27 +704,33 @@ impl JobQueue {
         cleanup: bool,
         refine: bool,
     ) -> bool {
-        let Some(job) = self.file.jobs.iter_mut().find(|j| j.session == session) else {
+        let Some(index) = self.file.jobs.iter().position(|job| job.session == session) else {
             return self.enqueue_cook(session, summary, cleanup, refine);
         };
-        if !matches!(job.state, JobState::Done) {
-            return false; // already in flight — it will finish on its own
+        if self.file.jobs[index].state != JobState::Done {
+            return false;
         }
-        job.phase = JobPhase::Prepare;
-        job.enqueued_at = Some(now_rfc3339());
-        job.phase_queued_at = job.enqueued_at.clone();
-        job.phase_started_at = None;
-        job.started_at = None;
-        job.finished_at = None;
-        job.state = JobState::Pending;
-        job.attempts = 0;
-        job.last_error = None;
-        job.failed_at = None;
-        job.summary = summary;
-        job.cleanup = cleanup;
-        job.refine = refine;
-        job.follow_settings = true;
-        self.save()
+        self.update_job(
+            index,
+            "восстановление отсутствующих результатов",
+            |job| {
+                job.phase = JobPhase::Prepare;
+                job.enqueued_at = Some(now_rfc3339());
+                job.phase_queued_at = job.enqueued_at.clone();
+                job.phase_started_at = None;
+                job.started_at = None;
+                job.finished_at = None;
+                job.state = JobState::Pending;
+                job.attempts = 0;
+                job.last_error = None;
+                job.failed_at = None;
+                job.summary = summary;
+                job.cleanup = cleanup;
+                job.refine = refine;
+                job.follow_settings = true;
+            },
+        )
+        .is_ok()
     }
 
     /// Queue a session for cooking. Dedup by session name: if a job for it already
@@ -694,10 +747,9 @@ impl JobQueue {
             session,
             JobKind::Cook,
             JobPhase::Prepare,
-            summary,
-            cleanup,
-            refine,
+            (summary, cleanup, refine),
             true,
+            false,
         )
     }
 
@@ -706,24 +758,18 @@ impl JobQueue {
         session: &str,
         kind: JobKind,
         phase: JobPhase,
-        summary: bool,
-        cleanup: bool,
-        refine: bool,
+        flags: (bool, bool, bool),
         follow_settings: bool,
+        force: bool,
     ) -> bool {
         if self.file.jobs.iter().any(|j| j.session == session) {
             return false;
         }
         let id = self.file.next_id;
         self.file.next_id += 1;
-        self.file.jobs.push(Job::pending(
-            id,
-            session,
-            kind,
-            phase,
-            (summary, cleanup, refine),
-            follow_settings,
-        ));
+        let mut job = Job::pending(id, session, kind, phase, flags, follow_settings);
+        job.force = force;
+        self.file.jobs.push(job);
         if self.save() {
             true
         } else {
@@ -749,10 +795,9 @@ impl JobQueue {
             session,
             JobKind::Ingest,
             JobPhase::Prepare,
-            summary,
-            cleanup,
-            refine,
+            (summary, cleanup, refine),
             true,
+            false,
         )
     }
 
@@ -894,22 +939,24 @@ impl JobQueue {
     /// Reconcile only waiting automatic work. Running owns an immutable phase
     /// snapshot; explicit recooks and old queues must keep their requested work.
     pub fn refresh_post_processing(&mut self, flags: (bool, bool, bool)) -> bool {
-        let previous = self.file.jobs.clone();
-        let mut changed = false;
-        for job in &mut self.file.jobs {
+        let mut previous = Vec::new();
+        for (index, job) in self.file.jobs.iter_mut().enumerate() {
             if job.state != JobState::Pending || !job.follow_settings {
                 continue;
             }
-            if (job.summary, job.cleanup, job.refine) != flags {
-                (job.summary, job.cleanup, job.refine) = flags;
-                changed = true;
+            if (job.summary, job.cleanup, job.refine) == flags
+                && !(job.phase == JobPhase::Text && !flags.1 && !flags.2)
+                && !(job.phase == JobPhase::Summary && !flags.0)
+            {
+                continue;
             }
+            previous.push((index, job.clone()));
+            (job.summary, job.cleanup, job.refine) = flags;
             if job.phase == JobPhase::Text && !job.cleanup && !job.refine {
                 job.phase = JobPhase::Summary;
                 job.phase_queued_at = Some(now_rfc3339());
                 job.phase_started_at = None;
                 job.attempts = 0;
-                changed = true;
             }
             if job.phase == JobPhase::Summary && !job.summary {
                 job.state = JobState::Done;
@@ -917,14 +964,10 @@ impl JobQueue {
                 job.last_error = None;
                 job.failed_at = None;
                 job.force = false;
-                changed = true;
             }
         }
-        if changed && !self.save() {
-            self.file.jobs = previous;
-            return false;
-        }
-        true
+        self.commit_jobs(previous, "обновление постобработки")
+            .is_ok()
     }
 
     /// Commit one completed phase. A retry never repeats earlier successful phases.
@@ -1005,19 +1048,22 @@ impl JobQueue {
     }
 
     pub fn mark_done(&mut self, id: u64) {
-        if let Some(j) = self.file.jobs.iter_mut().find(|j| j.id == id) {
-            if matches!(j.state, JobState::Cancelling | JobState::Cancelled) {
-                return;
-            }
-            j.state = JobState::Done;
-            j.finished_at = Some(now_rfc3339());
-            j.last_error = None;
-            // The re-cook has done its work — we drop force. Otherwise the flag would
-            // stay forever and any subsequent revival of the job would cook the session
-            // again, round and round.
-            j.force = false;
+        let Some(index) = self.file.jobs.iter().position(|job| job.id == id) else {
+            return;
+        };
+        if matches!(
+            self.file.jobs[index].state,
+            JobState::Cancelling | JobState::Cancelled
+        ) {
+            return;
         }
-        self.save();
+        let _ = self.update_job(index, "завершение задания", |job| {
+            job.state = JobState::Done;
+            job.finished_at = Some(now_rfc3339());
+            job.last_error = None;
+            // A successful forced run must not invalidate derivatives on revival.
+            job.force = false;
+        });
     }
 
     /// The re-cook has done its job — the version is committed. The `force` flag is not
@@ -1025,22 +1071,20 @@ impl JobQueue {
     /// exit 2) would cook the session anew on EVERY attempt and breed one transcript
     /// version per attempt.
     pub fn clear_force(&mut self, id: u64) {
-        if let Some(j) = self.file.jobs.iter_mut().find(|j| j.id == id) {
-            if j.force {
-                j.force = false;
-                self.save();
-            }
+        if let Some(index) = self
+            .file
+            .jobs
+            .iter()
+            .position(|job| job.id == id && job.force)
+        {
+            let _ = self.update_job(index, "снятие force", |job| job.force = false);
         }
     }
 
     /// The session is gone — drop any job for it. A job pointing at a directory that no longer
     /// exists would fail on every attempt forever, and the queue would carry a ghost.
     pub fn forget_session(&mut self, session: &str) {
-        let before = self.file.jobs.len();
-        self.file.jobs.retain(|j| j.session != session);
-        if self.file.jobs.len() != before {
-            self.save();
-        }
+        let _ = self.retain_jobs(|job| job.session != session);
     }
 
     /// Drop every job whose session no longer exists on disk.
@@ -1059,24 +1103,24 @@ impl JobQueue {
     /// moment, so it cannot look like a ghost.
     pub fn drop_orphans(&mut self, work_dir: &Path) -> usize {
         let sessions = work_dir.join("sessions");
-        let before = self.file.jobs.len();
-        let mut gone: Vec<String> = Vec::new();
-        self.file.jobs.retain(|j| {
-            let alive = sessions.join(&j.session).is_dir();
-            if !alive {
-                gone.push(j.session.clone());
-            }
-            alive
-        });
-        if self.file.jobs.len() != before {
+        let mut gone = Vec::new();
+        let removed = self
+            .retain_jobs(|job| {
+                let alive = sessions.join(&job.session).is_dir();
+                if !alive {
+                    gone.push(job.session.clone());
+                }
+                alive
+            })
+            .unwrap_or(0);
+        if removed != 0 {
             tracing::info!(
                 "queue: dropped {} job(s) — session gone: {}",
-                gone.len(),
+                removed,
                 gone.join(", ")
             );
-            self.save();
         }
-        before - self.file.jobs.len()
+        removed
     }
 
     /// A job failure: while the attempts are below `max_attempts` — back to `Pending`
@@ -1543,6 +1587,162 @@ fn newest_wav_mtime(audio_dir: &Path) -> Option<SystemTime> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn legacy_queue_edits_are_not_visible_until_persistence_succeeds() {
+        type Edit = fn(&mut JobQueue) -> bool;
+        let operations: [(&str, Edit); 6] = [
+            ("stale recipe", |q| {
+                q.requeue_stale("session", false, true, false)
+            }),
+            ("artifact repair", |q| {
+                q.requeue_for_artifacts("session", false, false, true)
+            }),
+            ("full recook", |q| {
+                q.enqueue_recook("session", true, true, true)
+            }),
+            ("scoped recook", |q| {
+                q.requeue_derivatives("session", true, false, false)
+            }),
+            ("retry", |q| q.retry_failed("session")),
+            ("reclaim", |q| q.reclaim_session("session")),
+        ];
+        for (name, edit) in operations {
+            let root = tempfile::tempdir().unwrap();
+            let mut queue = JobQueue::load(root.path());
+            assert!(queue.enqueue_cook("session", true, false, false));
+            let job = &mut queue.file.jobs[0];
+            job.state = match name {
+                "retry" => JobState::Failed,
+                "reclaim" => JobState::Running,
+                _ => JobState::Done,
+            };
+            job.phase = JobPhase::Summary;
+            job.attempts = 3;
+            job.revivals = 2;
+            job.force = true;
+            job.last_error = Some("preserve failure".into());
+            assert!(queue.save());
+            let before = serde_json::to_value(&queue.file).unwrap();
+            let path = deny_queue_target(&mut queue);
+            let disk = fs::read(&path).unwrap();
+            assert!(!edit(&mut queue), "{name} acknowledged a failed write");
+            assert_eq!(
+                serde_json::to_value(&queue.file).unwrap(),
+                before,
+                "{name} changed memory after failed write"
+            );
+            assert_eq!(
+                fs::read(&path).unwrap(),
+                disk,
+                "{name} changed the durable queue"
+            );
+            queue.path = path;
+            assert!(
+                edit(&mut queue),
+                "{name} did not retry after storage recovered"
+            );
+            let reloaded = JobQueue::load(root.path());
+            assert_eq!(
+                serde_json::to_value(&queue.file).unwrap(),
+                serde_json::to_value(&reloaded.file).unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn legacy_void_and_removal_edits_roll_back_on_failed_persistence() {
+        type Edit = fn(&mut JobQueue, &Path) -> usize;
+        let operations: [(&str, Edit); 4] = [
+            ("mark done", |q, _| {
+                q.mark_done(0);
+                0
+            }),
+            ("clear force", |q, _| {
+                q.clear_force(0);
+                0
+            }),
+            ("forget session", |q, _| {
+                q.forget_session("session");
+                0
+            }),
+            ("drop orphan", |q, root| q.drop_orphans(root)),
+        ];
+        for (name, edit) in operations {
+            let root = tempfile::tempdir().unwrap();
+            let mut queue = JobQueue::load(root.path());
+            assert!(queue.enqueue_cook("session", true, false, false));
+            queue.file.jobs[0].state = JobState::Running;
+            queue.file.jobs[0].force = true;
+            assert!(queue.save());
+            let before = serde_json::to_value(&queue.file).unwrap();
+            let path = deny_queue_target(&mut queue);
+            let disk = fs::read(&path).unwrap();
+            assert_eq!(edit(&mut queue, root.path()), 0);
+            assert_eq!(
+                serde_json::to_value(&queue.file).unwrap(),
+                before,
+                "{name} changed memory after failure"
+            );
+            assert_eq!(fs::read(&path).unwrap(), disk);
+            queue.path = path;
+            edit(&mut queue, root.path());
+            assert_ne!(
+                serde_json::to_value(&queue.file).unwrap(),
+                before,
+                "{name} did not recover"
+            );
+            assert_eq!(
+                serde_json::to_value(&queue.file).unwrap(),
+                serde_json::to_value(&JobQueue::load(root.path()).file).unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn forced_new_recook_is_complete_on_disk_and_failed_enqueue_does_not_spend_an_id() {
+        let root = tempfile::tempdir().unwrap();
+        let mut queue = JobQueue::load(root.path());
+        let path = deny_queue_target(&mut queue);
+        assert!(!queue.enqueue_recook("fresh", true, false, false));
+        assert!(queue.jobs().is_empty());
+        assert_eq!(queue.file.next_id, 0);
+        queue.path = path;
+        assert!(queue.enqueue_recook("fresh", true, false, false));
+        let queue = JobQueue::load(root.path());
+        let job = &queue.jobs()[0];
+        assert!(job.force && job.follow_settings && job.summary);
+        assert_eq!(job.id, 0);
+        assert_eq!(job.phase, JobPhase::Prepare);
+    }
+
+    #[test]
+    fn failed_bulk_removal_restores_original_order_and_next_id() {
+        let root = tempfile::tempdir().unwrap();
+        let mut queue = JobQueue::load(root.path());
+        for name in ["gone-a", "live-a", "gone-b", "live-b", "gone-c"] {
+            assert!(queue.enqueue_cook(name, true, false, false));
+        }
+        for live in ["live-a", "live-b"] {
+            fs::create_dir_all(root.path().join("sessions").join(live)).unwrap();
+        }
+        let before = serde_json::to_value(&queue.file).unwrap();
+        let path = deny_queue_target(&mut queue);
+        assert_eq!(queue.drop_orphans(root.path()), 0);
+        assert_eq!(serde_json::to_value(&queue.file).unwrap(), before);
+        queue.path = path;
+        assert_eq!(queue.drop_orphans(root.path()), 3);
+        assert_eq!(
+            queue
+                .jobs()
+                .iter()
+                .map(|j| j.session.as_str())
+                .collect::<Vec<_>>(),
+            ["live-a", "live-b"]
+        );
+        assert!(queue.enqueue_cook("new", true, false, false));
+        assert_eq!(queue.jobs().last().unwrap().id, 5);
+    }
 
     fn deny_queue_target(queue: &mut JobQueue) -> PathBuf {
         let original = queue.path.clone();

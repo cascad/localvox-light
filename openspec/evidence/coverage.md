@@ -518,3 +518,9 @@ main specs и прежние свидетельства не переписан�
 | Requirement | Код | Проверка | Граница |
 |---|---|---|---|
 | CFG-001/002/003; SETUP-006 в delta | [env_file](../../crates/localvox-light-core/src/env_file.rs), [setup](../../crates/localvox-light/src/setup/execute.rs) | [test-run](../changes/consolidate-settings-persistence/evidence/implementation.md): 20 core, copied-process HTTP, 16 lib / 1 main / 10 setup; реальные read/rename denial, concurrent edits, stale/retry/no-op | Общий snapshot/atomic writer, HTTP/CLI и apply_live policies сохранены; arbitrary cross-process CAS, power-loss/disk-full и native Unix/Mac not-run |
+
+Дополнение PIPE-002/008/010/011 от 2026-11-12:
+
+| Requirement | Код | Проверка | Граница |
+|---|---|---|---|
+| PIPE-002/008/010/011 | [queue](../../crates/localvox-light-core/src/jobs.rs) | [test-run](../changes/harden-queue-and-http-lifecycles/evidence/queue.md): исходные 2 failed воспроизведены; после fix 78 jobs / 440 core / 16 coordinator passed | Checked update/removal/forced enqueue; прежние reset/budgets/schema сохранены; HTTP этап впереди, hardware/Mac/performance not-run |
