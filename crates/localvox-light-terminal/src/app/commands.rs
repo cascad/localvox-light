@@ -120,11 +120,7 @@ impl App {
         match action {
             Action::Shutdown => {
                 let title = format!("Завершить LocalVox · {}", self.address);
-                self.open(
-                    &title,
-                    FormKind::Confirm(Task::Shutdown),
-                    &[("Введите ДА для подтверждения", "")],
-                );
+                self.open(&title, FormKind::Shutdown, &[]);
             }
             Action::NarrowList => self.resize_list(-4),
             Action::WidenList => self.resize_list(4),

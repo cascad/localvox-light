@@ -548,7 +548,7 @@ fn exercise_terminal(vox: bool, full_exit: bool) {
         writer.write_all(b"\x1b[A\r").unwrap();
         writer.flush().unwrap();
         wait_for(
-            "Введите ДА для подтверждения",
+            "Ctrl+S / Ctrl+Enter",
             &mut all,
             &mut screen,
             &rx,
@@ -558,9 +558,7 @@ fn exercise_terminal(vox: bool, full_exit: bool) {
         );
         assert_eq!(api.shutdowns.load(Ordering::Relaxed), 0);
         assert!(screen.screen().contents().contains("Запись закроется"));
-        writer
-            .write_all("\x1b[200~ДА\x1b[201~\x13".as_bytes())
-            .unwrap();
+        writer.write_all(b"\x13").unwrap();
     } else {
         writer.write_all(b"\x1b[21~").unwrap(); // F10, including an open form
     }

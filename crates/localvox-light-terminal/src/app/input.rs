@@ -272,6 +272,9 @@ impl App {
                 return;
             }
             if let Some(f) = &mut self.form {
+                if f.fields.is_empty() {
+                    return;
+                }
                 match key.code {
                     KeyCode::Tab => f.active = (f.active + 1) % f.fields.len(),
                     KeyCode::BackTab => f.active = (f.active + f.fields.len() - 1) % f.fields.len(),

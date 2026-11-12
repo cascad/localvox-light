@@ -551,3 +551,9 @@ main specs и прежние свидетельства не переписан�
 | Requirement | Код / delta | Проверка | Граница |
 |---|---|---|---|
 | RUN-006 в delta, INV-RUN-001 | [delta](../changes/add-graceful-application-exit/specs/runtime-settings/spec.md), [control](../../crates/localvox-light-api/src/application.rs), [daemon](../../crates/localvox-light/src/main.rs), [TUI](../../crates/localvox-light-terminal/src/app/commands.rs) | [test-run и первые failed](../changes/add-graceful-application-exit/evidence/implementation.md): app 16+2 / 10 setup, API 91 / 3 integration, client 3+10, TUI 211 / 8 PTY / 4 launcher / 2 IO | Отдельный confirmed exit с cleanup outcome; обычный выход client-only. Full-exit test и blank-cell assertion исправлены, final parallel suite passed; реальная запись/Mac/Linux/hosted not-run |
+
+Подтверждение полного выхода без текста, 2026-11-12:
+
+| Requirement | Код / delta | Проверка | Граница |
+|---|---|---|---|
+| RUN-006 MODIFIED в delta | [delta](../changes/simplify-terminal-shutdown-confirmation/specs/runtime-settings/spec.md), [forms](../../crates/localvox-light-terminal/src/app/forms.rs), [overlay](../../crates/localvox-light-terminal/src/render/overlays.rs) | [test-run](../changes/simplify-terminal-shutdown-confirmation/evidence/implementation.md): 212 lib / 8 PTY / 4 launcher / 2 IO, пустой диалог Ctrl+S/Ctrl+Enter, Esc и безопасный ввод/paste, 80/120 render | Lifecycle/API и прочие typed confirmations сохранены; sync после исходного RUN-006, реальные audio/Mac/hosted not-run |

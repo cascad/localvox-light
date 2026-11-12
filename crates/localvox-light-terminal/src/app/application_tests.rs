@@ -7,15 +7,46 @@ fn confirmed() -> App {
     app.command(Action::Shutdown);
     assert!(app.form.as_ref().unwrap().title.contains(&app.address));
     assert!(app.effects.is_empty());
-    assert!(app.submit_form().is_err());
-    app.form.as_mut().unwrap().fields[0].value = "ДА".into();
-    app.submit_form().unwrap();
+    assert!(app.form.as_ref().unwrap().fields.is_empty());
+    app.key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
     assert!(matches!(
         &app.effects[..],
         [(Resource::Shutdown, Task::Shutdown)]
     ));
     assert!(!app.quit);
     app
+}
+
+#[test]
+fn empty_confirmation_accepts_submit_keys_once_and_ignores_text_navigation_and_paste() {
+    for code in [KeyCode::Char('s'), KeyCode::Enter] {
+        let mut app = App::default();
+        app.command(Action::Shutdown);
+        for key in [
+            KeyCode::Tab,
+            KeyCode::BackTab,
+            KeyCode::Enter,
+            KeyCode::Up,
+            KeyCode::Char('д'),
+            KeyCode::Char('q'),
+        ] {
+            app.key(KeyEvent::new(key, KeyModifiers::NONE));
+        }
+        app.paste("ДА\nhttps://example.test/meeting");
+        assert!(app.effects.is_empty() && !app.quit);
+        assert!(matches!(
+            app.form.as_ref().unwrap().kind,
+            FormKind::Shutdown
+        ));
+        assert!(app.form.as_ref().unwrap().fields.is_empty());
+        app.key(KeyEvent::new(code, KeyModifiers::CONTROL));
+        app.key(KeyEvent::new(code, KeyModifiers::CONTROL));
+        assert!(matches!(
+            &app.effects[..],
+            [(Resource::Shutdown, Task::Shutdown)]
+        ));
+        assert!(app.shutdown_started.is_some() && !app.quit);
+    }
 }
 
 #[test]
@@ -94,7 +125,7 @@ fn shutdown_confirmation_shows_target_warning_and_keys_at_normal_terminal_widths
             app.address.as_str(),
             "Запись закроется",
             "Очередь продолжится",
-            "ДА",
+            "Ctrl+S / Ctrl+Enter",
             "завершить",
             "Esc отменить",
         ] {
@@ -103,5 +134,6 @@ fn shutdown_confirmation_shows_target_warning_and_keys_at_normal_terminal_widths
                 "{width}: missing {expected}: {text}"
             );
         }
+        assert!(!text.contains("Введите") && !text.contains("Tab поле"));
     }
 }

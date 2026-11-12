@@ -44,7 +44,7 @@ bash scripts/install-release.sh --install-dir="$PWD" --reconcile
 Открой **http://127.0.0.1:3017/**. Для TUI после установки перезапусти терминал
 и введи **`vox`**: команда подключится к работающему демону или запустит его сама.
 Обычный выход закрывает только TUI. Для полной остановки: F2 → «Завершить LocalVox»
-и подтверждение `ДА` → Ctrl+S. В комплекте Windows/Mac также есть окно
+→ Ctrl+S. В комплекте Windows/Mac также есть окно
 `localvox-desktop`. Без регистрации PATH можно запускать `.\vox.exe` / `./vox`
 из папки установки.
 
@@ -52,8 +52,7 @@ bash scripts/install-release.sh --install-dir="$PWD" --reconcile
 Сводка и поиск по смыслу требуют выбранной модели LLM/эмбеддингов.
 
 [Подробная установка, обновление и doctor](docs/release-installation.md) ·
-[Сборка из исходников](docs/development.md) ·
-[Проверка на Mac](docs/release-installation.md#проверка-mac-владельцем)
+[Сборка из исходников](docs/development.md)
 
 ## Читать расшифровку ещё во время встречи
 
@@ -154,5 +153,4 @@ Esc возвращает на уровень выше. `y` копирует вы
 - [Контракт поведения OpenSpec](openspec/README.md), [покрытие и проверки](openspec/evidence/coverage.md),
   [известные ограничения](openspec/review.md).
 
-Основная проверенная платформа — Windows. В CI настроена сборка macOS для Intel
-и Apple Silicon; ручная приёмка демона, разрешений и звука на Mac остаётся открытой.
+В GitHub Actions настроены сборки для Windows и macOS (Intel и Apple Silicon).

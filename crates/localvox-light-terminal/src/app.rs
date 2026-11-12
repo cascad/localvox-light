@@ -86,6 +86,7 @@ pub enum FormKind {
     Source,
     Export(String),
     Confirm(Task),
+    Shutdown,
     Setting(String),
     LlmServer,
     SettingChoice {
@@ -457,8 +458,7 @@ impl App {
         if self.constrained_paste(text) {
             return;
         }
-        if let Some(f) = &mut self.form {
-            let field = &mut f.fields[f.active];
+        if let Some(field) = self.form.as_mut().and_then(|f| f.fields.get_mut(f.active)) {
             let remaining = 400_000usize.saturating_sub(field.value.chars().count());
             let paste: String = text
                 .chars()

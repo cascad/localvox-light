@@ -50,6 +50,7 @@ pub(super) fn draw(f: &mut Frame, a: &App, area: Rect, t: Theme) {
             | crate::app::FormKind::Import
             | crate::app::FormKind::LlmServer
             | crate::app::FormKind::Setting(_) => 9,
+            crate::app::FormKind::Shutdown => 10,
             _ => 30,
         };
         let rect = modal(
@@ -69,6 +70,30 @@ pub(super) fn draw(f: &mut Frame, a: &App, area: Rect, t: Theme) {
             .style(Style::default().bg(t.bg).fg(t.ink));
         let inner = block.inner(rect);
         f.render_widget(block, rect);
+        if matches!(form.kind, crate::app::FormKind::Shutdown) {
+            let mut lines = vec![
+                Line::from(Span::styled("Запись закроется.", t.label_style())),
+                Line::from(Span::styled(
+                    "Очередь продолжится при следующем запуске.",
+                    t.label_style(),
+                )),
+                Line::from(""),
+                Line::from(Span::styled(
+                    "Ctrl+S / Ctrl+Enter — завершить",
+                    Style::default().fg(t.command).add_modifier(Modifier::BOLD),
+                )),
+                Line::from(Span::styled("Esc отменить", Style::default().fg(t.dim))),
+            ];
+            if let Some(error) = &form.error {
+                lines.push(Line::from(Span::styled(
+                    error.as_str(),
+                    Style::default().fg(t.error),
+                )));
+            }
+            f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
+            render_console(f, a, t);
+            return;
+        }
         if let crate::app::FormKind::SettingChoice {
             options, selected, ..
         } = &form.kind
@@ -203,11 +228,6 @@ pub(super) fn draw(f: &mut Frame, a: &App, area: Rect, t: Theme) {
         }
         let hint = if matches!(form.kind, crate::app::FormKind::Note) {
             format!("Ctrl+R предложить слот · {}", a.route_hints.join(", "))
-        } else if matches!(
-            form.kind,
-            crate::app::FormKind::Confirm(crate::io::Task::Shutdown)
-        ) {
-            "Запись закроется. Очередь продолжится при запуске.".into()
         } else {
             String::new()
         };
@@ -219,11 +239,6 @@ pub(super) fn draw(f: &mut Frame, a: &App, area: Rect, t: Theme) {
             Line::from(Span::styled(
                 if matches!(form.kind, crate::app::FormKind::Seek) {
                     "↑↓ число · Tab поле · Enter перейти · Esc отменить"
-                } else if matches!(
-                    form.kind,
-                    crate::app::FormKind::Confirm(crate::io::Task::Shutdown)
-                ) {
-                    "Ctrl+Enter / Ctrl+S завершить · Esc отменить"
                 } else if matches!(form.kind, crate::app::FormKind::Import) {
                     "Enter импортировать · Esc отменить"
                 } else if matches!(

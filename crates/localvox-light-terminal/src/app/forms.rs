@@ -110,6 +110,7 @@ impl App {
         let retained = f.clone();
         let resource = match &f.kind {
             FormKind::Start => Resource::Control,
+            FormKind::Shutdown => Resource::Shutdown,
             FormKind::Confirm(task) => crate::io::action_resource(task),
             _ => Resource::Action,
         };
@@ -126,6 +127,7 @@ impl App {
                 | FormKind::Source
                 | FormKind::Export(_)
                 | FormKind::Confirm(_)
+                | FormKind::Shutdown
         ) && self.pending_actions.contains(&resource)
         {
             return Err("Дождитесь результата предыдущего действия".into());
@@ -238,6 +240,7 @@ impl App {
                 get(0).parse().map_err(|_| "ID должен быть числом")?,
                 get(1),
             ),
+            FormKind::Shutdown => Task::Shutdown,
             FormKind::Confirm(t) => {
                 if get(0) != "ДА" {
                     return Err("Введите ДА или Esc для отмены".into());
