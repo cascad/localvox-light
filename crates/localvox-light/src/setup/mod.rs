@@ -43,7 +43,7 @@ pub fn run(cli: &Cli) -> Result<i32> {
     let exe = std::env::current_exe()?;
     let install = exe.parent().unwrap();
     let env_path = localvox_light_core::env_file::resolve_path();
-    let before = execute::read_env(&env_path)?;
+    let settings = localvox_light_core::env_file::Snapshot::read(&env_path)?;
     let plan = prompt::choose(
         &layout,
         install,
@@ -51,7 +51,7 @@ pub fn run(cli: &Cli) -> Result<i32> {
         &mut std::io::stdout().lock(),
     )?;
     if let Some(plan) = plan {
-        execute::apply(&plan, &layout, install, &env_path, &before)?;
+        execute::apply(&plan, &layout, install, &settings)?;
         println!("\nНастройка завершена. Повторная проверка:");
         // Re-probe the explicit new layout without mutating process environment.
         let mut updated = layout.clone();

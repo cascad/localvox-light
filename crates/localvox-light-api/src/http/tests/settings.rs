@@ -326,6 +326,30 @@ fn settings_http_masks_unknown_values_and_reports_snapshot_restart_before_and_af
             .as_deref(),
         Some("after")
     );
+    // Re-saving the same value must keep the original file, including mtime.
+    let before_noop = fs::read(&env_path).unwrap();
+    let modified = env_path.metadata().unwrap().modified().unwrap();
+    client
+        .save_settings([("LOCALVOX_LLM_MODEL".into(), Some("after".into()))].into())
+        .unwrap();
+    assert_eq!(fs::read(&env_path).unwrap(), before_noop);
+    assert_eq!(env_path.metadata().unwrap().modified().unwrap(), modified);
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        // A real rename denial after writing the temporary file: return an HTTP
+        // error and keep both the previous file and the running settings.
+        let held = fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0x1 | 0x2)
+            .open(&env_path)
+            .unwrap();
+        assert!(client
+            .save_settings([("LOCALVOX_LLM_MODEL".into(), Some("must-not-apply".into()))].into())
+            .is_err());
+        assert_eq!(fs::read(&env_path).unwrap(), before_noop);
+        drop(held);
+    }
     fs::remove_file(&env_path).unwrap();
     fs::create_dir(&env_path).unwrap();
     assert!(client

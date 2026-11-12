@@ -1,6 +1,7 @@
 //! Real filesystem, subprocess and HTTP boundaries; no devices or developer models.
 use localvox_light::setup::{execute, plan::*, probe, prompt};
 use localvox_light_core::doctor::Layout;
+use localvox_light_core::env_file::Snapshot;
 use std::{
     io::Cursor,
     path::Path,
@@ -148,7 +149,8 @@ fn cancel_and_noop_do_not_even_create_a_lock_or_env() {
         .unwrap()
         .unwrap();
     assert!(plan.actions.is_empty() && plan.changes.is_empty());
-    execute::apply(&plan, &l, tmp.path(), &tmp.path().join(".env"), "").unwrap();
+    let settings = Snapshot::read(&tmp.path().join(".env")).unwrap();
+    execute::apply(&plan, &l, tmp.path(), &settings).unwrap();
     // Declining a concrete settings change also has no side effects.
     assert!(prompt::choose(
         &l,
@@ -298,7 +300,8 @@ fn failed_pull_keeps_config_and_next_attempt_can_retry() {
         }],
         changes: vec![("LOCALVOX_LLM_MODEL".into(), Some("fixture:tiny".into()))],
     };
-    assert!(execute::apply(&plan, &l, tmp.path(), &env, before).is_err());
+    let settings = Snapshot::read(&env).unwrap();
+    assert!(execute::apply(&plan, &l, tmp.path(), &settings).is_err());
     assert_eq!(std::fs::read_to_string(&env).unwrap(), before);
     assert_eq!(server.pulls.load(Ordering::SeqCst), 1);
 }
@@ -314,17 +317,19 @@ fn settings_publish_preserves_comments_and_concurrent_edits_are_rejected() {
         actions: vec![],
         changes: vec![("LOCALVOX_LLM_MODEL".into(), Some("new".into()))],
     };
-    execute::apply(&plan, &l, tmp.path(), &env, before).unwrap();
+    let settings = Snapshot::read(&env).unwrap();
+    execute::apply(&plan, &l, tmp.path(), &settings).unwrap();
     let after = std::fs::read_to_string(&env).unwrap();
     assert_eq!(after, before.replace("=old", "=new"));
     let mtime = env.metadata().unwrap().modified().unwrap();
-    execute::apply(&plan, &l, tmp.path(), &env, &after).unwrap();
+    let updated = Snapshot::read(&env).unwrap();
+    execute::apply(&plan, &l, tmp.path(), &updated).unwrap();
     assert_eq!(env.metadata().unwrap().modified().unwrap(), mtime);
-    assert!(execute::apply(&plan, &l, tmp.path(), &env, before).is_err());
+    assert!(execute::apply(&plan, &l, tmp.path(), &settings).is_err());
     let lock = localvox_light_core::session::try_instance_lock(&l.work_dir)
         .unwrap()
         .unwrap();
-    assert!(execute::apply(&plan, &l, tmp.path(), &env, &after).is_err());
+    assert!(execute::apply(&plan, &l, tmp.path(), &updated).is_err());
     drop(lock);
 }
 
@@ -394,9 +399,20 @@ fn fetch_subprocess_repairs_missing_files_and_second_apply_skips_it() {
         "fetch-models.sh"
     };
     let text = if cfg!(windows) {
-        "param($Root,$Only)\nAdd-Content -LiteralPath (Join-Path $Root 'calls') -Value $Only\n$d=Join-Path $Root 'external/gigaam'; New-Item -ItemType Directory -Force $d | Out-Null\n'v3_e2e_ctc.int8.onnx','v3_e2e_ctc.yaml','v3_e2e_ctc_vocab.txt' | ForEach-Object { [IO.File]::WriteAllText((Join-Path $d $_),'fixture') }\n"
+        r##"param($Root,$Only)
+Add-Content -LiteralPath (Join-Path $Root 'calls') -Value $Only
+$d=Join-Path $Root 'external/gigaam'; New-Item -ItemType Directory -Force $d | Out-Null
+'v3_e2e_ctc.int8.onnx','v3_e2e_ctc.yaml','v3_e2e_ctc_vocab.txt' | ForEach-Object { [IO.File]::WriteAllText((Join-Path $d $_),'fixture') }
+if (Test-Path -LiteralPath (Join-Path $Root 'inject-edit')) { [IO.File]::WriteAllText((Join-Path $Root '.env'), "# external edit`nOTHER=external`n") }
+"##
     } else {
-        "set -eu\nroot=$2\necho call >> \"$root/calls\"\nmkdir -p \"$root/external/gigaam\"\nfor f in v3_e2e_ctc.int8.onnx v3_e2e_ctc.yaml v3_e2e_ctc_vocab.txt; do echo fixture > \"$root/external/gigaam/$f\"; done\n"
+        r#"set -eu
+root=$2
+echo call >> "$root/calls"
+mkdir -p "$root/external/gigaam"
+for f in v3_e2e_ctc.int8.onnx v3_e2e_ctc.yaml v3_e2e_ctc_vocab.txt; do echo fixture > "$root/external/gigaam/$f"; done
+if [ -f "$root/inject-edit" ]; then printf '# external edit\nOTHER=external\n' > "$root/.env"; fi
+"#
     };
     std::fs::write(scripts.join(script), text).unwrap();
     let plan = Plan {
@@ -409,7 +425,8 @@ fn fetch_subprocess_repairs_missing_files_and_second_apply_skips_it() {
         changes: vec![],
     };
     for _ in 0..2 {
-        execute::apply(&plan, &l, tmp.path(), &tmp.path().join(".env"), "").unwrap();
+        let settings = Snapshot::read(&tmp.path().join(".env")).unwrap();
+        execute::apply(&plan, &l, tmp.path(), &settings).unwrap();
     }
     assert_eq!(
         std::fs::read_to_string(tmp.path().join("calls"))
@@ -419,4 +436,33 @@ fn fetch_subprocess_repairs_missing_files_and_second_apply_skips_it() {
         1
     );
     assert!(!tmp.path().join(".env").exists());
+
+    // Simulate a separate editor during a real fetch subprocess. The files it
+    // completed remain ready, but setup must not publish its old settings view.
+    let env = tmp.path().join(".env");
+    let settings = Snapshot::read(&env).unwrap();
+    std::fs::remove_file(l.gigaam.as_ref().unwrap().join("v3_e2e_ctc_vocab.txt")).unwrap();
+    touch(&tmp.path().join("inject-edit"));
+    let mut retry = plan.clone();
+    retry.changes = vec![("LOCALVOX_LLM_MODEL".into(), Some("new".into()))];
+    assert!(execute::apply(&retry, &l, tmp.path(), &settings).is_err());
+    assert_eq!(
+        std::fs::read_to_string(&env).unwrap(),
+        "# external edit\nOTHER=external\n"
+    );
+    Component::Gigaam
+        .validate(&l, l.gigaam.as_ref().unwrap())
+        .unwrap();
+    let updated = Snapshot::read(&env).unwrap();
+    execute::apply(&retry, &l, tmp.path(), &updated).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(tmp.path().join("calls"))
+            .unwrap()
+            .lines()
+            .count(),
+        2
+    );
+    let saved = std::fs::read_to_string(&env).unwrap();
+    assert!(saved.starts_with("# external edit\nOTHER=external\n"));
+    assert!(saved.contains("LOCALVOX_LLM_MODEL=new"));
 }

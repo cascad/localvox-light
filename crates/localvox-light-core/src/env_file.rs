@@ -19,11 +19,99 @@
 //! takes over), the documentation survives, and the previous value is still readable. The
 //! operation is its own inverse.
 
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    sync::Mutex,
+};
 
 use anyhow::{Context, Result};
 
 const FILE_NAME: &str = ".env";
+
+// HTTP requests share a process. Serialize the entire read/edit/publish, rather than
+// only the final write: two requests changing different keys must both survive.
+static WRITER: Mutex<()> = Mutex::new(());
+
+/// A read-only view tied to its destination. Used when edits are prepared before a
+/// long operation (setup downloads) and must not replace a newer configuration.
+/// Content is deliberately not Debug: it may contain credentials.
+pub struct Snapshot {
+    path: PathBuf,
+    destination: PathBuf,
+    content: Option<String>,
+}
+
+impl Snapshot {
+    pub fn read(path: &Path) -> Result<Self> {
+        let path = if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            std::env::current_dir()?.join(path)
+        };
+        let content = match std::fs::read_to_string(&path) {
+            Ok(content) => Some(content),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                // Do not silently replace a dangling link with a new settings file.
+                anyhow::ensure!(
+                    !std::fs::symlink_metadata(&path).is_ok_and(|m| m.file_type().is_symlink()),
+                    "settings link target is missing: {}",
+                    path.display()
+                );
+                None
+            }
+            Err(error) => {
+                return Err(error)
+                    .with_context(|| format!("reading {} before saving settings", path.display()))
+            }
+        };
+        let destination = if content.is_some() {
+            std::fs::canonicalize(&path)
+                .with_context(|| format!("resolving settings file {}", path.display()))?
+        } else {
+            path.clone()
+        };
+        Ok(Self {
+            path,
+            destination,
+            content,
+        })
+    }
+
+    /// Check without writing or acquiring a filesystem lease.
+    pub fn verify(&self) -> Result<()> {
+        let current = Self::read(&self.path)?;
+        anyhow::ensure!(
+            current.content == self.content && current.destination == self.destination,
+            ".env изменился после чтения. Повтори операцию, чтобы сохранить новые настройки."
+        );
+        Ok(())
+    }
+
+    /// Publish only if the snapshot is still current. Returns whether bytes changed.
+    /// This and save_to serialize cooperating writers in this process; they do not
+    /// claim a filesystem-wide CAS against arbitrary external editors.
+    pub fn save(&self, changes: &[(String, Option<String>)]) -> Result<bool> {
+        let _writer = WRITER.lock().unwrap_or_else(|e| e.into_inner());
+        self.verify()?;
+        self.publish(changes)
+    }
+
+    fn publish(&self, changes: &[(String, Option<String>)]) -> Result<bool> {
+        let current = self.content.as_deref().unwrap_or_default();
+        let next = apply(current, changes);
+        // Run the edits in their original order first. Filtering individual edits
+        // against current would mishandle repeated assignments of the same key.
+        if next == current || parse(&next) == parse(current) {
+            return Ok(false);
+        }
+        let parent = self.destination.parent().context("settings directory")?;
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("creating settings directory {}", parent.display()))?;
+        crate::artifacts::atomic_write(&self.destination, next.as_bytes())
+            .with_context(|| format!("writing {}", self.path.display()))?;
+        Ok(true)
+    }
+}
 
 /// Which `.env` is actually in effect, and therefore the one to write to.
 ///
@@ -184,6 +272,28 @@ pub fn parse(content: &str) -> std::collections::BTreeMap<String, String> {
 
 /// Undo what `render` did: strip the quoting it may have added.
 fn unquote(v: &str) -> String {
+    // A comment after the closing quote is not part of the value. Find the
+    // matching quote before stripping the comment so a quoted ` # ` stays literal.
+    let v = if let Some(quote @ ('\'' | '"')) = v.chars().next() {
+        let mut escaped = false;
+        let mut end = None;
+        for (i, c) in v.char_indices().skip(1) {
+            if escaped {
+                escaped = false;
+            } else if quote == '"' && c == '\\' {
+                escaped = true;
+            } else if c == quote {
+                let tail = v[i + 1..].trim_start();
+                if tail.is_empty() || tail.starts_with('#') {
+                    end = Some(i + 1);
+                }
+                break;
+            }
+        }
+        end.map(|end| &v[..end]).unwrap_or(v)
+    } else {
+        v
+    };
     if v.len() >= 2 && v.starts_with('\'') && v.ends_with('\'') {
         return v[1..v.len() - 1].to_string();
     }
@@ -210,27 +320,158 @@ pub fn save(changes: &[(String, Option<String>)]) -> Result<PathBuf> {
 }
 
 pub fn save_to(path: &Path, changes: &[(String, Option<String>)]) -> Result<()> {
-    let current = match std::fs::read_to_string(path) {
-        Ok(content) => content,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
-        Err(error) => {
-            return Err(error)
-                .with_context(|| format!("reading {} before saving settings", path.display()))
-        }
-    };
-    let next = apply(&current, changes);
-    if let Some(dir) = path.parent() {
-        if !dir.as_os_str().is_empty() {
-            std::fs::create_dir_all(dir).ok();
-        }
-    }
-    std::fs::write(path, next).with_context(|| format!("writing {}", path.display()))?;
+    let _writer = WRITER.lock().unwrap_or_else(|e| e.into_inner());
+    Snapshot::read(path)?.publish(changes)?;
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn quoted_inline_comments_are_outside_values_and_hashes_inside_quotes_are_literal() {
+        let parsed = parse("S='literal # hash' # note\nD=\"say \\\"yes\\\" # hash\" # note\nP='D:\\models\\' # note\n");
+        assert_eq!(parsed["S"], "literal # hash");
+        assert_eq!(parsed["D"], "say \"yes\" # hash");
+        assert_eq!(parsed["P"], "D:\\models\\");
+    }
+
+    #[test]
+    fn identical_values_preserve_original_bytes_and_mtime() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join(".env");
+        let original =
+            "# owner formatting\r\nexport LOCALVOX_MODEL = 'same' # keep note\r\nOTHER=value\r\n";
+        std::fs::write(&path, original).unwrap();
+        let modified = path.metadata().unwrap().modified().unwrap();
+        save_to(&path, &[ch("LOCALVOX_MODEL", Some("same"))]).unwrap();
+        save_to(&path, &[]).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+        assert_eq!(path.metadata().unwrap().modified().unwrap(), modified);
+        // Repeated edits are evaluated in order, including a return to the original.
+        assert!(!Snapshot::read(&path)
+            .unwrap()
+            .save(&[
+                ch("LOCALVOX_MODEL", Some("temporary")),
+                ch("LOCALVOX_MODEL", Some("same")),
+            ])
+            .unwrap());
+        assert_eq!(path.metadata().unwrap().modified().unwrap(), modified);
+    }
+
+    #[test]
+    fn missing_snapshot_creates_only_for_a_real_change_and_rejects_a_new_empty_file() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("nested/.env");
+        let original = Snapshot::read(&path).unwrap();
+        assert!(!original.save(&[]).unwrap());
+        assert!(!path.parent().unwrap().exists());
+        assert!(original
+            .save(&[ch("LOCALVOX_MODEL", Some("first"))])
+            .unwrap());
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "LOCALVOX_MODEL=first\n"
+        );
+        assert!(original
+            .save(&[ch("LOCALVOX_MODEL", Some("stale"))])
+            .is_err());
+
+        let empty = directory.path().join("new.env");
+        let missing = Snapshot::read(&empty).unwrap();
+        std::fs::write(&empty, "").unwrap();
+        assert!(missing.verify().is_err());
+        assert!(missing.save(&[ch("X", Some("value"))]).is_err());
+        assert_eq!(std::fs::read_to_string(empty).unwrap(), "");
+    }
+
+    #[test]
+    fn concurrent_independent_edits_merge_and_stale_snapshots_cannot_erase_them() {
+        use std::sync::{Arc, Barrier};
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join(".env");
+        std::fs::write(&path, "# retained\nBASE=original\n").unwrap();
+        let stale = Snapshot::read(&path).unwrap();
+        let start = Arc::new(Barrier::new(8));
+        std::thread::scope(|scope| {
+            for i in 0..8 {
+                let path = &path;
+                let start = start.clone();
+                scope.spawn(move || {
+                    start.wait();
+                    save_to(path, &[(format!("LOCALVOX_TEST_{i}"), Some(i.to_string()))]).unwrap();
+                });
+            }
+        });
+        let current = std::fs::read_to_string(&path).unwrap();
+        let parsed = parse(&current);
+        assert_eq!(parsed.len(), 9);
+        for i in 0..8 {
+            assert_eq!(parsed[&format!("LOCALVOX_TEST_{i}")], i.to_string());
+        }
+        assert!(current.starts_with("# retained\nBASE=original\n"));
+        assert!(stale
+            .save(&[ch("LOCALVOX_NEW", Some("stale edit"))])
+            .is_err());
+        assert_eq!(std::fs::read_to_string(path).unwrap(), current);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn failed_replace_leaves_the_complete_previous_file_and_can_retry() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join(".env");
+        let original = "# keep me\nLOCALVOX_MODEL=before\nOTHER=still here\n";
+        std::fs::write(&path, original).unwrap();
+        let edit = Snapshot::read(&path).unwrap();
+        // Reads/writes are allowed; rename/delete is denied. Tests a real OS failure,
+        // after the temporary file was written, rather than mocking the writer.
+        let held = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0x1 | 0x2)
+            .open(&path)
+            .unwrap();
+        assert!(edit.save(&[ch("LOCALVOX_MODEL", Some("after"))]).is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1);
+        drop(held);
+        assert!(edit.save(&[ch("LOCALVOX_MODEL", Some("after"))]).unwrap());
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            original.replace("=before", "=after")
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn existing_symlink_is_preserved_and_retargeting_invalidates_the_snapshot() {
+        use std::os::unix::fs::symlink;
+        let directory = tempfile::tempdir().unwrap();
+        let target = directory.path().join("settings");
+        let other = directory.path().join("other");
+        let link = directory.path().join(".env");
+        std::fs::write(&target, "X=old\n").unwrap();
+        std::fs::write(&other, "X=new\n").unwrap();
+        symlink(&target, &link).unwrap();
+        assert!(Snapshot::read(&link)
+            .unwrap()
+            .save(&[ch("X", Some("new"))])
+            .unwrap());
+        assert!(std::fs::symlink_metadata(&link)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "X=new\n");
+        let snapshot = Snapshot::read(&link).unwrap();
+        std::fs::remove_file(&link).unwrap();
+        symlink(&other, &link).unwrap();
+        assert!(snapshot
+            .save(&[ch("X", Some("would replace wrong target"))])
+            .is_err());
+        assert_eq!(std::fs::read_to_string(other).unwrap(), "X=new\n");
+    }
 
     #[cfg(windows)]
     #[test]

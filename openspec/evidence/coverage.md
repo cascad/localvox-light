@@ -512,3 +512,9 @@ main specs и прежние свидетельства не переписан�
 | Requirement | Код / delta | Проверка | Граница |
 |---|---|---|---|
 | SETUP-001/002/003, INV-SETUP-001; SETUP-005/006 в delta | [delta](../changes/add-install-reconciliation-wizard/specs/installation-models/spec.md), [setup](../../crates/localvox-light/src/setup/mod.rs), [doctor](../../crates/localvox-light-core/src/doctor.rs), [installers](../../scripts/install-release.ps1) | [test-run](../changes/add-install-reconciliation-wizard/evidence/implementation.md): 10 setup integration / 16 lib / 1 main / 6 doctor; 16 delivery без skips, настоящий Windows bundle, Mac shell fixtures | Read-only discovery, plan/confirm, ownership, repeat no-op; настоящие Ollama installer/pull/GGUF/Mac first-run not-run; main specs не sync/archive |
+
+Дополнение CFG-001/002/003 и SETUP-006 delta от 2026-11-12:
+
+| Requirement | Код | Проверка | Граница |
+|---|---|---|---|
+| CFG-001/002/003; SETUP-006 в delta | [env_file](../../crates/localvox-light-core/src/env_file.rs), [setup](../../crates/localvox-light/src/setup/execute.rs) | [test-run](../changes/consolidate-settings-persistence/evidence/implementation.md): 20 core, copied-process HTTP, 16 lib / 1 main / 10 setup; реальные read/rename denial, concurrent edits, stale/retry/no-op | Общий snapshot/atomic writer, HTTP/CLI и apply_live policies сохранены; arbitrary cross-process CAS, power-loss/disk-full и native Unix/Mac not-run |

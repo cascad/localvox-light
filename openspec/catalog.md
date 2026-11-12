@@ -203,3 +203,8 @@ proxy; native counters неизвестны. Default модели, Mac/audio п�
 read-only doctor/JSON, терминальный мастер, выбор готовых ASR folders/Ollama/GGUF,
 план перед изменениями и повтор без повторной загрузки. SETUP-005/006 остаются delta;
 first-run Windows/Mac Ollama и настоящие большие downloads — not-run владельца.
+
+Практический refactor настроек: [consolidate-settings-persistence](changes/consolidate-settings-persistence/proposal.md).
+[Проверки](changes/consolidate-settings-persistence/evidence/implementation.md): единый
+snapshot/atomic writer для HTTP и setup, сохранность при Windows replace denial,
+независимые edits и повтор без записи. Контракты CFG и setup не меняются.

@@ -12,24 +12,20 @@ use std::{
     time::Duration,
 };
 
-pub fn read_env(path: &Path) -> Result<String> {
-    match std::fs::read_to_string(path) {
-        Ok(s) => Ok(s),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
-        Err(e) => Err(e.into()),
-    }
-}
-
-pub fn apply(plan: &Plan, layout: &Layout, install: &Path, env: &Path, before: &str) -> Result<()> {
+pub fn apply(
+    plan: &Plan,
+    layout: &Layout,
+    install: &Path,
+    settings: &env_file::Snapshot,
+) -> Result<()> {
     if plan.actions.is_empty() && plan.changes.is_empty() {
         return Ok(());
     }
     let _ownership = localvox_light_core::session::try_instance_lock(&layout.work_dir)?
         .context("Демон или другой мастер использует архив. Останови его и повтори настройку.")?;
-    anyhow::ensure!(
-        read_env(env)? == before,
-        ".env изменился после показа плана. Повтори настройку."
-    );
+    settings
+        .verify()
+        .context("Настройки изменились после показа плана")?;
     for action in &plan.actions {
         println!(
             "\n└ {}",
@@ -104,18 +100,10 @@ pub fn apply(plan: &Plan, layout: &Layout, install: &Path, env: &Path, before: &
             }
         }
     }
-    // Recheck before committing settings as well; a UI may have saved them during a long pull.
-    anyhow::ensure!(
-        read_env(env)? == before,
-        ".env изменился во время установки. Модели сохранены; повтори мастер для настройки."
-    );
-    if !plan.changes.is_empty() {
-        let after = env_file::apply(before, &plan.changes);
-        if after != before {
-            std::fs::create_dir_all(env.parent().context("Каталог .env")?)?;
-            localvox_light_core::artifacts::atomic_write(env, after.as_bytes())?;
-        }
-    }
+    // The shared writer rechecks the snapshot after a long download before publishing.
+    settings
+        .save(&plan.changes)
+        .context("Не удалось сохранить настройки. Готовые модели сохранены; повтори мастер.")?;
     Ok(())
 }
 
