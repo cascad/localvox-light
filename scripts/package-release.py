@@ -52,7 +52,10 @@ def relocate_macos(folder):
         run('codesign', '--force', '--sign', '-', str(file))
 
 
-def stage(source, native, folder, target, desktop=False):
+def stage(source, native, folder, target, desktop=False, extra_native=()):
+    for directory in extra_native:
+        if not directory.is_dir():
+            raise RuntimeError(f'Missing native SDK directory: {directory}')
     windows = 'windows' in target
     suffix = '.exe' if windows else ''
     for name in (*BINARIES, *(('localvox-desktop',) if desktop else ())):
@@ -62,7 +65,7 @@ def stage(source, native, folder, target, desktop=False):
         shutil.copy2(file, folder / file.name)
         (folder / file.name).chmod(0o755)
     patterns = ('*.dll',) if windows else (('*.dylib',) if 'darwin' in target else ('*.so', '*.so.*'))
-    for directory in (native, source):
+    for directory in (native, source, *extra_native):
         for pattern in patterns:
             for file in directory.glob(pattern):
                 if file.is_file():
@@ -80,6 +83,10 @@ def stage(source, native, folder, target, desktop=False):
             run('patchelf', '--set-rpath', ':'.join(dict.fromkeys(['$ORIGIN', *filter(None, old.split(':'))])), str(file))
     shutil.copy2(ROOT / '.env.defaults', folder)
     shutil.copytree(ROOT / 'licenses', folder / 'licenses')
+    for directory in extra_native:
+        notices = directory / 'licenses'
+        if notices.is_dir():
+            shutil.copytree(notices, folder / 'licenses', dirs_exist_ok=True)
     shutil.copy2(ROOT / 'LICENSE', folder)
     (folder / 'scripts').mkdir()
     for script in SCRIPTS:
@@ -108,6 +115,7 @@ def main():
     parser.add_argument('--target', required=True)
     parser.add_argument('--source', type=Path, required=True)
     parser.add_argument('--native', type=Path, default=ROOT / 'vosk-lib')
+    parser.add_argument('--extra-native', type=Path, action='append', default=[])
     parser.add_argument('--output', type=Path, default=ROOT / 'dist')
     parser.add_argument('--desktop', action='store_true')
     args = parser.parse_args()
@@ -115,7 +123,8 @@ def main():
     archive = args.output.resolve() / ('localvox-' + args.target + ('.zip' if 'windows' in args.target else '.tar.gz'))
     with tempfile.TemporaryDirectory(prefix='localvox-pack-', dir=args.output) as temp:
         folder = Path(temp).resolve()
-        stage(args.source.resolve(), args.native.resolve(), folder, args.target, args.desktop)
+        stage(args.source.resolve(), args.native.resolve(), folder, args.target, args.desktop,
+              tuple(p.resolve(strict=True) for p in args.extra_native))
         smoke(folder, args.target)
         if archive.suffix == '.zip':
             with zipfile.ZipFile(archive, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=9) as out:

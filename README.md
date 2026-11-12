@@ -14,11 +14,11 @@
 
 ## Установка
 
-Сейчас полный комплект нужно брать из успешного запуска
-[Build binaries](https://github.com/cascad/localvox-light/actions/workflows/build-binaries.yml?query=branch%3Anew_course).
+Полный комплект скачивается из
+[Build binaries](https://github.com/cascad/localvox-light/actions/workflows/build-binaries.yml?query=branch%3Amain).
 Опубликованный `v0.1.5` содержит отдельные бинарники и для текущего интерфейса не подходит.
 
-1. Открой успешный запуск нужной версии и скачай артефакт своей платформы.
+1. Открой запуск нужной версии с успешной сборкой твоей платформы и скачай её артефакт.
 2. Распакуй ZIP-обёртку GitHub, затем внутренний `.zip` или `.tar.gz` в папку LocalVox.
 3. Открой терминал в этой папке и запусти мастер.
 

@@ -260,6 +260,16 @@ models/  vosk-lib/           модели и нативная библиотек
 
 ## Оговорка про платформы
 
+Release CI использует Ubuntu 24.04 для обеих Linux-архитектур: текущий готовый
+ONNX Runtime требует более новую glibc, чем Ubuntu 22.04. Intel Mac собирает CPU
+ONNX Runtime 1.24.2 из pinned upstream commit через
+`python3 scripts/build-onnxruntime-macos.py --output target/native/onnxruntime-intel`.
+Для сборки SDK нужны Python ≥ 3.11, CMake ≥ 3.28 и Xcode Command Line Tools.
+Готовый SDK проверяется по manifest/SHA и используется повторно. Для ручной Intel
+сборки задать `ORT_LIB_PATH` на этот каталог и `ORT_PREFER_DYNAMIC_LINK=1`; упаковке
+передать `--extra-native target/native/onnxruntime-intel`. На других targets
+продолжает работать стандартный download-binaries самого ort.
+
 Разработка и предыдущие живые проверки ориентированы на Windows. Наличие веток
 macOS/Linux и прежних результатов сборки не подтверждает аппаратный захват на текущей
 версии. В этой миграции живые прогоны на этих ОС не выполнялись. Автостарт через

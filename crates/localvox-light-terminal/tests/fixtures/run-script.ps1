@@ -44,8 +44,11 @@ $options = switch ($Case) {
 $failed = $null
 Push-Location -LiteralPath $Directory
 try {
+    # Capture the provider's actual path, not an argument that may use 8.3 names
+    # or dot segments. Restoration must preserve this exact entered location.
+    $entered = (Get-Location).Path
     try { & $RunScript @options } catch { $failed = $_.Exception.Message }
-    if ((Get-Location).Path -ne $Directory) { throw 'run.ps1 did not restore cwd' }
+    if ((Get-Location).Path -ne $entered) { throw 'run.ps1 did not restore cwd' }
 } finally { Pop-Location }
 if ((Get-Location).Path -ne $original) { throw 'fixture did not restore cwd' }
 $expectFailure = $Case -in @('conflict', 'build-failure', 'missing-artifact', 'different-directories')

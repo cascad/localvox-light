@@ -78,6 +78,41 @@ class PackageContracts(unittest.TestCase):
         self.assertTrue(all(c[3] == '@loader_path/libvosk.dylib' for c in changes))
         self.assertEqual(len([c for c in calls if c[0] == 'codesign']), 4)
 
+    def test_missing_extra_native_sdk_is_rejected_before_staging(self):
+        with self.assertRaisesRegex(RuntimeError, 'Missing native SDK directory'):
+            package.stage(self.source, self.native, self.out, WINDOWS, extra_native=(self.root / 'missing SDK',))
+        self.assertEqual(list(self.out.iterdir()), [])
+
+    def test_extra_native_sdk_is_relocated_signed_and_licensed_in_bundle_manifest(self):
+        runtime = self.root / 'runtime SDK'
+        runtime.mkdir()
+        library = 'libonnxruntime.1.24.2.dylib'
+        (runtime / library).write_bytes(b'native SDK fixture')
+        notices = runtime / 'licenses/onnxruntime'
+        notices.mkdir(parents=True)
+        (notices / 'LICENSE').write_text('upstream runtime license')
+        for name in package.BINARIES: (self.source / name).write_bytes(b'executable fixture')
+        (self.native / 'libvosk.dylib').write_bytes(b'Vosk fixture')
+        calls = []
+
+        def command(*args):
+            calls.append(args)
+            if args[0] != 'otool': return ''
+            file = Path(args[-1]).name
+            dependencies = [file] if file.endswith('.dylib') else ['libvosk.dylib', library]
+            return str(args[-1]) + ':\n' + ''.join(f'\t/private/build/{name} (compatibility version 0.0.0)\n' for name in dependencies)
+
+        with patch.object(package, 'run', side_effect=command):
+            package.stage(self.source, self.native, self.out, 'x86_64-apple-darwin', extra_native=(runtime,))
+        self.assertEqual((self.out / library).read_bytes(), b'native SDK fixture')
+        self.assertEqual((self.out / 'licenses/onnxruntime/LICENSE').read_text(), 'upstream runtime license')
+        self.assertTrue(any(c[0] == 'install_name_tool' and '@loader_path/' + library in c for c in calls))
+        self.assertTrue(any(c[0] == 'codesign' and Path(c[-1]).name == library for c in calls))
+        manifest = json.loads((self.out / 'bundle.json').read_text())
+        files = {entry['name']: entry['sha256'] for entry in manifest['files']}
+        self.assertEqual(files[library], package.digest(self.out / library))
+        self.assertIn('licenses/onnxruntime/LICENSE', files)
+
     def test_macos_unbundled_non_system_dependency_fails(self):
         (self.out / 'localvox-light').write_bytes(b'fixture')
         with patch.object(package, 'run', return_value='app:\n\t/opt/brew/missing.dylib (compatibility version 0.0.0, current version 0.0.0)'):
