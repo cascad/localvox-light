@@ -16,6 +16,8 @@ pub(crate) struct Input {
     handle: HANDLE,
     original: CONSOLE_MODE,
     decoder: Decoder,
+    #[cfg(test)]
+    key_trace: Vec<(bool, u16, u16, u16)>,
 }
 impl Input {
     pub fn new() -> Result<Self> {
@@ -31,6 +33,8 @@ impl Input {
                 handle,
                 original,
                 decoder: Decoder::default(),
+                #[cfg(test)]
+                key_trace: Vec::new(),
             })
         }
     }
@@ -53,6 +57,20 @@ impl Input {
                     unsafe {
                         ReadConsoleInputW(self.handle, &mut records, &mut count)?;
                     }
+                    // Only the synthetic native-input fixture collects records.
+                    // Include the OS representation when a hosted ConPTY test fails.
+                    #[cfg(test)]
+                    for record in &records[..count as usize] {
+                        if record.EventType as u32 == KEY_EVENT && self.key_trace.len() < 4096 {
+                            let key = unsafe { record.Event.KeyEvent };
+                            self.key_trace.push((
+                                key.bKeyDown.as_bool(),
+                                key.wVirtualKeyCode,
+                                unsafe { key.uChar.UnicodeChar },
+                                key.wRepeatCount,
+                            ));
+                        }
+                    }
                     self.decoder.records(&records[..count as usize]);
                 }
                 WAIT_TIMEOUT => {
@@ -68,6 +86,10 @@ impl Input {
                 return Ok(self.decoder.events.pop_front());
             }
         }
+    }
+    #[cfg(test)]
+    pub(crate) fn key_trace(&self) -> &[(bool, u16, u16, u16)] {
+        &self.key_trace
     }
 }
 impl Drop for Input {
@@ -136,10 +158,13 @@ impl Decoder {
             match record.EventType as u32 {
                 KEY_EVENT => {
                     let key = unsafe { record.Event.KeyEvent };
-                    if !key.bKeyDown.as_bool() {
+                    let unit = unsafe { key.uChar.UnicodeChar };
+                    // Windows commits Alt+Numpad text on VK_MENU key-up. Other
+                    // releases must stay ignored to avoid duplicating text/commands.
+                    let composed_text = key.wVirtualKeyCode == 0x12 && unit != 0;
+                    if !key.bKeyDown.as_bool() && !composed_text {
                         continue;
                     }
-                    let unit = unsafe { key.uChar.UnicodeChar };
                     let modifiers = native_modifiers(key.dwControlKeyState);
                     // Native console hosts can retain Ctrl+Enter/Shift+Tab as
                     // structured keys rather than VT sequences. Preserve both forms.

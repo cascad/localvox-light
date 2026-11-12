@@ -15,6 +15,7 @@ fn native_paste_fixture() {
         return;
     };
     let mut events = vec![];
+    let mut native_keys = vec![];
     let mut app = App::default();
     app.focus = 2;
     let mode = || unsafe {
@@ -44,6 +45,7 @@ fn native_paste_fixture() {
                 }
             }
         }
+        native_keys.extend_from_slice(input.key_trace());
         Ok(())
     })
     .unwrap();
@@ -52,7 +54,8 @@ fn native_paste_fixture() {
     std::fs::write(
         output,
         serde_json::to_vec(&serde_json::json!({
-            "events": events, "quit": app.quit, "palette": app.palette,
+            "events": events, "native_keys": native_keys,
+            "quit": app.quit, "palette": app.palette,
             "effects": app.effects.len(),
             "value": app.form.as_ref().map(|f| f.fields[0].value.clone()),
         }))
@@ -143,7 +146,7 @@ fn native_paste_preserves_unicode_and_does_not_dispatch_url_as_keys() {
     assert_eq!(result["quit"], false);
     assert_eq!(result["palette"], false);
     assert_eq!(result["effects"], 0);
-    assert_eq!(result["value"], URL);
+    assert_eq!(result["value"], URL, "native input diagnostic: {result}");
     let events = result["events"].as_array().unwrap();
     assert_eq!(
         events

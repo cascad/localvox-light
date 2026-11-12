@@ -38,6 +38,8 @@ on:
       - "scripts/fetch-models.sh"
       - "scripts/models.json"
       - "scripts/package-release.py"
+      - "scripts/check-release-install.py"
+      - "scripts/tests/test_ci_delivery.py"
       - "scripts/tests/test_release_delivery.py"
       - "docs/release-installation.md"
       - "docs/terminal-workspace.md"
@@ -99,7 +101,13 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libasound2-dev pkg-config patchelf
+          sudo apt-get install -y libasound2-dev pkg-config patchelf jq unzip
+
+      - name: Ensure macOS installer JSON tool
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          if ! command -v jq >/dev/null; then brew install jq; fi
 
       - name: Install Vosk native library (Unix)
         if: runner.os != 'Windows'
@@ -120,9 +128,12 @@ jobs:
       # шага build.rs подкладывает заглушку «Интерфейс не собран» — и ровно она уезжала в
       # релиз: демон поднимался, а страница сообщала, что фронта нет.
       - name: Build the web interface
+        working-directory: ui
+        shell: bash
         run: |
-          npm --prefix ui ci
-          npm --prefix ui run build
+          set -euo pipefail
+          npm ci
+          npm run build
 
       - name: Fail if the interface did not build
         shell: bash
@@ -165,7 +176,7 @@ jobs:
           python-version: "3.13"
 
       - name: Delivery contracts
-        run: python -m unittest discover -s scripts/tests -p test_release_delivery.py -v
+        run: python -m unittest discover -s scripts/tests -p "test_*delivery.py" -v
 
       - name: Pack and probe the complete product
         shell: bash
@@ -179,21 +190,8 @@ jobs:
           python scripts/package-release.py --target "$TARGET" \
             --source "target/$TARGET/release" --output dist "${args[@]}"
 
-      - name: Install the Windows archive (no models or devices)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          ./scripts/install-release.ps1 -Archive "dist/${{ matrix.artifact }}.zip" -InstallDir "$env:RUNNER_TEMP/LocalVox install" -SkipModels
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-      - name: Install the Unix archive (no models or devices)
-        if: runner.os != 'Windows'
-        shell: bash
-        env:
-          TARGET: ${{ matrix.target }}
-        run: |
-          bash scripts/install-release.sh --archive="dist/localvox-$TARGET.tar.gz" \
-            --install-dir="$RUNNER_TEMP/LocalVox install" --skip-models
+      - name: Installed bundle doctor, setup and reconciliation (no models/devices)
+        run: python scripts/check-release-install.py --archive "dist/${{ matrix.artifact }}${{ runner.os == 'Windows' && '.zip' || '.tar.gz' }}"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7

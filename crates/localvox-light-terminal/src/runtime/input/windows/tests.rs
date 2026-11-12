@@ -1,5 +1,47 @@
 use super::*;
 
+#[test]
+fn composed_text_on_alt_release_is_not_lost_or_mistaken_for_an_ordinary_key_release() {
+    let mut decoder = Decoder::default();
+    feed(&mut decoder, "\x1b[200~https://example.org/Русский");
+    // Windows Alt+Numpad composition commits characters on VK_MENU key-up.
+    for unit in "🦀".encode_utf16() {
+        decoder.records(&[INPUT_RECORD {
+            EventType: KEY_EVENT as u16,
+            Event: INPUT_RECORD_0 {
+                KeyEvent: KEY_EVENT_RECORD {
+                    bKeyDown: false.into(),
+                    wRepeatCount: 1,
+                    wVirtualKeyCode: 0x12,
+                    uChar: KEY_EVENT_RECORD_0 { UnicodeChar: unit },
+                    ..Default::default()
+                },
+            },
+        }]);
+        decoder.idle();
+    }
+    feed(&mut decoder, "\x1b[201~");
+    assert_eq!(
+        decoder.events.pop_front(),
+        Some(Event::Paste("https://example.org/Русский🦀".into()))
+    );
+    decoder.records(&[INPUT_RECORD {
+        EventType: KEY_EVENT as u16,
+        Event: INPUT_RECORD_0 {
+            KeyEvent: KEY_EVENT_RECORD {
+                bKeyDown: false.into(),
+                wRepeatCount: 1,
+                wVirtualKeyCode: b'Q' as u16,
+                uChar: KEY_EVENT_RECORD_0 {
+                    UnicodeChar: b'q' as u16,
+                },
+                ..Default::default()
+            },
+        },
+    }]);
+    assert!(decoder.events.is_empty());
+}
+
 fn feed(decoder: &mut Decoder, text: &str) {
     for unit in text.encode_utf16() {
         decoder.unit(unit);

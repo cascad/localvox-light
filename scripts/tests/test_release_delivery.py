@@ -152,6 +152,8 @@ function Invoke-WebRequest { throw 'Unexpected download of an incomplete release
         install = self.root / 'real LocalVox install'
         wrapper = self.root / 'direct-call.ps1'
         wrapper.write_text('''param($Installer,$Archive,$Destination)
+$ErrorActionPreference='Stop'
+$PSNativeCommandUseErrorActionPreference=$true
 & $Installer -Archive $Archive -InstallDir $Destination -SkipModels
 if ($LASTEXITCODE -ne 0) { throw "Installer leaked native exit code $LASTEXITCODE" }
 Set-Content -LiteralPath (Join-Path $Destination 'direct-call-completed') -Value 'ok'

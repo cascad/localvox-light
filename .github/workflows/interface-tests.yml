@@ -37,6 +37,8 @@ jobs:
       - name: Build and test UI
         working-directory: ui
         run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
           npm ci
           npm run build
           npm test
@@ -47,6 +49,8 @@ jobs:
         run: cargo test --locked -p localvox-light-client -p localvox-light-terminal -p localvox-light-process
       - name: Shared coordinator, main launcher delegation and snapshot settings
         run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
           cargo test --locked -p localvox-light --lib
           cargo test --locked -p localvox-light --bin localvox-light
           cargo test --locked -p localvox-light --test setup
@@ -55,6 +59,8 @@ jobs:
           cargo check --locked -p localvox-light --no-default-features
       - name: Journal, legacy progress and real HTTP
         run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
           cargo test --locked -p localvox-light-core journal:: --lib
           cargo test --locked -p localvox-light-core progress:: --lib
           cargo test --locked -p localvox-light-core processing:: --lib
@@ -74,6 +80,8 @@ jobs:
           cargo test --locked -p localvox-light-core readable:: --lib
       - name: Worker profiling fixture contracts (no speech models)
         run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
           rustfmt --edition 2021 --check crates/localvox-light-bench/src/bin/localvox-profile.rs
           rustfmt --edition 2021 --check crates/localvox-light-bench/src/bin/localvox-queue-profile.rs
           rustfmt --edition 2021 --check crates/localvox-light-bench/src/bin/localvox-incremental-profile.rs
@@ -99,6 +107,8 @@ jobs:
           cargo test --locked -p localvox-light-bench --bin localvox-queue-profile -- --ignored --exact tests::real_coordinator_empty_timeout_and_preflight_failure_are_bounded
       - name: Confirmed capture input and owned codecs (no devices/models)
         run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
           rustfmt --edition 2021 --check crates/localvox-light-core/src/chunks.rs crates/localvox-light-core/src/pipeline.rs crates/localvox-light-core/src/windowing.rs
           cargo test --locked -p localvox-light-core chunks:: --lib
           cargo test --locked -p localvox-light-core pipeline:: --lib
@@ -112,6 +122,8 @@ jobs:
         run: cargo test --locked -p localvox-light --lib autocook::cancellation_tests -- --ignored --nocapture
       - name: Background indexes and search (local HTTP, no models/devices)
         run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
           rustfmt --edition 2021 --check crates/localvox-light/src/autocook/indexing_tests.rs
           rustfmt --edition 2021 --check crates/localvox-light-search/src/semantic.rs
           cargo test --locked -p localvox-light --lib autocook::indexing_tests:: -- --ignored --skip indexing_fixture --test-threads=1 --nocapture
@@ -123,6 +135,8 @@ jobs:
         run: choco install ffmpeg --yes --no-progress
       - name: Real archive HTTP media and sample-accurate FLAC
         run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
           cargo test --locked -p localvox-light-core --lib chunks::codec::tests::real_ -- --ignored --nocapture
           cargo test --locked -p localvox-light-core --lib chunks::planning::tests::real_ -- --ignored --nocapture
           cargo test --locked -p localvox-light-core --lib incremental::audio::tests::real_ -- --ignored --nocapture
@@ -131,6 +145,8 @@ jobs:
           cargo test --locked -p localvox-light-api http::tests::partial::real_ --lib -- --ignored --nocapture --test-threads=1
       - name: Specification checks
         run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
           npx --yes @fission-ai/openspec@1.13.2 validate --specs --strict --no-interactive
           npx --yes @fission-ai/openspec@1.13.2 validate add-technical-journal-workspace --type change --strict --no-interactive
           npx --yes @fission-ai/openspec@1.13.2 validate add-incremental-recording-transcription --type change --strict --no-interactive

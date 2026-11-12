@@ -15,6 +15,9 @@ param(
     [switch]$Reconcile
 )
 $ErrorActionPreference = 'Stop'
+# Doctor/check use 0/1/2 as data; every native call below checks its exit code.
+# Keep the same behavior when invoked by a fail-fast PowerShell 7 CI parent.
+$PSNativeCommandUseErrorActionPreference = $false
 $ProgressPreference = 'SilentlyContinue'
 if ($Archive -and $SkipBinary) { throw '-Archive and -SkipBinary cannot be combined' }
 if (-not $InstallDir) { $InstallDir = Join-Path (Get-Location).Path 'localvox-light' }
