@@ -55,6 +55,9 @@ def check(archive):
         installer = ['bash', ROOT / 'scripts/install-release.sh']
     with tempfile.TemporaryDirectory(prefix='localvox-installed-check-') as temporary:
         install = Path(temporary) / 'LocalVox with spaces'
+        profile = Path(temporary) / 'isolated user'
+        profile.mkdir()
+        environment.update(HOME=str(profile), USERPROFILE=str(profile))
 
         def install_call(*flags, expected=0, input=None):
             # Never change the runner/developer's real PATH or shell profiles.

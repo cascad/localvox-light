@@ -61,7 +61,7 @@ struct Cli {
     /// ONNX model directory (model + vocabulary)
     #[arg(
         long,
-        default_value = "models/gigaam-v3-e2e-ctc",
+        default_value_os_t = localvox_light_core::model_paths::default_dir("gigaam"),
         env = "LOCALVOX_ASR_MODEL_DIR"
     )]
     model_dir: PathBuf,

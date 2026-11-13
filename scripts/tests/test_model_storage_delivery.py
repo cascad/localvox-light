@@ -1,0 +1,219 @@
+"""Real PS/Bash downloads with tiny localhost payloads and an isolated user profile."""
+import functools
+import hashlib
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import tempfile
+import tarfile
+import threading
+import unittest
+import zipfile
+
+ROOT = Path(__file__).resolve().parents[2]
+PS = shutil.which('pwsh') or shutil.which('powershell')
+BASH = os.getenv('LOCALVOX_TEST_BASH') or (r'C:\Program Files\Git\bin\bash.exe' if os.name == 'nt' else shutil.which('bash'))
+
+
+class ModelStorageDelivery(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix='localvox-model-paths-')
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.install = self.root / 'Установка с пробелами'
+        self.scripts = self.install / 'scripts'
+        self.scripts.mkdir(parents=True)
+        self.home = self.root / 'Профиль с пробелами'
+        self.home.mkdir()
+        self.cwd = self.root / 'workspace'
+        self.cwd.mkdir()
+        self.environment = {k: v for k, v in os.environ.items() if not k.startswith('LOCALVOX_')}
+        self.environment.update(HOME=str(self.home), USERPROFILE=str(self.home))
+        self.bin = self.root / 'bin'
+        self.bin.mkdir()
+        self.environment['PATH'] = str(self.bin) + os.pathsep + os.environ['PATH']
+        if os.name == 'nt' and shutil.which('jq'):
+            # Windows jq emits CRLF; emulate the native Unix jq used on Mac/Linux.
+            jq = self.unix(Path(shutil.which('jq')))
+            (self.bin / 'jq').write_text(f'#!/usr/bin/env bash\nset -o pipefail\n"{jq}" "$@" | tr -d "\\r"\n', newline='\n')
+        for name in ('fetch-models.ps1', 'fetch-models.sh', 'model-paths.ps1', 'model-paths.sh'):
+            shutil.copyfile(ROOT / 'scripts' / name, self.scripts / name)
+        payloads = self.root / 'payloads'
+        payloads.mkdir()
+        requests = self.requests = []
+
+        class Handler(SimpleHTTPRequestHandler):
+            def do_GET(self):
+                requests.append(self.path)
+                super().do_GET()
+
+            def log_message(self, *_):
+                pass
+
+        self.server = ThreadingHTTPServer(('127.0.0.1', 0), functools.partial(Handler, directory=str(payloads)))
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        self.addCleanup(self.stop_server)
+        self.manifest = json.loads((ROOT / 'scripts/models.json').read_text(encoding='utf-8'))
+        for component in self.manifest['components']:
+            for i, item in enumerate(component['items']):
+                if item['kind'] == 'text':
+                    continue
+                name = f'{component["id"]}-{i}'
+                file = payloads / name
+                if item['kind'] == 'zip':
+                    with zipfile.ZipFile(file, 'w') as archive:
+                        archive.writestr('fixture/' + item['marker'], b'tiny zip model')
+                else:
+                    file.write_bytes(('tiny ' + name).encode())
+                item['url'] = f'http://127.0.0.1:{self.server.server_port}/{name}'
+                item['sha256'] = hashlib.sha256(file.read_bytes()).hexdigest()
+        self.save_manifest()
+
+    def stop_server(self):
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join()
+
+    def save_manifest(self):
+        (self.scripts / 'models.json').write_text(json.dumps(self.manifest, ensure_ascii=False), encoding='utf-8')
+
+    @staticmethod
+    def unix(path):
+        value = Path(path).as_posix()
+        return '/' + value[0].lower() + value[2:] if os.name == 'nt' else value
+
+    def run_fetch(self, shell, *options, expected=0):
+        if shell == 'ps':
+            command = [PS, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', self.scripts / 'fetch-models.ps1', *options]
+            env = self.environment
+        else:
+            env = {**self.environment, 'HOME': self.unix(self.home)}
+            command = [BASH, '-c', 'export PATH="$1:$PATH"; shift; exec bash "$@"', 'fixture', self.unix(self.bin), self.unix(self.scripts / 'fetch-models.sh'), *options]
+        result = subprocess.run(command, env=env, cwd=self.cwd, capture_output=True, timeout=120)
+        self.assertEqual(result.returncode, expected, (result.stdout + result.stderr).decode('utf-8', errors='replace'))
+        return result
+
+    def shells(self):
+        available = (['ps'] if PS and os.name == 'nt' else []) + (['bash'] if BASH and Path(BASH).is_file() and shutil.which('jq') else [])
+        if not available:
+            self.skipTest('PowerShell on Windows or Bash+jq required')
+        return available
+
+    @staticmethod
+    def snapshot(folder):
+        # PowerShell itself populates its AppData module-analysis cache on first start.
+        # Observe product files/model placement, independently of the shell's own cache.
+        return {p.relative_to(folder).as_posix(): (hashlib.sha256(p.read_bytes()).hexdigest(), p.stat().st_mtime_ns)
+                for p in folder.rglob('*') if p.is_file() and 'AppData' not in p.relative_to(folder).parts}
+
+    def test_default_check_download_repeat_and_hidden_attribute(self):
+        for shell in self.shells():
+            with self.subTest(shell=shell):
+                store = self.home / '.localvox'
+                check = '-Check' if shell == 'ps' else '--check'
+                self.run_fetch(shell, check, expected=1)
+                self.assertFalse(store.exists())
+                self.assertEqual(self.requests, [])
+                self.run_fetch(shell)
+                self.assertTrue((store / 'models/vosk-model-ru-0.42/am/final.mdl').is_file())
+                self.assertTrue((store / 'models/gigaam-v3-e2e-ctc/v3_e2e_ctc.int8.onnx').is_file())
+                if os.name == 'nt':
+                    self.assertTrue(store.stat().st_file_attributes & 2)
+                before = self.snapshot(self.root)
+                requests = list(self.requests)
+                self.run_fetch(shell, check)
+                self.run_fetch(shell)
+                self.assertEqual(self.requests, requests)
+                self.assertEqual(self.snapshot(self.root), before)
+                shutil.rmtree(store)
+                self.requests.clear()
+
+    def test_explicit_root_and_ready_portable_are_reused_without_user_store(self):
+        for shell in self.shells():
+            with self.subTest(shell=shell):
+                root_arg = str(self.install) if shell == 'ps' else self.unix(self.install)
+                self.run_fetch(shell, '-Root' if shell == 'ps' else '--root', root_arg)
+                before, requests = self.snapshot(self.root), list(self.requests)
+                self.run_fetch(shell)
+                self.assertEqual(self.requests, requests)
+                self.assertEqual(self.snapshot(self.root), before)
+                self.assertFalse((self.home / '.localvox').exists())
+                shutil.rmtree(self.install / 'models')
+
+    def test_invalid_explicit_path_never_downloads_or_replaces_user_files(self):
+        external = self.root / 'External model'
+        external.mkdir()
+        (external / 'keep.txt').write_bytes(b'owner content')
+        for shell in self.shells():
+            with self.subTest(shell=shell):
+                self.environment['LOCALVOX_LIGHT_MODEL'] = str(external) if shell == 'ps' else self.unix(external)
+                before = self.snapshot(self.root)
+                self.run_fetch(shell, '-Only' if shell == 'ps' else '--only', 'vosk', expected=1)
+                self.assertEqual(self.snapshot(self.root), before)
+                self.assertEqual(self.requests, [])
+
+    def test_config_file_without_native_resolver_requires_explicit_root(self):
+        (self.install / '.env').write_bytes(b'# preserve arbitrary dotenv syntax\n')
+        for shell in self.shells():
+            with self.subTest(shell=shell):
+                before = self.snapshot(self.root)
+                result = self.run_fetch(shell, '-Check' if shell == 'ps' else '--check', expected=1)
+                self.assertIn(b'resolver', result.stderr)
+                self.assertEqual(self.snapshot(self.root), before)
+                self.assertEqual(self.requests, [])
+
+    def test_failed_hash_never_publishes_ready_model(self):
+        self.manifest['components'][0]['items'][0]['sha256'] = '0' * 64
+        self.save_manifest()
+        for shell in self.shells():
+            with self.subTest(shell=shell):
+                root = self.root / ('hash-' + shell)
+                self.run_fetch(shell, '-Root' if shell == 'ps' else '--root', str(root) if shell == 'ps' else self.unix(root),
+                               '-Only' if shell == 'ps' else '--only', 'vosk', expected=1)
+                self.assertFalse((root / 'models/vosk-model-ru-0.42').exists())
+
+    @unittest.skipUnless(os.getenv('LOCALVOX_MODEL_RESOLVER_TEST_BINARY') or os.getenv('LOCALVOX_DELIVERY_ARCHIVE'), 'built native bundle/resolver for installed .env parity')
+    def test_native_resolver_reads_dotenv_and_both_downloaders_reuse_external_models(self):
+        if os.getenv('LOCALVOX_DELIVERY_ARCHIVE'):
+            archive = Path(os.environ['LOCALVOX_DELIVERY_ARCHIVE']).resolve(strict=True)
+            if archive.suffix == '.zip':
+                with zipfile.ZipFile(archive) as bundle:
+                    bundle.extractall(self.install)
+            else:
+                with tarfile.open(archive) as bundle:
+                    bundle.extractall(self.install, filter='data')
+        else:
+            original = Path(os.environ['LOCALVOX_MODEL_RESOLVER_TEST_BINARY']).resolve(strict=True)
+            shutil.copyfile(original, self.install / original.name)
+            (self.install / original.name).chmod(0o755)
+            for library in original.parent.iterdir():
+                if library.suffix in ('.dll', '.dylib', '.so'):
+                    shutil.copyfile(library, self.install / library.name)
+        settings = []
+        for component in self.manifest['components']:
+            directory = self.root / 'Внешние веса' / component['id']
+            for item in component['items']:
+                if item['kind'] == 'text':
+                    continue  # Ready external weights do not grant permission to add licence sidecars.
+                relative = item['marker'] if item['kind'] == 'zip' else str(Path(item['dest']).relative_to(component['directory']))
+                destination = directory / relative
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_bytes(b'ready external fixture')
+            settings.append(component['env'] + '=' + json.dumps(str(directory), ensure_ascii=False))
+        (self.install / '.env').write_text('\n'.join(settings) + '\n', encoding='utf-8')
+        before = self.snapshot(self.root)
+        for shell in self.shells():
+            with self.subTest(shell=shell):
+                self.run_fetch(shell, '-Check' if shell == 'ps' else '--check')
+                self.run_fetch(shell)
+                self.assertEqual(self.requests, [])
+                self.assertEqual(self.snapshot(self.root), before)
+                self.assertFalse((self.home / '.localvox').exists())
+
+
+if __name__ == '__main__':
+    unittest.main()

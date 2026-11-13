@@ -104,7 +104,11 @@ pub fn cook_exe_name() -> &'static str {
 impl Layout {
     /// Единственное место, где читается среда. Дальше — детерминированно.
     pub fn from_env(vosk_model: PathBuf, work_dir: PathBuf) -> Self {
-        let gigaam = crate::lang::default_model_dir();
+        // Keep the selected target even when absent, so diagnostics can show where
+        // setup/download will place it. Runtime uses the same resolver before load.
+        let gigaam = crate::model_paths::Context::capture()
+            .resolve(crate::model_paths::component("gigaam"), None)
+            .path;
         let cook = std::env::current_exe()
             .ok()
             .and_then(|p| p.parent().map(|d| d.join(cook_exe_name())))

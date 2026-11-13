@@ -1,4 +1,5 @@
 {
+  "storage": { "user_directory": ".localvox" },
   "_": [
     "ЧТО ЭТО. Полный список моделей, из которых состоит рабочий localvox. Это ДАННЫЕ, а не код,",
     "и читают их оба установщика — fetch-models.ps1 и fetch-models.sh.",
@@ -20,6 +21,8 @@
   "components": [
     {
       "id": "vosk",
+      "env": "LOCALVOX_LIGHT_MODEL",
+      "directory": "models/vosk-model-ru-0.42",
       "title": "Vosk ru 0.42 — живое распознавание",
       "why": "Захват → VAD → Vosk → transcript.jsonl: отсюда голосовые триггеры («запиши», «отметь мысль») и строки в TUI. Демон проверяет каталог в main() и БЕЗ НЕГО НЕ СТАРТУЕТ.",
       "required": true,
@@ -39,6 +42,8 @@
     },
     {
       "id": "gigaam",
+      "env": "LOCALVOX_ASR_MODEL_DIR",
+      "directory": "models/gigaam-v3-e2e-ctc",
       "title": "GigaAM v3 e2e CTC — расшифровка архива",
       "why": "Работает в поваре (localvox-process), offline и начисто: ставит знаки препинания и нормализует числа, чего Vosk не умеет. Без него записи не расшифровываются.",
       "required": true,
@@ -66,6 +71,9 @@
     },
     {
       "id": "diarize",
+      "sibling_of": "gigaam",
+      "env": "LOCALVOX_DIARIZE_MODEL_DIR",
+      "directory": "models/diarize",
       "title": "Диаризация — «кто говорит»",
       "why": "Две модели, и обе обязательны: сегментация говорит, кто говорит в каждом кадре, эмбеддер даёт вектор голоса. Без них записи расшифруются, но без разметки говорящих. Квантованные версии НЕ БРАТЬ (измерено): int8-сегментация выдумывает перекрытие речи, int8-эмбеддер ломает углы между векторами, а кластеризация работает именно углами.",
       "required": false,
@@ -103,6 +111,9 @@
     },
     {
       "id": "ner",
+      "sibling_of": "gigaam",
+      "env": "LOCALVOX_NER_MODEL_DIR",
+      "directory": "models/ner-gliner",
       "title": "GLiNER — проверка имён в ответах LLM",
       "why": "Без него LLM-проверка не сможет судить об именах (числа проверяются всегда). НЕ БРАТЬ int8/quantized: у mDeBERTa квантизация разваливает калибровку, и модель молча перестаёт находить имена — что неотличимо от честной пустой записи.",
       "required": false,

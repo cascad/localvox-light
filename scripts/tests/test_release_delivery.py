@@ -185,6 +185,10 @@ function Invoke-WebRequest { throw 'Unexpected download of an incomplete release
     @unittest.skipUnless(os.name == 'nt' and os.getenv('LOCALVOX_DELIVERY_ARCHIVE'), 'Explicit complete native Windows archive')
     def test_actual_windows_archive_installs_starts_and_preserves_settings(self):
         install = self.root / 'real LocalVox install'
+        profile = self.root / 'isolated profile'
+        profile.mkdir()
+        environment = {k: v for k, v in os.environ.items() if not k.startswith('LOCALVOX_')}
+        environment.update(HOME=str(profile), USERPROFILE=str(profile))
         wrapper = self.root / 'direct-call.ps1'
         wrapper.write_text('''param($Installer,$Archive,$Destination)
 $ErrorActionPreference='Stop'
@@ -197,7 +201,7 @@ Set-Content -LiteralPath (Join-Path $Destination 'direct-call-completed') -Value
             arguments = ([str(ROOT / 'scripts/install-release.ps1'), '-Archive', os.environ['LOCALVOX_DELIVERY_ARCHIVE'], '-InstallDir', str(install), '-SkipModels', '-NoPathUpdate']
                          if iteration == 0 else [str(wrapper), '-Installer', str(ROOT / 'scripts/install-release.ps1'), '-Archive', os.environ['LOCALVOX_DELIVERY_ARCHIVE'], '-Destination', str(install)])
             result = subprocess.run([POWERSHELL, '-NoProfile', '-File', *arguments],
-                                    capture_output=True, timeout=90)
+                                    env=environment, capture_output=True, timeout=90)
             self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
             self.assertTrue((install / 'localvox-process.exe').is_file())
             self.assertTrue((install / 'libvosk.dll').is_file())
@@ -208,12 +212,12 @@ Set-Content -LiteralPath (Join-Path $Destination 'direct-call-completed') -Value
         before = {p.relative_to(install): (p.read_bytes(), p.stat().st_mtime_ns) for p in install.rglob('*') if p.is_file()}
         result = subprocess.run([POWERSHELL, '-NoProfile', '-File', str(ROOT / 'scripts/install-release.ps1'),
                                  '-InstallDir', str(install), '-Archive', str(self.root / 'must-not-open.zip'), '-Reconcile', '-SkipModels', '-NoPathUpdate'],
-                                capture_output=True, timeout=90)
+                                env=environment, capture_output=True, timeout=90)
         self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
         self.assertIn('download and unpack skipped', result.stdout.decode(errors='replace'))
         self.assertEqual(before, {p.relative_to(install): (p.read_bytes(), p.stat().st_mtime_ns) for p in install.rglob('*') if p.is_file()})
         result = subprocess.run([POWERSHELL, '-NoProfile', '-File', str(ROOT / 'scripts/install-release.ps1'),
-                                 '-InstallDir', str(install), '-Check'], capture_output=True, timeout=90)
+                                 '-InstallDir', str(install), '-Check'], env=environment, capture_output=True, timeout=90)
         self.assertEqual(result.returncode, 2)  # Models deliberately skipped.
         self.assertEqual(before, {p.relative_to(install): (p.read_bytes(), p.stat().st_mtime_ns) for p in install.rglob('*') if p.is_file()})
 
@@ -253,7 +257,8 @@ class UnixInstallerContracts(unittest.TestCase):
             'libvosk.dylib': 'native fixture', '.env.defaults': 'LOCALVOX_LIGHT_INCREMENTAL_TRANSCRIBE=on\n',
             'scripts/models.json': '{}',
             'scripts/setup-ollama.sh': '#!/usr/bin/env bash\nexit 99\n',
-            'scripts/fetch-models.sh': '#!/usr/bin/env bash\nprintf "%s\\n" "$@" > "$2/model-args"\n',
+            'scripts/fetch-models.sh': '#!/usr/bin/env bash\nprintf "%s\\n" "$@" > "${0%/*}/../model-args"\n',
+            'scripts/model-paths.sh': '# fixture helper\n',
             'licenses/rs-morphy4/NOTICE': 'fixture notice',
         }.items():
             file = folder / name
@@ -340,6 +345,8 @@ class UnixInstallerContracts(unittest.TestCase):
         result = self.install_archive(self.archive('x86_64-apple-darwin'), '--skip-models')
         self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
         self.assertIn('LocalVox with spaces/archive"', (self.install / '.env').read_text())
+        self.assertNotIn('LOCALVOX_LIGHT_MODEL=', (self.install / '.env').read_text())
+        self.assertNotIn('LOCALVOX_ASR_MODEL_DIR=', (self.install / '.env').read_text())
         self.assertFalse((self.install / 'model-args').exists())
 
     def test_mac_wrong_platform_or_corrupt_archive_is_rejected_before_copy(self):

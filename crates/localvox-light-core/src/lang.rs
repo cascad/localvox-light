@@ -45,7 +45,9 @@ pub fn normalize(code: &str) -> Result<String> {
     let c = code.trim().to_lowercase();
     let lang = isolang::Language::from_639_1(&c)
         .or_else(|| isolang::Language::from_639_3(&c))
-        .with_context(|| format!("unknown language code «{code}» (an ISO-639 one is needed: ru, en, de…)"))?;
+        .with_context(|| {
+            format!("unknown language code «{code}» (an ISO-639 one is needed: ru, en, de…)")
+        })?;
     lang.to_639_1()
         .map(str::to_string)
         .with_context(|| format!("language «{code}» has no two-letter ISO-639-1 code"))
@@ -144,26 +146,16 @@ pub struct AsrModel {
     pub dir: PathBuf,
 }
 
-/// The model directory of the default language: `LOCALVOX_ASR_MODEL_DIR` → next to the exe
-/// → in the current directory.
+/// Shared read-only resolution: explicit → portable/cwd → ~/.localvox/models.
 ///
 /// «Next to the exe» is not a decoration: on Windows autostart the daemon's working
 /// directory is `system32`, and a relative `models/…` will not be found there.
 pub fn default_model_dir() -> Option<PathBuf> {
-    const DEFAULT_MODEL: &str = "gigaam-v3-e2e-ctc";
-    if let Some(d) = std::env::var_os("LOCALVOX_ASR_MODEL_DIR") {
-        return Some(PathBuf::from(d));
-    }
-    let near_exe = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(Path::to_path_buf))
-        .map(|d| d.join("models").join(DEFAULT_MODEL))
-        .filter(|p| p.is_dir());
-    if near_exe.is_some() {
-        return near_exe;
-    }
-    let in_cwd = PathBuf::from("models").join(DEFAULT_MODEL);
-    in_cwd.is_dir().then_some(in_cwd)
+    let found = crate::model_paths::Context::capture()
+        .resolve(crate::model_paths::component("gigaam"), None);
+    found
+        .path
+        .filter(|p| found.source == crate::model_paths::Source::Explicit || p.is_dir())
 }
 
 /// A model that is not the recogniser: it stands NEXT TO one and is found by the same rule.
@@ -201,22 +193,14 @@ pub const NER: SideModel = SideModel {
 /// `system32`, and a model looked up by cwd is silently not found — the name check then simply
 /// does not happen, and nothing says so.
 pub fn sibling_model_dir(m: SideModel, asr_model_dir: Option<&Path>) -> Option<PathBuf> {
-    let (env_var, dir_name) = (m.env, m.dir);
-    if let Some(d) = std::env::var_os(env_var) {
-        let d = PathBuf::from(d);
-        return d.is_dir().then_some(d);
+    let mut context = crate::model_paths::Context::capture();
+    if let Ok(value) = std::env::var(m.env) {
+        context.overrides.insert(m.env.into(), value);
     }
-    // First the model the caller named, then the one we can find ourselves.
-    let roots = [asr_model_dir.map(Path::to_path_buf), default_model_dir()];
-    for root in roots.into_iter().flatten() {
-        if let Some(p) = root.parent().map(|p| p.join(dir_name)) {
-            if p.is_dir() {
-                return Some(p);
-            }
-        }
-    }
-    let in_cwd = PathBuf::from("models").join(dir_name);
-    in_cwd.is_dir().then_some(in_cwd)
+    context
+        .side(m.env, m.dir, asr_model_dir)
+        .path
+        .filter(|p| p.is_dir())
 }
 
 /// The model for a language. `default_dir` is the model of the default language (the
@@ -433,13 +417,7 @@ mod tests {
         // installed — that is, for the user, not for us.
         assert_eq!(label("ru"), crate::versions::DEFAULT_COOK_LABEL);
         assert_eq!(
-            crate::versions::cook_recipe(
-                &label("ru"),
-                15.0,
-                8.0,
-                500,
-                crate::diarize::enabled()
-            ),
+            crate::versions::cook_recipe(&label("ru"), 15.0, 8.0, 500, crate::diarize::enabled()),
             crate::versions::default_cook_recipe()
         );
     }
@@ -527,8 +505,8 @@ mod tests {
         std::fs::create_dir_all(en.join("am")).unwrap(); // looks like Vosk
         std::fs::create_dir_all(en.join("conf")).unwrap();
 
-        let m = asr_model("en", &default_dir)
-            .expect("a model next to the default one MUST be found");
+        let m =
+            asr_model("en", &default_dir).expect("a model next to the default one MUST be found");
         assert_eq!(m.engine, Engine::Vosk);
         assert_eq!(m.dir, en);
         assert!(has_model("en", &default_dir));

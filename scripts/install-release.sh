@@ -36,7 +36,7 @@ case "$(uname -s)/$(uname -m)" in
  Linux/aarch64|Linux/arm64) TARGET=aarch64-unknown-linux-gnu; NATIVE=libvosk.so;;
  *) fail "Unsupported platform: $(uname -s)/$(uname -m)";;
 esac
-REQUIRED=(localvox-light localvox-process localvox-tui vox "$NATIVE" .env.defaults scripts/models.json scripts/fetch-models.sh scripts/setup-ollama.sh licenses/rs-morphy4/NOTICE)
+REQUIRED=(localvox-light localvox-process localvox-tui vox "$NATIVE" .env.defaults scripts/models.json scripts/fetch-models.sh scripts/model-paths.sh scripts/setup-ollama.sh licenses/rs-morphy4/NOTICE)
 installed_bundle_valid() {
  local name expected
  [[ -f "$INSTALL_DIR/bundle.json" ]] || return 1
@@ -119,13 +119,11 @@ if [[ "$WIZARD" = 1 ]]; then
  "$INSTALL_DIR/localvox-light" --cwd "$INSTALL_DIR" --setup
  exit 0
 fi
-if [[ "$SKIP_MODELS" = 0 ]]; then bash "$INSTALL_DIR/scripts/fetch-models.sh" --root "$INSTALL_DIR" ${MODEL_ARGS[@]+"${MODEL_ARGS[@]}"}; fi
+if [[ "$SKIP_MODELS" = 0 ]]; then bash "$INSTALL_DIR/scripts/fetch-models.sh" ${MODEL_ARGS[@]+"${MODEL_ARGS[@]}"}; fi
 if [[ ! -f "$INSTALL_DIR/.env" ]]; then
  # dotenv quoted paths also work when the chosen directory contains spaces.
  ENV_DIR="${INSTALL_DIR//\\/\\\\}"; ENV_DIR="${ENV_DIR//\"/\\\"}"; ENV_DIR="${ENV_DIR//\$/\\\$}"
  printf '%s\n' '# Created by install-release.sh; presets are in .env.defaults.' \
-  "LOCALVOX_LIGHT_MODEL=\"$ENV_DIR/models/vosk-model-ru-0.42\"" \
-  "LOCALVOX_ASR_MODEL_DIR=\"$ENV_DIR/models/gigaam-v3-e2e-ctc\"" \
   "LOCALVOX_LIGHT_AUDIO_DIR=\"$ENV_DIR/archive\"" > "$INSTALL_DIR/.env"
 else echo 'Existing .env preserved.'; fi
 DOCTOR=0

@@ -25,12 +25,11 @@ param(
 $ErrorActionPreference = 'Stop'
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $manifestPath = Join-Path $here 'models.json'
-if (-not $Root) { $Root = Split-Path -Parent $here }
 
 if (-not (Test-Path -LiteralPath $manifestPath)) { throw "Не найден $manifestPath" }
-$Root = [IO.Path]::GetFullPath($Root)
-if (-not $Check) { New-Item -ItemType Directory -Force -Path $Root | Out-Null }
 $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+. (Join-Path $here 'model-paths.ps1')
+$placement = Get-ModelLocations $manifest (Split-Path -Parent $here) $Root
 
 # Прогресс-бар Invoke-WebRequest режет скорость закачки в разы — на 1.8 ГБ это разница
 # между парой минут и получасом.
@@ -48,7 +47,7 @@ function Test-Wanted([string]$id, [bool]$required) {
 # иначе осталась бы лежать под правильным именем и при следующем запуске сошла бы за
 # готовый файл — а это молча испорченная модель.
 function Get-Verified([string]$url, [string]$target, $wantSha, $note) {
-    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $target) | Out-Null
+    New-ModelParent $target $placement.user_root
     $part = "$target.part"
     Write-Host "  ⇣ $(Split-Path -Leaf $target)"
     Invoke-WebRequest -Uri $url -OutFile $part -UserAgent 'localvox-fetch-models/1.0'
@@ -72,29 +71,37 @@ foreach ($comp in $manifest.components) {
         continue
     }
     Write-Host "$($comp.title) (~$($comp.approx))"
+    $location = $placement.components[$comp.id]
+    if (-not $location.path) { throw "No model directory for $($comp.id). Set $($comp.env) or use -Root." }
+    $componentPath = [IO.Path]::GetFullPath($location.path)
+    Write-Host "  $componentPath [$($location.source)]"
 
     foreach ($item in $comp.items) {
         switch ($item.kind) {
             'file' {
-                $dest = Join-Path $Root $item.dest
-                if (Test-Path -LiteralPath $dest) { Write-Host "  уже на месте: $(Split-Path -Leaf $dest)"; break }
+                $dest = Join-ModelPayload $componentPath $comp.directory $item.dest
+                if (Test-Path -LiteralPath $dest -PathType Leaf) { Write-Host "  уже на месте: $(Split-Path -Leaf $dest)"; break }
                 if ($Check) { Write-Host "  НЕТ: $($item.dest)"; $script:missing = $true; break }
+                if ($location.source -eq 'explicit') { throw "Configured model is incomplete: $componentPath. Choose download/repair in --setup or use an explicit -Root." }
                 Get-Verified $item.url $dest $item.sha256 $item.sha256_note
             }
             'text' {
-                if ($Check) { break }
-                $dest = Join-Path $Root $item.dest
-                New-Item -ItemType Directory -Force -Path (Split-Path -Parent $dest) | Out-Null
+                if ($Check -or $location.source -eq 'explicit') { break }
+                $dest = Join-ModelPayload $componentPath $comp.directory $item.dest
+                if (Test-Path -LiteralPath $dest -PathType Leaf) { break }
+                New-ModelParent $dest $placement.user_root
                 # Без BOM: файл читают и не-Windows инструменты.
                 [System.IO.File]::WriteAllText($dest, ($item.content -join "`r`n") + "`r`n",
                     [System.Text.UTF8Encoding]::new($false))
             }
             'zip' {
-                $unpackTo = Join-Path $Root $item.unpack_to
-                if (-not $RepairZip -and (Test-Path -LiteralPath (Join-Path $unpackTo $item.marker))) {
+                $unpackTo = Join-ModelPayload $componentPath $comp.directory $item.unpack_to
+                if (-not $RepairZip -and (Test-Path -LiteralPath (Join-Path $unpackTo $item.marker) -PathType Leaf)) {
                     Write-Host "  уже на месте: $($item.unpack_to)"; break
                 }
                 if ($Check) { Write-Host "  НЕТ: $($item.unpack_to)"; $script:missing = $true; break }
+                if ($location.source -eq 'explicit') { throw "Configured model needs repair: $componentPath. Choose download/repair in --setup or use an explicit -Root." }
+                Assert-ModelReplacement $unpackTo $componentPath
 
                 $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("lv-" + [Guid]::NewGuid().ToString())
                 New-Item -ItemType Directory -Force -Path $tmp | Out-Null
@@ -113,14 +120,19 @@ foreach ($comp in $manifest.components) {
                     } else {
                         $inner = Join-Path $tmp 'x'
                     }
+                    if (-not (Test-Path -LiteralPath (Join-Path $inner $item.marker) -PathType Leaf)) { throw "Downloaded archive has no $($item.marker)" }
+                    Assert-ModelReplacement $unpackTo $componentPath
                     if (Test-Path -LiteralPath $unpackTo) { Remove-Item -LiteralPath $unpackTo -Recurse -Force }
-                    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $unpackTo) | Out-Null
+                    New-ModelParent $unpackTo $placement.user_root
                     Move-Item -LiteralPath $inner -Destination $unpackTo -Force
                     if (-not (Test-Path -LiteralPath (Join-Path $unpackTo $item.marker))) {
                         throw "После распаковки нет $($item.marker) в $unpackTo"
                     }
                 } finally {
-                    Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
+                    $tempParent = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\','/') + [IO.Path]::DirectorySeparatorChar
+                    if ([IO.Path]::GetFullPath($tmp).StartsWith($tempParent, [StringComparison]::OrdinalIgnoreCase) -and (Split-Path -Leaf $tmp).StartsWith('lv-')) {
+                        Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
+                    }
                 }
             }
             default { throw "Неизвестный kind: $($item.kind)" }
@@ -133,10 +145,5 @@ if ($Check) {
     if ($missing) { Write-Host 'чего-то не хватает — запусти без -Check'; exit 1 }
     Write-Host 'всё на месте'
 } else {
-    Write-Host 'готово. Что лежит:'
-    Get-ChildItem -LiteralPath (Join-Path $Root 'models') -Directory -ErrorAction SilentlyContinue | ForEach-Object {
-        $mb = [math]::Round(((Get-ChildItem -LiteralPath $_.FullName -Recurse -File |
-            Measure-Object -Property Length -Sum).Sum / 1MB), 0)
-        Write-Host ("  {0,-28} {1} МБ" -f $_.Name, $mb)
-    }
+    Write-Host 'готово'
 }

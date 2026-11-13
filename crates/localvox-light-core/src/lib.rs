@@ -24,14 +24,15 @@ pub mod engine;
 pub mod env_file;
 pub mod events;
 pub mod export;
-pub mod ingest;
 pub mod incremental;
+pub mod ingest;
 pub mod jobs;
 pub mod journal;
 pub mod lang;
 pub mod lexicon;
 pub mod light_config;
 pub mod links;
+pub mod model_paths;
 /// Entity extraction WITHOUT a generative model (GLiNER via ONNX).
 /// Behind the `onnx` feature: the model is optional — without it names are simply not checked.
 #[cfg(feature = "onnx")]

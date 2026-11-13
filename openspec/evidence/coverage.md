@@ -583,6 +583,12 @@ Windows audio COM lifetime и hosted 873ffa2, 2026-11-13:
 |---|---|---|---|
 | CFG-001/002/003, ARCH-001, API-003 | [Windows audio host](../../crates/localvox-light-core/src/audio/windows_host.rs), [gateway](../../crates/localvox-light-core/src/audio.rs), [regression](../../crates/localvox-light-core/src/audio/host_tests.rs) | [native red→green и hosted](../changes/repair-shared-client-ci-fixture/evidence/windows-audio.md): CPAL STA lifetime reproduced 0xC0000005 → four owned regression modes passed; core 441 / API 91+3 / TUI 212+8 PTY+4 launcher+2 IO / client 3+10 / process 12 passed; real shared UI/TUI and mpv passed; release product+desktop/package/install/doctor/reconcile passed | Общий MTA adapter, CPAL/модели/контракт не обновлялись. На 873ffa2 UI 81 passed, shared failed; Intel Mac compiled/tested, upload DNS ENOTFOUND. Новый hosted и аппаратная запись после fix not-run; [remote acceptance](../changes/repair-shared-client-ci-fixture/tasks.md) открыта |
 
+User model storage, 2026-11-13:
+
+| Requirement | Код / delta | Проверка | Граница |
+|---|---|---|---|
+| SETUP-001/002; SETUP-008 в delta | [model paths](../../crates/localvox-light-core/src/model_paths.rs), [delta](../changes/use-user-model-storage/specs/installation-models/spec.md) | [evidence](../changes/use-user-model-storage/evidence/implementation.md): core 447, setup 10, copied binary 1, PS/Bash localhost + native bridge 6 passed; explicit/portable/home и read-only/repeat | Native Mac/Linux, настоящий download весов и hosted run not-run; main SETUP-008 ещё не синхронизирован |
+
 Delta coherence, 2026-11-13:
 
 | Requirement | Код / delta | Проверка | Граница |

@@ -88,13 +88,17 @@ pub struct Cli {
     #[arg(long, env = "LOCALVOX_LIGHT_CONFIG")]
     pub config: Option<std::path::PathBuf>,
 
-    /// Vosk model directory (as downloaded by scripts/fetch-models.* → models/vosk-model-ru-0.42)
+    /// Vosk model directory (automatic: existing portable models, then ~/.localvox/models)
     #[arg(
         long,
-        default_value = "models/vosk-model-ru-0.42",
+        default_value_t = crate::model_paths::default_vosk(),
         env = "LOCALVOX_LIGHT_MODEL"
     )]
     pub model: String,
+
+    /// Print resolved model paths as read-only JSON and exit (no inference or downloads)
+    #[arg(long)]
+    pub model_paths_json: bool,
 
     /// Workspace directory: WAV, transcript.jsonl (override via LOCALVOX_LIGHT_AUDIO_DIR)
     #[arg(
@@ -484,7 +488,7 @@ pub fn normalized_model_path(cli: &Cli) -> String {
 pub fn validate_vosk_model_dir(p: &Path) -> Result<()> {
     if !p.exists() {
         anyhow::bail!(
-            "Vosk model: directory not found: {}. By default models/vosk-model-ru-0.42 is expected after scripts/fetch-models.* (or pass --model).",
+            "Vosk model: directory not found: {}. Use scripts/fetch-models.* (~/.localvox/models by default), --model-paths-json to inspect paths, or --model to select one.",
             p.display()
         );
     }
@@ -517,7 +521,7 @@ pub fn validate_vosk_model(cli: &Cli) -> Result<()> {
     let path_str = normalized_model_path(cli);
     if path_str.is_empty() {
         anyhow::bail!(
-            "LOCALVOX_LIGHT_MODEL is empty. Set the model directory or remove the variable (default: models/vosk-model-ru-0.42)."
+            "Vosk model path is empty or home is unavailable. Set --model / LOCALVOX_LIGHT_MODEL, or remove an empty override to use ~/.localvox/models."
         );
     }
     validate_vosk_model_dir(Path::new(&path_str))

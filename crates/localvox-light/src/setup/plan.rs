@@ -21,12 +21,7 @@ impl Component {
         }
     }
     pub fn key(self) -> &'static str {
-        match self {
-            Self::Vosk => "LOCALVOX_LIGHT_MODEL",
-            Self::Gigaam => "LOCALVOX_ASR_MODEL_DIR",
-            Self::Diarize => "LOCALVOX_DIARIZE_MODEL_DIR",
-            Self::Ner => "LOCALVOX_NER_MODEL_DIR",
-        }
+        &localvox_light_core::model_paths::component(self.id()).env
     }
     pub fn path(self, l: &Layout) -> Option<&Path> {
         match self {
@@ -126,23 +121,17 @@ pub fn valid_tag(name: &str) -> Result<()> {
 pub fn manifest_destination(install: &Path, root: &Path, c: Component) -> Result<PathBuf> {
     let data: serde_json::Value =
         serde_json::from_slice(&std::fs::read(install.join("scripts/models.json"))?)?;
-    let item = data["components"]
+    let component = data["components"]
         .as_array()
         .context("components в models.json")?
         .iter()
         .find(|v| v["id"] == c.id())
-        .context("Компонент отсутствует в models.json")?["items"]
-        .as_array()
-        .context("items в models.json")?
-        .first()
-        .context("Пустой компонент")?;
-    let relative = if item["kind"] == "zip" {
-        Path::new(item["unpack_to"].as_str().context("unpack_to")?)
-    } else {
-        Path::new(item["dest"].as_str().context("dest")?)
-            .parent()
-            .context("dest parent")?
-    };
+        .context("Компонент отсутствует в models.json")?;
+    let relative = Path::new(
+        component["directory"]
+            .as_str()
+            .context("directory в models.json")?,
+    );
     anyhow::ensure!(
         !relative.is_absolute()
             && relative

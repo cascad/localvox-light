@@ -37,6 +37,9 @@ on:
       - "scripts/setup-ollama.sh"
       - "scripts/fetch-models.ps1"
       - "scripts/fetch-models.sh"
+      - "scripts/model-paths.ps1"
+      - "scripts/model-paths.sh"
+      - "scripts/tests/test_model_storage_delivery.py"
       - "scripts/models.json"
       - "scripts/package-release.py"
       - "scripts/build-onnxruntime-macos.py"
@@ -237,6 +240,11 @@ jobs:
 
       - name: Installed bundle doctor, setup and reconciliation (no models/devices)
         run: python scripts/check-release-install.py --archive "dist/${{ matrix.artifact }}${{ runner.os == 'Windows' && '.zip' || '.tar.gz' }}"
+
+      - name: Installed model paths and external model reuse (no inference/downloads)
+        env:
+          LOCALVOX_DELIVERY_ARCHIVE: dist/${{ matrix.artifact }}${{ runner.os == 'Windows' && '.zip' || '.tar.gz' }}
+        run: python -m unittest discover -s scripts/tests -p "test_model_storage_delivery.py" -k native_resolver -v
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7

@@ -28,7 +28,7 @@ if ($architecture -ne 'AMD64') { throw "Windows package requires x64 PowerShell;
 $target = 'x86_64-pc-windows-msvc'
 $required = @('localvox-light.exe','localvox-process.exe','localvox-tui.exe','vox.exe','libvosk.dll',
     'libgcc_s_seh-1.dll','libstdc++-6.dll','libwinpthread-1.dll','.env.defaults',
-    'scripts/models.json','scripts/fetch-models.ps1','scripts/setup-ollama.ps1','licenses/rs-morphy4/NOTICE')
+    'scripts/models.json','scripts/fetch-models.ps1','scripts/model-paths.ps1','scripts/setup-ollama.ps1','licenses/rs-morphy4/NOTICE')
 function CheckedPath([string]$Root, [string]$Name) {
     if ([IO.Path]::IsPathRooted($Name) -or $Name -match '(^|[/\\])\.\.([/\\]|$)|:') { throw "Unsafe archive path: $Name" }
     $resolved = [IO.Path]::GetFullPath((Join-Path $Root $Name))
@@ -131,7 +131,7 @@ try {
     }
     if (-not $SkipModels) {
         $engine = Join-Path $PSHOME $(if ($PSVersionTable.PSEdition -eq 'Core') { 'pwsh.exe' } else { 'powershell.exe' })
-        $fetchArgs = @('-NoProfile','-ExecutionPolicy','Bypass','-File',(Join-Path $InstallDir 'scripts/fetch-models.ps1'),'-Root',$InstallDir)
+        $fetchArgs = @('-NoProfile','-ExecutionPolicy','Bypass','-File',(Join-Path $InstallDir 'scripts/fetch-models.ps1'))
         if ($RequiredOnly) { $fetchArgs += '-RequiredOnly' }
         & $engine @fetchArgs
         if ($LASTEXITCODE -ne 0) { throw "Model installation failed ($LASTEXITCODE)" }
@@ -141,8 +141,6 @@ try {
         $directory = ($InstallDir -replace '\\','/') -replace '"','\"'
         $content = @(
             '# Created by install-release.ps1; presets are in .env.defaults.',
-            "LOCALVOX_LIGHT_MODEL=`"$directory/models/vosk-model-ru-0.42`"",
-            "LOCALVOX_ASR_MODEL_DIR=`"$directory/models/gigaam-v3-e2e-ctc`"",
             "LOCALVOX_LIGHT_AUDIO_DIR=`"$directory/archive`"",''
         ) -join "`n"
         [IO.File]::WriteAllText($envPath, $content, [Text.UTF8Encoding]::new($false))

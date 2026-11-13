@@ -103,12 +103,20 @@ fn choices(
                     }
                 }
                 "2" => {
-                    let root = absolute(Path::new(&ask(
+                    let chosen = ask(
                         input,
                         out,
                         "Корень загрузки (модели попадут в models/)",
-                        &install.display().to_string(),
-                    )?))?;
+                        &localvox_light_core::model_paths::Context::capture()
+                            .user_root()
+                            .map(|p| p.display().to_string())
+                            .unwrap_or_default(),
+                    )?;
+                    anyhow::ensure!(
+                        !chosen.trim().is_empty(),
+                        "Не удалось определить home; укажите корень загрузки явно"
+                    );
+                    let root = absolute(Path::new(&chosen))?;
                     let destination = manifest_destination(install, &root, c)?;
                     break ModelChoice::Download { root, destination };
                 }

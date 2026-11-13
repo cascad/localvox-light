@@ -62,6 +62,7 @@ jobs:
           cargo test --locked -p localvox-light --lib
           cargo test --locked -p localvox-light --bin localvox-light
           cargo test --locked -p localvox-light --test setup
+          cargo test --locked -p localvox-light --test model_paths
           cargo test --locked -p localvox-light-core doctor:: --lib
           cargo test --locked -p localvox-light-core --lib audio::host_tests::device_discovery_survives_short_lived_threads -- --exact --nocapture
           cargo test --locked -p localvox-light --test launcher_modes -- --ignored
@@ -197,6 +198,7 @@ jobs:
           npx --yes @fission-ai/openspec@1.13.2 validate repair-native-ci-environments --type change --strict --no-interactive
           npx --yes @fission-ai/openspec@1.13.2 validate repair-shared-client-ci-fixture --type change --strict --no-interactive
           npx --yes @fission-ai/openspec@1.13.2 validate stabilize-pipeline-clock-test --type change --strict --no-interactive
+          npx --yes @fission-ai/openspec@1.13.2 validate use-user-model-storage --type change --strict --no-interactive
           python scripts/check-openspec.py
           git diff --check
       - name: Upload browser diffs, traces and terminal snapshot proposals

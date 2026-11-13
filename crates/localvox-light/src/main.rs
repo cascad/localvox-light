@@ -10,7 +10,9 @@ use std::sync::{Arc, RwLock};
 #[cfg(feature = "tui")]
 use anyhow::Context;
 use anyhow::Result;
+#[cfg(test)]
 use clap::Parser;
+use clap::{CommandFactory, FromArgMatches};
 
 use localvox_light_core::events::UiMsg;
 use localvox_light_core::{
@@ -117,7 +119,12 @@ fn main() -> Result<()> {
     chdir_from_raw_args();
     portable_env_bootstrap();
     localvox_light_core::presets::apply_missing()?;
-    let mut cli = Cli::parse();
+    let (mut cli, explicit_model) = {
+        let matches = Cli::command().get_matches();
+        let explicit =
+            matches.value_source("model") == Some(clap::parser::ValueSource::CommandLine);
+        (Cli::from_arg_matches(&matches)?, explicit)
+    };
     merge_env_bools(&mut cli);
     cli.tui = terminal_mode(
         &cli,
@@ -140,6 +147,18 @@ fn main() -> Result<()> {
     if cli.list_devices {
         let _ = tracing_subscriber::fmt::try_init();
         print_devices();
+        return Ok(());
+    }
+
+    if cli.model_paths_json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&localvox_light_core::model_paths::report(
+                explicit_model
+                    .then(|| localvox_light_core::normalized_model_path(&cli))
+                    .as_deref()
+            ))?
+        );
         return Ok(());
     }
 
@@ -228,6 +247,7 @@ fn terminal_mode(cli: &Cli, interactive: bool, environment_override: bool) -> bo
     !(cli.no_tui
         || cli.daemon
         || cli.doctor
+        || cli.model_paths_json
         || cli.setup
         || cli.setup_check
         || cli.list_devices
@@ -276,6 +296,7 @@ mod launch_tests {
             "--daemon",
             "--no-tui",
             "--doctor",
+            "--model-paths-json",
             "--setup",
             "--setup-check",
             "--list-devices",

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Модели localvox → <корень>/models/ (macOS и Linux).
+# Модели LocalVox → ~/.localvox/models (или настроенный/portable путь).
 #
 # Список качаемого лежит в scripts/models.json — это ДАННЫЕ. Здесь только механика:
 # докачать недостающее, сверить sha256, распаковать. Повторный запуск ничего не
@@ -18,7 +18,7 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 MANIFEST="$HERE/models.json"
-ROOT="$(cd "$HERE/.." && pwd)"
+ROOT=''
 ONLY=()
 SKIP=()
 REQUIRED_ONLY=0
@@ -46,7 +46,8 @@ command -v jq   >/dev/null || { echo "Нужен jq (читать models.json). 
 command -v unzip >/dev/null || { echo "Нужен unzip" >&2; exit 1; }
 [ -f "$MANIFEST" ] || { echo "Не найден $MANIFEST" >&2; exit 1; }
 
-if [ "$CHECK_ONLY" = 0 ]; then mkdir -p "$ROOT"; ROOT="$(cd "$ROOT" && pwd)"; fi
+source "$HERE/model-paths.sh"
+model_locations "$(cd "$HERE/.." && pwd)" "$ROOT"
 
 sha256_of() {
     if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1
@@ -71,7 +72,7 @@ MISSING=0
 # сошла бы за готовый файл — а это молча испорченная модель.
 fetch_verified() {
     local url="$1" target="$2" want_sha="$3" note="$4"
-    mkdir -p "$(dirname "$target")"
+    new_model_parent "$target"
     local part="$target.part"
     echo "  ⇣ $(basename "$target")"
     curl -fL --progress-bar -A "localvox-fetch-models/1.0" "$url" -o "$part"
@@ -100,6 +101,12 @@ for ci in $(seq 0 $((n_comp - 1))); do
 
     wanted "$id" "$required" || { echo "— $title: пропущено"; continue; }
     echo "$title (~$approx)"
+    component_dir="$(jq -r '.directory' <<<"$comp")"
+    component_path="$(jq -r --arg id "$id" '.components[] | select(.id == $id) | .path // ""' <<<"$MODEL_LOCATIONS")"
+    location_source="$(jq -r --arg id "$id" '.components[] | select(.id == $id) | .source' <<<"$MODEL_LOCATIONS")"
+    [[ -n "$component_path" ]] || { echo "No model directory for $id. Set its model env or use --root." >&2; exit 1; }
+    if command -v cygpath >/dev/null 2>&1; then component_path="$(cygpath -u "$component_path")"; fi
+    echo "  $component_path [$location_source]"
 
     n_items="$(jq '.items | length' <<<"$comp")"
     for ii in $(seq 0 $((n_items - 1))); do
@@ -108,23 +115,27 @@ for ci in $(seq 0 $((n_comp - 1))); do
 
         case "$kind" in
         file)
-            dest="$ROOT/$(jq -r '.dest' <<<"$item")"
+            dest="$(model_payload "$component_path" "$component_dir" "$(jq -r '.dest' <<<"$item")")"
             if [ -f "$dest" ]; then echo "  уже на месте: $(basename "$dest")"; continue; fi
             if [ "$CHECK_ONLY" = 1 ]; then echo "  НЕТ: $(jq -r '.dest' <<<"$item")"; MISSING=1; continue; fi
+            [[ "$location_source" != explicit ]] || { echo "Configured model is incomplete: $component_path. Choose download/repair in --setup or use an explicit --root." >&2; exit 1; }
             fetch_verified "$(jq -r '.url' <<<"$item")" "$dest" \
                 "$(jq -r '.sha256' <<<"$item")" "$(jq -r '.sha256_note // ""' <<<"$item")"
             ;;
         text)
-            dest="$ROOT/$(jq -r '.dest' <<<"$item")"
-            [ "$CHECK_ONLY" = 1 ] && continue
-            mkdir -p "$(dirname "$dest")"
+            dest="$(model_payload "$component_path" "$component_dir" "$(jq -r '.dest' <<<"$item")")"
+            if [[ "$CHECK_ONLY" = 1 || "$location_source" = explicit ]]; then continue; fi
+            [ -f "$dest" ] && continue
+            new_model_parent "$dest"
             jq -r '.content[]' <<<"$item" > "$dest"
             ;;
         zip)
-            unpack_to="$ROOT/$(jq -r '.unpack_to' <<<"$item")"
+            unpack_to="$(model_payload "$component_path" "$component_dir" "$(jq -r '.unpack_to' <<<"$item")")"
             marker="$(jq -r '.marker' <<<"$item")"
             if [ "$REPAIR_ZIP" = 0 ] && [ -f "$unpack_to/$marker" ]; then echo "  уже на месте: $(jq -r '.unpack_to' <<<"$item")"; continue; fi
             if [ "$CHECK_ONLY" = 1 ]; then echo "  НЕТ: $(jq -r '.unpack_to' <<<"$item")"; MISSING=1; continue; fi
+            [[ "$location_source" != explicit ]] || { echo "Configured model needs repair: $component_path. Choose download/repair in --setup or use an explicit --root." >&2; exit 1; }
+            assert_model_replacement "$unpack_to" "$component_path"
 
             tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
             fetch_verified "$(jq -r '.url' <<<"$item")" "$tmp/a.zip" \
@@ -140,8 +151,10 @@ for ci in $(seq 0 $((n_comp - 1))); do
             else
                 inner="$tmp/x"
             fi
+            [ -f "$inner/$marker" ] || { echo "Downloaded archive has no $marker" >&2; exit 1; }
+            assert_model_replacement "$unpack_to" "$component_path"
             rm -rf "$unpack_to"
-            mkdir -p "$(dirname "$unpack_to")"
+            new_model_parent "$unpack_to"
             mv "$inner" "$unpack_to"
             [ -f "$unpack_to/$marker" ] || { echo "После распаковки нет $marker в $unpack_to" >&2; exit 1; }
             rm -rf "$tmp"; trap - EXIT
@@ -155,6 +168,5 @@ echo
 if [ "$CHECK_ONLY" = 1 ]; then
     [ "$MISSING" = 0 ] && echo "всё на месте" || { echo "чего-то не хватает — запусти без --check"; exit 1; }
 else
-    echo "готово. Что лежит:"
-    du -sh "$ROOT"/models/* 2>/dev/null || true
+    echo "готово"
 fi

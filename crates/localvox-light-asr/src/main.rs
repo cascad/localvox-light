@@ -53,7 +53,7 @@ struct AsrCli {
     #[arg(
         long = "model-dir",
         env = "LOCALVOX_ASR_MODEL_DIR",
-        default_value = "models/gigaam-v3-e2e-ctc"
+        default_value_os_t = localvox_light_core::model_paths::default_dir("gigaam")
     )]
     model_dir: PathBuf,
 
