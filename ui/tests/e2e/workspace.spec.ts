@@ -256,7 +256,9 @@ test("completed stage tail uses its own phase clock and preserves a fast child o
 });
 
 test("voice grouping stays active after all audio was read and retains its measured time", async ({ page }) => {
-  await workspace(page);
+  // Exact elapsed assertions advance only through runFor, independently of runner latency.
+  await workspace(page, { time: new Date("2026-10-31T06:00:25Z") });
+  await page.clock.pauseAt(new Date("2026-10-31T07:00:25Z"));
   let ended = false;
   const start = {id:"group-start",run:"r1",operation:"group",parent:"worker",stage:"transcribe",kind:"operation_start",at:"2026-10-31T07:00:20Z",label:"Группировка голосов · дорожка 1"};
   await page.route("**/progress", route => route.fulfill({json:{

@@ -583,6 +583,12 @@ Windows audio COM lifetime и hosted 873ffa2, 2026-11-13:
 |---|---|---|---|
 | CFG-001/002/003, ARCH-001, API-003 | [Windows audio host](../../crates/localvox-light-core/src/audio/windows_host.rs), [gateway](../../crates/localvox-light-core/src/audio.rs), [regression](../../crates/localvox-light-core/src/audio/host_tests.rs) | [native red→green и hosted](../changes/repair-shared-client-ci-fixture/evidence/windows-audio.md): CPAL STA lifetime reproduced 0xC0000005 → four owned regression modes passed; core 441 / API 91+3 / TUI 212+8 PTY+4 launcher+2 IO / client 3+10 / process 12 passed; real shared UI/TUI and mpv passed; release product+desktop/package/install/doctor/reconcile passed | Общий MTA adapter, CPAL/модели/контракт не обновлялись. На 873ffa2 UI 81 passed, shared failed; Intel Mac compiled/tested, upload DNS ENOTFOUND. Новый hosted и аппаратная запись после fix not-run; [remote acceptance](../changes/repair-shared-client-ci-fixture/tasks.md) открыта |
 
+Voice grouping clock follow-up, 2026-11-13:
+
+| Requirement | Код | Проверка | Граница |
+|---|---|---|---|
+| PIPE-011 | [voice grouping timing](../../ui/tests/e2e/workspace.spec.ts) | [red→green](../changes/stabilize-pipeline-clock-test/evidence/voice-grouping-clock.md): hosted 99bd709 UI 80/81, missed live 0:05; controlled clock probe passed, full e2e 81 / unit 15 / timing repeats 8 passed | Только второй timing fixture, PNG/production прежние. Новый hosted fix not-run до push, native Build отдельно |
+
 Model storage hosted follow-up, 2026-11-13:
 
 | Requirement | Код / delta | Проверка | Граница |

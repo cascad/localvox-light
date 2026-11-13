@@ -33,3 +33,11 @@
 - Изменение глобального clock поведения затронуло бы остальные проверки → default
   fixture прежний, новое начальное время задано только timing сценарием.
 - Shared UI/TUI интеграция на GitHub не выполнялась → оставить её fix задачи открытыми.
+
+## Voice grouping follow-up
+
+На 99bd709 другой сценарий с точными 5/7 с всё ещё использовал default running
+clock. Для него повторно использовать start-one-hour-earlier → readiness →
+pauseAt(07:00:25), затем существующие runFor. Default workspace и production
+прежние. Временную Node задержку использовать только для red→green reproduction,
+не оставлять sleep/retry и не ослаблять точные значения в принятой suite.
