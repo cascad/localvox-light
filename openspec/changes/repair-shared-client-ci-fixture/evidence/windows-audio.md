@@ -101,3 +101,12 @@ Final checks passed: scoped rustfmt core audio/engine/modules, API cargo fmt,
 strict main specs, strict обоих затронутых changes, check-openspec, actionlint
 обоих workflows, diff. Никаких изменений PNG baseline.
 Новый hosted/native Mac/Linux run после этого fix: not-run до push владельца.
+
+## Hosted follow-up on 44df41e
+
+[Interface 43447219612](https://github.com/cascad/localvox-light/actions/runs/43447219612)
+прошёл native regression и shared_workspace, а также все UI/Rust/worker/media/FLAC
+шаги. Native fix подтверждён hosted выполнением. Последний Specification checks
+упал на давнем delta drift, исправление документации описано
+[отдельно](../../fix-text-correction-retention/evidence/delta-reconciliation-2026-11-13.md).
+Workflow в целом пока failed, remote acceptance 2.3 остаётся открытой.

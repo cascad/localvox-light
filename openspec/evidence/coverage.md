@@ -582,3 +582,9 @@ Windows audio COM lifetime и hosted 873ffa2, 2026-11-13:
 | Requirement | Код | Проверка | Граница |
 |---|---|---|---|
 | CFG-001/002/003, ARCH-001, API-003 | [Windows audio host](../../crates/localvox-light-core/src/audio/windows_host.rs), [gateway](../../crates/localvox-light-core/src/audio.rs), [regression](../../crates/localvox-light-core/src/audio/host_tests.rs) | [native red→green и hosted](../changes/repair-shared-client-ci-fixture/evidence/windows-audio.md): CPAL STA lifetime reproduced 0xC0000005 → four owned regression modes passed; core 441 / API 91+3 / TUI 212+8 PTY+4 launcher+2 IO / client 3+10 / process 12 passed; real shared UI/TUI and mpv passed; release product+desktop/package/install/doctor/reconcile passed | Общий MTA adapter, CPAL/модели/контракт не обновлялись. На 873ffa2 UI 81 passed, shared failed; Intel Mac compiled/tested, upload DNS ENOTFOUND. Новый hosted и аппаратная запись после fix not-run; [remote acceptance](../changes/repair-shared-client-ci-fixture/tasks.md) открыта |
+
+Delta coherence, 2026-11-13:
+
+| Requirement | Код / delta | Проверка | Граница |
+|---|---|---|---|
+| LLM-003, PIPE-006 | [retention delta](../changes/fix-text-correction-retention/specs/llm-processing/spec.md) | [reconciliation](../changes/fix-text-correction-retention/evidence/delta-reconciliation-2026-11-13.md): hosted 44df41e functional checks включая shared UI/TUI passed, specification validation failed из-за трёх пропущенных main-сценариев; восстановлены дословно; strict main + все 39 workflow changes passed локально | Нормативный main, runtime и исторические результаты не менялись; весь hosted Interface ещё не green |
