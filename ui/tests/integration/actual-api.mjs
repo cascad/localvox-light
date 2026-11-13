@@ -5,11 +5,7 @@ import { appendFile, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 const root = process.env.LOCALVOX_CROSS_ROOT;
 const output = process.env.LOCALVOX_CROSS_OUTPUT;
-const browser = await chromium.launch({ args: ["--mute-audio"] });
-const context = await browser.newContext({ baseURL: process.env.LOCALVOX_CROSS_URL, viewport: { width: 1440, height: 1000 }, locale: "ru-RU", timezoneId: "Europe/Moscow", reducedMotion: "reduce" });
-await context.addInitScript(() => localStorage.setItem("lv-token", "synthetic-cross-token"));
-await context.tracing.start({ screenshots: true, snapshots: true });
-const page = await context.newPage();
+let browser, context, page;
 let passed = false;
 const waitFile = async (name) => {
   await appendFile(join(output, "browser-timeline.txt"), `${Date.now()} waiting ${name}\n`);
@@ -24,6 +20,11 @@ const waitFile = async (name) => {
   throw new Error(`fixture did not produce ${name}`);
 };
 try {
+  browser = await chromium.launch({ args: ["--mute-audio"] });
+  context = await browser.newContext({ baseURL: process.env.LOCALVOX_CROSS_URL, viewport: { width: 1440, height: 1000 }, locale: "ru-RU", timezoneId: "Europe/Moscow", reducedMotion: "reduce" });
+  await context.addInitScript(() => localStorage.setItem("lv-token", "synthetic-cross-token"));
+  await context.tracing.start({ screenshots: true, snapshots: true });
+  page = await context.newPage();
   await page.clock.install({ time: new Date("2026-10-31T07:00:25Z") });
   await page.goto("/");
   await expect(page.getByText("Записей пока нет.", { exact: true })).toBeVisible();
@@ -95,11 +96,13 @@ try {
   passed = true;
 } catch (error) {
   await writeFile(join(output, "browser-error.txt"), String(error.stack ?? error));
-  await writeFile(join(output, "browser-dom.txt"), await page.locator("body").innerText().catch(() => "page closed"));
-  await page.screenshot({ path: join(output, "browser-failed.png"), fullPage: true }).catch(() => {});
+  if (page) {
+    await writeFile(join(output, "browser-dom.txt"), await page.locator("body").innerText().catch(() => "page closed"));
+    await page.screenshot({ path: join(output, "browser-failed.png"), fullPage: true }).catch(() => {});
+  }
   process.exitCode = 1;
 } finally {
-  await context.tracing.stop({ path: join(output, "trace.zip") });
-  await browser.close();
+  try { await context?.tracing.stop({ path: join(output, "trace.zip") }); }
+  finally { await browser?.close(); }
 }
 if (passed) await writeFile(join(root, "browser-passed"), "real API/browser passed");

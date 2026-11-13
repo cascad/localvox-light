@@ -563,3 +563,10 @@ Native CI environment, 2026-11-13:
 | Requirement | Код | Проверка | Граница |
 |---|---|---|---|
 | RUN-002, SETUP-002/003; SETUP-007 в delta | [compiler pin](../../rust-toolchain.toml), [workflows](../../.github/workflows/build-binaries.yml), [shell fixture](../../crates/localvox-light-terminal/src/command_path/profiles/tests.rs) | [hosted failures и test-run](../changes/repair-native-ci-environments/evidence/implementation.md): Rust 1.99.1 Windows daemon/worker/TUI/desktop + package probes; 212 lib / 8 PTY / 4 launcher / 2 IO, 9 onnx cook, 30 delivery без skips; isolated Unix modules compiled | Общий pin вместо moving stable, shell lookup до child PATH isolation; SDK/модели не менялись. Full Linux cross-check недоступен без C compiler; новый native Mac/Linux/hosted run not-run до push |
+
+Hosted update и диагностический этап, 2026-11-13:
+
+| Requirement | Код | Проверка | Граница |
+|---|---|---|---|
+| RUN-002, SETUP-002/003; SETUP-007 в delta | [workflows](../../.github/workflows/build-binaries.yml) | [hosted 43395635060](../changes/repair-shared-client-ci-fixture/evidence/implementation.md): **все пять** Windows/Linux x64/ARM64/macOS Intel/ARM64 jobs passed на 4b90802, bundles/install/doctor/reconcile/registration | Release publish skipped для обычного push; устройства/запись на Mac не проверены |
+| ARCH-001, API-003, CFG-001/002/003 | [shared fixture](../../crates/localvox-light-api/src/http/tests/cross_clients.rs), [browser runner](../../ui/tests/integration/actual-api.mjs) | [diagnostic checkpoint](../changes/repair-shared-client-ci-fixture/evidence/implementation.md): hosted Interface 43395635063 failed; локально прежний debug launch passed, новый debug 4 раза passed, release passed; API 91, media/FLAC 9, UI unit 15 passed | Исходная hosted причина не воспроизведена, остаётся [открытая работа](../changes/repair-shared-client-ci-fixture/tasks.md); сохранены status/stdout/stderr и startup errors, новый hosted run not-run до push |

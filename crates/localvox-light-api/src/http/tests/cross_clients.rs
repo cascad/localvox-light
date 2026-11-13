@@ -3,7 +3,7 @@
 use super::*;
 use localvox_light_client::Client;
 use localvox_light_core::{asks, jobs, journal, processing, progress};
-use localvox_light_process::ManagedProcess;
+use localvox_light_process::{Limits, ManagedProcess};
 use localvox_light_terminal::app::{Action, COMMANDS};
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use std::{
@@ -35,6 +35,9 @@ fn shared_workspace() {
         "browser-error.txt",
         "browser-failed.png",
         "helper-error.txt",
+        "helper-stdout.txt",
+        "helper-stderr.txt",
+        "helper-status.txt",
         "browser-dom.txt",
         "browser.png",
         "terminal.txt",
@@ -62,13 +65,22 @@ fn shared_workspace() {
         .env("LOCALVOX_CROSS_ROOT", root.path())
         .env("LOCALVOX_CROSS_TUI", tui)
         .env("LOCALVOX_CROSS_OUTPUT", &output);
-    let mut child = ManagedProcess::spawn(command).unwrap();
-    let deadline = Instant::now() + Duration::from_secs(60);
-    while !child.has_exited().unwrap() {
-        assert!(Instant::now() < deadline, "cross-client fixture timed out");
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    child.wait_for_exit(Duration::from_secs(2)).unwrap();
+    let mut limits = Limits::new(Duration::from_secs(60));
+    limits.background = false;
+    let result = localvox_light_process::run(command, None, limits, || false, |_, _| {}).unwrap();
+    fs::write(output.join("helper-stdout.txt"), result.stdout).unwrap();
+    fs::write(output.join("helper-stderr.txt"), &result.stderr).unwrap();
+    fs::write(
+        output.join("helper-status.txt"),
+        format!("{:?}", result.termination),
+    )
+    .unwrap();
+    assert!(
+        result.termination.success(),
+        "cross-client helper {:?}; see ui/test-results/cross-real-api: {}",
+        result.termination,
+        String::from_utf8_lossy(&result.stderr)
+    );
     let report = fs::read_to_string(root.path().join("passed"))
         .expect("cross-client helper failed; see ui/test-results/cross-real-api");
     assert_eq!(report, "UI+TUI shared HTTP passed");
@@ -147,8 +159,10 @@ fn shared_workspace_fixture() {
     assert_eq!(std::env::current_exe().unwrap().parent().unwrap(), root);
     let output = PathBuf::from(std::env::var_os("LOCALVOX_CROSS_OUTPUT").unwrap());
     let panic_output = output.clone();
+    let original_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         let _ = fs::write(panic_output.join("helper-error.txt"), info.to_string());
+        original_hook(info);
     }));
     fs::write(
         root.join(".env"),

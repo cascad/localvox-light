@@ -194,6 +194,7 @@ jobs:
           npx --yes @fission-ai/openspec@1.13.2 validate add-graceful-application-exit --type change --strict --no-interactive
           npx --yes @fission-ai/openspec@1.13.2 validate simplify-terminal-shutdown-confirmation --type change --strict --no-interactive
           npx --yes @fission-ai/openspec@1.13.2 validate repair-native-ci-environments --type change --strict --no-interactive
+          npx --yes @fission-ai/openspec@1.13.2 validate repair-shared-client-ci-fixture --type change --strict --no-interactive
           python scripts/check-openspec.py
           git diff --check
       - name: Upload browser diffs, traces and terminal snapshot proposals
