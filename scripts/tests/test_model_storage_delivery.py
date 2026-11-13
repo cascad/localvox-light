@@ -239,20 +239,10 @@ if ((Get-Item -Force -LiteralPath (Split-Path -Parent $custom)).Attributes -band
     def test_bash_guard_accepts_physical_ancestor_alias_and_refuses_other_destinations(self):
         if 'bash' not in self.shells():
             self.skipTest('Bash required')
-        def alias(link, target):
-            if os.name != 'nt':
-                link.symlink_to(target, target_is_directory=True)
-                return
-            # NTFS junctions need no symlink privilege; both paths belong to this fixture.
-            helper = self.root / 'junction.ps1'
-            helper.write_text('param($Link,$Target)\nNew-Item -ItemType Junction -Path $Link -Target $Target -ErrorAction Stop | Out-Null\n')
-            result = subprocess.run([PS, '-NoProfile', '-File', helper, link, target], env=self.environment,
-                                    capture_output=True, timeout=30)
-            self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
         real = self.root / 'physical-root'
         real.mkdir()
         link = self.root / 'root-alias'
-        alias(link, real)
+        self.directory_alias(link, real)
         expected = real / 'models/vosk'
         logical = link / 'models/vosk'
         script = 'source "$1"; actual="$(assert_model_replacement "$2" "$3")" || exit; if command -v cygpath >/dev/null; then cygpath -w "$actual"; else printf "%s\\n" "$actual"; fi'
@@ -273,11 +263,85 @@ if ((Get-Item -Force -LiteralPath (Split-Path -Parent $custom)).Attributes -band
         foreign = self.root / 'foreign-owner-data'
         foreign.mkdir()
         (foreign / 'keep.txt').write_bytes(b'owner data')
-        alias(expected, foreign)
+        self.directory_alias(expected, foreign)
         before = self.snapshot(self.root)
         self.assertNotEqual(guard(logical, expected).returncode, 0)
         self.assertEqual(self.snapshot(self.root), before)
         self.assertEqual((foreign / 'keep.txt').read_bytes(), b'owner data')
+
+    def directory_alias(self, link, target):
+        if os.name != 'nt':
+            link.symlink_to(target, target_is_directory=True)
+            return
+        # NTFS junctions need no symlink privilege; both paths belong to this fixture.
+        helper = self.root / 'junction.ps1'
+        helper.write_text('param($Link,$Target)\nNew-Item -ItemType Junction -Path $Link -Target $Target -ErrorAction Stop | Out-Null\n')
+        result = subprocess.run([PS, '-NoProfile', '-File', helper, link, target], env=self.environment,
+                                capture_output=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows Hidden through a user profile alias')
+    def test_bash_parent_normalizes_user_root_before_hidden_check(self):
+        if 'bash' not in self.shells():
+            self.skipTest('Git Bash required')
+        store = self.home / '.localvox'
+        equivalent = self.home / '..' / self.home.name / '.localvox'
+        command = 'source "$1"; USER_MODEL_ROOT="$2"; new_model_parent "$3"'
+        result = subprocess.run([BASH, '-c', command, 'fixture', self.unix(self.scripts / 'model-paths.sh'),
+                                 self.unix(equivalent), self.unix(store / 'models/vosk')],
+                                env=self.environment, capture_output=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
+        self.assertTrue(store.stat().st_file_attributes & 2)
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows Hidden through a user profile alias')
+    def test_bash_hides_user_store_with_native_short_home_path(self):
+        if 'bash' not in self.shells():
+            self.skipTest('Git Bash required')
+        import ctypes
+        short_path = ctypes.windll.kernel32.GetShortPathNameW
+        short_path.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_uint32]
+        short_path.restype = ctypes.c_uint32
+        buffer = ctypes.create_unicode_buffer(32768)
+        if not short_path(str(self.home), buffer, len(buffer)):
+            raise ctypes.WinError()
+        if buffer.value.casefold() == str(self.home).casefold():
+            self.skipTest('8.3 aliases are disabled on the fixture volume')
+        actual = self.home
+        self.home = Path(buffer.value)
+        self.run_fetch('bash', '--only', 'vosk')
+        self.assertTrue((actual / '.localvox').stat().st_file_attributes & 2)
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows Hidden through a user profile alias')
+    def test_bash_hides_new_user_root_through_home_alias_and_preserves_existing_attributes(self):
+        if 'bash' not in self.shells():
+            self.skipTest('Git Bash required')
+        real_home = self.home
+        self.home = self.root / 'profile-alias'
+        self.directory_alias(self.home, real_home)
+        store = real_home / '.localvox'
+        # ZIP replacement resolves a physical target; individual files retain the HOME alias.
+        for component in ('vosk', 'gigaam'):
+            with self.subTest(component=component):
+                try:
+                    self.requests.clear()
+                    before = self.snapshot(self.root)
+                    self.run_fetch('bash', '--only', component, '--check', expected=1)
+                    self.assertFalse(store.exists())
+                    self.assertEqual(self.snapshot(self.root), before)
+                    self.assertEqual(self.requests, [])
+                    self.run_fetch('bash', '--only', component)
+                    self.assertTrue(store.stat().st_file_attributes & 2)
+                    before, requests = self.snapshot(self.root), list(self.requests)
+                    self.run_fetch('bash', '--only', component)
+                    self.assertEqual(self.snapshot(self.root), before)
+                    self.assertEqual(self.requests, requests)
+                finally:
+                    if store.exists():
+                        shutil.rmtree(store)
+        store.mkdir()
+        attributes = store.stat().st_file_attributes
+        self.run_fetch('bash', '--only', 'vosk')
+        self.assertEqual(store.stat().st_file_attributes, attributes)
 
     @unittest.skipUnless(os.getenv('LOCALVOX_MODEL_RESOLVER_TEST_BINARY') or os.getenv('LOCALVOX_DELIVERY_ARCHIVE'), 'built native bundle/resolver for installed .env parity')
     def test_native_resolver_reads_dotenv_and_both_downloaders_reuse_external_models(self):

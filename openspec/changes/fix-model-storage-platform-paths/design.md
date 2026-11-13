@@ -30,3 +30,12 @@ Non-goals: новые storage правила, миграция, inference, из�
 Path aliases → проверять canonical destination и не ослаблять запрет model symlink.
 Hosted Mac недоступен локально → отдельная фиксация local/hosted, новый push владельца.
 Не запускать user daemon/модели и не скачивать настоящие веса.
+
+## Bash Hidden follow-up
+
+Hosted 99bd709 исправил PS Hidden и curl; остался только Bash Hidden на runner.
+Zip guard уже возвращает physical destination. new_model_parent должен приводить
+Target и USER_MODEL_ROOT к той же physical форме перед prefix check, иначе короткий
+путь/ancestor alias сравнивается с нормализованным destination и Hidden не ставится.
+Использовать имеющийся physical_model_path, без hardcode runner path или смены атрибутов
+existing папок. Добавить alias HOME regression, включая NTFS junction без admin.

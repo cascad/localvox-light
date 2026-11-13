@@ -56,10 +56,12 @@ model_locations() {
 }
 
 new_model_parent() {
-    local target="$1"
-    if [[ -n "$USER_MODEL_ROOT" && ! -e "$USER_MODEL_ROOT" && "$target" = "$USER_MODEL_ROOT/"* ]]; then
-        mkdir -p "$USER_MODEL_ROOT"
-        if [[ "${OS:-}" = Windows_NT ]]; then attrib +h "$USER_MODEL_ROOT"; fi
+    local target user_root=''
+    target="$(physical_model_path "$1")" || return 1
+    if [[ -n "$USER_MODEL_ROOT" ]]; then user_root="$(physical_model_path "$USER_MODEL_ROOT")" || return 1; fi
+    if [[ -n "$user_root" && ! -e "$user_root" && "$target" = "$user_root/"* ]]; then
+        mkdir -p "$user_root"
+        if [[ "${OS:-}" = Windows_NT ]]; then attrib +h "$user_root"; fi
     fi
     mkdir -p "$(dirname "$target")"
 }

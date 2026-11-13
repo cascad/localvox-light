@@ -583,6 +583,12 @@ Windows audio COM lifetime и hosted 873ffa2, 2026-11-13:
 |---|---|---|---|
 | CFG-001/002/003, ARCH-001, API-003 | [Windows audio host](../../crates/localvox-light-core/src/audio/windows_host.rs), [gateway](../../crates/localvox-light-core/src/audio.rs), [regression](../../crates/localvox-light-core/src/audio/host_tests.rs) | [native red→green и hosted](../changes/repair-shared-client-ci-fixture/evidence/windows-audio.md): CPAL STA lifetime reproduced 0xC0000005 → four owned regression modes passed; core 441 / API 91+3 / TUI 212+8 PTY+4 launcher+2 IO / client 3+10 / process 12 passed; real shared UI/TUI and mpv passed; release product+desktop/package/install/doctor/reconcile passed | Общий MTA adapter, CPAL/модели/контракт не обновлялись. На 873ffa2 UI 81 passed, shared failed; Intel Mac compiled/tested, upload DNS ENOTFOUND. Новый hosted и аппаратная запись после fix not-run; [remote acceptance](../changes/repair-shared-client-ci-fixture/tasks.md) открыта |
 
+Hosted 99bd709 short paths, 2026-11-13:
+
+| Requirement | Код | Проверка | Граница |
+|---|---|---|---|
+| SETUP-001/002, INV-SETUP-001; SETUP-008 в delta | [Bash parent](../../scripts/model-paths.sh) | [short HOME red→green](../changes/fix-model-storage-platform-paths/evidence/bash-hidden-short-path.md): hosted Linux x64/ARM64 success, Mac Intel Delivery passed, Windows единственный Bash Hidden failure; native 8.3 HOME probe false→true, model-storage 10 passed/2 skipped, packaged doctor/setup/reconcile passed | Новые hosted pending push. ARM Mac не получил hosted runner из-за capacity; текущий cancelled не test-run |
+
 Voice grouping clock follow-up, 2026-11-13:
 
 | Requirement | Код | Проверка | Граница |
@@ -593,7 +599,7 @@ Model storage hosted follow-up, 2026-11-13:
 
 | Requirement | Код / delta | Проверка | Граница |
 |---|---|---|---|
-| SETUP-001/002, INV-SETUP-001; SETUP-008 в delta | [PS](../../scripts/model-paths.ps1), [Bash](../../scripts/model-paths.sh), [fetch](../../scripts/fetch-models.sh) | [follow-up](../changes/fix-model-storage-platform-paths/evidence/implementation.md): fee3103 Interface success, Linux x64/ARM64 success; Windows Hidden/Unicode curl и Mac /var guard failed; red→green regression PS 5.1/7.7.0 и Git Bash/NTFS junction | Новый hosted/native Mac после исправления not-run до push; macOS ARM64 отменён fail-fast, не прошёл |
+| SETUP-001/002, INV-SETUP-001; SETUP-008 в delta | [PS](../../scripts/model-paths.ps1), [Bash](../../scripts/model-paths.sh), [fetch](../../scripts/fetch-models.sh) | [follow-up](../changes/fix-model-storage-platform-paths/evidence/implementation.md): fee3103 Interface success, Linux x64/ARM64 success; Windows Hidden/Unicode curl и Mac /var guard failed; red→green regression PS 5.1/7.7.0 и Git Bash/NTFS junction | На момент той сверки новый hosted/native Mac после исправления не выполнялся; macOS ARM64 тогда cancelled, причина не была подтверждена; предположение fail-fast уточнено выше |
 
 User model storage, 2026-11-13:
 
