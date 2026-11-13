@@ -175,8 +175,8 @@ test("document cancellation preserves readable text and shows the unfinished sum
   expect(posts).toEqual(["/api/sessions/20261031_demo/cancel", "/api/sessions/20261031_demo/retry"]);
 });
 
-async function workspace(page: Page, options: { journalError?: boolean; record?: boolean; jobsError?: boolean; partial?: boolean } = {}) {
-  await page.clock.install({ time: new Date("2026-10-31T07:00:25Z") });
+async function workspace(page: Page, options: { journalError?: boolean; record?: boolean; jobsError?: boolean; partial?: boolean; time?: Date } = {}) {
+  await page.clock.install({ time: options.time ?? new Date("2026-10-31T07:00:25Z") });
   await page.route("**/api/**", async (route) => {
     const url = new URL(route.request().url()); const path = url.pathname;
     let body: unknown = {};
@@ -674,7 +674,9 @@ test("changing the transcript version cancels its pending refresh and loads the 
 });
 
 test("pipeline keeps elapsed time, the next step and an explicit reason between workers and retries", async ({ page }) => {
-  await workspace(page);
+  // Let navigation finish before pausing; only explicit clock steps advance elapsed time.
+  await workspace(page, { time: new Date("2026-10-31T06:00:25Z") });
+  await page.clock.pauseAt(new Date("2026-10-31T07:00:25Z"));
   let state = "queued";
   let offline = false;
   const stage = (name: string, status: string, started_at?: string, ended_at?: string) => ({ stage: name, state: status, started_at, ended_at, updated_at: ended_at ?? started_at });
@@ -711,7 +713,8 @@ test("pipeline keeps elapsed time, the next step and an explicit reason between 
   await expect(page.locator(".journal-state").first()).toHaveText("завершение не зафиксировано");
   offline = false;
   state = "retry_wait";
-  await page.clock.runFor(3100);
+  // An outage backs polling off up to 30 seconds; let that delay expire explicitly.
+  await page.clock.runFor(30_100);
   await expect(page.getByText("Модель недоступна; ожидается повтор", { exact: true })).toBeVisible();
   await expect(page.getByText(/Повтор не раньше/)).toBeVisible();
   await expect(page.locator(".step.running")).toHaveCount(0);

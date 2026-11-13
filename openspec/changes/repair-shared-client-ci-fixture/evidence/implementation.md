@@ -68,3 +68,14 @@ user-guide не меняется. Финальные проверки passed: ca
 actionlint обоих workflows, strict main specs и этого change, check-openspec
 (15 capabilities / 88 requirements / 188 scenarios / 88 coverage rows), diff.
 Новый hosted run после изменения: not-run, нужен push владельца.
+
+## Hosted follow-up on d30727b
+
+Владелец отправил diagnostic checkpoint. [Новый interface run 43429701720](https://github.com/cascad/localvox-light/actions/runs/43429701720)
+завершился **failure раньше shared-client шага**: UI unit 15 passed, browser
+80/81 passed, timing scenario не нашёл точные 5 с при идущем clock.
+Shared helper/ConPTY/API шаг в этом run skipped, новой диагностики его завершения
+нет. Исходные задачи 1.1/1.2 остаются открытыми. Отдельный подтверждённый flaky
+clock исправляется в [stabilize-pipeline-clock-test](../../stabilize-pipeline-clock-test/evidence/implementation.md).
+[Build 43429701723](https://github.com/cascad/localvox-light/actions/runs/43429701723)
+снова passed на всех пяти платформах; publish skipped для обычного push.

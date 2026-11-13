@@ -570,3 +570,9 @@ Hosted update и диагностический этап, 2026-11-13:
 |---|---|---|---|
 | RUN-002, SETUP-002/003; SETUP-007 в delta | [workflows](../../.github/workflows/build-binaries.yml) | [hosted 43395635060](../changes/repair-shared-client-ci-fixture/evidence/implementation.md): **все пять** Windows/Linux x64/ARM64/macOS Intel/ARM64 jobs passed на 4b90802, bundles/install/doctor/reconcile/registration | Release publish skipped для обычного push; устройства/запись на Mac не проверены |
 | ARCH-001, API-003, CFG-001/002/003 | [shared fixture](../../crates/localvox-light-api/src/http/tests/cross_clients.rs), [browser runner](../../ui/tests/integration/actual-api.mjs) | [diagnostic checkpoint](../changes/repair-shared-client-ci-fixture/evidence/implementation.md): hosted Interface 43395635063 failed; локально прежний debug launch passed, новый debug 4 раза passed, release passed; API 91, media/FLAC 9, UI unit 15 passed | Исходная hosted причина не воспроизведена, остаётся [открытая работа](../changes/repair-shared-client-ci-fixture/tasks.md); сохранены status/stdout/stderr и startup errors, новый hosted run not-run до push |
+
+PIPE-011 browser clock fixture, 2026-11-13:
+
+| Requirement | Код | Проверка | Граница |
+|---|---|---|---|
+| PIPE-011 | [timing test](../../ui/tests/e2e/workspace.spec.ts), [workflow](../../.github/workflows/interface-tests.yml) | [red→green и hosted](../changes/stabilize-pipeline-clock-test/evidence/implementation.md): d30727b native build 5/5 passed; Interface UI 80/81 failed на живом clock. После fix UI build / unit 15 / e2e 81 / ещё 4 timing повтора passed, PNG и assertions сохранены | Только тестовые часы и capped polling backoff, production без изменений. Shared-client шаг на d30727b skipped; его прежняя причина открыта. Новый hosted not-run до push; connector rerun 403 |
