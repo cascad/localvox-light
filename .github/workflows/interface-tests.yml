@@ -199,6 +199,7 @@ jobs:
           npx --yes @fission-ai/openspec@1.13.2 validate repair-shared-client-ci-fixture --type change --strict --no-interactive
           npx --yes @fission-ai/openspec@1.13.2 validate stabilize-pipeline-clock-test --type change --strict --no-interactive
           npx --yes @fission-ai/openspec@1.13.2 validate use-user-model-storage --type change --strict --no-interactive
+          npx --yes @fission-ai/openspec@1.13.2 validate fix-model-storage-platform-paths --type change --strict --no-interactive
           python scripts/check-openspec.py
           git diff --check
       - name: Upload browser diffs, traces and terminal snapshot proposals

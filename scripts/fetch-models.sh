@@ -75,7 +75,7 @@ fetch_verified() {
     new_model_parent "$target"
     local part="$target.part"
     echo "  ⇣ $(basename "$target")"
-    curl -fL --progress-bar -A "localvox-fetch-models/1.0" "$url" -o "$part"
+    curl -fL --progress-bar -A "localvox-fetch-models/1.0" "$url" > "$part"
 
     if [ "$want_sha" != "null" ] && [ -n "$want_sha" ]; then
         local got; got="$(sha256_of "$part")"
@@ -135,7 +135,7 @@ for ci in $(seq 0 $((n_comp - 1))); do
             if [ "$REPAIR_ZIP" = 0 ] && [ -f "$unpack_to/$marker" ]; then echo "  уже на месте: $(jq -r '.unpack_to' <<<"$item")"; continue; fi
             if [ "$CHECK_ONLY" = 1 ]; then echo "  НЕТ: $(jq -r '.unpack_to' <<<"$item")"; MISSING=1; continue; fi
             [[ "$location_source" != explicit ]] || { echo "Configured model needs repair: $component_path. Choose download/repair in --setup or use an explicit --root." >&2; exit 1; }
-            assert_model_replacement "$unpack_to" "$component_path"
+            unpack_to="$(assert_model_replacement "$unpack_to" "$component_path")"
 
             tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
             fetch_verified "$(jq -r '.url' <<<"$item")" "$tmp/a.zip" \
@@ -152,7 +152,7 @@ for ci in $(seq 0 $((n_comp - 1))); do
                 inner="$tmp/x"
             fi
             [ -f "$inner/$marker" ] || { echo "Downloaded archive has no $marker" >&2; exit 1; }
-            assert_model_replacement "$unpack_to" "$component_path"
+            unpack_to="$(assert_model_replacement "$unpack_to" "$component_path")"
             rm -rf "$unpack_to"
             new_model_parent "$unpack_to"
             mv "$inner" "$unpack_to"

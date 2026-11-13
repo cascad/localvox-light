@@ -88,6 +88,8 @@ function Join-ModelPayload([string]$Directory, [string]$ComponentDirectory, [str
 }
 
 function New-ModelParent([string]$Target, [string]$UserRoot) {
+    $Target = [IO.Path]::GetFullPath($Target)
+    if ($UserRoot) { $UserRoot = [IO.Path]::GetFullPath($UserRoot) }
     $parent = Split-Path -Parent $Target
     # Mark only a newly created standard user root; custom/existing directories retain attributes.
     if ($UserRoot -and -not (Test-Path -LiteralPath $UserRoot) -and

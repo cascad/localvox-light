@@ -73,11 +73,27 @@ model_payload() {
     printf '%s/%s\n' "$base" "$relative"
 }
 
-assert_model_replacement() {
-    local target="$1" expected="$2" ancestor="$1"
-    [[ "$target" = "$expected" && "$target" = /* && "$target" != / ]] || { echo "Unsafe model replacement: $target" >&2; return 1; }
-    while [[ "$ancestor" != / ]]; do
-        [[ ! -L "$ancestor" ]] || { echo "Refusing model replacement through a symlink: $ancestor" >&2; return 1; }
-        ancestor="$(dirname "$ancestor")"
+physical_model_path() {
+    local directory="$1" suffix=''
+    [[ "$directory" = /* ]] || return 1
+    # Resolve existing ancestors (e.g. macOS /var -> /private/var), retaining the
+    # not-yet-created model suffix. No directories are created by this function.
+    while [[ ! -d "$directory" ]]; do
+        [[ "$directory" != / && ! -L "$directory" ]] || return 1
+        suffix="/$(basename "$directory")$suffix"
+        directory="$(dirname "$directory")"
     done
+    directory="$(cd -P "$directory" && pwd -P)" || return 1
+    # Junction resolution may switch between equivalent MSYS /d/... and /tmp mounts.
+    if command -v cygpath >/dev/null 2>&1; then directory="$(cygpath -u "$(cygpath -am "$directory")")"; fi
+    printf '%s%s\n' "${directory%/}" "$suffix"
+}
+
+assert_model_replacement() {
+    local target="$1" expected="$2" physical_target physical_expected
+    [[ "$target" = /* && "$target" != / && ! -L "$target" && ! -L "$expected" ]] || { echo "Unsafe model replacement or model symlink: $target" >&2; return 1; }
+    physical_target="$(physical_model_path "$target")" || return 1
+    physical_expected="$(physical_model_path "$expected")" || return 1
+    [[ -n "$physical_target" && "$physical_target" = "$physical_expected" ]] || { echo "Model destination changed: $target" >&2; return 1; }
+    printf '%s\n' "$physical_target"
 }

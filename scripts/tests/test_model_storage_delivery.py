@@ -39,6 +39,11 @@ class ModelStorageDelivery(unittest.TestCase):
             # Windows jq emits CRLF; emulate the native Unix jq used on Mac/Linux.
             jq = self.unix(Path(shutil.which('jq')))
             (self.bin / 'jq').write_text(f'#!/usr/bin/env bash\nset -o pipefail\n"{jq}" "$@" | tr -d "\\r"\n', newline='\n')
+        if os.name == 'nt':
+            # Exercise the native Windows curl present on Actions, including Unicode paths.
+            curl = Path(os.environ['SystemRoot']) / 'System32/curl.exe'
+            self.assertTrue(curl.is_file())
+            (self.bin / 'curl').write_text(f'#!/usr/bin/env bash\nexec "{self.unix(curl)}" "$@"\n', newline='\n')
         for name in ('fetch-models.ps1', 'fetch-models.sh', 'model-paths.ps1', 'model-paths.sh'):
             shutil.copyfile(ROOT / 'scripts' / name, self.scripts / name)
         payloads = self.root / 'payloads'
@@ -175,6 +180,104 @@ class ModelStorageDelivery(unittest.TestCase):
                 self.run_fetch(shell, '-Root' if shell == 'ps' else '--root', str(root) if shell == 'ps' else self.unix(root),
                                '-Only' if shell == 'ps' else '--only', 'vosk', expected=1)
                 self.assertFalse((root / 'models/vosk-model-ru-0.42').exists())
+
+    @unittest.skipUnless(os.name == 'nt', 'native Windows directory attributes')
+    def test_windows_equivalent_user_root_paths_and_existing_attributes(self):
+        probe = self.root / 'hidden-probe.ps1'
+        probe.write_text(r'''param($Helper,$Root)
+$ErrorActionPreference='Stop'
+. $Helper
+$userRoot=Join-Path $Root 'profile/../profile/.localvox'
+$target=[IO.Path]::GetFullPath((Join-Path $userRoot 'models/vosk/am/final.mdl'))
+$actual=[IO.Path]::GetFullPath($userRoot)
+New-ModelParent $target $userRoot
+if (-not ((Get-Item -Force -LiteralPath $actual).Attributes -band [IO.FileAttributes]::Hidden)) { throw 'New normalized user root is not Hidden' }
+$directory=Get-Item -Force -LiteralPath $actual
+$directory.Attributes=$directory.Attributes -band (-bnot [IO.FileAttributes]::Hidden)
+$before=(Get-Item -Force -LiteralPath $actual).Attributes
+New-ModelParent (Join-Path $actual 'models/gigaam/model.onnx') $userRoot
+if ((Get-Item -Force -LiteralPath $actual).Attributes -ne $before) { throw 'Existing root attributes changed' }
+$custom=Join-Path $Root 'custom/model.onnx'
+New-ModelParent $custom $userRoot
+if ((Get-Item -Force -LiteralPath (Split-Path -Parent $custom)).Attributes -band [IO.FileAttributes]::Hidden) { throw 'Custom root was hidden' }
+''', encoding='ascii')
+        engines = list(dict.fromkeys(p for p in [shutil.which('pwsh'), shutil.which('powershell')] if p))
+        for i, engine in enumerate(engines):
+            with self.subTest(engine=engine):
+                result = subprocess.run([engine, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', probe,
+                                         self.scripts / 'model-paths.ps1', self.root / f'engine-{i}'],
+                                        env=self.environment, capture_output=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
+
+    @unittest.skipIf(os.name == 'nt', 'Unix symlink semantics; no Windows symlink privilege assumed')
+    def test_symlinked_ancestors_work_but_model_symlink_is_never_replaced(self):
+        alias = self.root / 'profile-alias'
+        alias.symlink_to(self.home, target_is_directory=True)
+        self.home = alias
+        before = self.snapshot(self.root)
+        self.run_fetch('bash', '--check', expected=1)
+        self.assertEqual(self.snapshot(self.root), before)
+        self.assertEqual(self.requests, [])
+        self.run_fetch('bash')
+        requests = list(self.requests)
+        before = self.snapshot(self.root)
+        self.run_fetch('bash')
+        self.assertEqual(self.snapshot(self.root), before)
+        self.assertEqual(self.requests, requests)
+        model = alias / '.localvox/models/vosk-model-ru-0.42'
+        shutil.rmtree(model)
+        foreign = self.root / 'owner-files'
+        foreign.mkdir()
+        (foreign / 'keep.txt').write_bytes(b'owner content')
+        model.symlink_to(foreign, target_is_directory=True)
+        before = self.snapshot(self.root)
+        self.run_fetch('bash', '--only', 'vosk', '--repair-zip', expected=1)
+        self.assertEqual(self.requests, requests)
+        self.assertEqual(self.snapshot(self.root), before)
+        self.assertTrue(model.is_symlink())
+
+    def test_bash_guard_accepts_physical_ancestor_alias_and_refuses_other_destinations(self):
+        if 'bash' not in self.shells():
+            self.skipTest('Bash required')
+        def alias(link, target):
+            if os.name != 'nt':
+                link.symlink_to(target, target_is_directory=True)
+                return
+            # NTFS junctions need no symlink privilege; both paths belong to this fixture.
+            helper = self.root / 'junction.ps1'
+            helper.write_text('param($Link,$Target)\nNew-Item -ItemType Junction -Path $Link -Target $Target -ErrorAction Stop | Out-Null\n')
+            result = subprocess.run([PS, '-NoProfile', '-File', helper, link, target], env=self.environment,
+                                    capture_output=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
+        real = self.root / 'physical-root'
+        real.mkdir()
+        link = self.root / 'root-alias'
+        alias(link, real)
+        expected = real / 'models/vosk'
+        logical = link / 'models/vosk'
+        script = 'source "$1"; actual="$(assert_model_replacement "$2" "$3")" || exit; if command -v cygpath >/dev/null; then cygpath -w "$actual"; else printf "%s\\n" "$actual"; fi'
+        def guard(target, selected):
+            return subprocess.run([BASH, '-c', script, 'guard', self.unix(self.scripts / 'model-paths.sh'),
+                                   self.unix(target), self.unix(selected)], env=self.environment,
+                                  capture_output=True, timeout=30)
+        before = self.snapshot(self.root)
+        result = guard(logical, logical)
+        self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
+        self.assertEqual(Path(result.stdout.decode('utf-8').strip()).resolve(), expected.resolve())
+        result = guard(logical, expected)
+        self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
+        self.assertFalse(expected.exists())
+        self.assertEqual(self.snapshot(self.root), before)
+        self.assertNotEqual(guard(logical, self.root / 'different-model').returncode, 0)
+        expected.parent.mkdir()
+        foreign = self.root / 'foreign-owner-data'
+        foreign.mkdir()
+        (foreign / 'keep.txt').write_bytes(b'owner data')
+        alias(expected, foreign)
+        before = self.snapshot(self.root)
+        self.assertNotEqual(guard(logical, expected).returncode, 0)
+        self.assertEqual(self.snapshot(self.root), before)
+        self.assertEqual((foreign / 'keep.txt').read_bytes(), b'owner data')
 
     @unittest.skipUnless(os.getenv('LOCALVOX_MODEL_RESOLVER_TEST_BINARY') or os.getenv('LOCALVOX_DELIVERY_ARCHIVE'), 'built native bundle/resolver for installed .env parity')
     def test_native_resolver_reads_dotenv_and_both_downloaders_reuse_external_models(self):
