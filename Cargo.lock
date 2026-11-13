@@ -3230,6 +3230,7 @@ dependencies = [
  "tokio",
  "tui-textarea",
  "vt100",
+ "which",
  "windows 0.62.2",
  "winreg 0.52.0",
 ]
@@ -7538,6 +7539,15 @@ checksum = "471d1c1645d361eb782a1650b1786a8fb58dd625e681a04c09f5ff7c8764a7b0"
 dependencies = [
  "hashbrown 0.14.5",
  "once_cell",
+]
+
+[[package]]
+name = "which"
+version = "8.0.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bae2f2b2b816647a1cab1acc91f5bd20812d53cb344382635ec2181940c8034f"
+dependencies = [
+ "libc",
 ]
 
 [[package]]

@@ -41,3 +41,6 @@ portable-pty = "0.9"
 # 0.16 requires unicode-width >=0.2.1; Ratatui 0.29 pins 0.2.0.
 vt100 = "0.15"
 tiny_http.workspace = true
+
+[target.'cfg(unix)'.dev-dependencies]
+which = "8"

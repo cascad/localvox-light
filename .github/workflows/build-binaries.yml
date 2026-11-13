@@ -22,6 +22,7 @@ on:
     paths:
       - "Cargo.toml"
       - "Cargo.lock"
+      - "rust-toolchain.toml"
       - ".env.defaults"
       - "crates/**"
       - "src-tauri/**"
@@ -180,8 +181,14 @@ jobs:
           fi
           test -n "$(find ui/dist/assets -name '*.js' -print -quit)"
 
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Read pinned Rust toolchain
+        id: rust-version
+        shell: bash
+        run: python -c 'import pathlib,tomllib; print("toolchain=" + tomllib.loads(pathlib.Path("rust-toolchain.toml").read_text(encoding="utf-8"))["toolchain"]["channel"])' >> "$GITHUB_OUTPUT"
+
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: ${{ steps.rust-version.outputs.toolchain }}
           targets: ${{ matrix.target }}
 
       # Демон И ПОВАР. Раньше собирался только демон — установленный продукт писал звук и

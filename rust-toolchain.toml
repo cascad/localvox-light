@@ -1,0 +1,6 @@
+[toolchain]
+# ort-sys rc.12 expects the Cargo layout used through 1.99; update this pin
+# together with the native SDK compatibility checks on all five CI targets.
+channel = "1.99.1"
+profile = "minimal"
+components = ["rustfmt"]

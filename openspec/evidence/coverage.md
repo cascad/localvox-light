@@ -557,3 +557,9 @@ main specs и прежние свидетельства не переписан�
 | Requirement | Код / delta | Проверка | Граница |
 |---|---|---|---|
 | RUN-006 MODIFIED в delta | [delta](../changes/simplify-terminal-shutdown-confirmation/specs/runtime-settings/spec.md), [forms](../../crates/localvox-light-terminal/src/app/forms.rs), [overlay](../../crates/localvox-light-terminal/src/render/overlays.rs) | [test-run](../changes/simplify-terminal-shutdown-confirmation/evidence/implementation.md): 212 lib / 8 PTY / 4 launcher / 2 IO, пустой диалог Ctrl+S/Ctrl+Enter, Esc и безопасный ввод/paste, 80/120 render | Lifecycle/API и прочие typed confirmations сохранены; sync после исходного RUN-006, реальные audio/Mac/hosted not-run |
+
+Native CI environment, 2026-11-13:
+
+| Requirement | Код | Проверка | Граница |
+|---|---|---|---|
+| RUN-002, SETUP-002/003; SETUP-007 в delta | [compiler pin](../../rust-toolchain.toml), [workflows](../../.github/workflows/build-binaries.yml), [shell fixture](../../crates/localvox-light-terminal/src/command_path/profiles/tests.rs) | [hosted failures и test-run](../changes/repair-native-ci-environments/evidence/implementation.md): Rust 1.99.1 Windows daemon/worker/TUI/desktop + package probes; 212 lib / 8 PTY / 4 launcher / 2 IO, 9 onnx cook, 30 delivery без skips; isolated Unix modules compiled | Общий pin вместо moving stable, shell lookup до child PATH isolation; SDK/модели не менялись. Full Linux cross-check недоступен без C compiler; новый native Mac/Linux/hosted run not-run до push |

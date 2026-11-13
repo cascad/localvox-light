@@ -126,9 +126,12 @@ fn zsh_and_fish_execute_their_generated_blocks_once() {
     let directory = root.path().join("LocalVox's журнал");
     fs::create_dir(&directory).unwrap();
     for (program, shell) in [("zsh", Shell::Posix), ("fish", Shell::Fish)] {
+        // Resolve with the caller's PATH before the child loses Homebrew's bin.
+        let executable = which::which(program)
+            .unwrap_or_else(|error| panic!("Required test shell {program}: {error}"));
         let body = block(&directory, shell).unwrap();
         let script = format!("{body}{body}printf '%s' \"$PATH\"");
-        let output = std::process::Command::new(program)
+        let output = std::process::Command::new(executable)
             .arg(if program == "fish" {
                 "--no-config"
             } else {

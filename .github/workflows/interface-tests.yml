@@ -21,13 +21,21 @@ jobs:
       CARGO_BUILD_JOBS: "2"
     steps:
       - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
       - uses: actions/setup-node@v6
         with:
           node-version: "24"
           cache: npm
           cache-dependency-path: ui/package-lock.json
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Read pinned Rust toolchain
+        id: rust-version
+        shell: bash
+        run: python -c 'import pathlib,tomllib; print("toolchain=" + tomllib.loads(pathlib.Path("rust-toolchain.toml").read_text(encoding="utf-8"))["toolchain"]["channel"])' >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: ${{ steps.rust-version.outputs.toolchain }}
           components: rustfmt
       - name: Check API Rust formatting
         run: cargo fmt -p localvox-light-api -- --check
@@ -185,6 +193,7 @@ jobs:
           npx --yes @fission-ai/openspec@1.13.2 validate add-vox-entry-command --type change --strict --no-interactive
           npx --yes @fission-ai/openspec@1.13.2 validate add-graceful-application-exit --type change --strict --no-interactive
           npx --yes @fission-ai/openspec@1.13.2 validate simplify-terminal-shutdown-confirmation --type change --strict --no-interactive
+          npx --yes @fission-ai/openspec@1.13.2 validate repair-native-ci-environments --type change --strict --no-interactive
           python scripts/check-openspec.py
           git diff --check
       - name: Upload browser diffs, traces and terminal snapshot proposals
