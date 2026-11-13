@@ -65,3 +65,10 @@ UI поведение не менялось, user-guide не требует из
 у подключения отсутствует; новый run этим вызовом не создан.
 
 Новый hosted run: not-run, нужен push владельца. Общий CI ещё не объявляется green.
+
+## Hosted follow-up on 873ffa2
+
+[Interface 43436838950](https://github.com/cascad/localvox-light/actions/runs/43436838950)
+прошёл UI build, 15 unit и все 81 e2e, включая исправленный clock scenario.
+Общий workflow позже failed на native shared UI/TUI helper, не на browser clock.
+Root/отдельный fix — [Windows audio apartment lifetime](../../repair-shared-client-ci-fixture/evidence/windows-audio.md).

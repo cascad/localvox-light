@@ -576,3 +576,9 @@ PIPE-011 browser clock fixture, 2026-11-13:
 | Requirement | Код | Проверка | Граница |
 |---|---|---|---|
 | PIPE-011 | [timing test](../../ui/tests/e2e/workspace.spec.ts), [workflow](../../.github/workflows/interface-tests.yml) | [red→green и hosted](../changes/stabilize-pipeline-clock-test/evidence/implementation.md): d30727b native build 5/5 passed; Interface UI 80/81 failed на живом clock. После fix UI build / unit 15 / e2e 81 / ещё 4 timing повтора passed, PNG и assertions сохранены | Только тестовые часы и capped polling backoff, production без изменений. Shared-client шаг на d30727b skipped; его прежняя причина открыта. Новый hosted not-run до push; connector rerun 403 |
+
+Windows audio COM lifetime и hosted 873ffa2, 2026-11-13:
+
+| Requirement | Код | Проверка | Граница |
+|---|---|---|---|
+| CFG-001/002/003, ARCH-001, API-003 | [Windows audio host](../../crates/localvox-light-core/src/audio/windows_host.rs), [gateway](../../crates/localvox-light-core/src/audio.rs), [regression](../../crates/localvox-light-core/src/audio/host_tests.rs) | [native red→green и hosted](../changes/repair-shared-client-ci-fixture/evidence/windows-audio.md): CPAL STA lifetime reproduced 0xC0000005 → four owned regression modes passed; core 441 / API 91+3 / TUI 212+8 PTY+4 launcher+2 IO / client 3+10 / process 12 passed; real shared UI/TUI and mpv passed; release product+desktop/package/install/doctor/reconcile passed | Общий MTA adapter, CPAL/модели/контракт не обновлялись. На 873ffa2 UI 81 passed, shared failed; Intel Mac compiled/tested, upload DNS ENOTFOUND. Новый hosted и аппаратная запись после fix not-run; [remote acceptance](../changes/repair-shared-client-ci-fixture/tasks.md) открыта |

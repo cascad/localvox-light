@@ -54,6 +54,7 @@ libc.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 wasapi.workspace = true
+windows = { version = "0.62", features = ["Win32_System_Com"] }
 winreg = "0.52"
 
 [dev-dependencies]

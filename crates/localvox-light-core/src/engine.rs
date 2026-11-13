@@ -461,8 +461,9 @@ pub fn run_engine(
                 // sanity (the rake stepped on in Summit 1.9.1): microphone == the output device
                 // means almost certainly the wrong device was picked
                 if !warned_output_clash {
-                    let out_name = cpal::default_host()
-                        .default_output_device()
+                    let out_name = crate::audio::default_host()
+                        .ok()
+                        .and_then(|host| host.default_output_device())
                         .and_then(|d| d.description().ok().map(|x| x.name().to_string()));
                     if out_name.as_deref() == Some(mic_name.as_str()) {
                         warned_output_clash = true;

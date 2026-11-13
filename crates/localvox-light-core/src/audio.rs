@@ -17,6 +17,20 @@ use crossbeam_channel::Sender;
 
 use crate::events::UiMsg;
 
+#[cfg(windows)]
+#[path = "audio/windows_host.rs"]
+mod windows_host;
+
+#[cfg(all(test, windows))]
+#[path = "audio/host_tests.rs"]
+mod host_tests;
+
+pub(crate) fn default_host() -> Result<cpal::Host> {
+    #[cfg(windows)]
+    windows_host::prepare()?;
+    Ok(cpal::default_host())
+}
+
 pub const SAMPLE_RATE: u32 = 16000;
 pub const CHUNK_FRAMES: usize = 512;
 
@@ -91,7 +105,13 @@ pub fn format_device_display(dev: &cpal::Device, name: &str, extra: &str) -> Str
 }
 
 pub fn collect_input_devices() -> Vec<(cpal::Device, String)> {
-    let host = cpal::default_host();
+    let host = match default_host() {
+        Ok(host) => host,
+        Err(error) => {
+            tracing::warn!(%error, "audio host unavailable for input discovery");
+            return Vec::new();
+        }
+    };
     host.input_devices()
         .unwrap_or_else(|_| panic!("input_devices"))
         .filter_map(|dev| {
@@ -112,9 +132,10 @@ fn fallback_output_list_default_only() -> Vec<(usize, String)> {
 pub fn list_output_device_names() -> Vec<(usize, String)> {
     #[cfg(windows)]
     {
-        // CoCreateInstance(MMDeviceEnumerator) fails without CoInitializeEx on this thread;
-        // loopback in its own thread calls initialize_mta, the TUI main thread does not.
-        let _ = wasapi::initialize_mta();
+        if let Err(error) = windows_host::prepare() {
+            tracing::warn!(%error, "audio host unavailable for output discovery");
+            return fallback_output_list_default_only();
+        }
         let enumerator = match wasapi::DeviceEnumerator::new() {
             Ok(e) => e,
             Err(e) => {
@@ -350,12 +371,12 @@ pub fn output_device_choices() -> Vec<DeviceChoice> {
 }
 
 fn resolve_input_device_by_id_str(id_str: &str) -> Result<cpal::Device> {
-    let host = cpal::default_host();
+    let host = default_host()?;
     let id = DeviceId::from_str(id_str.trim())
         .with_context(|| format!("Invalid CPAL device id: {id_str}"))?;
-    let dev = host
-        .device_by_id(&id)
-        .with_context(|| format!("No device for id {id_str} (unplugged, or a different host name)"))?;
+    let dev = host.device_by_id(&id).with_context(|| {
+        format!("No device for id {id_str} (unplugged, or a different host name)")
+    })?;
     anyhow::ensure!(
         dev.supports_input(),
         "Device {id_str} does not support input"
@@ -396,8 +417,7 @@ pub fn follows_default(query: &str) -> bool {
 /// `None` — we could not ask; the caller must treat that as "unknown", not as "changed".
 #[cfg(windows)]
 pub fn default_render_id() -> Option<String> {
-    // COM is per-thread; the watcher calls this from its own thread. Repeat calls are harmless.
-    let _ = wasapi::initialize_mta();
+    windows_host::prepare().ok()?;
     let enumerator = wasapi::DeviceEnumerator::new().ok()?;
     let dev = enumerator
         .get_default_device(&wasapi::Direction::Render)
@@ -413,13 +433,13 @@ pub fn default_render_id() -> Option<String> {
 /// Identity of the current default microphone — it moves for the same reasons (a headset is one
 /// device: reconnect it and both the mic and the speakers change under you).
 pub fn default_capture_id() -> Option<String> {
-    cpal::default_host().default_input_device()?.name().ok()
+    default_host().ok()?.default_input_device()?.name().ok()
 }
 
 pub fn resolve_mic(query: &str) -> Result<cpal::Device> {
     let q = query.trim();
     if q.eq_ignore_ascii_case("default") {
-        return cpal::default_host()
+        return default_host()?
             .default_input_device()
             .context("No default input device");
     }
@@ -718,9 +738,7 @@ pub fn loopback_capture(
     reload_gen: Option<Arc<AtomicU64>>,
     reload_snapshot: u64,
 ) -> Result<()> {
-    wasapi::initialize_mta()
-        .ok()
-        .context("COM init failed in loopback thread")?;
+    windows_host::prepare().context("COM init failed in loopback thread")?;
 
     let device = resolve_output_device_wasapi(device_query)?;
     let mut audio_client = device
@@ -820,8 +838,7 @@ pub fn loopback_capture(
         }
         // Nothing is playing in the system — top the track up with silence so that its time
         // matches the world's. Otherwise the pause simply falls out of the recording.
-        let expected =
-            (started.elapsed().as_secs_f64() * f64::from(SAMPLE_RATE)) as u64;
+        let expected = (started.elapsed().as_secs_f64() * f64::from(SAMPLE_RATE)) as u64;
         if expected > emitted + PAD_AFTER_SAMPLES {
             let mut missing = expected - emitted;
             while missing > 0 {
@@ -926,7 +943,11 @@ mod device_choice_tests {
     fn same_named_devices_are_told_apart_by_the_end_of_their_id() {
         let a = "wasapi:{0.0.1.00000000}.{4029964e-6b79-4452-9b74-df7f32c2599e}";
         let b = "wasapi:{0.0.1.00000000}.{b1f75504-1cef-418d-9b90-e5097f957553}";
-        assert_ne!(id_tail(a), id_tail(b), "two microphones would look identical");
+        assert_ne!(
+            id_tail(a),
+            id_tail(b),
+            "two microphones would look identical"
+        );
         assert_eq!(id_tail(a).chars().count(), 6);
     }
 
@@ -983,7 +1004,11 @@ mod resample_tests {
         for b in blocks(12_000.0, 48_000.0, 1024, 8) {
             out.extend(d.push(&b));
         }
-        assert!(out.len() > 2000, "the resampler produced nothing: {}", out.len());
+        assert!(
+            out.len() > 2000,
+            "the resampler produced nothing: {}",
+            out.len()
+        );
 
         let ghost = energy_at(&out, 4_000.0, 16_000.0); // where the tone would have folded to
         let full = out.iter().map(|s| f64::from(*s).abs()).sum::<f64>() / out.len() as f64;

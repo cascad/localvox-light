@@ -79,3 +79,11 @@ Shared helper/ConPTY/API шаг в этом run skipped, новой диагно
 clock исправляется в [stabilize-pipeline-clock-test](../../stabilize-pipeline-clock-test/evidence/implementation.md).
 [Build 43429701723](https://github.com/cascad/localvox-light/actions/runs/43429701723)
 снова passed на всех пяти платформах; publish skipped для обычного push.
+
+## Native root on 873ffa2
+
+[Продолжение с native reproduction и fix](windows-audio.md): browser clock passed,
+shared helper получил 0xC0000005. Подтверждён CPAL STA/enumerator lifetime defect,
+native red→green regression; исправление выполняется в общем Windows audio host.
+На этом push четыре build jobs passed; Intel Mac прошёл build/install проверки,
+но не смог загрузить artifact из-за DNS ENOTFOUND. Общий CI не green.
