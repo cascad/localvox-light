@@ -1,0 +1,2 @@
+# Shell helpers are shipped from Windows builds and must also run on Unix.
+*.sh text eol=lf

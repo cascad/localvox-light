@@ -85,16 +85,20 @@ def check(archive):
         binary = install / ('localvox-light.exe' if windows else 'localvox-light')
         findings = inspect_doctor(run([binary, '--doctor', '--doctor-json'], 2, cwd=install, environment=environment))
         run([binary, '--setup-check'], 2, cwd=install, environment=environment)
-        run([binary, '--setup'], cwd=install, input='q\n', environment=environment)
-        run([binary, '--setup'], cwd=install, input='0\n0\n0\n0\n0\n', environment=environment)
+        # The checkbox wizard requires an actual terminal; piped numeric answers
+        # must fail clearly, never accidentally accept an installation plan.
+        run([binary, '--setup'], 1, cwd=install, input='q\n', environment=environment)
+        native_installer = install / ('localvox-install.exe' if windows else 'localvox-install')
+        run([native_installer, '--bundle-check', '--install-dir', install], cwd=install, environment=environment)
+        run([native_installer, '--install-dir', install, '--no-path-update'], 1,
+            cwd=install, input='\n', environment=environment)
         install_call('-Check' if windows else '--check', expected=2)
         absent = Path(temporary) / 'must-not-download-or-unpack.zip'
         repeat = ['-Archive', absent, '-Reconcile', '-SkipModels'] if windows else [
             f'--archive={absent}', '--reconcile', '--skip-models']
         install_call(*repeat)
         wizard = ['-Archive', absent, '-Reconcile'] if windows else [f'--archive={absent}', '--reconcile']
-        install_call(*wizard, input='q\n')
-        install_call(*wizard, input='0\n0\n0\n0\n0\n')
+        install_call(*wizard, expected=1, input='q\n')
         if snapshot(install) != before:
             raise RuntimeError('Doctor/check/cancel/no-op/reconcile changed installed files or mtimes')
         models = Path(temporary) / 'must-not-create-models'
@@ -107,7 +111,8 @@ def check(archive):
         if (install / '.env').read_text(encoding='utf-8') != original:
             raise RuntimeError('Installer changed existing configuration')
         return {'doctor': findings, 'missing_asr_exit': 2, 'check_before_install': True,
-                'wizard_cancel_and_noop': True, 'reconcile_unchanged': True, 'fetch_check_readonly': True}
+                'wizard_requires_tty_without_mutation': True, 'bundle_check': True,
+                'reconcile_unchanged': True, 'fetch_check_readonly': True}
 
 
 def main():

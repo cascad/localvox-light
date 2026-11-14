@@ -11,6 +11,7 @@ path = "src/main.rs"
 [dependencies]
 cliclack = "=0.5.6"
 console = "=0.16.6"
+serde = { version = "1", features = ["derive"] }
 
 [dev-dependencies]
 portable-pty = "0.9"

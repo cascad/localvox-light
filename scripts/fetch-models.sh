@@ -19,6 +19,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 MANIFEST="$HERE/models.json"
 ROOT=''
+COMPONENT_DIR=''
 ONLY=()
 SKIP=()
 REQUIRED_ONLY=0
@@ -36,6 +37,7 @@ while [ $# -gt 0 ]; do
         --repair-zip) REPAIR_ZIP=1; shift ;;
         --root) ROOT="$2"; shift 2 ;;
         --root=*) ROOT="${1#*=}"; shift ;;
+        --component-dir) COMPONENT_DIR="$2"; shift 2 ;;
         -h|--help) sed -n '2,18p' "$0"; exit 0 ;;
         *) echo "Неизвестный аргумент: $1" >&2; exit 2 ;;
     esac
@@ -46,8 +48,15 @@ command -v jq   >/dev/null || { echo "Нужен jq (читать models.json). 
 command -v unzip >/dev/null || { echo "Нужен unzip" >&2; exit 1; }
 [ -f "$MANIFEST" ] || { echo "Не найден $MANIFEST" >&2; exit 1; }
 
+if [[ -n "$COMPONENT_DIR" ]]; then
+ [[ ${#ONLY[@]} = 1 ]] || { echo '--component-dir requires exactly one --only' >&2; exit 2; }
+ jq -e --arg id "${ONLY[0]}" 'any(.components[]; .id == $id)' "$MANIFEST" >/dev/null || exit 2
+ [[ "$COMPONENT_DIR" = /* ]] || COMPONENT_DIR="$PWD/$COMPONENT_DIR"
+ ROOT="$COMPONENT_DIR"
+fi
 source "$HERE/model-paths.sh"
 model_locations "$(cd "$HERE/.." && pwd)" "$ROOT"
+if [[ -n "$COMPONENT_DIR" ]]; then MODEL_LOCATIONS="$(jq --arg id "${ONLY[0]}" --arg path "$COMPONENT_DIR" '.components |= map(if .id == $id then .path=$path | .source="root" else . end)' <<<"$MODEL_LOCATIONS")"; fi
 
 sha256_of() {
     if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1

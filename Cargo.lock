@@ -3026,9 +3026,11 @@ dependencies = [
  "localvox-light-ingest",
  "localvox-light-process",
  "localvox-light-voice",
+ "localvox-setup-ui",
  "portable-pty",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "tempfile",
  "tiny_http",
  "tracing",
@@ -3036,6 +3038,8 @@ dependencies = [
  "tray-item",
  "ureq 2.12.1",
  "url",
+ "windows-sys 0.61.2",
+ "winreg 0.52.0",
  "winres",
 ]
 
@@ -3134,6 +3138,7 @@ dependencies = [
  "clap",
  "cpal",
  "crossbeam-channel",
+ "dotenvy",
  "hound",
  "isolang",
  "kodama",
@@ -3299,6 +3304,7 @@ dependencies = [
  "cliclack",
  "console 0.16.6",
  "portable-pty",
+ "serde",
  "tempfile",
  "vt100",
 ]

@@ -149,6 +149,23 @@ class ModelStorageDelivery(unittest.TestCase):
                 self.assertFalse((self.home / '.localvox').exists())
                 shutil.rmtree(self.install / 'models')
 
+    def test_single_component_directory_is_exact_and_repeat_downloads_nothing(self):
+        for shell in self.shells():
+            with self.subTest(shell=shell):
+                chosen = self.root / 'Точные веса без models'
+                argument = str(chosen) if shell == 'ps' else self.unix(chosen)
+                options = (['-Only', 'gigaam', '-ComponentDir', argument] if shell == 'ps' else
+                           ['--only', 'gigaam', '--component-dir', argument])
+                self.run_fetch(shell, *options)
+                self.assertTrue((chosen / 'v3_e2e_ctc.int8.onnx').is_file())
+                self.assertFalse((chosen / 'models').exists())
+                before, requests = self.snapshot(self.root), list(self.requests)
+                self.run_fetch(shell, *options)
+                self.assertEqual(self.requests, requests)
+                self.assertEqual(self.snapshot(self.root), before)
+                self.assertFalse((self.home / '.localvox').exists())
+                shutil.rmtree(chosen)
+
     def test_invalid_explicit_path_never_downloads_or_replaces_user_files(self):
         external = self.root / 'External model'
         external.mkdir()

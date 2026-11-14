@@ -1,5 +1,5 @@
 //! Real filesystem, subprocess and HTTP boundaries; no devices or developer models.
-use localvox_light::setup::{execute, plan::*, probe, prompt};
+use localvox_light::setup::{execute, plan::*, probe};
 use localvox_light_core::doctor::Layout;
 use localvox_light_core::env_file::Snapshot;
 use std::{
@@ -129,37 +129,15 @@ impl Drop for Server {
 }
 
 #[test]
-fn cancel_and_noop_do_not_even_create_a_lock_or_env() {
+fn noop_does_not_even_create_a_lock_or_env() {
     let tmp = tempfile::tempdir().unwrap();
     let l = layout(tmp.path());
     ready(&l);
     let before = snapshot(tmp.path());
-    let mut output = Vec::new();
-    assert!(
-        prompt::choose(&l, tmp.path(), &mut Cursor::new(b"q\n"), &mut output)
-            .unwrap()
-            .is_none()
-    );
-    assert!(
-        prompt::choose(&l, tmp.path(), &mut Cursor::new(b""), &mut output)
-            .unwrap()
-            .is_none()
-    );
-    let plan = prompt::choose(&l, tmp.path(), &mut Cursor::new(b"\n\n\n\n\n"), &mut output)
-        .unwrap()
-        .unwrap();
+    let plan = build(&l, &[], LlmChoice::Keep, &[]).unwrap();
     assert!(plan.actions.is_empty() && plan.changes.is_empty());
     let settings = Snapshot::read(&tmp.path().join(".env")).unwrap();
     execute::apply(&plan, &l, tmp.path(), &settings).unwrap();
-    // Declining a concrete settings change also has no side effects.
-    assert!(prompt::choose(
-        &l,
-        tmp.path(),
-        &mut Cursor::new(b"\n\n\n\n3\nno\n"),
-        &mut output
-    )
-    .unwrap()
-    .is_none());
     assert_eq!(snapshot(tmp.path()), before);
     assert!(!l.work_dir.exists());
 }

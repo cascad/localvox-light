@@ -1,5 +1,12 @@
 # Покрытие требований и состояние реализации
 
+Дополнение SETUP-001/002/003, CFG-001/003 и SETUP-006/009 (delta), 2026-11-14:
+[реальная интеграция мастера](../changes/add-interactive-install-wizard/evidence/integration.md).
+V2 одобрено владельцем; общий frontend подключён к planner/executor, появились staged
+bootstrap для пяти platform targets, сохранение незавершённого выбора и проверка
+реальным dotenv parser. Исторические результаты ниже не являются статусом этого этапа.
+Нативные Linux/Mac, настоящая установка пакетов/весов и hosted release отмечаются отдельно.
+
 Дополнение SETUP-009 (delta), 2026-11-14 — отзыв владельца:
 [навигация назад](../changes/add-interactive-install-wizard/evidence/back-navigation.md).
 Оформление одобрено владельцем, Back добавлен после первого просмотра. 10 tests /

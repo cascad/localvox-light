@@ -4,7 +4,7 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 $existing = Get-Command ollama.exe -ErrorAction SilentlyContinue
 if ($existing -or (Test-Path -LiteralPath "$env:LOCALAPPDATA\Programs\Ollama\ollama.exe")) {
-    Write-Host 'Ollama is already installed; open its application, then return to the wizard.'
+    Write-Host 'Ollama is already installed; reusing it.'
     exit 0
 }
 New-Item -ItemType Directory -Path $CacheDir -Force | Out-Null
@@ -12,7 +12,7 @@ $installer = Join-Path $CacheDir 'OllamaSetup.exe'
 function ValidInstaller([string]$Path) {
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $false }
     $signature = Get-AuthenticodeSignature -LiteralPath $Path
-    return ($signature.Status -eq 'Valid' -and $signature.SignerCertificate.Subject -match 'Ollama')
+    return ($signature.Status -eq 'Valid' -and $signature.SignerCertificate.Subject -match '(?:^|,\s*)O=Ollama Inc\.(?:,|$)')
 }
 if (-not (ValidInstaller $installer)) {
     $part = Join-Path $CacheDir 'OllamaSetup.part.exe'
@@ -22,6 +22,6 @@ if (-not (ValidInstaller $installer)) {
     }
     Move-Item -LiteralPath $part -Destination $installer -Force
 }
-# The official installer window is intentionally visible for install location/OS prompts.
-$process = Start-Process -FilePath $installer -PassThru -Wait
+# The confirmed native plan uses the official unattended installer options.
+$process = Start-Process -FilePath $installer -ArgumentList '/VERYSILENT','/NORESTART','/SUPPRESSMSGBOXES' -WindowStyle Hidden -PassThru -Wait
 if ($process.ExitCode -ne 0) { throw "Ollama installer failed ($($process.ExitCode))" }

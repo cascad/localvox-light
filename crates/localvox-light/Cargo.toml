@@ -9,6 +9,10 @@ default-run = "localvox-light"
 name = "localvox-light"
 path = "src/main.rs"
 
+[[bin]]
+name = "localvox-install"
+path = "src/bin/localvox-install.rs"
+
 [features]
 default = ["tui"]
 # Compatibility feature: launches the independent sibling HTTP client.
@@ -19,8 +23,12 @@ winres = "0.1"
 
 [target.'cfg(windows)'.dependencies]
 tray-item = "0.10"
+winreg = "0.52"
+windows-sys = { version = "0.61", features = ["Win32_System_Environment", "Win32_System_Diagnostics_Debug", "Win32_Storage_FileSystem"] }
 
 [dependencies]
+localvox-setup-ui = { path = "../localvox-setup-ui" }
+sha2 = "0.10"
 localvox-light-api = { path = "../localvox-light-api" }
 localvox-light-core.workspace = true
 localvox-light-process.workspace = true

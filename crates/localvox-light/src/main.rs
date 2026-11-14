@@ -27,25 +27,27 @@ use localvox_light_core::{
 /// runs before `main`); `install-release` copies the DLL / `.dylib` out of `vosk-lib/`.
 /// See build.rs / install-release.
 fn portable_env_bootstrap() {
+    let cwd_config = || dotenvy::from_path(".env").map(|()| std::path::PathBuf::from(".env"));
     let Some(exe_dir) = std::env::current_exe()
         .ok()
         .and_then(|p| p.parent().map(|d| d.to_path_buf()))
     else {
-        warn_on_bad_dotenv(dotenvy::dotenv(), "next to the working directory");
+        warn_on_bad_dotenv(cwd_config(), "next to the working directory");
         return;
     };
     let dotenv_path = exe_dir.join(".env");
-    if dotenv_path.is_file() {
+    let portable = dotenvy::from_path_override(&dotenv_path);
+    if !matches!(&portable, Err(dotenvy::Error::Io(e)) if e.kind() == io::ErrorKind::NotFound) {
         // from_path does NOT override variables already set in the OS — a portable .env then
         // "does not work".
         // from_path_override: values from the .env next to the exe win; explicit CLI arguments
         // are still stronger, via clap.
         warn_on_bad_dotenv(
-            dotenvy::from_path_override(&dotenv_path).map(|()| dotenv_path.clone()),
+            portable.map(|()| dotenv_path.clone()),
             &dotenv_path.display().to_string(),
         );
     } else {
-        warn_on_bad_dotenv(dotenvy::dotenv(), "./.env");
+        warn_on_bad_dotenv(cwd_config(), "./.env");
     }
     let vosk_lib = exe_dir.join("vosk-lib");
     if vosk_lib.is_dir() {
@@ -59,8 +61,15 @@ fn portable_env_bootstrap() {
 /// not apply" is impossible.
 fn warn_on_bad_dotenv(res: dotenvy::Result<std::path::PathBuf>, what: &str) {
     if let Err(e) = res {
+        if matches!(&e, dotenvy::Error::Io(error) if error.kind() == io::ErrorKind::NotFound) {
+            return;
+        }
+        let detail = match e {
+            dotenvy::Error::Io(error) => error.to_string(),
+            _ => "ошибка синтаксиса .env (содержимое строки скрыто)".into(),
+        };
         eprintln!(
-            "localvox-light: ERROR in {what}: {e}\n\
+            "localvox-light: ERROR in {what}: {detail}\n\
              WARNING: variables AFTER the broken line were NOT read. \
              Every line must be `KEY=value` or start with `#`."
         );

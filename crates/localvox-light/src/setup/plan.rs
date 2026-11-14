@@ -86,6 +86,9 @@ pub enum Action {
         repair_zip: bool,
     },
     InstallOllama,
+    EnsureOllama {
+        base: String,
+    },
     EnsureTag {
         base: String,
         model: String,
@@ -260,7 +263,8 @@ impl Plan {
         for action in &self.actions {
             lines.push(match action {
                 Action::Download { component, destination, repair_zip, .. } => format!("{} {} → {}", if *repair_zip { "Восстановить неполный ZIP-комплект" } else { "Скачать недостающее" }, component.id(), destination.display()),
-                Action::InstallOllama => "Открыть официальный установщик Ollama; завершить установку в окне ОС".into(),
+                Action::InstallOllama => "Установить Ollama официальным установщиком".into(),
+                Action::EnsureOllama { .. } => "Запустить локальную Ollama".into(),
                 Action::EnsureTag { model, gguf: Some(file), .. } => format!("Импортировать {} → {model}; Ollama сохранит дополнительную копию весов в своём хранилище", file.display()),
                 Action::EnsureTag { model, .. } => format!("Скачать отсутствующую модель Ollama {model} в хранилище работающего сервера"),
             });

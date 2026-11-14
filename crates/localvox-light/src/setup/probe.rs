@@ -18,6 +18,12 @@ pub fn cli() -> Option<PathBuf> {
         std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
             .map(|p| p.join(name))
             .collect();
+    #[cfg(windows)]
+    paths.extend(
+        super::tools::registered_paths()
+            .into_iter()
+            .map(|dir| dir.join(name)),
+    );
     if let Some(local) = std::env::var_os("LOCALAPPDATA") {
         paths.push(PathBuf::from(local).join("Programs/Ollama/ollama.exe"));
     }

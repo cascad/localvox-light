@@ -1,5 +1,6 @@
 //! Explicit navigation over completed answers; terminal input stays with cliclack.
-use crate::{recommended, review, Feature, InstallerTheme, Selection, SummarySource, ViewData};
+use crate::{recommended, Feature, InstallerTheme, ModelKind, Selection, SummarySource, ViewData};
+use std::collections::BTreeMap;
 use std::io;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -16,6 +17,7 @@ enum Step {
     ProgramDir,
     ModelsDir,
     Review,
+    ModelPath(ModelKind),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -34,6 +36,13 @@ enum Provider {
     Gguf,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Directories {
+    Recommended,
+    Custom,
+    ExistingModels,
+}
+
 struct Draft {
     custom: bool,
     features: Vec<Feature>,
@@ -43,26 +52,55 @@ struct Draft {
     server_model: String,
     gguf_path: String,
     gguf_name: String,
-    custom_dirs: bool,
+    directories: Directories,
     program_dir: String,
     models_dir: String,
+    model_paths: BTreeMap<ModelKind, String>,
 }
 
 impl Draft {
     fn new(data: &ViewData) -> Self {
-        Self {
+        let initial = recommended(data);
+        let mut draft = Self {
             custom: false,
-            features: recommended(data).features,
+            features: initial.features,
             source: Provider::Ollama,
             ollama_model: data.summary_model.clone(),
             server_base: "http://localhost:11434/v1".into(),
             server_model: data.summary_model.clone(),
             gguf_path: String::new(),
             gguf_name: "localvox-summary".into(),
-            custom_dirs: false,
-            program_dir: data.program_dir.clone(),
-            models_dir: data.models_dir.clone(),
+            directories: if !initial.model_paths.is_empty() {
+                Directories::ExistingModels
+            } else if initial.program_dir != data.program_dir
+                || initial.models_dir != data.models_dir
+            {
+                Directories::Custom
+            } else {
+                Directories::Recommended
+            },
+            program_dir: initial.program_dir,
+            models_dir: initial.models_dir,
+            model_paths: if initial.model_paths.is_empty() {
+                data.available_model_paths.clone()
+            } else {
+                initial.model_paths
+            },
+        };
+        match initial.summary {
+            SummarySource::Ollama(model) => draft.ollama_model = model,
+            SummarySource::Server { base, model } => {
+                draft.source = Provider::Server;
+                draft.server_base = base;
+                draft.server_model = model;
+            }
+            SummarySource::Gguf { path, name } => {
+                draft.source = Provider::Gguf;
+                draft.gguf_path = path;
+                draft.gguf_name = name;
+            }
         }
+        draft
     }
 
     fn selected(&self, data: &ViewData) -> Selection {
@@ -72,13 +110,13 @@ impl Draft {
         Selection {
             custom: true,
             features: self.features.clone(),
-            program_dir: if self.custom_dirs {
+            program_dir: if self.directories != Directories::Recommended {
                 &self.program_dir
             } else {
                 &data.program_dir
             }
             .clone(),
-            models_dir: if self.custom_dirs {
+            models_dir: if self.directories != Directories::Recommended {
                 &self.models_dir
             } else {
                 &data.models_dir
@@ -94,6 +132,15 @@ impl Draft {
                     path: self.gguf_path.clone(),
                     name: self.gguf_name.clone(),
                 },
+            },
+            model_paths: if self.directories == Directories::ExistingModels {
+                self.model_paths
+                    .iter()
+                    .filter(|(_, path)| !path.trim().is_empty())
+                    .map(|(kind, path)| (*kind, path.clone()))
+                    .collect()
+            } else {
+                BTreeMap::new()
             },
         }
     }
@@ -124,7 +171,10 @@ fn navigation() -> io::Result<Move> {
         .interact()
 }
 
-pub(super) fn choose(data: &ViewData) -> io::Result<Option<Selection>> {
+pub(super) fn choose<P>(
+    data: &ViewData,
+    prepare: &mut impl FnMut(&Selection) -> io::Result<(String, P)>,
+) -> io::Result<Option<P>> {
     cliclack::intro(
         console::style(" LocalVox · установка ")
             .on_cyan()
@@ -146,7 +196,22 @@ pub(super) fn choose(data: &ViewData) -> io::Result<Option<Selection>> {
         cliclack::set_theme(InstallerTheme {
             can_go_back: !history.is_empty(),
         });
-        let action = match ask(step, &mut draft, data) {
+        let mut prepared = None;
+        let question = if step == Step::Review {
+            match prepare(&draft.selected(data)) {
+                Ok((details, plan)) => {
+                    prepared = Some(plan);
+                    ask(step, &mut draft, data, Some(&details))
+                }
+                Err(error) => {
+                    cliclack::log::error(format!("План пока не готов: {error}"))?;
+                    Ok(navigation()?)
+                }
+            }
+        } else {
+            ask(step, &mut draft, data, None)
+        };
+        let action = match question {
             Err(error) if error.kind() == io::ErrorKind::Interrupted => {
                 if history.is_empty() {
                     Move::Cancel
@@ -167,7 +232,11 @@ pub(super) fn choose(data: &ViewData) -> io::Result<Option<Selection>> {
                 }
             }
             Move::Stay => {}
-            Move::Finish => return Ok(Some(draft.selected(data))),
+            Move::Finish => {
+                return prepared
+                    .map(Some)
+                    .ok_or_else(|| io::Error::other("Подтверждённый план отсутствует"))
+            }
             Move::Cancel => {
                 cliclack::outro_cancel("Отменено. Ничего не изменено.")?;
                 return Ok(None);
@@ -176,15 +245,23 @@ pub(super) fn choose(data: &ViewData) -> io::Result<Option<Selection>> {
     }
 }
 
-fn ask(step: Step, draft: &mut Draft, data: &ViewData) -> io::Result<Move> {
+fn ask(step: Step, draft: &mut Draft, data: &ViewData, details: Option<&str>) -> io::Result<Move> {
     use Step::*;
     let next = match step {
         Profile => {
             draft.custom = cliclack::select("Как установить LocalVox?")
                 .item(
                     false,
-                    "Установить всё необходимое",
-                    "Рекомендуется · распознавание, голоса, сводки, ссылки и плеер",
+                    if data.initial.is_some() {
+                        "Сохранить текущий набор"
+                    } else {
+                        "Установить всё необходимое"
+                    },
+                    if data.initial.is_some() {
+                        "Проверить и доустановить только недостающее"
+                    } else {
+                        "Рекомендуется · распознавание, голоса, сводки, ссылки и плеер"
+                    },
                 )
                 .item(
                     true,
@@ -232,8 +309,10 @@ fn ask(step: Step, draft: &mut Draft, data: &ViewData) -> io::Result<Move> {
                 .item(
                     Provider::Ollama,
                     "Ollama",
-                    if data.ollama_ready {
+                    if data.installed.contains(&Feature::Summary) {
                         "Программа и модель уже есть"
+                    } else if data.ollama_ready {
+                        "Ollama уже есть · скачаем недостающую модель"
                     } else {
                         "Установим Ollama и скачаем модель"
                     },
@@ -280,19 +359,28 @@ fn ask(step: Step, draft: &mut Draft, data: &ViewData) -> io::Result<Move> {
                     data.program_dir, data.models_dir
                 ),
             )?;
-            draft.custom_dirs = cliclack::select("Куда установить?")
-                .item(false, "Рекомендуемые папки", "Использовать папки выше")
+            draft.directories = cliclack::select("Куда установить?")
                 .item(
-                    true,
+                    self::Directories::Recommended,
+                    "Рекомендуемые папки",
+                    "Использовать папки выше",
+                )
+                .item(
+                    self::Directories::Custom,
                     "Выбрать другие папки",
                     "Например, перенести большие модели на другой диск",
                 )
-                .initial_value(draft.custom_dirs)
+                .item(
+                    self::Directories::ExistingModels,
+                    "Указать готовые папки моделей",
+                    "Vosk и GigaAM · можно из разных мест",
+                )
+                .initial_value(draft.directories)
                 .interact()?;
-            if draft.custom_dirs {
-                ProgramDir
-            } else {
-                Review
+            match draft.directories {
+                self::Directories::Custom => ProgramDir,
+                self::Directories::ExistingModels => ProgramDir,
+                self::Directories::Recommended => Review,
             }
         }
         ProgramDir => {
@@ -301,10 +389,52 @@ fn ask(step: Step, draft: &mut Draft, data: &ViewData) -> io::Result<Move> {
         }
         ModelsDir => {
             draft.models_dir = text("Папка моделей", &draft.models_dir)?;
-            Review
+            if draft.directories == self::Directories::ExistingModels {
+                ModelPath(ModelKind::Vosk)
+            } else {
+                Review
+            }
+        }
+        ModelPath(kind) => {
+            let value: String = cliclack::input(format!(
+                "{} · готовая папка (пусто — автоматически)",
+                kind.title()
+            ))
+            .required(false)
+            .default_input(
+                draft
+                    .model_paths
+                    .get(&kind)
+                    .map(String::as_str)
+                    .unwrap_or(""),
+            )
+            .validate(|value: &String| {
+                if value.chars().any(char::is_control) {
+                    Err("Управляющие символы в пути недопустимы")
+                } else {
+                    Ok(())
+                }
+            })
+            .interact()?;
+            draft.model_paths.insert(kind, value);
+            match kind {
+                ModelKind::Vosk => ModelPath(ModelKind::Gigaam),
+                ModelKind::Gigaam if draft.features.contains(&Feature::Speakers) => {
+                    ModelPath(ModelKind::Diarize)
+                }
+                ModelKind::Gigaam | ModelKind::Diarize
+                    if draft.features.contains(&Feature::Names) =>
+                {
+                    ModelPath(ModelKind::Ner)
+                }
+                _ => Review,
+            }
         }
         Review => {
-            cliclack::note("Перед установкой", review(data, &draft.selected(data)))?;
+            cliclack::note(
+                "Перед установкой",
+                details.ok_or_else(|| io::Error::other("План не подготовлен"))?,
+            )?;
             return cliclack::select(if data.preview {
                 "Показать демоустановку?"
             } else {

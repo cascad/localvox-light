@@ -19,7 +19,8 @@ param(
     [switch]$RequiredOnly,
     [switch]$Check,
     [switch]$RepairZip,
-    [string]$Root = ""
+    [string]$Root = "",
+    [string]$ComponentDir = ""
 )
 
 $ErrorActionPreference = 'Stop'
@@ -29,7 +30,12 @@ $manifestPath = Join-Path $here 'models.json'
 if (-not (Test-Path -LiteralPath $manifestPath)) { throw "Не найден $manifestPath" }
 $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
 . (Join-Path $here 'model-paths.ps1')
+if ($ComponentDir) {
+    if ($Only.Count -ne 1 -or $manifest.components.id -notcontains $Only[0]) { throw '-ComponentDir requires exactly one known -Only component' }
+    $Root = [IO.Path]::GetFullPath($ComponentDir)
+}
 $placement = Get-ModelLocations $manifest (Split-Path -Parent $here) $Root
+if ($ComponentDir) { $placement.components[$Only[0]].path = [IO.Path]::GetFullPath($ComponentDir); $placement.components[$Only[0]].source = 'root' }
 
 # Прогресс-бар Invoke-WebRequest режет скорость закачки в разы — на 1.8 ГБ это разница
 # между парой минут и получасом.

@@ -62,6 +62,8 @@ fn main() -> io::Result<()> {
         },
         ollama_ready: existing,
         preview: true,
+        initial: None,
+        available_model_paths: Default::default(),
     };
     if let Some(selected) = choose(&data)? {
         demonstrate(&selected)?;

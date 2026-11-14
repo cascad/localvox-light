@@ -208,10 +208,13 @@ first-run Windows/Mac Ollama и настоящие большие downloads — 
 [Безопасный preview](changes/add-interactive-install-wizard/evidence/preview.md):
 default/custom checkbox, модель, папки и план; 6 integration tests / 9 ConPTY sessions
 прошли, подготовлены PNG/GIF и локальный exe;
-production bootstrap/настоящая установка пока не подключены, SETUP-009 остаётся delta.
+это историческая проверка demo; SETUP-009 остаётся delta.
 После просмотра: оформление владельцу понравилось; [добавлен Back](changes/add-interactive-install-wizard/evidence/back-navigation.md)
 с сохранением ответов, 10 tests / 13 ConPTY sessions прошли. Повторная проверка
-навигации владельцем остаётся открытой.
+навигации владельцем отдельно не зафиксирована. V2 принято 2026-11-14: «Ну круто,
+мне нравится 2 вариант». [Production integration](changes/add-interactive-install-wizard/evidence/integration.md):
+общий native мастер, staged bootstrap Windows/Linux/Mac, локальные tiny HTTP/TTY
+fixtures и Windows package smoke. Публикация и нативная приёмка Mac/Linux — отдельно.
 
 Практический refactor настроек: [consolidate-settings-persistence](changes/consolidate-settings-persistence/proposal.md).
 [Проверки](changes/consolidate-settings-persistence/evidence/implementation.md): единый

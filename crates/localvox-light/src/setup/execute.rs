@@ -23,9 +23,28 @@ pub fn apply(
     }
     let _ownership = localvox_light_core::session::try_instance_lock(&layout.work_dir)?
         .context("Демон или другой мастер использует архив. Останови его и повтори настройку.")?;
+    apply_owned(plan, layout, install, settings)
+}
+
+/// The installer holds the same archive ownership while publishing its bundle and tools.
+pub(super) fn apply_owned(
+    plan: &Plan,
+    layout: &Layout,
+    install: &Path,
+    settings: &env_file::Snapshot,
+) -> Result<()> {
     settings
         .verify()
         .context("Настройки изменились после показа плана")?;
+    apply_actions(plan, layout, install)?;
+    // The shared writer rechecks the snapshot after a long download before publishing.
+    settings
+        .save(&plan.changes)
+        .context("Не удалось сохранить настройки. Готовые модели сохранены; повтори мастер.")?;
+    Ok(())
+}
+
+pub(super) fn apply_actions(plan: &Plan, layout: &Layout, install: &Path) -> Result<()> {
     for action in &plan.actions {
         println!(
             "\n└ {}",
@@ -49,7 +68,12 @@ pub fn apply(
                 }
                 let mut cmd = script_command(install, "fetch-models");
                 if cfg!(windows) {
-                    cmd.arg("-Root").arg(root).arg("-Only").arg(component.id());
+                    cmd.arg("-Root")
+                        .arg(root)
+                        .arg("-Only")
+                        .arg(component.id())
+                        .arg("-ComponentDir")
+                        .arg(destination);
                     if *repair_zip {
                         cmd.arg("-RepairZip");
                     }
@@ -57,11 +81,17 @@ pub fn apply(
                     cmd.arg("--root")
                         .arg(root)
                         .arg("--only")
-                        .arg(component.id());
+                        .arg(component.id())
+                        .arg("--component-dir")
+                        .arg(destination);
                     if *repair_zip {
                         cmd.arg("--repair-zip");
                     }
                 }
+                cmd.env(
+                    "PATH",
+                    super::tools::command_path(&Default::default(), install)?,
+                );
                 run_command(cmd)?;
                 component
                     .validate(layout, destination)
@@ -86,24 +116,14 @@ pub fn apply(
                     status.success(),
                     "Официальный установщик Ollama завершился с ошибкой"
                 );
-                println!("Заверши установку, запусти Ollama и нажми Enter здесь.");
-                let mut line = String::new();
-                anyhow::ensure!(
-                    std::io::stdin().read_line(&mut line)? > 0,
-                    "Установка не подтверждена; повтори --setup после запуска Ollama"
-                );
-                probe::tags("http://localhost:11434/v1")
-                    .context("Ollama ещё не отвечает; запусти её и повтори --setup")?;
+                ensure_ollama("http://localhost:11434/v1", install)?;
             }
             Action::EnsureTag { base, model, gguf } => {
                 ensure_tag(base, model, gguf.as_deref(), install)?
             }
+            Action::EnsureOllama { base } => ensure_ollama(base, install)?,
         }
     }
-    // The shared writer rechecks the snapshot after a long download before publishing.
-    settings
-        .save(&plan.changes)
-        .context("Не удалось сохранить настройки. Готовые модели сохранены; повтори мастер.")?;
     Ok(())
 }
 
@@ -117,6 +137,74 @@ pub fn script_command(install: &Path, name: &str) -> Command {
         let mut cmd = Command::new("bash");
         cmd.arg(install.join(format!("scripts/{name}.sh")));
         cmd
+    }
+}
+
+pub fn ensure_ollama(base: &str, install: &Path) -> Result<()> {
+    if probe::tags(base).is_ok() {
+        return Ok(());
+    }
+    anyhow::ensure!(
+        probe::local(base),
+        "Удалённый сервер Ollama недоступен; запуск возможен только локально"
+    );
+    let cli = probe::cli().context("Ollama не найдена после установки")?;
+    std::fs::create_dir_all(install.join("cache"))?;
+    let log = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(install.join("cache/ollama-start.log"))?;
+    let mut command = Command::new(&cli);
+    command
+        .arg("serve")
+        .env(
+            "OLLAMA_HOST",
+            probe::endpoint(base, "")?.trim_end_matches('/'),
+        )
+        .stdin(std::process::Stdio::null())
+        .stdout(log.try_clone()?)
+        .stderr(log);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000 | 0x00000200);
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
+    struct OwnedServer(Option<std::process::Child>);
+    impl Drop for OwnedServer {
+        fn drop(&mut self) {
+            if let Some(child) = self.0.as_mut() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+        }
+    }
+    let mut server = OwnedServer(Some(command.spawn().context("Запуск локальной Ollama")?));
+    let deadline = std::time::Instant::now() + Duration::from_secs(60);
+    let mut exited = None;
+    loop {
+        if probe::tags(base).is_ok() {
+            if let Some(mut child) = server.0.take() {
+                std::thread::spawn(move || {
+                    let _ = child.wait();
+                });
+            }
+            return Ok(());
+        }
+        if exited.is_none() {
+            exited = server.0.as_mut().unwrap().try_wait()?;
+        }
+        // The official desktop installer may start its own server concurrently.
+        // Wait for the API even if our child lost that race; never stop an existing server.
+        anyhow::ensure!(
+            std::time::Instant::now() < deadline,
+            "Ollama не ответила за минуту (дочерний процесс: {exited:?}); подробности в cache/ollama-start.log"
+        );
+        std::thread::sleep(Duration::from_millis(250));
     }
 }
 

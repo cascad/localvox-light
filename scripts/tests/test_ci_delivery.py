@@ -98,7 +98,7 @@ class InstalledCheckContracts(unittest.TestCase):
     @unittest.skipUnless(os.getenv('LOCALVOX_DELIVERY_ARCHIVE'), 'Explicit complete native archive')
     def test_actual_archive_doctor_setup_and_reconciliation(self):
         result = smoke.check(Path(os.environ['LOCALVOX_DELIVERY_ARCHIVE']))
-        self.assertTrue(result['reconcile_unchanged'] and result['wizard_cancel_and_noop'])
+        self.assertTrue(result['reconcile_unchanged'] and result['wizard_requires_tty_without_mutation'])
 
 
 if __name__ == '__main__': unittest.main()

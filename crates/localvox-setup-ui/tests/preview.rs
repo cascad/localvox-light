@@ -537,6 +537,47 @@ fn custom_server_and_gguf_are_presented_without_probing_or_importing() {
 }
 
 #[test]
+fn separate_ready_model_directories_keep_program_and_download_folder_choices() {
+    let mut demo = Preview::new("fresh", 110);
+    demo.wait("Выбрать компоненты");
+    demo.send(DOWN);
+    demo.send(ENTER);
+    demo.wait("Дополнительно проверять имена");
+    demo.send(b" ");
+    demo.send(DOWN);
+    demo.send(b" ");
+    demo.send(ENTER);
+    demo.wait("Указать готовые папки моделей");
+    demo.send(DOWN);
+    demo.send(DOWN);
+    demo.send(ENTER);
+    demo.wait("Папка программы");
+    demo.send(b"F:/Chosen LocalVox");
+    demo.send(ENTER);
+    demo.wait("Папка моделей");
+    demo.send(b"F:/Future models");
+    demo.send(ENTER);
+    demo.wait("Vosk · готовая папка");
+    demo.send(b"F:/ready vosk");
+    demo.send(ENTER);
+    demo.wait("GigaAM · готовая папка");
+    demo.send(b"F:/ready gigaam");
+    demo.send(ENTER);
+    demo.wait("Показать демоустановку?");
+    let screen = demo.parser.screen().contents();
+    for path in [
+        "F:/Chosen LocalVox",
+        "F:/Future models",
+        "F:/ready vosk",
+        "F:/ready gigaam",
+    ] {
+        assert!(screen.contains(path), "{screen}");
+    }
+    demo.send(ENTER);
+    demo.finish("Демо завершено");
+}
+
+#[test]
 fn pipe_is_rejected_and_help_needs_no_terminal() {
     let sandbox = tempfile::tempdir().unwrap();
     let run = |args: &[&str]| {

@@ -1,4 +1,5 @@
 //! Presentation only. Receives discovery data; never downloads, probes or writes configuration.
+use std::collections::BTreeMap;
 use std::io;
 mod wizard;
 
@@ -29,7 +30,8 @@ impl cliclack::Theme for InstallerTheme {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Feature {
     Speakers,
     Summary,
@@ -37,7 +39,37 @@ pub enum Feature {
     Player,
     Names,
 }
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum ModelKind {
+    Vosk,
+    Gigaam,
+    Diarize,
+    Ner,
+}
+impl ModelKind {
+    pub fn title(self) -> &'static str {
+        match self {
+            Self::Vosk => "Vosk",
+            Self::Gigaam => "GigaAM",
+            Self::Diarize => "Диаризация",
+            Self::Ner => "GLiNER",
+        }
+    }
+}
 impl Feature {
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Speakers => "speakers",
+            Self::Summary => "summary",
+            Self::Links => "links",
+            Self::Player => "player",
+            Self::Names => "names",
+        }
+    }
     pub const ALL: [Self; 5] = [
         Self::Speakers,
         Self::Summary,
@@ -73,25 +105,36 @@ pub struct ViewData {
     pub installed: Vec<Feature>,
     pub ollama_ready: bool,
     pub preview: bool,
+    /// Existing user choices; absent on a fresh installation or in the fresh demo.
+    pub initial: Option<Selection>,
+    pub available_model_paths: BTreeMap<ModelKind, String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "kind", content = "data", rename_all = "snake_case")]
 pub enum SummarySource {
     Ollama(String),
     Server { base: String, model: String },
     Gguf { path: String, name: String },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Selection {
     pub custom: bool,
     pub features: Vec<Feature>,
     pub program_dir: String,
     pub models_dir: String,
     pub summary: SummarySource,
+    #[serde(default)]
+    pub model_paths: BTreeMap<ModelKind, String>,
 }
 
 pub fn recommended(data: &ViewData) -> Selection {
+    if let Some(initial) = &data.initial {
+        let mut selected = initial.clone();
+        selected.custom = false;
+        return selected;
+    }
     Selection {
         custom: false,
         features: vec![
@@ -103,13 +146,25 @@ pub fn recommended(data: &ViewData) -> Selection {
         program_dir: data.program_dir.clone(),
         models_dir: data.models_dir.clone(),
         summary: SummarySource::Ollama(data.summary_model.clone()),
+        model_paths: BTreeMap::new(),
     }
 }
 
 /// Collect a reviewable selection. The caller owns all real installation actions.
 pub fn choose(data: &ViewData) -> io::Result<Option<Selection>> {
+    choose_with(data, |selected| {
+        Ok((review(data, selected), selected.clone()))
+    })
+}
+
+/// Prepare and validate the exact backend plan before it is shown and confirmed.
+pub fn choose_with<P>(
+    data: &ViewData,
+    mut prepare: impl FnMut(&Selection) -> io::Result<(String, P)>,
+) -> io::Result<Option<P>> {
     cliclack::set_theme(InstallerTheme { can_go_back: false });
-    match wizard::choose(data) {
+    match wizard::choose(data, &mut prepare) {
+        Err(error) if error.kind() == io::ErrorKind::NotConnected => Err(io::Error::other("Откройте мастер в интерактивном терминале. Для проверки без вопросов: localvox-install --check")),
         Err(error) if error.kind() == io::ErrorKind::Interrupted => {
             cliclack::outro_cancel("Отменено. Ничего не изменено.")?;
             Ok(None)
@@ -161,6 +216,9 @@ pub fn review(data: &ViewData, selected: &Selection) -> String {
         format!("Программа: {}", selected.program_dir),
         format!("Модели:    {}", selected.models_dir),
     ]);
+    for (model, path) in &selected.model_paths {
+        lines.push(format!("{}: {path}", model.title()));
+    }
     if selected.features.contains(&Feature::Summary)
         && !matches!(selected.summary, SummarySource::Server { .. })
     {

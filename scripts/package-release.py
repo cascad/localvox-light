@@ -13,9 +13,9 @@ import tempfile
 import zipfile
 
 ROOT = Path(__file__).resolve().parent.parent
-BINARIES = ('localvox-light', 'localvox-process', 'localvox-tui', 'vox')
-SCRIPTS = ('install-release.ps1', 'install-release.sh', 'fetch-models.ps1',
-           'fetch-models.sh', 'model-paths.ps1', 'model-paths.sh', 'setup-ollama.ps1', 'setup-ollama.sh', 'models.json', 'setup-mpv.mjs')
+BINARIES = ('localvox-light', 'localvox-process', 'localvox-tui', 'vox', 'localvox-install')
+SCRIPTS = ('install.ps1', 'install.sh', 'install-release.ps1', 'install-release.sh', 'fetch-models.ps1',
+           'fetch-models.sh', 'model-paths.ps1', 'model-paths.sh', 'setup-ollama.ps1', 'setup-ollama.sh', 'setup-tools.ps1', 'setup-tools.sh', 'models.json', 'setup-mpv.mjs')
 
 
 def digest(path):
@@ -64,6 +64,11 @@ def stage(source, native, folder, target, desktop=False, extra_native=()):
             raise RuntimeError(f'Missing executable: {file}')
         shutil.copy2(file, folder / file.name)
         (folder / file.name).chmod(0o755)
+    if windows:
+        mpv = source / 'tools/mpv'
+        if not (mpv / 'mpv.exe').is_file():
+            raise RuntimeError('Windows package requires the verified tools/mpv payload')
+        shutil.copytree(mpv, folder / 'tools/mpv', ignore=shutil.ignore_patterns('.env', '*.log', '*.zip', 'mpv.conf', 'input.conf', 'portable_config'))
     patterns = ('*.dll',) if windows else (('*.dylib',) if 'darwin' in target else ('*.so', '*.so.*'))
     for directory in (native, source, *extra_native):
         for pattern in patterns:
@@ -90,9 +95,14 @@ def stage(source, native, folder, target, desktop=False, extra_native=()):
     shutil.copy2(ROOT / 'LICENSE', folder)
     (folder / 'scripts').mkdir()
     for script in SCRIPTS:
-        shutil.copy2(ROOT / 'scripts' / script, folder / 'scripts' / script)
+        destination = folder / 'scripts' / script
+        if script.endswith('.sh'):
+            destination.write_bytes((ROOT / 'scripts' / script).read_bytes().replace(b'\r\n', b'\n'))
+            destination.chmod(0o755)
+        else:
+            shutil.copy2(ROOT / 'scripts' / script, destination)
     (folder / 'docs').mkdir()
-    for name in ('terminal-workspace.md', 'release-installation.md'):
+    for name in ('terminal-workspace.md', 'release-installation.md', 'installer-testing.md'):
         shutil.copy2(ROOT / 'docs' / name, folder / 'docs' / name)
     files = [{'name': p.relative_to(folder).as_posix(), 'bytes': p.stat().st_size, 'sha256': digest(p)}
              for p in sorted(folder.rglob('*')) if p.is_file()]
@@ -101,7 +111,7 @@ def stage(source, native, folder, target, desktop=False, extra_native=()):
 
 def smoke(folder, target):
     suffix = '.exe' if 'windows' in target else ''
-    for name, flag in [('localvox-light', '--help'), ('localvox-process', '--worker-protocol'), ('localvox-tui', '--version'), ('vox', '--version')]:
+    for name, flag in [('localvox-light', '--help'), ('localvox-process', '--worker-protocol'), ('localvox-tui', '--version'), ('vox', '--version'), ('localvox-install', '--help')]:
         result = subprocess.run([str(folder / (name + suffix)), flag], cwd=folder,
                                 capture_output=True, text=True, timeout=30)
         if result.returncode:
@@ -135,6 +145,7 @@ def main():
             with tarfile.open(archive, 'w:gz') as out:
                 for file in sorted(folder.iterdir()):
                     out.add(file, arcname=file.name)
+    archive.with_name(archive.name + '.sha256').write_text(digest(archive) + '  ' + archive.name + '\n', encoding='ascii')
     print(archive)
 
 

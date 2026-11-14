@@ -31,6 +31,8 @@ class PackageContracts(unittest.TestCase):
             folder.mkdir()
 
     def windows_input(self):
+        (self.source / 'tools/mpv').mkdir(parents=True)
+        (self.source / 'tools/mpv/mpv.exe').write_bytes(b'verified mpv fixture')
         for name in package.BINARIES:
             (self.source / (name + '.exe')).write_bytes(b'fake executable: ' + name.encode())
         for name in ('libvosk.dll', 'libgcc_s_seh-1.dll', 'libstdc++-6.dll', 'libwinpthread-1.dll'):
@@ -46,6 +48,8 @@ class PackageContracts(unittest.TestCase):
         self.assertFalse((self.out / '.env').exists())
         self.assertIn('DirectML.dll', [p['name'] for p in manifest['files']])
         self.assertTrue((self.out / 'scripts/fetch-models.ps1').is_file())
+        for script in (self.out / 'scripts').glob('*.sh'):
+            self.assertNotIn(b'\r', script.read_bytes(), script.name)
         for entry in manifest['files']:
             self.assertEqual(entry['sha256'], package.digest(self.out / entry['name']))
             self.assertEqual(entry['bytes'], (self.out / entry['name']).stat().st_size)
@@ -74,9 +78,9 @@ class PackageContracts(unittest.TestCase):
         with patch.object(package, 'run', side_effect=command):
             package.relocate_macos(self.out)
         changes = [c for c in calls if c[:2] == ('install_name_tool', '-change')]
-        self.assertEqual(len(changes), 4)
+        self.assertEqual(len(changes), len(package.BINARIES))
         self.assertTrue(all(c[3] == '@loader_path/libvosk.dylib' for c in changes))
-        self.assertEqual(len([c for c in calls if c[0] == 'codesign']), 5)
+        self.assertEqual(len([c for c in calls if c[0] == 'codesign']), len(package.BINARIES) + 1)
 
     def test_missing_extra_native_sdk_is_rejected_before_staging(self):
         with self.assertRaisesRegex(RuntimeError, 'Missing native SDK directory'):

@@ -58,4 +58,5 @@ windows = { version = "0.62", features = ["Win32_System_Com"] }
 winreg = "0.52"
 
 [dev-dependencies]
+dotenvy.workspace = true
 tempfile.workspace = true

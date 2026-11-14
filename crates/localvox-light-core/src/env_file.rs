@@ -163,17 +163,13 @@ fn commented_assignment(line: &str, key: &str) -> bool {
 
 /// Render `KEY=value` for dotenv.
 ///
-/// Values are written BARE whenever they can be, because quoting is the actual hazard here: the
-/// owner's own `.env` warns that a quoted `F:\vosk\…` can turn `\v` into an escape. Unquoted values
-/// are taken literally, so Windows paths keep their backslashes.
-///
-/// Quoting is used only when a bare value would not survive a round-trip — a leading/trailing
-/// space, a `#` that would start a comment, a quote character, a newline. Single quotes are
-/// preferred: they are literal in dotenv, so backslashes stay safe there too.
+/// Use literal single quotes for paths, whitespace and dollar signs. The runtime dotenv
+/// reader treats backslashes in bare values as escapes and expands dollar signs; the
+/// settings reader alone is therefore insufficient to verify a saved value.
 fn render(key: &str, value: &str) -> String {
-    let needs_quotes = value.is_empty() && false // an empty value is fine bare: «KEY=»
-        || value.starts_with(char::is_whitespace)
-        || value.ends_with(char::is_whitespace)
+    let needs_quotes = value.chars().any(char::is_whitespace)
+        || value.contains('\\')
+        || value.contains('$')
         || value.contains('#')
         || value.contains('\n')
         || value.contains('\r')
@@ -189,6 +185,7 @@ fn render(key: &str, value: &str) -> String {
     // the branch the bare path above exists to avoid.
     let escaped = value
         .replace('\\', "\\\\")
+        .replace('$', "\\$")
         .replace('"', "\\\"")
         .replace('\n', "\\n")
         .replace('\r', "\\r");
@@ -298,11 +295,25 @@ fn unquote(v: &str) -> String {
         return v[1..v.len() - 1].to_string();
     }
     if v.len() >= 2 && v.starts_with('"') && v.ends_with('"') {
-        return v[1..v.len() - 1]
-            .replace("\\n", "\n")
-            .replace("\\r", "\r")
-            .replace("\\\"", "\"")
-            .replace("\\\\", "\\");
+        let mut output = String::new();
+        let mut chars = v[1..v.len() - 1].chars();
+        while let Some(c) = chars.next() {
+            if c == '\\' {
+                match chars.next() {
+                    Some('n') => output.push('\n'),
+                    Some('r') => output.push('\r'),
+                    Some(c @ ('\\' | '"' | '$' | '\'' | ' ')) => output.push(c),
+                    Some(other) => {
+                        output.push('\\');
+                        output.push(other);
+                    }
+                    None => output.push('\\'),
+                }
+            } else {
+                output.push(c);
+            }
+        }
+        return output;
     }
     // Bare: an inline comment ends the value. `KEY=value # note` is `value`.
     match v.split_once(" #") {
@@ -579,17 +590,30 @@ LOCALVOX_LIGHT_CALL_DETECT=off
         assert_eq!(on, "LOCALVOX_LLM_MODEL=granite4.1:8b\n");
     }
 
-    /// A Windows path is written BARE. The owner's own `.env` warns that quoting turns `\v` into an
-    /// escape — quoting a path is the bug, not the safety measure.
     #[test]
-    fn a_windows_path_is_written_without_quotes() {
+    fn saved_paths_survive_the_runtime_dotenv_reader() {
         let out = apply(
             "",
             &[ch("LOCALVOX_LIGHT_YT_DLP", Some(r"F:\vosk\bin\yt-dlp.exe"))],
         );
-        assert_eq!(out, "LOCALVOX_LIGHT_YT_DLP=F:\\vosk\\bin\\yt-dlp.exe\n");
-        // And it survives a round-trip through the same reader the daemon uses.
-        assert!(out.contains(r"F:\vosk\bin\yt-dlp.exe"));
+        assert_eq!(out, "LOCALVOX_LIGHT_YT_DLP='F:\\vosk\\bin\\yt-dlp.exe'\n");
+        for value in [
+            r"F:\vosk\bin\yt-dlp.exe",
+            r"D:\Мои модели\weights",
+            "/home/user/models with spaces",
+            r"D:\user's $models\new",
+            "say \"hello\"",
+        ] {
+            let text = apply("", &[ch("LOCALVOX_PATH", Some(value))]);
+            let actual: Vec<_> = dotenvy::from_read_iter(text.as_bytes())
+                .collect::<Result<_, _>>()
+                .unwrap();
+            assert_eq!(
+                actual,
+                vec![("LOCALVOX_PATH".to_string(), value.to_string())]
+            );
+            assert_eq!(parse(&text)["LOCALVOX_PATH"], value);
+        }
     }
 
     /// A value that would not survive bare gets single quotes — literal in dotenv, so backslashes

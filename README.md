@@ -14,32 +14,29 @@
 
 ## Установка
 
-Полный комплект скачивается из
-[Build binaries](https://github.com/cascad/localvox-light/actions/workflows/build-binaries.yml?query=branch%3Amain).
-Опубликованный `v0.1.5` содержит отдельные бинарники и для текущего интерфейса не подходит.
-
-1. Открой запуск нужной версии с успешной сборкой твоей платформы и скачай её артефакт.
-2. Распакуй ZIP-обёртку GitHub, затем внутренний `.zip` или `.tar.gz` в папку LocalVox.
-3. Открой терминал в этой папке и запусти мастер.
+Команды ниже предназначены для полного релиза с новым мастером. Пока он не опубликован,
+старый `v0.1.5` не подходит; для разработческой сборки есть
+[инструкция из Actions](docs/release-installation.md#свежая-сборка-из-actions).
 
 **Windows x64 — PowerShell:**
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install-release.ps1 `
-  -InstallDir . -Reconcile
-.\localvox-light.exe --daemon
+irm https://github.com/cascad/localvox-light/releases/latest/download/install.ps1 | iex
 ```
 
-**macOS — Apple Silicon или Intel:** нужен `jq` (`brew install jq`).
+**macOS — Apple Silicon / Intel; Linux — x64 / ARM64:**
 
 ```bash
-bash scripts/install-release.sh --install-dir="$PWD" --reconcile
-./localvox-light --daemon
+curl -fsSL https://github.com/cascad/localvox-light/releases/latest/download/install.sh | bash
 ```
 
-Мастер предложит использовать готовые папки моделей или скачать недостающее,
-настроить Ollama, импортировать GGUF либо указать другой сервер. Перед изменениями
-покажет план. Повторный запуск использует готовое и сохраняет настройки.
+Мастер сам скачает комплект. «Установить всё необходимое» подготовит распознавание,
+сводки с локальной Ollama, разметку говорящих, загрузку ссылок и плеер.
+В «Выбрать компоненты» — галочки пробелом, переход стрелками и Enter; Esc открывает
+возврат назад. Можно указать готовые модели, свой сервер или другой диск.
+Перед установкой появится план. Недостающие программы устанавливаются автоматически;
+менеджер ОС может запросить системный пароль. Rust, Python, Node и заранее установленный
+`jq` не нужны. Повторный запуск сохраняет выбор и использует уже готовое.
 
 Модели по умолчанию хранятся в **`~/.localvox/models`** — на Windows это
 **`%USERPROFILE%\.localvox\models`**. В мастере можно выбрать другую папку, например

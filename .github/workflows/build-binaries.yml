@@ -32,6 +32,13 @@ on:
       - "scripts/setup-vosk.ps1"
       - "scripts/install-release.sh"
       - "scripts/install-release.ps1"
+      - "scripts/install.sh"
+      - "scripts/install.ps1"
+      - "scripts/setup-tools.sh"
+      - "scripts/setup-tools.ps1"
+      - "scripts/tests/test_bootstrap_delivery.py"
+      - "scripts/test-installer.ps1"
+      - "scripts/test-installer.sh"
       - "scripts/setup-mpv.mjs"
       - "scripts/setup-ollama.ps1"
       - "scripts/setup-ollama.sh"
@@ -223,6 +230,25 @@ jobs:
         run: |
           cargo test --release --locked -p localvox-light-terminal --target ${{ matrix.target }} --lib command_path::
 
+      - name: Installer keyboard and configuration contracts (isolated fixtures)
+        shell: bash
+        env:
+          RUSTFLAGS: -L native=${{ github.workspace }}/vosk-lib
+        run: |
+          export PATH="$PWD/vosk-lib:$PATH"
+          export LD_LIBRARY_PATH="$PWD/vosk-lib:${ORT_LIB_PATH:-}:${LD_LIBRARY_PATH:-}"
+          export DYLD_LIBRARY_PATH="$PWD/vosk-lib:${ORT_LIB_PATH:-}:${DYLD_LIBRARY_PATH:-}"
+          cargo test --release --locked -p localvox-light-core --target ${{ matrix.target }} --lib env_file:: -- --test-threads=2
+          cargo test --release --locked -p localvox-light --target ${{ matrix.target }} --lib --bins --test setup --test install -- --test-threads=2
+          cargo test --release --locked -p localvox-setup-ui --target ${{ matrix.target }} -- --test-threads=1
+
+      - name: Prepare verified Windows player for the offline bundle
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./scripts/setup-tools.ps1 -Only mpv -InstallDir "target/${{ matrix.target }}/release"
+
       - name: Pack and probe the complete product
         shell: bash
         env:
@@ -274,8 +300,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p release-assets
-          find dist -type f \( -name '*.zip' -o -name '*.tar.gz' \) -exec cp {} release-assets/ \;
-          cp scripts/install-release.ps1 scripts/install-release.sh release-assets/
+          find dist -type f \( -name '*.zip' -o -name '*.tar.gz' -o -name '*.sha256' \) -exec cp {} release-assets/ \;
+          cp scripts/install.ps1 scripts/install.sh scripts/install-release.ps1 scripts/install-release.sh release-assets/
           ls -la release-assets/
           test "$(ls -1 release-assets | wc -l)" -gt 0
 
