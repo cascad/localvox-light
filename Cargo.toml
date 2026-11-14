@@ -15,6 +15,7 @@ members = [
     "crates/localvox-light-voice",
     "crates/localvox-light-api",
     "crates/localvox-light-bench",
+    "crates/localvox-setup-ui",
     # The desktop shell. A separate PROCESS on purpose: the window is a view onto the daemon,
     # and closing it must never stop a recording.
     "src-tauri",

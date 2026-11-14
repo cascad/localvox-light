@@ -204,6 +204,12 @@ read-only doctor/JSON, терминальный мастер, выбор гот�
 план перед изменениями и повтор без повторной загрузки. SETUP-005/006 остаются delta;
 first-run Windows/Mac Ollama и настоящие большие downloads — not-run владельца.
 
+Новый установщик одной строкой: [add-interactive-install-wizard](changes/add-interactive-install-wizard/proposal.md).
+[Безопасный preview](changes/add-interactive-install-wizard/evidence/preview.md):
+default/custom checkbox, модель, папки и план; 6 integration tests / 9 ConPTY sessions
+прошли, подготовлены PNG/GIF и локальный exe. Просмотр владельца ещё не выполнен;
+production bootstrap/настоящая установка пока не подключены, SETUP-009 остаётся delta.
+
 Практический refactor настроек: [consolidate-settings-persistence](changes/consolidate-settings-persistence/proposal.md).
 [Проверки](changes/consolidate-settings-persistence/evidence/implementation.md): единый
 snapshot/atomic writer для HTTP и setup, сохранность при Windows replace denial,

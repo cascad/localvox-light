@@ -1,5 +1,12 @@
 # Покрытие требований и состояние реализации
 
+Дополнение SETUP-009 (delta), 2026-11-14:
+[безопасное демо установщика](../changes/add-interactive-install-wizard/evidence/preview.md).
+6 integration tests / 9 native ConPTY сессий прошли: default/custom, checkbox,
+модель/папки, отмена, неизменность файлов и курсор. 5 PNG/GIF сняты с настоящего
+frontend; просмотр владельца, production bootstrap/install и native Linux/Mac
+not-run. Принятый main contract и существующие установщики не изменены.
+
 Дополнение SETUP-001/002/003, INV-SETUP-001 от 2026-11-12:
 [полные platform packages, installers и промо](../changes/prepare-promo-and-platform-releases/evidence/implementation.md).
 12 delivery tests прошли, включая настоящую Windows установку/обновление,

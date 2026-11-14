@@ -1,0 +1,18 @@
+[package]
+name = "localvox-setup-ui"
+version.workspace = true
+edition.workspace = true
+description = "Installer presentation and safe local preview; no daemon, downloads or model runtime."
+
+[[bin]]
+name = "localvox-setup-preview"
+path = "src/main.rs"
+
+[dependencies]
+cliclack = "=0.5.6"
+console = "=0.16.6"
+
+[dev-dependencies]
+portable-pty = "0.9"
+tempfile = "3"
+vt100 = "0.15"
