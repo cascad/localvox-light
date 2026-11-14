@@ -264,32 +264,36 @@ impl Backend {
     fn poll(&mut self) {
         if let Some(player) = &mut self.mpv {
             match player.state() {
-                Ok(mut next) => {
-                    // mpv unloads a bounded fragment at EOF. Keep its endpoint
-                    // visible so ordinary Play can continue from there.
-                    if next.idle && next.error.is_none() {
-                        next.duration = self.state.duration;
-                        next.position = if !self.state.idle {
-                            self.state
-                                .fragment_end
-                                .or(self.state.duration)
-                                .unwrap_or(self.state.position)
-                        } else {
-                            self.state.position
-                        };
-                        next.paused = true;
-                    }
-                    next.fragment_end = self.state.fragment_end;
-                    let session = self.state.session.take();
-                    next.snapshot = self.state.snapshot.take();
-                    self.state = next;
-                    self.state.session = session;
-                }
+                Ok(next) => self.update_state(next),
                 Err(_) => {
                     self.fail("Соединение с плеером потеряно; выберите воспроизведение снова")
                 }
             }
         }
+    }
+    fn update_state(&mut self, mut next: PlaybackState) {
+        // IPC properties are separate reads: EOF can make duration unavailable
+        // after idle-active already returned false. Load/Stop reset the session
+        // metadata; an incomplete telemetry sample must not erase known duration.
+        next.duration = next.duration.or(self.state.duration);
+        // mpv unloads a bounded fragment at EOF. Keep its endpoint
+        // visible so ordinary Play can continue from there.
+        if next.idle && next.error.is_none() {
+            next.position = if !self.state.idle {
+                self.state
+                    .fragment_end
+                    .or(self.state.duration)
+                    .unwrap_or(self.state.position)
+            } else {
+                self.state.position
+            };
+            next.paused = true;
+        }
+        next.fragment_end = self.state.fragment_end;
+        let session = self.state.session.take();
+        next.snapshot = self.state.snapshot.take();
+        self.state = next;
+        self.state.session = session;
     }
 }
 impl Drop for Player {
@@ -611,6 +615,79 @@ impl Drop for Mpv {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn eof_between_ipc_properties_retains_duration_and_new_load_clears_it() {
+        let mut backend = Backend {
+            mpv: None,
+            client: Client::new("http://127.0.0.1:1", "synthetic-token".into()).unwrap(),
+            executable: "must-not-start-mpv".into(),
+            null_audio: true,
+            state: PlaybackState {
+                session: Some("first".into()),
+                snapshot: Some("audio-v1".into()),
+                duration: Some(3600.0),
+                position: 20.4,
+                fragment_end: Some(20.8),
+                ..Default::default()
+            },
+        };
+        // idle-active replied false, then the file ended before duration/time-pos.
+        backend.update_state(PlaybackState {
+            idle: false,
+            duration: None,
+            position: 0.0,
+            ..Default::default()
+        });
+        assert_eq!(backend.state.duration, Some(3600.0));
+        backend.update_state(PlaybackState {
+            idle: true,
+            ..Default::default()
+        });
+        assert_eq!(backend.state.duration, Some(3600.0));
+        assert_eq!(backend.state.position, 20.8);
+        assert_eq!(backend.state.session.as_deref(), Some("first"));
+        assert_eq!(backend.state.snapshot.as_deref(), Some("audio-v1"));
+        assert!(backend.state.paused);
+        backend.update_state(PlaybackState {
+            idle: true,
+            ..Default::default()
+        });
+        assert_eq!(backend.state.duration, Some(3600.0));
+        assert_eq!(backend.state.position, 20.8);
+        // A superseding Load resets the old identity/metadata before any IPC or API.
+        assert!(backend
+            .apply(
+                PlaybackCommand::Load {
+                    session: "second".into(),
+                    start: 2.0,
+                    end: Some(2.8)
+                },
+                &|| true
+            )
+            .is_err());
+        assert_eq!(backend.state.session.as_deref(), Some("second"));
+        assert!(backend.state.duration.is_none() && backend.state.snapshot.is_none());
+        backend.update_state(PlaybackState {
+            idle: false,
+            duration: Some(90.0),
+            position: 2.4,
+            ..Default::default()
+        });
+        backend.update_state(PlaybackState {
+            idle: false,
+            duration: None,
+            position: 0.0,
+            ..Default::default()
+        });
+        backend.update_state(PlaybackState {
+            idle: true,
+            ..Default::default()
+        });
+        assert_eq!(backend.state.duration, Some(90.0));
+        assert_eq!(backend.state.position, 2.8);
+        backend.apply(PlaybackCommand::Stop, &|| false).unwrap();
+        assert!(backend.state.duration.is_none() && backend.state.session.is_none());
+    }
     #[test]
     fn missing_backend_error_belongs_to_the_requested_session_and_stop_recovers() {
         let directory = tempfile::tempdir().unwrap();

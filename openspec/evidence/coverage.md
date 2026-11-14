@@ -1,5 +1,12 @@
 # Покрытие требований и состояние реализации
 
+Дополнение ARCH-002 и ARCH-006 (delta), 2026-11-15:
+[duration при EOF](../changes/control-postprocessing-and-terminal-player/evidence/player-duration-eof.md).
+На `71b301c` все пять Build jobs прошли, Interface упал на реальном mpv с пропавшей
+duration. Локальный deterministic red→green подтверждает исправление слияния
+телеметрии: 213 TUI tests passed / 3 ignored, настоящий mpv/HTTP Range 5/5 passed.
+Новый hosted run и аппаратная приёмка остаются not-run; релиз v0.2.0 не изменён.
+
 Дополнение SETUP-001/002/003, SETUP-006/009 (delta) — выпуск v0.2.0:
 [публичная доставка](../changes/add-interactive-install-wizard/evidence/release-v0.2.0.md).
 На `4514678` зелёные main UI/TUI и все пять tag build targets; полный release
