@@ -1,27 +1,29 @@
 //! Presentation only. Receives discovery data; never downloads, probes or writes configuration.
 use std::io;
+mod wizard;
 
-struct InstallerTheme;
+struct InstallerTheme {
+    can_go_back: bool,
+}
 impl cliclack::Theme for InstallerTheme {
-    fn format_confirm(&self, state: &cliclack::ThemeState, confirm: bool) -> String {
-        let yes = self.radio_item(state, confirm, "Продолжить", "");
-        let no = self.radio_item(state, !confirm, "Отмена", "");
-        let divider = if matches!(state, cliclack::ThemeState::Active) {
-            " / "
-        } else {
-            ""
-        };
-        format!(
-            "{}  {yes}{divider}{no}\n",
-            self.bar_color(state).apply_to("│")
-        )
-    }
     fn format_footer_with_message(&self, state: &cliclack::ThemeState, message: &str) -> String {
+        let help = if self.can_go_back {
+            "Esc — назад / отмена"
+        } else {
+            "Esc — отмена"
+        };
         let line = match state {
-            cliclack::ThemeState::Active => format!("└  {message}"),
-            cliclack::ThemeState::Cancel => "└  Отменено".into(),
+            cliclack::ThemeState::Active => format!(
+                "└  {}{help}",
+                if message.is_empty() {
+                    String::new()
+                } else {
+                    format!("{message} · ")
+                }
+            ),
+            cliclack::ThemeState::Cancel => "└  Ввод прерван".into(),
             cliclack::ThemeState::Submit => "│".into(),
-            cliclack::ThemeState::Error(error) => format!("└  {error}"),
+            cliclack::ThemeState::Error(error) => format!("└  {error} · {help}"),
         };
         format!("{}\n", self.bar_color(state).apply_to(line))
     }
@@ -104,148 +106,16 @@ pub fn recommended(data: &ViewData) -> Selection {
     }
 }
 
-fn text(prompt: &str, value: &str) -> io::Result<String> {
-    cliclack::input(prompt)
-        .default_input(value)
-        .validate(|input: &String| {
-            if input.trim().is_empty() || input.chars().any(char::is_control) {
-                Err("Введите непустое значение без управляющих символов")
-            } else {
-                Ok(())
-            }
-        })
-        .interact()
-}
-
 /// Collect a reviewable selection. The caller owns all real installation actions.
 pub fn choose(data: &ViewData) -> io::Result<Option<Selection>> {
-    cliclack::set_theme(InstallerTheme);
-    match choose_inner(data) {
+    cliclack::set_theme(InstallerTheme { can_go_back: false });
+    match wizard::choose(data) {
         Err(error) if error.kind() == io::ErrorKind::Interrupted => {
             cliclack::outro_cancel("Отменено. Ничего не изменено.")?;
             Ok(None)
         }
         result => result,
     }
-}
-
-fn choose_inner(data: &ViewData) -> io::Result<Option<Selection>> {
-    cliclack::intro(
-        console::style(" LocalVox · установка ")
-            .on_cyan()
-            .black()
-            .bold(),
-    )?;
-    if data.preview {
-        cliclack::log::info("ДЕМО · Ничего не скачивается и не устанавливается.")?;
-    }
-    cliclack::log::info(if data.core_ready {
-        "Запись и распознавание уже готовы. Используем установленные компоненты."
-    } else {
-        "Подготовим запись, расшифровку и интерфейсы. Готовое используем повторно."
-    })?;
-    let custom = cliclack::select("Как установить LocalVox?")
-        .item(
-            false,
-            "Установить всё необходимое",
-            "Рекомендуется · распознавание, голоса, сводки, ссылки и плеер",
-        )
-        .item(
-            true,
-            "Выбрать компоненты",
-            "Галочки, модель для сводок и папки",
-        )
-        .initial_value(false)
-        .interact()?;
-    let mut result = recommended(data);
-    result.custom = custom;
-    if custom {
-        cliclack::note(
-            "Всегда включено",
-            "✓ Запись и расшифровка · Vosk + GigaAM\n  Входит в любую установку.",
-        )?;
-        let mut checklist =
-            cliclack::multiselect("Компоненты · ↑/↓ · Пробел — галочка · Enter — дальше")
-                .required(false)
-                .initial_values(result.features.clone());
-        for feature in Feature::ALL {
-            let hint = if data.installed.contains(&feature) {
-                "Уже установлено · повторное скачивание не нужно"
-            } else {
-                feature.hint()
-            };
-            checklist = checklist.item(feature, feature.title(), hint);
-        }
-        result.features = checklist.interact()?;
-        cliclack::log::info("Существующие программы, модели и записи не удаляются.")?;
-        if result.features.contains(&Feature::Summary) {
-            let source = cliclack::select("Откуда брать модель для сводок?")
-                .item(
-                    0,
-                    "Ollama",
-                    if data.ollama_ready {
-                        "Программа и модель уже есть"
-                    } else {
-                        "Установим Ollama и скачаем модель"
-                    },
-                )
-                .item(1, "Свой сервер", "OpenAI-совместимый API")
-                .item(
-                    2,
-                    "Файл GGUF",
-                    "Импорт в Ollama · займёт дополнительное место",
-                )
-                .initial_value(0)
-                .interact()?;
-            result.summary = match source {
-                0 => SummarySource::Ollama(text("Модель Ollama", &data.summary_model)?),
-                1 => SummarySource::Server {
-                    base: text(
-                        "Адрес сервера без пароля и токенов",
-                        "http://localhost:11434/v1",
-                    )?,
-                    model: text("Имя модели на сервере", &data.summary_model)?,
-                },
-                _ => SummarySource::Gguf {
-                    path: text("Путь к файлу GGUF", "")?,
-                    name: text("Новое имя модели в Ollama", "localvox-summary")?,
-                },
-            };
-        }
-        cliclack::note(
-            "Рекомендуемые папки",
-            format!(
-                "Программа: {}\nМодели: {}",
-                data.program_dir, data.models_dir
-            ),
-        )?;
-        let custom_dirs = cliclack::select("Куда установить?")
-            .item(false, "Рекомендуемые папки", "Использовать папки выше")
-            .item(
-                true,
-                "Выбрать другие папки",
-                "Например, перенести большие модели на другой диск",
-            )
-            .initial_value(false)
-            .interact()?;
-        if custom_dirs {
-            result.program_dir = text("Папка программы", &data.program_dir)?;
-            result.models_dir = text("Папка моделей", &data.models_dir)?;
-        }
-    }
-    cliclack::note("Перед установкой", review(data, &result))?;
-    let accepted = cliclack::confirm(if data.preview {
-        "Показать демоустановку?"
-    } else {
-        "Начать установку?"
-    })
-    .initial_value(true)
-    .interact()?;
-    if !accepted {
-        cliclack::outro_cancel("Отменено. Ничего не изменено.")?;
-        return Ok(None);
-    }
-    Ok(Some(result))
 }
 
 pub fn review(data: &ViewData, selected: &Selection) -> String {

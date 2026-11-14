@@ -1,5 +1,12 @@
 # Покрытие требований и состояние реализации
 
+Дополнение SETUP-009 (delta), 2026-11-14 — отзыв владельца:
+[навигация назад](../changes/add-interactive-install-wizard/evidence/back-navigation.md).
+Оформление одобрено владельцем, Back добавлен после первого просмотра. 10 tests /
+13 ConPTY sessions passed: сохранённые ответы, исправленные пути, новый маршрут
+после отключения summary, отмена/курсор/неизменность файлов. Новая навигация владельцем
+и native Mac/Linux not-run; production установка не подключена.
+
 Дополнение SETUP-009 (delta), 2026-11-14:
 [безопасное демо установщика](../changes/add-interactive-install-wizard/evidence/preview.md).
 6 integration tests / 9 native ConPTY сессий прошли: default/custom, checkbox,

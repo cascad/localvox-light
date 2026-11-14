@@ -24,6 +24,7 @@ try {
     ['fresh-welcome', 'Enter', 'Оставь рекомендуемую установку или выбери компоненты'],
     ['components-wide', '↑ ↓ / Пробел', 'Дополнительные возможности выбираются галочками'],
     ['summary-source', '↑ ↓ / Enter', 'Ollama, собственный сервер или готовый файл модели'],
+    ['back-menu-wide', 'Esc → Enter', 'Вернись назад, сохранив подтверждённые ответы'],
     ['folders', 'Enter', 'Папки предложены заранее; при желании можно изменить'],
     ['custom-paths-review', 'Enter / Esc', 'Перед действиями — итоговый план или отмена'],
   ];
@@ -54,7 +55,7 @@ try {
     '-filter_complex', '[0:v]split[a][b];[a]palettegen=stats_mode=diff:max_colors=128[p];[b][p]paletteuse=dither=bayer:bayer_scale=3',
     '-loop', '0', path.join(output, 'installer-preview.gif'),
   ], { windowsHide: true, timeout: 60000 });
-  console.log('Rendered 5 terminal screens and installer-preview.gif in ' + output);
+  console.log(`Rendered ${steps.length} terminal screens and installer-preview.gif in ${output}`);
 } finally {
   await browser?.close();
   await fixture.close();

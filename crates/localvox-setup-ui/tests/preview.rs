@@ -140,8 +140,26 @@ impl Preview {
     }
 
     fn wait(&mut self, text: &str) {
+        self.wait_for(text, |screen| screen.contains(text));
+    }
+
+    fn active(&mut self, label: &str) {
+        self.wait_for(label, |screen| {
+            screen.lines().any(|line| {
+                (line.starts_with("◆ ") || line.starts_with("* ")) && line.contains(label)
+            })
+        });
+    }
+
+    fn back(&mut self) {
+        self.send(b"\x1b");
+        self.wait("Продолжить текущий шаг");
+        self.send(ENTER);
+    }
+
+    fn wait_for(&mut self, text: &str, condition: impl Fn(&str) -> bool) {
         let deadline = Instant::now() + Duration::from_secs(12);
-        while !self.parser.screen().contents().contains(text) {
+        while !condition(&self.parser.screen().contents()) {
             let remaining = deadline.saturating_duration_since(Instant::now());
             assert!(
                 !remaining.is_zero() && self.receive(remaining),
@@ -302,11 +320,167 @@ fn esc_ctrl_c_and_decline_restore_cursor_and_leave_no_changes() {
             demo.wait("Показать демоустановку?");
         }
         demo.send(keys);
-        if stage == 2 {
+        if stage == 1 {
+            demo.wait("Продолжить текущий шаг");
+            demo.send(b"\x03"); // Ctrl+C again leaves the navigation menu.
+        } else if stage == 2 {
+            demo.send(DOWN); // Continue / Back / Cancel.
             demo.send(ENTER);
         }
         demo.finish("Отменено. Ничего не изменено.");
     }
+}
+
+#[test]
+fn review_back_preserves_custom_choices_across_profile_changes() {
+    let mut demo = Preview::new("fresh", 110);
+    demo.wait("Выбрать компоненты");
+    demo.send(DOWN);
+    demo.send(ENTER);
+    demo.wait("Дополнительно проверять имена");
+    // Remove Summary, then return all the way to Profile.
+    demo.send(DOWN);
+    demo.send(b" ");
+    demo.send(ENTER);
+    demo.active("Куда установить?");
+    demo.back();
+    demo.active("Компоненты");
+    demo.send(ENTER); // Keep the previously confirmed checkboxes.
+    demo.active("Куда установить?");
+    demo.send(ENTER);
+    demo.active("Показать демоустановку?");
+    assert!(!demo
+        .parser
+        .screen()
+        .contents()
+        .contains("✓ Готовить сводки"));
+    demo.send(DOWN);
+    demo.send(ENTER); // Explicit Back in Review.
+    demo.active("Куда установить?");
+    demo.back();
+    demo.active("Компоненты");
+    demo.back();
+    demo.active("Как установить LocalVox?");
+    // Switch to recommended, verify its full set, then return to custom.
+    demo.send(b"\x1b[A");
+    demo.send(ENTER);
+    demo.active("Показать демоустановку?");
+    assert!(demo
+        .parser
+        .screen()
+        .contents()
+        .contains("✓ Готовить сводки"));
+    demo.send(DOWN);
+    demo.send(ENTER);
+    demo.active("Как установить LocalVox?");
+    demo.send(DOWN);
+    demo.send(ENTER);
+    demo.active("Компоненты");
+    demo.send(ENTER);
+    demo.active("Куда установить?");
+    demo.send(ENTER);
+    demo.active("Показать демоустановку?");
+    assert!(!demo
+        .parser
+        .screen()
+        .contents()
+        .contains("✓ Готовить сводки"));
+    demo.capture("back-review");
+    demo.send(ENTER);
+    demo.finish("Демо завершено");
+}
+
+#[test]
+fn back_from_source_can_disable_summary_without_visiting_stale_model_questions() {
+    let mut demo = Preview::new("fresh", 110);
+    demo.wait("Выбрать компоненты");
+    demo.send(DOWN);
+    demo.send(ENTER);
+    demo.wait("Дополнительно проверять имена");
+    demo.send(ENTER);
+    demo.active("Откуда брать модель");
+    demo.send(b"\x1b");
+    demo.wait("Продолжить текущий шаг");
+    demo.capture("back-menu-wide");
+    demo.send(ENTER);
+    demo.active("Компоненты");
+    demo.send(DOWN);
+    demo.send(b" ");
+    demo.send(ENTER);
+    demo.active("Куда установить?");
+    demo.send(ENTER);
+    demo.active("Показать демоустановку?");
+    assert!(!demo
+        .parser
+        .screen()
+        .contents()
+        .contains("✓ Готовить сводки"));
+    demo.send(ENTER);
+    demo.finish("Демо завершено");
+}
+
+#[test]
+fn back_from_review_keeps_typed_paths_and_allows_correction() {
+    let mut demo = Preview::new("fresh", 110);
+    demo.wait("Выбрать компоненты");
+    demo.send(DOWN);
+    demo.send(ENTER);
+    demo.wait("Дополнительно проверять имена");
+    demo.send(ENTER);
+    demo.active("Откуда брать модель");
+    demo.send(ENTER);
+    demo.active("Модель Ollama");
+    demo.send(b"retained-model");
+    demo.send(ENTER);
+    demo.active("Куда установить?");
+    demo.send(DOWN);
+    demo.send(ENTER);
+    demo.active("Папка программы");
+    demo.send(b"first program");
+    demo.send(ENTER);
+    demo.active("Папка моделей");
+    demo.send(b"retained models");
+    demo.send(ENTER);
+    demo.active("Показать демоустановку?");
+    demo.send(DOWN);
+    demo.send(ENTER);
+    demo.active("Папка моделей");
+    demo.wait("retained models");
+    demo.back();
+    demo.active("Папка программы");
+    demo.wait("first program");
+    demo.send(b"corrected program");
+    demo.send(ENTER);
+    demo.active("Папка моделей");
+    demo.send(ENTER); // Accept retained path.
+    demo.active("Показать демоустановку?");
+    let screen = demo.parser.screen().contents();
+    assert!(screen.contains("Программа: corrected program"));
+    assert!(screen.contains("Модели:    retained models"));
+    assert!(screen.contains("Ollama · retained-model"));
+    demo.send(ENTER);
+    demo.finish("Демо завершено");
+}
+
+#[test]
+fn navigation_can_resume_the_current_step_or_cancel_explicitly() {
+    let mut demo = Preview::terminal("fresh", 80, false);
+    demo.wait("Выбрать компоненты");
+    demo.send(DOWN);
+    demo.send(ENTER);
+    demo.wait("Дополнительно проверять имена");
+    demo.send(b"\x1b");
+    demo.wait("Продолжить текущий шаг");
+    demo.capture("back-menu");
+    demo.send(DOWN);
+    demo.send(ENTER); // Stay.
+    demo.active("Компоненты");
+    demo.send(b"\x1b");
+    demo.wait("Продолжить текущий шаг");
+    demo.send(DOWN);
+    demo.send(DOWN);
+    demo.send(ENTER);
+    demo.finish("Отменено. Ничего не изменено.");
 }
 
 #[test]

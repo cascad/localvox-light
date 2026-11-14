@@ -207,8 +207,11 @@ first-run Windows/Mac Ollama и настоящие большие downloads — 
 Новый установщик одной строкой: [add-interactive-install-wizard](changes/add-interactive-install-wizard/proposal.md).
 [Безопасный preview](changes/add-interactive-install-wizard/evidence/preview.md):
 default/custom checkbox, модель, папки и план; 6 integration tests / 9 ConPTY sessions
-прошли, подготовлены PNG/GIF и локальный exe. Просмотр владельца ещё не выполнен;
+прошли, подготовлены PNG/GIF и локальный exe;
 production bootstrap/настоящая установка пока не подключены, SETUP-009 остаётся delta.
+После просмотра: оформление владельцу понравилось; [добавлен Back](changes/add-interactive-install-wizard/evidence/back-navigation.md)
+с сохранением ответов, 10 tests / 13 ConPTY sessions прошли. Повторная проверка
+навигации владельцем остаётся открытой.
 
 Практический refactor настроек: [consolidate-settings-persistence](changes/consolidate-settings-persistence/proposal.md).
 [Проверки](changes/consolidate-settings-persistence/evidence/implementation.md): единый
