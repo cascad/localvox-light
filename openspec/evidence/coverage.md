@@ -1,5 +1,12 @@
 # Покрытие требований и состояние реализации
 
+Дополнение SETUP-001/002/003, SETUP-006/009 (delta) — выпуск v0.2.0:
+[публичная доставка](../changes/add-interactive-install-wizard/evidence/release-v0.2.0.md).
+На `4514678` зелёные main UI/TUI и все пять tag build targets; полный release
+опубликован. Проверены public bootstrap assets/checksums и настоящий Windows
+one-liner → native мастер → отмена без изменений. Native CI fixtures пройдены
+на Linux/macOS; реальные package/model installs и аппаратура остаются not-run.
+
 Дополнение SETUP-001/002/003, CFG-001/003 и SETUP-006/009 (delta), 2026-11-14:
 [реальная интеграция мастера](../changes/add-interactive-install-wizard/evidence/integration.md).
 V2 одобрено владельцем; общий frontend подключён к planner/executor, появились staged

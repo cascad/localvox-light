@@ -1,5 +1,9 @@
 # Production installer integration · 2026-11-14
 
+Это результаты локального этапа. Последующая публикация, native CI и публичный
+bootstrap проверены в [отчёте v0.2.0](release-v0.2.0.md); отметки not-run ниже
+относятся к моменту до push/tag.
+
 Контракт: SETUP-009 остаётся delta этого change, SETUP-006 — delta
 `add-install-reconciliation-wizard`; принятые SETUP-001/002/003, CFG-001/003 сохраняются.
 Ни sync, ни archive не выполнялись. Владелец принял v2: «Ну круто, мне нравится 2 вариант».
@@ -92,7 +96,7 @@ STATUS_DLL_NOT_FOUND и показал владельцу системное о�
 controller, неверную quoting fixture и изменившееся число packaged executables;
 исправления проверены повторно, прежние failures не названы успешными запусками.
 
-## Открытые границы
+## Границы после локального этапа, до push/tag
 
 - Публичный полный release ещё не опубликован; README явно предупреждает про старый
   `v0.1.5`. One-line release assets/checksums и пять build targets подготовлены в

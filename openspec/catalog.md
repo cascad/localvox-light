@@ -214,7 +214,10 @@ default/custom checkbox, модель, папки и план; 6 integration tes
 навигации владельцем отдельно не зафиксирована. V2 принято 2026-11-14: «Ну круто,
 мне нравится 2 вариант». [Production integration](changes/add-interactive-install-wizard/evidence/integration.md):
 общий native мастер, staged bootstrap Windows/Linux/Mac, локальные tiny HTTP/TTY
-fixtures и Windows package smoke. Публикация и нативная приёмка Mac/Linux — отдельно.
+fixtures и Windows package smoke. [Выпуск v0.2.0](changes/add-interactive-install-wizard/evidence/release-v0.2.0.md):
+пять native CI targets и публикация прошли; публичный Windows bootstrap открыл
+настоящий мастер и корректно отменился. Реальные зависимости/модели и аппаратная
+приёмка владельца остаются отдельными проверками.
 
 Практический refactor настроек: [consolidate-settings-persistence](changes/consolidate-settings-persistence/proposal.md).
 [Проверки](changes/consolidate-settings-persistence/evidence/implementation.md): единый

@@ -9,12 +9,13 @@
 ## 2. Подключение реальной установки после просмотра
 
 - [x] 2.1 Подключить общий frontend к detection/plan/execute, убрать ложную missing .env ошибку, сохранить реальные parse/access errors, reuse/default/custom/Ollama behavior; проверить в private subprocess/TTY/HTTP fixtures и обновить user-guide/README. [Результаты](evidence/integration.md).
-- [x] 2.2 Добавить bootstrap одной строкой Win/Linux/Mac без ручного binaries/jq/Rust, согласованные release version/hash/target и типовую установку зависимостей; проверить dry fixture stand для трёх ОС без настоящих weights/installers и дать владельцу native Linux/Mac команды стенда. [Команды](../../../docs/installer-testing.md); Windows и четыре Unix target routes проверены локально, native Unix stand остаётся not-run.
+- [x] 2.2 Добавить bootstrap одной строкой Win/Linux/Mac без ручного binaries/jq/Rust, согласованные release version/hash/target и типовую установку зависимостей; проверить dry fixture stand для трёх ОС без настоящих weights/installers и дать владельцу native Linux/Mac команды стенда. [Команды](../../../docs/installer-testing.md); локальные fixtures и затем native CI всех пяти targets прошли, ручная аппаратная приёмка отдельно.
 
 ## 3. Доставка
 
-- [ ] 3.1 Выполнить затронутые тесты/полный Windows bundle smoke и strict specs/changes/evidence, подготовить полный release workflow и one-liner README; запросить отдельное разрешение только на concrete publication/push, native hardware/непройденные ОС оставить not-run.
+- [x] 3.1 Выполнить затронутые тесты/полный Windows bundle smoke и strict specs/changes/evidence, подготовить полный release workflow и one-liner README; запросить отдельное разрешение только на concrete publication/push, native hardware/непройденные ОС оставить not-run. Владелец отправил `v0.2.0` на `4514678`; все targets и публикация прошли. [Проверка публичной доставки](evidence/release-v0.2.0.md).
 
-Локальная реализация, Windows package smoke, README и workflow подготовлены;
-новые hosted builds/publication и native Unix остаются отдельной границей приёмки.
-Без push/tag новый публичный one-liner не объявляется доступным.
+Доставка завершена: публичный релиз, bootstrap/checksums и native CI подтверждены.
+Windows one-liner проверен до настоящего мастера и отменён без установки.
+Реальная установка всех зависимостей/больших моделей и аппаратная запись остаются
+ручной приёмкой; завершение доставки не выдаёт их за пройденные проверки.

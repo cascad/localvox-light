@@ -13,8 +13,8 @@ Intel Mac требует macOS 13.3 или новее: ONNX Runtime той же 
 
 ## Из Release
 
-Команды предназначены для нового полного release. Пока он не опубликован,
-использовать [архив Actions](#свежая-сборка-из-actions); старый v0.1.5 не подходит.
+Установщик скачивает [последний полный релиз](https://github.com/cascad/localvox-light/releases/latest)
+для вашей платформы и открывает мастер.
 
 Windows PowerShell:
 
@@ -48,7 +48,7 @@ Enter — дальше; Esc — назад/продолжить шаг/отме�
 
 ## Свежая сборка из Actions
 
-Пока новый полный релиз не опубликован, скачать артефакт нужной платформы из
+Для проверки ещё не опубликованных изменений можно скачать артефакт нужной платформы из
 [Build binaries](https://github.com/cascad/localvox-light/actions/workflows/build-binaries.yml).
 Распаковать внешнюю ZIP-обёртку GitHub: внутри будет `localvox-<target>.zip` для
 Windows либо `.tar.gz` для Mac. Передать именно внутренний архив установщику:
@@ -63,7 +63,7 @@ bash scripts/install-release.sh --archive="$HOME/Downloads/localvox-aarch64-appl
 
 Для Intel Mac имя содержит `x86_64-apple-darwin`. Установщик взять из клона или
 из этой же ветки: [Windows](../scripts/install-release.ps1) / [Mac](../scripts/install-release.sh).
-После публикации он также доступен командой выше. Helper scripts и manifest моделей берутся из самого
+Helper scripts и manifest моделей берутся из самого
 пакета, той же версии. `-SkipModels` / `--skip-models` устанавливает только бинарники
 и явно сообщает, что перед записью ещё нужны модели. Старые релизы с одним EXE
 полным комплектом не считаются. Установка новой версии требует закрыть старые
