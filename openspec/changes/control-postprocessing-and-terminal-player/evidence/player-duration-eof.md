@@ -60,3 +60,19 @@ Windows x64, Rust 1.99.1; cache/TEMP/build на D:, пользовательск
 `target/tmp/player-duration-green.log`, `target/tmp/player-duration-native-1.log`
 … `player-duration-native-5.log`. Generated WAV передаётся потоково; настоящие
 записи/модели не использовались.
+
+## Hosted confirmation · 5b113f3
+
+После push владельца на `5b113f3bd9605f4c31f3b0c93d21bc664b8dc063`:
+
+- [Interface contracts and visuals](https://github.com/cascad/localvox-light/actions/runs/43642157659)
+  — success. В частности, `Both clients against one actual temporary API/archive`
+  и ранее упавший `Real media backend (generated PCM, null audio output)` прошли.
+- [Build binaries](https://github.com/cascad/localvox-light/actions/runs/43642157638)
+  — success для Windows x64, Linux x64/ARM64, macOS Intel/Apple Silicon.
+  Все пять `Upload artifact` прошли, через API подтверждены пять непосроченных
+  `localvox-<target>` artifacts.
+- Это новый полный hosted результат; исходный failure выше сохранён.
+  `Publish GitHub Release` у main-run ожидаемо skipped: для опубликованного
+  установщика исправление требует отдельного patch release. Latest на момент
+  сверки — v0.2.0. Аппаратный звук и настоящие большие модели этим CI не проверены.

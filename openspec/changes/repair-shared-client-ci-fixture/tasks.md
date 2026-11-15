@@ -10,4 +10,4 @@
 
 - [x] 2.1 Выполнить затронутые тесты, оставшиеся interface проверки, строгие OpenSpec/check-openspec/diff проверки; обновить evidence/coverage и создать локальный commit, отделив hosted результаты от локальных.
 - [x] 2.2 После Windows audio fix выполнить native regression, core/API/TUI/client/process suite, настоящий shared_workspace, Windows product build/package/doctor и strict/diff проверки; сохранить новые hosted/local результаты отдельно и закоммитить этап.
-- [ ] 2.3 После push владельца подтвердить весь Interface workflow и все пять delivery jobs вместе с загрузкой artifacts; исходный hosted failure закрывать только новым результатом, не локальным pass.
+- [x] 2.3 После push владельца подтвердить весь Interface workflow и все пять delivery jobs вместе с загрузкой artifacts; исходный hosted failure закрывать только новым результатом, не локальным pass. Подтверждено на `5b113f3`: Interface и пять Build jobs success, все artifacts загружены. [Новый hosted результат](../control-postprocessing-and-terminal-player/evidence/player-duration-eof.md#hosted-confirmation--5b113f3).

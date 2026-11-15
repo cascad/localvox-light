@@ -5,7 +5,9 @@
 На `71b301c` все пять Build jobs прошли, Interface упал на реальном mpv с пропавшей
 duration. Локальный deterministic red→green подтверждает исправление слияния
 телеметрии: 213 TUI tests passed / 3 ignored, настоящий mpv/HTTP Range 5/5 passed.
-Новый hosted run и аппаратная приёмка остаются not-run; релиз v0.2.0 не изменён.
+После push владельца `5b113f3`: [Interface](https://github.com/cascad/localvox-light/actions/runs/43642157659)
+и [все пять Build jobs](https://github.com/cascad/localvox-light/actions/runs/43642157638)
+прошли, artifacts загружены. Аппаратная приёмка остаётся not-run; релиз v0.2.0 не изменён.
 
 Дополнение SETUP-001/002/003, SETUP-006/009 (delta) — выпуск v0.2.0:
 [публичная доставка](../changes/add-interactive-install-wizard/evidence/release-v0.2.0.md).
