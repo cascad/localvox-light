@@ -47,6 +47,8 @@ on:
       - "scripts/model-paths.ps1"
       - "scripts/model-paths.sh"
       - "scripts/tests/test_model_storage_delivery.py"
+      - "scripts/check-model-sources.py"
+      - "scripts/tests/test_model_sources.py"
       - "scripts/models.json"
       - "scripts/package-release.py"
       - "scripts/build-onnxruntime-macos.py"
@@ -65,7 +67,22 @@ permissions:
   contents: read
 
 jobs:
+  model-sources:
+    name: Public model download sources
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: Source checker contracts (local HTTP)
+        run: python -m unittest discover -s scripts/tests -p test_model_sources.py -v
+      - name: Verify public HEAD and bounded Range downloads (no weights)
+        run: python scripts/check-model-sources.py
+
   build:
+    needs: model-sources
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
     strategy:

@@ -30,13 +30,13 @@
       "items": [
         {
           "kind": "zip",
-          "url": "https://huggingface.co/mychen76/vosk-models/resolve/main/ru/vosk-model-ru-0.42.zip",
+          "url": "https://alphacephei.com/vosk/models/vosk-model-ru-0.42.zip",
           "unpack_to": "models/vosk-model-ru-0.42",
           "strip_root": true,
           "marker": "am/final.mdl",
           "size": 1937602113,
           "sha256": null,
-          "sha256_note": "ни зеркало HuggingFace, ни alphacephei.com не публикуют sha256. Целостность проверяют CRC внутри самого zip (их считает распаковщик) и наличие am/final.mdl после распаковки."
+          "sha256_note": "официальный alphacephei.com не публикует sha256. Целостность проверяют CRC внутри самого zip (их считает распаковщик) и наличие am/final.mdl после распаковки."
         }
       ]
     },

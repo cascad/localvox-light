@@ -24,6 +24,10 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+# The native installer reads redirected output as UTF-8. Windows PowerShell 5
+# otherwise writes the console's OEM code page (e.g. 866), corrupting Cyrillic.
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+$OutputEncoding = [Console]::OutputEncoding
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $manifestPath = Join-Path $here 'models.json'
 
@@ -56,7 +60,14 @@ function Get-Verified([string]$url, [string]$target, $wantSha, $note) {
     New-ModelParent $target $placement.user_root
     $part = "$target.part"
     Write-Host "  ⇣ $(Split-Path -Leaf $target)"
-    Invoke-WebRequest -Uri $url -OutFile $part -UserAgent 'localvox-fetch-models/1.0'
+    try {
+        Invoke-WebRequest -Uri $url -OutFile $part -UserAgent 'localvox-fetch-models/1.0' -UseBasicParsing
+    } catch {
+        if (Test-Path -LiteralPath $part) { Remove-Item -LiteralPath $part -Force }
+        $response = $_.Exception.Response
+        $reason = if ($response) { "HTTP $([int]$response.StatusCode)" } else { $_.Exception.Message }
+        throw "Не удалось скачать модель ($reason): $url. Готовые модели сохранены."
+    }
 
     if ($wantSha) {
         $got = (Get-FileHash -LiteralPath $part -Algorithm SHA256).Hash.ToLower()

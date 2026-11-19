@@ -12,6 +12,34 @@ use std::{
     time::Duration,
 };
 
+#[cfg(windows)]
+#[test]
+fn windows_script_host_uses_compatible_hash_and_archive_modules() {
+    let temp = tempfile::tempdir().unwrap();
+    let scripts = temp.path().join("scripts");
+    std::fs::create_dir(&scripts).unwrap();
+    // Reproduce launch from PowerShell 7: its module path exports incompatible
+    // Archive/Utility modules to the older host unless the boundary resets it.
+    std::fs::write(
+        scripts.join("probe.ps1"),
+        r#"$ErrorActionPreference = 'Stop'
+$hash = (Get-FileHash -LiteralPath $PSCommandPath -Algorithm SHA256).Hash
+if ($hash.Length -ne 64) { throw 'SHA-256 failed' }
+$archive = Join-Path $PSScriptRoot 'probe.zip'
+Compress-Archive -LiteralPath $PSCommandPath -DestinationPath $archive
+Expand-Archive -LiteralPath $archive -DestinationPath (Join-Path $PSScriptRoot 'out')
+if (-not (Test-Path (Join-Path $PSScriptRoot 'out/probe.ps1'))) { throw 'ZIP round-trip failed' }
+'hash and archive ready'
+"#,
+    )
+    .unwrap();
+    let output = execute::script_command(temp.path(), "probe")
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{:?}", output);
+    assert!(String::from_utf8_lossy(&output.stdout).contains("hash and archive ready"));
+}
+
 fn layout(root: &Path) -> Layout {
     Layout {
         vosk_model: root.join("external/vosk"),

@@ -1,5 +1,6 @@
 """Real PS/Bash downloads with tiny localhost payloads and an isolated user profile."""
 import functools
+import base64
 import hashlib
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -14,7 +15,8 @@ import unittest
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
-PS = shutil.which('pwsh') or shutil.which('powershell')
+# Production launches Windows PowerShell 5, even when pwsh is also installed.
+PS = (shutil.which('powershell') if os.name == 'nt' else None) or shutil.which('pwsh')
 BASH = os.getenv('LOCALVOX_TEST_BASH') or (r'C:\Program Files\Git\bin\bash.exe' if os.name == 'nt' else shutil.which('bash'))
 
 
@@ -31,7 +33,13 @@ class ModelStorageDelivery(unittest.TestCase):
         self.cwd = self.root / 'workspace'
         self.cwd.mkdir()
         self.environment = {k: v for k, v in os.environ.items() if not k.startswith('LOCALVOX_')}
+        # Match setup::execute::script_command's Windows PowerShell boundary.
+        for key in list(self.environment):
+            if key.lower() == 'psmodulepath':
+                del self.environment[key]
         self.environment.update(HOME=str(self.home), USERPROFILE=str(self.home))
+        self.environment.update(LOCALAPPDATA=str(self.home / 'AppData/Local'),
+                                APPDATA=str(self.home / 'AppData/Roaming'))
         self.bin = self.root / 'bin'
         self.bin.mkdir()
         self.environment['PATH'] = str(self.bin) + os.pathsep + os.environ['PATH']
@@ -53,6 +61,9 @@ class ModelStorageDelivery(unittest.TestCase):
         class Handler(SimpleHTTPRequestHandler):
             def do_GET(self):
                 requests.append(self.path)
+                if self.path == '/denied':
+                    self.send_error(401, 'Invalid username or password.')
+                    return
                 super().do_GET()
 
             def log_message(self, *_):
@@ -197,6 +208,52 @@ class ModelStorageDelivery(unittest.TestCase):
                 self.run_fetch(shell, '-Root' if shell == 'ps' else '--root', str(root) if shell == 'ps' else self.unix(root),
                                '-Only' if shell == 'ps' else '--only', 'vosk', expected=1)
                 self.assertFalse((root / 'models/vosk-model-ru-0.42').exists())
+
+    def test_http_failure_preserves_completed_models_and_retry_skips_them(self):
+        item = self.manifest['components'][1]['items'][0]
+        good_url = item['url']
+        for shell in self.shells():
+            with self.subTest(shell=shell):
+                root = self.root / ('http-' + shell)
+                options = (['-Root', str(root), '-RequiredOnly'] if shell == 'ps' else
+                           ['--root', self.unix(root), '--required-only'])
+                item['url'] = f'http://127.0.0.1:{self.server.server_port}/denied'
+                self.save_manifest()
+                result = self.run_fetch(shell, *options, expected=1)
+                self.assertIn(b'401', result.stderr)
+                self.assertIn(item['url'].encode(), result.stderr)
+                completed = root / 'models/vosk-model-ru-0.42/am/final.mdl'
+                before = completed.read_bytes(), completed.stat().st_mtime_ns
+                failed = root / item['dest']
+                self.assertFalse(failed.exists())
+                self.assertFalse(Path(str(failed) + '.part').exists())
+                self.requests.clear()
+                item['url'] = good_url
+                self.save_manifest()
+                self.run_fetch(shell, *options)
+                self.assertEqual((completed.read_bytes(), completed.stat().st_mtime_ns), before)
+                self.assertFalse(any(path.startswith('/vosk-') for path in self.requests))
+                self.assertTrue(failed.is_file())
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows console encodings')
+    def test_powershell_output_is_utf8_even_in_an_oem_console(self):
+        engines = list(dict.fromkeys(p for p in [shutil.which('powershell'), shutil.which('pwsh')] if p))
+        script = '''[Console]::OutputEncoding = [Text.Encoding]::GetEncoding(866)
+& $env:LV_TEST_FETCH -Check -Only vosk -Root $env:LV_TEST_ROOT
+exit $LASTEXITCODE'''
+        encoded = base64.b64encode(script.encode('utf-16le')).decode('ascii')
+        for engine in engines:
+            with self.subTest(engine=engine):
+                environment = {**self.environment, 'LV_TEST_FETCH': str(self.scripts / 'fetch-models.ps1'),
+                               'LV_TEST_ROOT': str(self.root / 'absent')}
+                result = subprocess.run([engine, '-NoProfile', '-ExecutionPolicy', 'Bypass',
+                                         '-EncodedCommand', encoded], env=environment, cwd=self.cwd,
+                                        capture_output=True, timeout=30)
+                self.assertEqual(result.returncode, 1, result.stderr.decode(errors='replace'))
+                output = result.stdout.decode('utf-8')
+                self.assertIn('живое распознавание', output)
+                self.assertIn('НЕТ: models/vosk-model-ru-0.42', output)
+                self.assertFalse((self.root / 'absent').exists())
 
     @unittest.skipUnless(os.name == 'nt', 'native Windows directory attributes')
     def test_windows_equivalent_user_root_paths_and_existing_attributes(self):

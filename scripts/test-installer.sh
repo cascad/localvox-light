@@ -6,6 +6,7 @@ export PYTHONDONTWRITEBYTECODE=1
 mkdir -p target/tmp
 export TMPDIR="$PWD/target/tmp"
 python3 -m unittest discover -s scripts/tests -p test_bootstrap_delivery.py -v
+python3 -m unittest discover -s scripts/tests -p test_model_sources.py -v
 python3 -m unittest discover -s scripts/tests -p test_model_storage_delivery.py -v
 python3 -m unittest discover -s scripts/tests -p test_release_delivery.py -v
 if [[ "${1:-}" != --skip-rust ]]; then

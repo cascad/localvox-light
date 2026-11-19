@@ -130,6 +130,10 @@ pub(super) fn apply_actions(plan: &Plan, layout: &Layout, install: &Path) -> Res
 pub fn script_command(install: &Path, name: &str) -> Command {
     if cfg!(windows) {
         let mut cmd = Command::new("powershell.exe");
+        // pwsh's modules can target .NET APIs absent in Windows PowerShell 5.
+        // Let this host construct its own default module paths, even when vox
+        // or the bootstrap was launched from PowerShell 7.
+        cmd.env_remove("PSModulePath");
         cmd.args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
             .arg(install.join(format!("scripts/{name}.ps1")));
         cmd

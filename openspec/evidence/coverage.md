@@ -1,5 +1,12 @@
 # Покрытие требований и состояние реализации
 
+Дополнение SETUP-001, INV-SETUP-001 и SETUP-006/009 (delta), 2026-11-19:
+[отказ Vosk и кодировка Windows](../changes/add-interactive-install-wizard/evidence/model-source-regression.md).
+Старый URL реально вернул 401; официальный источник и все остальные модели прошли
+ограниченный live probe (9/9). PS5/PS7 OEM, PS5 hash/ZIP, сохранение готовых моделей
+после HTTP-отказа и повторный запуск проверены локально. Полные веса и новая
+публикация этим не подтверждены; CI теперь проверяет настоящие URL до сборки.
+
 Дополнение ARCH-002 и ARCH-006 (delta), 2026-11-15:
 [duration при EOF](../changes/control-postprocessing-and-terminal-player/evidence/player-duration-eof.md).
 На `71b301c` все пять Build jobs прошли, Interface упал на реальном mpv с пропавшей

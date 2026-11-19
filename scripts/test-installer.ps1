@@ -32,6 +32,8 @@ try {
         & cargo test --locked -p localvox-setup-ui --target x86_64-pc-windows-msvc --jobs 2 -- --test-threads=1
         if ($LASTEXITCODE -ne 0) { throw 'Installer keyboard tests failed' }
     }
+    & python -m unittest discover -s scripts/tests -p test_model_sources.py -v
+    if ($LASTEXITCODE -ne 0) { throw 'Model source checker fixtures failed' }
     & python -m unittest discover -s scripts/tests -p test_model_storage_delivery.py -v
     if ($LASTEXITCODE -ne 0) { throw 'Model storage fixtures failed' }
     & python -m unittest discover -s scripts/tests -p test_release_delivery.py -v

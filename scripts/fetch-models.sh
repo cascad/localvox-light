@@ -84,7 +84,11 @@ fetch_verified() {
     new_model_parent "$target"
     local part="$target.part"
     echo "  ⇣ $(basename "$target")"
-    curl -fL --progress-bar -A "localvox-fetch-models/1.0" "$url" > "$part"
+    if ! curl -fL --progress-bar -A "localvox-fetch-models/1.0" "$url" > "$part"; then
+        rm -f "$part"
+        echo "Не удалось скачать модель: $url. Готовые модели сохранены." >&2
+        return 1
+    fi
 
     if [ "$want_sha" != "null" ] && [ -n "$want_sha" ]; then
         local got; got="$(sha256_of "$part")"
