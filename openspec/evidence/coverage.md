@@ -1,5 +1,11 @@
 # Покрытие требований и состояние реализации
 
+Дополнение SETUP-009 (delta), 2026-11-19:
+[прогресс начального скачивания](../changes/add-interactive-install-wizard/evidence/bootstrap-progress.md).
+Оба bootstrap показывают объём/известный процент либо индикатор ожидания; PS5/PS7,
+Git Bash и настоящий ConPTY проверены с медленной передачей, неизвестным размером,
+обрывом и отменой. Native Mac/Linux и новая публичная доставка остаются not-run.
+
 Дополнение SETUP-001, INV-SETUP-001 и SETUP-006/009 (delta), 2026-11-19:
 [отказ Vosk и кодировка Windows](../changes/add-interactive-install-wizard/evidence/model-source-regression.md).
 Старый URL реально вернул 401; официальный источник и все остальные модели прошли

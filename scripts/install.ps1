@@ -70,18 +70,92 @@ try {
     New-Item -ItemType Directory -Path $scratch | Out-Null
     $checksum = Join-Path $scratch ($name + '.sha256')
     $archive = Join-Path $scratch $name
-    Write-Host "Downloading LocalVox $Tag..."
+    Write-Host "LocalVox $Tag"
     Invoke-WebRequest -Uri ($url + '.sha256') -OutFile $checksum -UseBasicParsing
     $line = [IO.File]::ReadAllText($checksum).Trim()
     if ($line -notmatch ('^([a-fA-F0-9]{64})[ \t]+\*?' + [regex]::Escape($name) + '$')) { throw 'Invalid release checksum file' }
     $expected = $Matches[1].ToLowerInvariant()
-    Invoke-WebRequest -Uri $url -OutFile ($archive + '.part') -UseBasicParsing
+    # Keep this self-contained: no helper/native binary is trusted before SHA-256.
+    & {
+        param($Url, $Target)
+        $previousEncoding = [Console]::OutputEncoding
+        [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+        $interactive = -not [Console]::IsErrorRedirected -and $env:TERM -ne 'dumb'
+        $color = $interactive -and $null -eq [Environment]::GetEnvironmentVariable('NO_COLOR')
+        $accent = if ($color) { [string][char]27 + '[36m' } else { '' }
+        $reset = if ($color) { [string][char]27 + '[0m' } else { '' }
+        $branch = [string][char]0x2502
+        $dot = [string][char]0x00b7
+        $watch = [Diagnostics.Stopwatch]::StartNew()
+        $display = @{ last = -10.0; width = 0; open = $false }
+        $received = 0L; $total = -1L
+        $request = [Net.HttpWebRequest]::Create($Url)
+        $request.UserAgent = 'localvox-install'
+        $response = $null; $inputStream = $null; $file = $null
+        function Show-DownloadProgress([switch]$Done) {
+            $interval = if ($interactive) { 0.15 } else { 5 }
+            if (-not $Done -and $watch.Elapsed.TotalSeconds - $display.last -lt $interval) { return }
+            $display.last = $watch.Elapsed.TotalSeconds
+            $size = '{0:0.0}' -f ($received / 1MB)
+            $seconds = [int][Math]::Floor($watch.Elapsed.TotalSeconds)
+            $elapsed = '{0:00}:{1:00}' -f [int][Math]::Floor($seconds / 60), ($seconds % 60)
+            if ($total -gt 0) {
+                $percent = if ($Done) { 100 } else { [Math]::Min(99, [int][Math]::Floor(100.0 * $received / $total)) }
+                $filled = [int][Math]::Floor(16 * $percent / 100)
+                $bar = ([string][char]0x2501) * $filled + ([string][char]0x2500) * (16 - $filled)
+                $line = "  $branch $accent[$bar]$reset $percent% $dot $size/$('{0:0.0}' -f ($total / 1MB)) MiB $dot $elapsed"
+            } else {
+                $frame = if ($Done) { 'Downloaded' } elseif ($interactive) { @('|','/','-','\')[[int]($watch.Elapsed.TotalSeconds * 8) % 4] + ' Download' } else { 'Download' }
+                $line = "  $branch $accent$frame$reset $dot $size MiB $dot $elapsed"
+            }
+            if ($interactive) {
+                [Console]::Error.Write("`r" + $line.PadRight($display.width))
+                $display.width = $line.Length
+                $display.open = $true
+            } else { [Console]::Error.WriteLine($line) }
+        }
+        function Wait-DownloadTask($Task) {
+            $stall = [Diagnostics.Stopwatch]::StartNew()
+            while (-not $Task.IsCompleted) {
+                Show-DownloadProgress
+                if ($stall.Elapsed.TotalSeconds -gt 60) { throw 'Release download stalled: no response for 60 seconds' }
+                Start-Sleep -Milliseconds 100
+            }
+            $Task.GetAwaiter().GetResult()
+        }
+        try {
+            Show-DownloadProgress
+            $response = Wait-DownloadTask ($request.GetResponseAsync())
+            $total = $response.ContentLength
+            $inputStream = $response.GetResponseStream()
+            $file = [IO.File]::Create($Target)
+            $buffer = [byte[]]::new(65536)
+            while ($true) {
+                $count = Wait-DownloadTask ($inputStream.ReadAsync($buffer, 0, $buffer.Length))
+                if ($count -eq 0) { break }
+                $file.Write($buffer, 0, $count)
+                $received += $count
+                Show-DownloadProgress
+            }
+            if ($total -ge 0 -and $received -ne $total) { throw "Incomplete release download: $received of $total bytes" }
+            Show-DownloadProgress -Done
+        } finally {
+            $request.Abort()
+            if ($file) { $file.Dispose() }
+            if ($inputStream) { $inputStream.Dispose() }
+            if ($response) { $response.Dispose() }
+            if ($display.open) { [Console]::Error.WriteLine() }
+            [Console]::OutputEncoding = $previousEncoding
+        }
+    } $url ($archive + '.part')
+    Write-Host '  | Verifying SHA-256...'
     $sha = [Security.Cryptography.SHA256]::Create()
     $stream = [IO.File]::OpenRead($archive + '.part')
     try { $actual = [BitConverter]::ToString($sha.ComputeHash($stream)).Replace('-','').ToLowerInvariant() }
     finally { $stream.Dispose(); $sha.Dispose() }
     if ($actual -ne $expected) { throw 'Release SHA-256 mismatch; no installation was performed' }
     Move-Item -LiteralPath ($archive + '.part') -Destination $archive
+    Write-Host '  | Unpacking verified bundle...'
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $reader = [IO.Compression.ZipFile]::OpenRead($archive)
     try {

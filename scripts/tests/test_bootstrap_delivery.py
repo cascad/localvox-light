@@ -7,6 +7,7 @@ import functools
 import hashlib
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import io
+import itertools
 import os
 from pathlib import Path
 import shutil
@@ -14,6 +15,7 @@ import subprocess
 import tarfile
 import tempfile
 import threading
+import time
 import unittest
 import zipfile
 
@@ -41,6 +43,7 @@ class BootstrapDelivery(unittest.TestCase):
                                 LOCALVOX_BOOTSTRAP_FIXTURE_LOG=str(self.log))
         self.requests = []
         requests = self.requests
+        self.transfer = transfer = {}
 
         class Handler(SimpleHTTPRequestHandler):
             def do_HEAD(self):
@@ -57,6 +60,36 @@ class BootstrapDelivery(unittest.TestCase):
 
             def do_GET(self):
                 requests.append(self.path)
+                if transfer and self.path.endswith(('.zip', '.tar.gz')):
+                    if transfer.get('redirect') and not self.path.startswith('/payload/'):
+                        body = b'<html>redirecting</html>'
+                        self.send_response(302)
+                        self.send_header('Location', '/payload' + self.path)
+                        self.send_header('Content-Length', str(len(body)))
+                        self.end_headers()
+                        self.wfile.write(body)
+                        return
+                    if transfer.get('deny'):
+                        self.send_error(503)
+                        return
+                    path = self.path.removeprefix('/payload')
+                    payload = Path(self.translate_path(path)).read_bytes()
+                    self.send_response(200)
+                    if not transfer.get('unknown'):
+                        self.send_header('Content-Length', str(len(payload)))
+                    self.send_header('Connection', 'close')
+                    self.end_headers()
+                    limit = len(payload) // 2 if transfer.get('cut') else len(payload)
+                    chunk = max(1, (len(payload) + 7) // 8)
+                    try:
+                        for offset in range(0, limit, chunk):
+                            self.wfile.write(payload[offset:min(offset + chunk, limit)])
+                            self.wfile.flush()
+                            time.sleep(transfer.get('delay', 0))
+                    except ConnectionError:
+                        pass
+                    self.close_connection = True
+                    return
                 super().do_GET()
 
             def log_message(self, *_):
@@ -83,13 +116,15 @@ class BootstrapDelivery(unittest.TestCase):
         path.write_text('#!/usr/bin/env bash\n' + text + '\n', encoding='utf-8', newline='\n')
         path.chmod(0o755)
 
-    def archive(self, target, *, corrupt=False, unsafe=False):
+    def archive(self, target, *, corrupt=False, unsafe=False, padding=0):
         folder = self.web / 'releases/download/v9.8.7'
         folder.mkdir(parents=True, exist_ok=True)
         windows = 'windows' in target
         name = f'localvox-{target}' + ('.zip' if windows else '.tar.gz')
         archive = folder / name
         files = {'bundle.json': b'{}'}
+        if padding:
+            files['payload.bin'] = os.urandom(padding)
         if windows:
             # .NET Framework stub tests delivery only; the Rust test drives the real wizard.
             source = self.root / 'Fixture.cs'
@@ -152,10 +187,10 @@ echo fixture > "$DEST/installed.ok"
         (folder / (name + '.sha256')).write_text(f'{digest}  {name}\n')
         return name
 
-    def run_bootstrap(self, shell, *flags, platform=('Linux', 'x86_64'), tty=False):
+    def run_bootstrap(self, shell, *flags, platform=('Linux', 'x86_64'), tty=False, powershell=None):
         env = self.environment.copy()
         if shell == 'ps':
-            command = [PS, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ROOT / 'scripts/install.ps1',
+            command = [powershell or PS, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ROOT / 'scripts/install.ps1',
                        '-InstallDir', self.install, '-ReleaseBase', self.url, '-NoPathUpdate', *flags]
         else:
             self.command('uname', f'if [[ "$1" = -s ]]; then echo {platform[0]}; else echo {platform[1]}; fi')
@@ -166,23 +201,34 @@ echo fixture > "$DEST/installed.ok"
                        self.unix(self.bin), self.unix(ROOT / 'scripts/install.sh'),
                        '--install-dir', self.unix(self.install), '--release-base', self.url, '--no-path-update', *flags]
         if tty:
-            import pty
-            # Supply a controlling terminal for the production </dev/tty handoff.
-            # The stub never asks for input; genuine prompt keys are tested in Rust.
-            output = bytearray()
-            previous = os.environ.copy()
-            try:
-                os.environ.clear()
-                os.environ.update(env)
-                status = pty.spawn([str(a) for a in command], lambda fd: output.extend(data := os.read(fd, 8192)) or data)
-            finally:
-                os.environ.clear()
-                os.environ.update(previous)
-            result = subprocess.CompletedProcess(command, os.waitstatus_to_exitcode(status), bytes(output), b'')
+            if os.getenv('LOCALVOX_TEST_PTY_RUNNER'):
+                transcript = self.root / 'terminal.ansi'
+                result = subprocess.run([os.environ['LOCALVOX_TEST_PTY_RUNNER'], str(transcript),
+                                         *[str(a) for a in command]], env=env, capture_output=True, timeout=45)
+                result = subprocess.CompletedProcess(command, result.returncode,
+                                                     transcript.read_bytes(), result.stderr)
+            else:
+                result = self.run_unix_pty(command, env)
         else:
             result = subprocess.run([str(a) for a in command], env=env, capture_output=True, timeout=45)
         self.assertFalse(list(self.scratch.glob('localvox-bootstrap*')), 'bootstrap cleans only its own staging directory')
         return result
+
+    @staticmethod
+    def run_unix_pty(command, env):
+        import pty
+        # Supply a controlling terminal for the production </dev/tty handoff.
+        # The stub never asks for input; genuine prompt keys are tested in Rust.
+        output = bytearray()
+        previous = os.environ.copy()
+        try:
+            os.environ.clear()
+            os.environ.update(env)
+            status = pty.spawn([str(a) for a in command], lambda fd: output.extend(data := os.read(fd, 8192)) or data)
+        finally:
+            os.environ.clear()
+            os.environ.update(previous)
+        return subprocess.CompletedProcess(command, os.waitstatus_to_exitcode(status), bytes(output), b'')
 
     @unittest.skipUnless(PS, 'Windows PowerShell fixture')
     def test_windows_download_apply_reuse_and_readonly_check(self):
@@ -211,6 +257,90 @@ echo fixture > "$DEST/installed.ok"
             self.assertFalse(self.install.exists())
             self.assertFalse(self.log.exists())
             self.assertFalse((self.root / 'outside').exists())
+
+    @unittest.skipUnless(PS, 'Windows PowerShell fixture')
+    def test_windows_progress_known_unknown_and_failures_are_readable(self):
+        self.archive('x86_64-pc-windows-msvc', padding=2 * 1024 * 1024)
+        engines = list(dict.fromkeys(engine for engine in (PS, shutil.which('pwsh')) if engine))
+        modes = ({'delay': 0.1}, {'delay': 0.1, 'unknown': True}, {'cut': True}, {'deny': True})
+        for engine, mode in itertools.product(engines, modes):
+            with self.subTest(engine=engine, mode=mode):
+                self.transfer.clear()
+                self.transfer.update(mode)
+                result = self.run_bootstrap('ps', '-Update', powershell=engine)
+                output = result.stderr.decode('utf-8', errors='strict')
+                self.assertIn('MiB', output)
+                self.assertNotIn('\x1b', output, 'redirected logs must not contain ANSI sequences')
+                if mode.get('cut') or mode.get('deny'):
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertNotIn('100%', output)
+                    self.assertNotIn('Downloaded', output)
+                    self.assertFalse(self.log.exists(), 'failed download never launches installer')
+                else:
+                    self.assertEqual(result.returncode, 0, output)
+                    self.assertIn('Downloaded' if mode.get('unknown') else '100%', output)
+                    self.assertTrue(self.log.is_file())
+                if self.log.exists():
+                    self.log.unlink()
+
+    @unittest.skipUnless(BASH and Path(BASH).is_file(), 'Bash fixture')
+    def test_bash_progress_known_unknown_and_failures_are_readable(self):
+        # A deliberately wrong digest stops before the native /dev/tty handoff.
+        self.archive('x86_64-unknown-linux-gnu', corrupt=True, padding=2 * 1024 * 1024)
+        for mode in ({'delay': 0.1}, {'delay': 0.1, 'unknown': True}, {'cut': True}, {'deny': True}):
+            with self.subTest(mode=mode):
+                self.transfer.clear()
+                self.transfer.update(mode)
+                result = self.run_bootstrap('bash')
+                output = result.stderr.decode('utf-8', errors='strict')
+                self.assertNotEqual(result.returncode, 0)
+                self.assertNotIn('\x1b', output)
+                self.assertIn('MiB', output)
+                if mode.get('cut') or mode.get('deny'):
+                    self.assertNotIn('100%', output)
+                    self.assertNotIn('Downloaded', output)
+                    self.assertNotIn('SHA-256 mismatch', output)
+                else:
+                    self.assertIn('Downloaded' if mode.get('unknown') else '100%', output)
+                    self.assertIn('SHA-256 mismatch', output)
+                self.assertFalse(self.log.exists())
+
+    @unittest.skipUnless(os.getenv('LOCALVOX_TEST_PTY_RUNNER'), 'built terminal-capture fixture runner')
+    def test_terminal_progress_redraws_and_ctrl_c_cleans_staging(self):
+        shells = (['ps'] if os.name == 'nt' else []) + (['bash'] if BASH else [])
+        for shell in shells:
+            with self.subTest(shell=shell):
+                self.check_terminal_progress(shell)
+
+    def check_terminal_progress(self, shell):
+        self.environment.pop('LOCALVOX_TEST_CANCEL_ON', None)
+        self.transfer.clear()
+        target = 'x86_64-pc-windows-msvc' if shell == 'ps' else 'x86_64-unknown-linux-gnu'
+        self.archive(target, corrupt=True, padding=2 * 1024 * 1024)
+        for unknown in (False, True):
+            with self.subTest(unknown=unknown):
+                self.transfer.update(delay=0.15, unknown=unknown, redirect=True)
+                result = self.run_bootstrap(shell, tty=True)
+                output = result.stdout.decode('utf-8', errors='strict')
+                self.assertNotEqual(result.returncode, 0)  # Deliberate digest mismatch.
+                self.assertGreater(output.count('MiB'), 3, output)
+                self.assertIn('\r', output)
+                self.assertIn('2.0', output.replace(',', '.'))
+                self.assertIn('Downloaded' if unknown else '100%', output)
+                self.assertFalse(self.log.exists())
+                if folder := os.getenv('LOCALVOX_TEST_CAPTURE_DIR'):
+                    Path(folder).mkdir(parents=True, exist_ok=True)
+                    name = shell + ('-unknown.ansi' if unknown else '-known.ansi')
+                    (Path(folder) / name).write_bytes(result.stdout)
+        self.transfer.update(delay=0.3, unknown=False)
+        self.environment['LOCALVOX_TEST_CANCEL_ON'] = '% '
+        result = self.run_bootstrap(shell, tty=True)
+        # Windows PowerShell reports an interrupted -File pipeline as exit 0;
+        # cancellation must still clean staging and never launch the installer.
+        if shell != 'ps':
+            self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn(b'100%', result.stdout)
+        self.assertFalse(self.log.exists())
 
     @unittest.skipUnless(BASH and Path(BASH).is_file(), 'Bash fixture')
     def test_all_unix_target_routes_and_hash_failure_need_no_jq_or_terminal(self):

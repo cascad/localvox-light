@@ -31,7 +31,11 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'Native installer tests failed' }
         & cargo test --locked -p localvox-setup-ui --target x86_64-pc-windows-msvc --jobs 2 -- --test-threads=1
         if ($LASTEXITCODE -ne 0) { throw 'Installer keyboard tests failed' }
+        & cargo build --locked -p localvox-setup-ui --example terminal-capture --target x86_64-pc-windows-msvc --jobs 2
+        if ($LASTEXITCODE -ne 0) { throw 'Terminal fixture runner build failed' }
     }
+    $terminalRunner=Join-Path $env:CARGO_TARGET_DIR 'x86_64-pc-windows-msvc/debug/examples/terminal-capture.exe'
+    if (Test-Path -LiteralPath $terminalRunner) { $env:LOCALVOX_TEST_PTY_RUNNER=$terminalRunner }
     & python -m unittest discover -s scripts/tests -p test_model_sources.py -v
     if ($LASTEXITCODE -ne 0) { throw 'Model source checker fixtures failed' }
     & python -m unittest discover -s scripts/tests -p test_model_storage_delivery.py -v

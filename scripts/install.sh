@@ -62,16 +62,72 @@ main() (
  local TEMP_BASE
  TEMP_BASE="$(cd "${TMPDIR:-/tmp}" && pwd -P)"
  WORK="$(mktemp -d "$TEMP_BASE/localvox-bootstrap.XXXXXXXX")"
- trap '[[ "$WORK" = "$TEMP_BASE"/localvox-bootstrap.* ]] && rm -rf -- "$WORK"' EXIT
+ local DOWNLOAD_PID='' DOWNLOAD_LINE_OPEN=0
+ cleanup() {
+  if [[ -n "$DOWNLOAD_PID" ]]; then kill "$DOWNLOAD_PID" 2>/dev/null || true; wait "$DOWNLOAD_PID" 2>/dev/null || true; fi
+  [[ "$DOWNLOAD_LINE_OPEN" = 0 ]] || printf '\n' >&2
+  [[ "$WORK" != "$TEMP_BASE"/localvox-bootstrap.* ]] || rm -rf -- "$WORK"
+ }
+ trap cleanup EXIT
  local URL="$RELEASE_BASE/releases/download/$TAG/$NAME"
- echo "Downloading LocalVox $TAG..."
+ echo "LocalVox $TAG"
  curl -fsSL "$URL.sha256" > "$WORK/checksum"
  local expected file
  read -r expected file < "$WORK/checksum"
  file="${file%$'\r'}"
  [[ "$expected" =~ ^[a-fA-F0-9]{64}$ && "${file#\*}" = "$NAME" ]] || { echo 'Invalid release checksum file' >&2; return 1; }
- curl -fSL "$URL" > "$WORK/$NAME.part"
+ download_bundle() {
+  local url="$1" target="$2" headers="$WORK/download.headers"
+  local interactive=0 accent='' reset='' started=$SECONDS last=-10 frame=0
+  if [[ -t 2 && "${TERM:-}" != dumb ]]; then
+   interactive=1
+   if [[ -z "${NO_COLOR+x}" ]]; then accent=$'\033[36m'; reset=$'\033[0m'; fi
+  fi
+  draw_download() {
+   local done="$1" seconds=$((SECONDS-started)) bytes=0 total=0 percent filled bar='' size elapsed line i
+   if [[ "$done" = 0 && "$interactive" = 0 && $((seconds-last)) -lt 5 ]]; then return; fi
+   last=$seconds
+   if [[ -f "$target" ]]; then bytes="$(stat -c %s "$target" 2>/dev/null || stat -f %z "$target")"; fi
+   if [[ -f "$headers" ]]; then
+    total="$(awk '/^HTTP\// {size=0} tolower($1)=="content-length:" {gsub("\r", "", $2); size=$2} END {printf "%.0f\n", size+0}' "$headers")"
+   fi
+   [[ "$total" =~ ^[0-9]{1,15}$ ]] || total=0
+   size="$((bytes/1048576)).$(((bytes%1048576)*10/1048576))"
+   printf -v elapsed '%02d:%02d' "$((seconds/60))" "$((seconds%60))"
+   if [[ "$total" -gt 0 ]]; then
+    percent=$((bytes*100/total)); [[ "$percent" -lt 100 ]] || percent=99
+    [[ "$done" = 0 ]] || percent=100
+    filled=$((16*percent/100))
+    for ((i=0; i<16; i++)); do if [[ "$i" -lt "$filled" ]]; then bar+='━'; else bar+='─'; fi; done
+    line="  │ $accent[$bar]$reset $percent% · $size/$((total/1048576)).$(((total%1048576)*10/1048576)) MiB · $elapsed"
+   else
+    local label=Download frames=('|' '/' '-' '\')
+    if [[ "$done" = 1 ]]; then label=Downloaded; elif [[ "$interactive" = 1 ]]; then label="${frames[$((frame%4))]} Download"; fi
+    line="  │ $accent$label$reset · $size MiB · $elapsed"
+   fi
+   if [[ "$interactive" = 1 ]]; then printf '\r%s\033[K' "$line" >&2; DOWNLOAD_LINE_OPEN=1; else printf '%s\n' "$line" >&2; fi
+   frame=$((frame+1))
+  }
+  # Metadata comes from this GET, including the final response after redirects.
+  # Observe the private output file, never parse curl's human progress meter.
+  curl -fsSL --connect-timeout 20 --speed-time 60 --speed-limit 1 -D "$headers" -o "$target" "$url" 2>"$WORK/download.error" &
+  DOWNLOAD_PID=$!
+  while kill -0 "$DOWNLOAD_PID" 2>/dev/null; do draw_download 0; sleep 0.2; done
+  local status=0
+  wait "$DOWNLOAD_PID" || status=$?
+  DOWNLOAD_PID=''
+  if [[ "$status" != 0 ]]; then
+   [[ "$DOWNLOAD_LINE_OPEN" = 0 ]] || { printf '\n' >&2; DOWNLOAD_LINE_OPEN=0; }
+   cat "$WORK/download.error" >&2
+   return "$status"
+  fi
+  draw_download 1
+  [[ "$DOWNLOAD_LINE_OPEN" = 0 ]] || { printf '\n' >&2; DOWNLOAD_LINE_OPEN=0; }
+ }
+ download_bundle "$URL" "$WORK/$NAME.part"
+ echo '  │ Verifying SHA-256...'
  [[ "$("${SHA[@]}" "$WORK/$NAME.part" | cut -d ' ' -f1 | tr '[:upper:]' '[:lower:]')" = "$(printf '%s' "$expected" | tr '[:upper:]' '[:lower:]')" ]] || { echo 'Release SHA-256 mismatch; no installation was performed' >&2; return 1; }
+ echo '  │ Unpacking verified bundle...'
  tar -tzf "$WORK/$NAME.part" > "$WORK/members"
  local name detail
  while IFS= read -r name; do case "$name" in /*|*\\*|*:*|../*|*/../*|*/..) echo 'Unsafe archive path' >&2; return 1;; esac; done < "$WORK/members"
