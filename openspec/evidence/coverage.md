@@ -1,5 +1,12 @@
 # Покрытие требований и состояние реализации
 
+Дополнение SETUP-009 (delta), 2026-11-20:
+[версия до reuse комплекта](../changes/add-interactive-install-wizard/evidence/release-version-reuse.md).
+По новому поручению ordinary bootstrap проверяет опубликованный тег перед reuse,
+обновляет старый/неизвестный/повреждённый комплект, сохраняет совпадающий/более новый.
+Native install 12, bootstrap 8 и package 11 passed; skips/непройденные native ОС
+записаны отдельно. Новый hosted run/public release ещё not-run.
+
 Дополнение SETUP-001/003, INV-SETUP-001, SETUP-006/009 (delta), 2026-11-20:
 [hosted 575aca2 и повтор установки на Mac](../changes/add-interactive-install-wizard/evidence/hosted-575aca2.md).
 Оба Mac/Linux build targets прошли; Windows delivery выявил ANSI в перенаправленных

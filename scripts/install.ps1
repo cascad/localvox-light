@@ -49,18 +49,10 @@ try {
         if ($invokedAsFile) { exit $LASTEXITCODE }
         return
     }
-    if (-not $Update -and $Tag -eq 'latest' -and (Test-Path -LiteralPath $installed -PathType Leaf)) {
-        $intact = $false
-        try { & $installed --bundle-check --install-dir $InstallDir 2>$null; $intact = $LASTEXITCODE -eq 0 } catch { $intact = $false }
-        if ($intact) {
-            Write-Host 'LocalVox files are intact; download skipped.'
-            & $installed @options
-            if ($LASTEXITCODE -ne 0) { throw "LocalVox setup failed ($LASTEXITCODE)" }
-            return
-        }
-    }
+    $latestRequested = $Tag -eq 'latest'
     if ($Tag -eq 'latest') {
-        $response = Invoke-WebRequest -Uri ($ReleaseBase + '/releases/latest') -Method Head -MaximumRedirection 8 -UseBasicParsing
+        Write-Host 'Checking the latest LocalVox release...'
+        $response = Invoke-WebRequest -Uri ($ReleaseBase + '/releases/latest') -Method Head -MaximumRedirection 8 -UseBasicParsing -TimeoutSec 60
         $base = $response.BaseResponse
         $resolved = if ($base.PSObject.Properties['ResponseUri']) { $base.ResponseUri.AbsoluteUri } else { $base.RequestMessage.RequestUri.AbsoluteUri }
         $prefix = $ReleaseBase + '/releases/tag/'
@@ -68,6 +60,17 @@ try {
         $Tag = [Uri]::UnescapeDataString($resolved.Substring($prefix.Length))
     }
     if ($Tag -notmatch '^v[0-9][A-Za-z0-9._-]*$') { throw 'Invalid release tag' }
+    if (-not $Update -and (Test-Path -LiteralPath $installed -PathType Leaf)) {
+        $state = 2
+        try { & $installed --bundle-check --release-tag $Tag --install-dir $InstallDir 2>$null; $state = $LASTEXITCODE } catch { $state = 2 }
+        if ($state -eq 0 -or ($state -eq 3 -and $latestRequested)) {
+            if ($state -eq 3) { Write-Host "Installed LocalVox is newer than $Tag; download skipped." }
+            else { Write-Host "LocalVox $Tag is verified and current; download skipped." }
+            & $installed @options
+            if ($LASTEXITCODE -ne 0) { throw "LocalVox setup failed ($LASTEXITCODE)" }
+            return
+        }
+    }
     $name = 'localvox-x86_64-pc-windows-msvc.zip'
     $url = $ReleaseBase + '/releases/download/' + [Uri]::EscapeDataString($Tag) + '/' + $name
     $tempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\','/')

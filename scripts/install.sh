@@ -39,25 +39,31 @@ main() (
   "$INSTALL/localvox-install" "${OPTIONS[@]}" --check
   return
  fi
- if [[ "$UPDATE" = 0 && "$TAG" = latest && -x "$INSTALL/localvox-install" ]]; then
-  if "$INSTALL/localvox-install" --bundle-check --install-dir "$INSTALL" 2>/dev/null; then
-   echo 'LocalVox files are intact; download skipped.'
-   "$INSTALL/localvox-install" "${OPTIONS[@]}" </dev/tty
-   return
-  fi
- fi
+ local LATEST_REQUESTED=0
+ [[ "$TAG" != latest ]] || LATEST_REQUESTED=1
  command -v curl >/dev/null || { echo 'curl is required' >&2; return 2; }
  command -v tar >/dev/null || { echo 'tar is required' >&2; return 2; }
  local SHA
  if command -v shasum >/dev/null; then SHA=(shasum -a 256); elif command -v sha256sum >/dev/null; then SHA=(sha256sum); else echo 'shasum or sha256sum is required' >&2; return 2; fi
  if [[ "$TAG" = latest ]]; then
+  echo 'Checking the latest LocalVox release...'
   local resolved prefix="$RELEASE_BASE/releases/tag/"
-  resolved="$(curl -fsSIL -w '%{url_effective}' "$RELEASE_BASE/releases/latest" | tail -n 1)"
+  resolved="$(curl -fsSIL --connect-timeout 20 --max-time 60 -w '%{url_effective}' "$RELEASE_BASE/releases/latest" | tail -n 1)"
   resolved="${resolved%$'\r'}"
   [[ "$resolved" = "$prefix"* ]] || { echo 'Could not resolve latest release tag' >&2; return 1; }
   TAG="${resolved#"$prefix"}"
  fi
  [[ "$TAG" =~ ^v[0-9][A-Za-z0-9._-]*$ ]] || { echo 'Invalid release tag' >&2; return 2; }
+ if [[ "$UPDATE" = 0 && -x "$INSTALL/localvox-install" ]]; then
+  local state=0
+  "$INSTALL/localvox-install" --bundle-check --release-tag "$TAG" --install-dir "$INSTALL" 2>/dev/null || state=$?
+  if [[ "$state" = 0 || ( "$state" = 3 && "$LATEST_REQUESTED" = 1 ) ]]; then
+   if [[ "$state" = 3 ]]; then echo "Installed LocalVox is newer than $TAG; download skipped."
+   else echo "LocalVox $TAG is verified and current; download skipped."; fi
+   "$INSTALL/localvox-install" "${OPTIONS[@]}" </dev/tty
+   return
+  fi
+ fi
  local NAME="localvox-$TARGET.tar.gz" WORK
  local TEMP_BASE
  TEMP_BASE="$(cd "${TMPDIR:-/tmp}" && pwd -P)"

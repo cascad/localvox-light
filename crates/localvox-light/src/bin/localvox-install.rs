@@ -9,6 +9,9 @@ struct Args {
     install_dir: Option<std::path::PathBuf>,
     #[arg(long)]
     bundle_check: bool,
+    /// Compare the packaged release identity after verifying every bundle file.
+    #[arg(long, requires = "bundle_check")]
+    release_tag: Option<String>,
     #[arg(long)]
     check: bool,
     /// Portable installation: do not change PATH or shell profiles.
@@ -29,7 +32,18 @@ fn main() -> anyhow::Result<()> {
         .unwrap_or_else(install::default_program_dir);
     if args.bundle_check {
         return match localvox_light::setup::bundle::Bundle::read(&destination) {
-            Ok(_) => Ok(()),
+            Ok(bundle) => {
+                use localvox_light::setup::bundle::ReleaseState;
+                match args
+                    .release_tag
+                    .as_deref()
+                    .map(|tag| bundle.release_state(tag))
+                {
+                    None | Some(ReleaseState::Current) => Ok(()),
+                    Some(ReleaseState::InstalledNewer) => std::process::exit(3),
+                    Some(ReleaseState::Different) => std::process::exit(2),
+                }
+            }
             Err(error) => {
                 eprintln!("{error:#}");
                 std::process::exit(2);

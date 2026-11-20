@@ -34,3 +34,8 @@ Windows one-liner проверен до настоящего мастера и �
 
 - [x] 6.1 Зафиксировать hosted результат `575aca2`, исправить подтверждённые Windows CI отказы без ослабления проверок: принудительный ANSI error renderer PS7 при redirect и отсутствующий ffmpeg в media test environment. Воспроизвести локально, выполнить затронутые проверки, обновить evidence/coverage и закоммитить без push/publication. [Проверки](evidence/hosted-575aca2.md).
 - [x] 6.2 Сверить последнюю публичную версию/ссылку Vosk и готовность Mac artifacts; отделить пройденные hosted проверки от незавершённой ручной установки владельца. Причину прежней ошибки mpv без лога оставить неподтверждённой. [Статус](evidence/hosted-575aca2.md).
+
+## 7. Версия до пропуска скачивания
+
+- [x] 7.1 Добавить тег в packaged manifest и штатную проверку целостности/версии; ordinary bootstrap сверяет latest до reuse на Windows/macOS/Linux, обновляет старый/неизвестный/повреждённый комплект, не понижает более новый автоматически, Check офлайн. [Результат](evidence/release-version-reuse.md).
+- [x] 7.2 Проверить одинаковый/новый/неизвестный релиз, недоступную metadata, испорченный комплект и защиту от downgrade на локальном HTTP/native стенде; обновить справочник/доказательства, strict/diff/actionlint и закоммитить без push/publication. [Проверки](evidence/release-version-reuse.md).

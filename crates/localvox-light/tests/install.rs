@@ -74,6 +74,51 @@ fn manifest(root: &Path) {
     );
 }
 
+#[test]
+fn bundle_release_check_uses_packaged_tag_and_verifies_files_before_reuse() {
+    use bundle::ReleaseState::{Current, Different, InstalledNewer};
+    let temp = tempfile::tempdir().unwrap();
+    fixture_bundle(temp.path());
+    let manifest_path = temp.path().join("bundle.json");
+    let mut data: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&manifest_path).unwrap()).unwrap();
+    let check = |offered: &str| {
+        std::process::Command::new(env!("CARGO_BIN_EXE_localvox-install"))
+            .arg("--bundle-check")
+            .arg("--release-tag")
+            .arg(offered)
+            .arg("--install-dir")
+            .arg(temp.path())
+            .output()
+            .unwrap()
+            .status
+            .code()
+            .unwrap()
+    };
+    assert_eq!(check("v0.2.2"), 2, "legacy manifest has unknown identity");
+    for (installed, offered, expected, code) in [
+        ("v0.2.2", "v0.2.2", Current, 0),
+        ("v0.2.1", "v0.2.2", Different, 2),
+        ("v0.10.0", "v0.2.2", InstalledNewer, 3),
+        ("v0.2.2-rc.1", "v0.2.2", Different, 2),
+        ("v0.2.2", "v0.2.2-rc.1", InstalledNewer, 3),
+    ] {
+        data["release_tag"] = installed.into();
+        put(&manifest_path, &serde_json::to_vec(&data).unwrap());
+        assert_eq!(
+            Bundle::read(temp.path()).unwrap().release_state(offered),
+            expected
+        );
+        assert_eq!(check(offered), code);
+    }
+    put(&temp.path().join(bundle::executable("vox")), b"damaged");
+    assert_eq!(
+        check("v0.2.2"),
+        2,
+        "newer metadata cannot hide damaged files"
+    );
+}
+
 fn ready_models(root: &Path) -> (std::path::PathBuf, std::path::PathBuf) {
     let vosk = root.join("Vosk готовая модель");
     let gigaam = root.join("GigaAM other drive");

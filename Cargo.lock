@@ -3028,6 +3028,7 @@ dependencies = [
  "localvox-light-voice",
  "localvox-setup-ui",
  "portable-pty",
+ "semver",
  "serde",
  "serde_json",
  "sha2 0.10.9",

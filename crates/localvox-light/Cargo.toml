@@ -29,6 +29,7 @@ windows-sys = { version = "0.61", features = ["Win32_System_Environment", "Win32
 [dependencies]
 localvox-setup-ui = { path = "../localvox-setup-ui" }
 sha2 = "0.10"
+semver = "1"
 localvox-light-api = { path = "../localvox-light-api" }
 localvox-light-core.workspace = true
 localvox-light-process.workspace = true

@@ -1,5 +1,8 @@
 # Hosted delivery and Mac retry — 2026-11-20
 
+Исторический статус до следующего поручения владельца. Поведение обычного повтора
+позднее изменено: [проверка версии перед reuse](release-version-reuse.md).
+
 ## Published installer versus pushed source
 
 GitHub REST was read after the owner's push of `575aca2`. Latest published release

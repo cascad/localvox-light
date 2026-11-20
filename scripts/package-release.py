@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -52,7 +53,9 @@ def relocate_macos(folder):
         run('codesign', '--force', '--sign', '-', str(file))
 
 
-def stage(source, native, folder, target, desktop=False, extra_native=()):
+def stage(source, native, folder, target, desktop=False, extra_native=(), release_tag=None):
+    if release_tag is not None and not re.fullmatch(r'v[0-9][A-Za-z0-9._-]*', release_tag):
+        raise RuntimeError('Invalid release tag')
     for directory in extra_native:
         if not directory.is_dir():
             raise RuntimeError(f'Missing native SDK directory: {directory}')
@@ -106,10 +109,11 @@ def stage(source, native, folder, target, desktop=False, extra_native=()):
         shutil.copy2(ROOT / 'docs' / name, folder / 'docs' / name)
     files = [{'name': p.relative_to(folder).as_posix(), 'bytes': p.stat().st_size, 'sha256': digest(p)}
              for p in sorted(folder.rglob('*')) if p.is_file()]
-    (folder / 'bundle.json').write_text(json.dumps({'schema': 1, 'target': target, 'files': files}, indent=2) + '\n', encoding='utf-8')
+    (folder / 'bundle.json').write_text(json.dumps({'schema': 1, 'target': target,
+                                                 'release_tag': release_tag, 'files': files}, indent=2) + '\n', encoding='utf-8')
 
 
-def smoke(folder, target):
+def smoke(folder, target, release_tag=None):
     suffix = '.exe' if 'windows' in target else ''
     for name, flag in [('localvox-light', '--help'), ('localvox-process', '--worker-protocol'), ('localvox-tui', '--version'), ('vox', '--version'), ('localvox-install', '--help')]:
         result = subprocess.run([str(folder / (name + suffix)), flag], cwd=folder,
@@ -118,6 +122,12 @@ def smoke(folder, target):
             raise RuntimeError(f'Packaged {name} failed ({result.returncode}): {result.stderr}')
         if name == 'localvox-process' and 'localvox-worker/3' not in result.stdout:
             raise RuntimeError('Incompatible packaged worker')
+    if release_tag is not None:
+        result = subprocess.run([str(folder / ('localvox-install' + suffix)), '--bundle-check',
+                                 '--release-tag', release_tag, '--install-dir', str(folder)],
+                                cwd=folder, capture_output=True, text=True, timeout=30)
+        if result.returncode:
+            raise RuntimeError(f'Packaged release identity check failed: {result.stderr}')
 
 
 def main():
@@ -128,14 +138,15 @@ def main():
     parser.add_argument('--extra-native', type=Path, action='append', default=[])
     parser.add_argument('--output', type=Path, default=ROOT / 'dist')
     parser.add_argument('--desktop', action='store_true')
+    parser.add_argument('--release-tag', help='Published tag; omitted for unversioned development artifacts')
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
     archive = args.output.resolve() / ('localvox-' + args.target + ('.zip' if 'windows' in args.target else '.tar.gz'))
     with tempfile.TemporaryDirectory(prefix='localvox-pack-', dir=args.output) as temp:
         folder = Path(temp).resolve()
         stage(args.source.resolve(), args.native.resolve(), folder, args.target, args.desktop,
-              tuple(p.resolve(strict=True) for p in args.extra_native))
-        smoke(folder, args.target)
+              tuple(p.resolve(strict=True) for p in args.extra_native), args.release_tag)
+        smoke(folder, args.target, args.release_tag)
         if archive.suffix == '.zip':
             with zipfile.ZipFile(archive, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=9) as out:
                 for file in sorted(folder.rglob('*')):

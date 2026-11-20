@@ -276,9 +276,11 @@ jobs:
         env:
           TARGET: ${{ matrix.target }}
           DESKTOP: ${{ matrix.desktop }}
+          RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || inputs.release_tag || '' }}
         run: |
           set -euo pipefail
           args=()
+          if [ -n "$RELEASE_TAG" ]; then args+=(--release-tag "$RELEASE_TAG"); fi
           if [ "$DESKTOP" = true ]; then args+=(--desktop); fi
           if [ "$TARGET" = x86_64-apple-darwin ]; then
             args+=(--extra-native target/native/onnxruntime-intel)

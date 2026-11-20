@@ -18,7 +18,16 @@ struct Member {
 pub struct Bundle {
     schema: u32,
     target: String,
+    #[serde(default)]
+    release_tag: Option<String>,
     files: Vec<Member>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum ReleaseState {
+    Current,
+    InstalledNewer,
+    Different,
 }
 
 pub fn target() -> &'static str {
@@ -103,6 +112,22 @@ fn checked(root: &Path, name: &str) -> Result<PathBuf> {
 }
 
 impl Bundle {
+    pub fn release_state(&self, offered: &str) -> ReleaseState {
+        let Some(installed) = self.release_tag.as_deref() else {
+            return ReleaseState::Different;
+        };
+        if installed == offered {
+            return ReleaseState::Current;
+        }
+        let parse = |tag: &str| semver::Version::parse(tag.strip_prefix('v')?).ok();
+        match (parse(installed), parse(offered)) {
+            (Some(installed), Some(offered)) if installed.cmp_precedence(&offered).is_gt() => {
+                ReleaseState::InstalledNewer
+            }
+            _ => ReleaseState::Different,
+        }
+    }
+
     pub fn read(root: &Path) -> Result<Self> {
         let data = std::fs::read(root.join("bundle.json"))
             .context("Не найден манифест полного комплекта")?;

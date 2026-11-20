@@ -43,16 +43,20 @@ class BootstrapDelivery(unittest.TestCase):
                                 LOCALVOX_BOOTSTRAP_FIXTURE_LOG=str(self.log))
         self.requests = []
         requests = self.requests
+        self.release = release = {'tag': 'v9.8.7'}
         self.transfer = transfer = {}
 
         class Handler(SimpleHTTPRequestHandler):
             def do_HEAD(self):
                 requests.append(self.path)
                 if self.path == '/releases/latest':
+                    if release.get('unavailable'):
+                        self.send_error(503)
+                        return
                     self.send_response(302)
-                    self.send_header('Location', '/releases/tag/v9.8.7')
+                    self.send_header('Location', '/releases/tag/' + release['tag'])
                     self.end_headers()
-                elif self.path == '/releases/tag/v9.8.7':
+                elif self.path.startswith('/releases/tag/'):
                     self.send_response(200)
                     self.end_headers()
                 else:
@@ -116,13 +120,13 @@ class BootstrapDelivery(unittest.TestCase):
         path.write_text('#!/usr/bin/env bash\n' + text + '\n', encoding='utf-8', newline='\n')
         path.chmod(0o755)
 
-    def archive(self, target, *, corrupt=False, unsafe=False, padding=0):
-        folder = self.web / 'releases/download/v9.8.7'
+    def archive(self, target, *, corrupt=False, unsafe=False, padding=0, tag='v9.8.7'):
+        folder = self.web / 'releases/download' / tag
         folder.mkdir(parents=True, exist_ok=True)
         windows = 'windows' in target
         name = f'localvox-{target}' + ('.zip' if windows else '.tar.gz')
         archive = folder / name
-        files = {'bundle.json': b'{}'}
+        files = {'bundle.json': b'{}', 'fixture-tag': tag.encode('ascii')}
         if padding:
             files['payload.bin'] = os.urandom(padding)
         if windows:
@@ -131,10 +135,16 @@ class BootstrapDelivery(unittest.TestCase):
             source.write_text('''using System; using System.IO;
 class Fixture {
  static int Main(string[] args) {
-  string dest=""; bool check=false;
+  string dest="", tag=""; bool check=false;
   foreach(string a in args) if(a=="--bundle-check") check=true;
   for(int i=0;i+1<args.Length;i++) if(args[i]=="--install-dir") dest=args[i+1];
-  if(check) return File.Exists(Path.Combine(dest,"installed.ok"))?0:2;
+  for(int i=0;i+1<args.Length;i++) if(args[i]=="--release-tag") tag=args[i+1];
+  if(check) {
+   if(!File.Exists(Path.Combine(dest,"installed.ok"))) return 2;
+   if(File.Exists(Path.Combine(dest,"fixture-newer"))) return 3;
+   string version=Path.Combine(dest,"fixture-tag");
+   return File.Exists(version) && File.ReadAllText(version)==tag?0:2;
+  }
   foreach(string a in args) if(a=="--check") return 2;
   File.AppendAllText(Environment.GetEnvironmentVariable("LOCALVOX_BOOTSTRAP_FIXTURE_LOG"), String.Join("\\n",args)+"\\n");
   Directory.CreateDirectory(dest);
@@ -145,6 +155,8 @@ class Fixture {
  }
 }''', encoding='utf-8')
             binary = self.root / 'fixture.exe'
+            if binary.exists():
+                binary.unlink()
             compiler = self.root / 'compile.ps1'
             compiler.write_text("param($Source,$Output)\n$ErrorActionPreference='Stop'\nAdd-Type -Path $Source -OutputAssembly $Output -OutputType ConsoleApplication\n")
             result = subprocess.run([PS, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', compiler,
@@ -162,11 +174,16 @@ class Fixture {
             files['libvosk.dylib' if 'darwin' in target else 'libvosk.so'] = b'fixture'
             files['localvox-install'] = b'''#!/usr/bin/env bash
 set -eu
-DEST='' CHECK=0
+DEST='' CHECK=0 TAG=''
 for arg in "$@"; do [[ "$arg" != --bundle-check ]] || CHECK=1; done
 ARGS=("$@")
-while [[ $# -gt 0 ]]; do case "$1" in --install-dir) DEST="$2"; shift 2;; --check) exit 2;; *) shift;; esac; done
-if [[ "$CHECK" = 1 ]]; then [[ -f "$DEST/installed.ok" ]]; exit; fi
+while [[ $# -gt 0 ]]; do case "$1" in --install-dir) DEST="$2"; shift 2;; --release-tag) TAG="$2"; shift 2;; --check) exit 2;; *) shift;; esac; done
+if [[ "$CHECK" = 1 ]]; then
+ [[ -f "$DEST/installed.ok" && -f "$DEST/fixture-tag" ]] || exit 2
+ [[ ! -f "$DEST/fixture-newer" ]] || exit 3
+ [[ "$(cat "$DEST/fixture-tag")" = "$TAG" ]] || exit 2
+ exit 0
+fi
 printf '%s\\n' "${ARGS[@]}" >> "$LOCALVOX_BOOTSTRAP_FIXTURE_LOG"
 mkdir -p "$DEST"
 SOURCE="$(cd "$(dirname "$0")" && pwd)"
@@ -258,7 +275,58 @@ exit $LASTEXITCODE
         before = list(self.requests)
         result = self.run_bootstrap('ps')
         self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
-        self.assertEqual(self.requests, before, 'intact bundle needs no network')
+        self.assertEqual(self.requests[len(before):], ['/releases/latest', '/releases/tag/v9.8.7'],
+                         'same release needs only metadata, not another archive')
+
+    def test_ordinary_retry_updates_old_identity_and_preserves_newer_installation(self):
+        shells = (['ps'] if PS else []) + (['bash'] if os.getenv('LOCALVOX_TEST_PTY_RUNNER') else [])
+        if not shells:
+            self.skipTest('Windows PowerShell or built terminal-capture runner')
+        for shell in shells:
+            with self.subTest(shell=shell):
+                self.release.clear()
+                self.release['tag'] = 'v9.8.7'
+                target = 'x86_64-pc-windows-msvc' if shell == 'ps' else 'x86_64-unknown-linux-gnu'
+                name = self.archive(target)
+                launch = lambda *args: self.run_bootstrap(shell, *args, tty=(shell == 'bash'))
+                result = launch()
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.release['tag'] = 'v9.8.8'
+                self.archive(target, tag='v9.8.8')
+                result = launch()
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual((self.install / 'fixture-tag').read_text(), 'v9.8.8')
+                archive = '/releases/download/v9.8.8/' + name
+                self.assertEqual(self.requests.count(archive), 1)
+                result = launch()
+                self.assertEqual(result.returncode, 0)
+                self.assertEqual(self.requests.count(archive), 1, 'same version must not download again')
+                # A legacy/unknown identity and a damaged bundle both require repair.
+                for missing in ('fixture-tag', 'installed.ok'):
+                    (self.install / missing).unlink()
+                    result = launch()
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual(self.requests.count(archive), 3)
+                # Failure to check latest cannot silently run the old installer.
+                before = self.log.read_bytes()
+                self.release['unavailable'] = True
+                result = launch()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(self.log.read_bytes(), before)
+                requests = list(self.requests)
+                result = launch('-Check' if shell == 'ps' else '--check')
+                self.assertEqual(result.returncode, 2)
+                self.assertEqual(self.requests, requests, 'Check must stay offline')
+                self.release.pop('unavailable')
+                (self.install / 'fixture-newer').write_text('native version comparison returned 3')
+                result = launch()
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual(self.requests.count(archive), 3, 'newer installed version is retained')
+                result = launch('-Tag' if shell == 'ps' else '--tag', 'v9.8.7')
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual((self.install / 'fixture-tag').read_text(), 'v9.8.7')
+                self.assertTrue(self.install.resolve().is_relative_to(self.root.resolve()))
+                shutil.rmtree(self.install)
 
     @unittest.skipUnless(PS, 'Windows PowerShell fixture')
     def test_windows_checksum_and_traversal_fail_before_destination_creation(self):
@@ -399,7 +467,7 @@ exit $LASTEXITCODE
                 before = list(self.requests)
                 result = self.run_bootstrap('bash', platform=(system, arch), tty=True)
                 self.assertEqual(result.returncode, 0, result.stdout.decode(errors='replace'))
-                self.assertEqual(self.requests, before)
+                self.assertEqual(self.requests[len(before):], ['/releases/latest', '/releases/tag/v9.8.7'])
                 # Only the fixture owns and removes this explicitly resolved directory.
                 self.assertTrue(self.install.resolve().is_relative_to(self.root.resolve()))
                 shutil.rmtree(self.install)

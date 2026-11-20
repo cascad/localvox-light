@@ -42,9 +42,10 @@ class PackageContracts(unittest.TestCase):
         self.windows_input()
         (self.source / 'DirectML.dll').write_bytes(b'optional native fixture')
         (self.source / '.env').write_text('private configuration must not be packaged')
-        package.stage(self.source, self.native, self.out, WINDOWS)
+        package.stage(self.source, self.native, self.out, WINDOWS, release_tag='v0.2.2')
         manifest = json.loads((self.out / 'bundle.json').read_text())
         self.assertEqual(manifest['target'], WINDOWS)
+        self.assertEqual(manifest['release_tag'], 'v0.2.2')
         self.assertFalse((self.out / '.env').exists())
         self.assertIn('DirectML.dll', [p['name'] for p in manifest['files']])
         self.assertTrue((self.out / 'scripts/fetch-models.ps1').is_file())
@@ -59,6 +60,12 @@ class PackageContracts(unittest.TestCase):
         (self.source / 'localvox-process.exe').unlink()
         with self.assertRaisesRegex(RuntimeError, 'Missing executable'):
             package.stage(self.source, self.native, self.out, WINDOWS)
+
+    def test_development_bundle_has_no_published_identity(self):
+        self.windows_input()
+        package.stage(self.source, self.native, self.out, WINDOWS)
+        manifest = json.loads((self.out / 'bundle.json').read_text())
+        self.assertIsNone(manifest['release_tag'])
 
     def test_missing_native_dependency_is_not_a_valid_package(self):
         self.windows_input()
