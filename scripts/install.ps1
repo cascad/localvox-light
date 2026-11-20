@@ -9,6 +9,11 @@ param(
     [switch]$NoPathUpdate
 )
 $ErrorActionPreference = 'Stop'
+# PS7 may inherit forced ANSI styling from a host/CI. Keep redirected failures
+# plain as well as the meter; the host formats uncaught errors after this script.
+if ([Console]::IsErrorRedirected -and (Get-Variable PSStyle -ErrorAction SilentlyContinue)) {
+    $PSStyle.OutputRendering = 'PlainText'
+}
 $ProgressPreference = 'SilentlyContinue'
 $PSNativeCommandUseErrorActionPreference = $false
 $invokedAsFile = $MyInvocation.MyCommand -is [System.Management.Automation.ExternalScriptInfo]

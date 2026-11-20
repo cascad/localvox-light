@@ -143,7 +143,11 @@ jobs:
       - name: Real media backend (generated PCM, null audio output)
         run: cargo test --locked -p localvox-light-terminal --test media_playback -- --ignored --nocapture
       - name: Install FLAC test dependency on the CI runner
-        run: choco install ffmpeg --yes --no-progress
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          choco install ffmpeg --yes --no-progress
+          ffmpeg -version
       - name: Real archive HTTP media and sample-accurate FLAC
         run: |
           $ErrorActionPreference = 'Stop'

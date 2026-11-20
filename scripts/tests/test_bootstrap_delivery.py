@@ -187,11 +187,25 @@ echo fixture > "$DEST/installed.ok"
         (folder / (name + '.sha256')).write_text(f'{digest}  {name}\n')
         return name
 
-    def run_bootstrap(self, shell, *flags, platform=('Linux', 'x86_64'), tty=False, powershell=None):
+    def run_bootstrap(self, shell, *flags, platform=('Linux', 'x86_64'), tty=False, powershell=None,
+                      force_ansi=False):
         env = self.environment.copy()
         if shell == 'ps':
             command = [powershell or PS, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ROOT / 'scripts/install.ps1',
                        '-InstallDir', self.install, '-ReleaseBase', self.url, '-NoPathUpdate', *flags]
+            if force_ansi:
+                env = {key: value for key, value in env.items() if key.upper() != 'NO_COLOR'}
+                env.update(TERM='xterm-256color', FORCE_COLOR='1')
+                wrapper = self.root / 'forced-style.ps1'
+                wrapper.write_text('''param($Script,$InstallDir,$ReleaseBase)
+$ErrorActionPreference='Stop'
+$PSStyle.OutputRendering='Ansi'
+& $Script -InstallDir $InstallDir -ReleaseBase $ReleaseBase -NoPathUpdate -Update
+exit $LASTEXITCODE
+''', encoding='ascii')
+                command = [powershell, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', wrapper,
+                           '-Script', ROOT / 'scripts/install.ps1', '-InstallDir', self.install,
+                           '-ReleaseBase', self.url]
         else:
             self.command('uname', f'if [[ "$1" = -s ]]; then echo {platform[0]}; else echo {platform[1]}; fi')
             self.command('jq', 'echo "bootstrap must not require jq" >&2; exit 97')
@@ -303,6 +317,18 @@ echo fixture > "$DEST/installed.ok"
                 else:
                     self.assertIn('Downloaded' if mode.get('unknown') else '100%', output)
                     self.assertIn('SHA-256 mismatch', output)
+                self.assertFalse(self.log.exists())
+
+    @unittest.skipUnless(os.name == 'nt' and shutil.which('pwsh'), 'PowerShell 7 error renderer')
+    def test_redirected_errors_stay_plain_with_forced_powershell_ansi(self):
+        self.archive('x86_64-pc-windows-msvc')
+        for mode in ({'cut': True}, {'deny': True}):
+            with self.subTest(mode=mode):
+                self.transfer.clear()
+                self.transfer.update(mode)
+                result = self.run_bootstrap('ps', powershell=shutil.which('pwsh'), force_ansi=True)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertNotIn(b'\x1b', result.stderr)
                 self.assertFalse(self.log.exists())
 
     @unittest.skipUnless(os.getenv('LOCALVOX_TEST_PTY_RUNNER'), 'built terminal-capture fixture runner')

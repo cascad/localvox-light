@@ -1,5 +1,12 @@
 # Покрытие требований и состояние реализации
 
+Дополнение SETUP-001/003, INV-SETUP-001, SETUP-006/009 (delta), 2026-11-20:
+[hosted 575aca2 и повтор установки на Mac](../changes/add-interactive-install-wizard/evidence/hosted-575aca2.md).
+Оба Mac/Linux build targets прошли; Windows delivery выявил ANSI в перенаправленных
+PS7-ошибках, Interface — неустановленный после Chocolatey 503 ffmpeg. Локальные
+регрессии и исправления проверены; новый hosted запуск/public release ещё not-run.
+Latest пока v0.2.1 со старым URL Vosk; повтор установки владельца не равен обновлению.
+
 Дополнение SETUP-009 (delta), 2026-11-19:
 [прогресс начального скачивания](../changes/add-interactive-install-wizard/evidence/bootstrap-progress.md).
 Оба bootstrap показывают объём/известный процент либо индикатор ожидания; PS5/PS7,

@@ -29,3 +29,8 @@ Windows one-liner проверен до настоящего мастера и �
 
 - [x] 5.1 Добавить компактный прогресс bootstrap Windows/Linux/macOS до native мастера: полоса/процент/байты при известном размере, индикатор ожидания при неизвестном, читаемый redirected output. Сохранить одну загрузку, bounded streaming, проверку hash и уборку owned transfer/staging при ошибке/отмене. [Проверки](evidence/bootstrap-progress.md).
 - [x] 5.2 Проверить медленную загрузку с размером/без него, HTTP-отказ/обрыв, отсутствие запуска до проверки и терминальный вид на локальном стенде; обновить справочник/evidence, strict validation и scoped diff, закоммитить без push/publication. [Проверки](evidence/bootstrap-progress.md).
+
+## 6. Подготовка исправленного выпуска после push
+
+- [x] 6.1 Зафиксировать hosted результат `575aca2`, исправить подтверждённые Windows CI отказы без ослабления проверок: принудительный ANSI error renderer PS7 при redirect и отсутствующий ffmpeg в media test environment. Воспроизвести локально, выполнить затронутые проверки, обновить evidence/coverage и закоммитить без push/publication. [Проверки](evidence/hosted-575aca2.md).
+- [x] 6.2 Сверить последнюю публичную версию/ссылку Vosk и готовность Mac artifacts; отделить пройденные hosted проверки от незавершённой ручной установки владельца. Причину прежней ошибки mpv без лога оставить неподтверждённой. [Статус](evidence/hosted-575aca2.md).
