@@ -69,6 +69,38 @@ function global:Install-PackageProvider { throw 'Unexpected real provider instal
         self.assertFalse((self.install / 'tools/mpv').exists())
         self.assertFalse(self.log.exists())
 
+    @unittest.skipUnless(shutil.which('node'), 'Node development installer')
+    def test_node_player_setup_authenticates_metadata_only_and_verifies_payload(self):
+        hook = self.root / 'mock-fetch.mjs'
+        hook.write_text('''import { readFile, appendFile } from 'node:fs/promises';
+globalThis.fetch = async (url, options = {}) => {
+ await appendFile(process.env.FIXTURE_FETCH_LOG, JSON.stringify({url, headers:options.headers ?? {}})+'\\n');
+ if (url.startsWith('https://api.github.com/')) return new Response(await readFile(process.env.FIXTURE_METADATA));
+ if (url === 'https://fixture.invalid/mpv.zip') return new Response(await readFile(process.env.FIXTURE_ARCHIVE));
+ throw new Error('Unexpected network request: '+url);
+};
+''', encoding='utf-8')
+        digest = hashlib.sha256(self.archive.read_bytes()).hexdigest()
+        self.metadata.write_text(json.dumps({'assets': [{'name': 'mpv-fixture-x86_64-w64-mingw32-full.zip',
+                                                       'digest': 'sha256:' + digest,
+                                                       'browser_download_url': 'https://fixture.invalid/mpv.zip'}]}))
+        for token in ('fixture-read-only-token', ''):
+            with self.subTest(authenticated=bool(token)):
+                root = self.root / ('authenticated' if token else 'public')
+                (root / 'scripts').mkdir(parents=True)
+                script = root / 'scripts/setup-mpv.mjs'
+                shutil.copyfile(ROOT / 'scripts/setup-mpv.mjs', script)
+                fetch_log = root / 'fetch.jsonl'
+                env = {**self.environment, 'GH_TOKEN': token, 'FIXTURE_FETCH_LOG': str(fetch_log)}
+                result = subprocess.run([shutil.which('node'), '--import', hook.as_uri(), str(script)],
+                                        env=env, capture_output=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
+                calls = [json.loads(line) for line in fetch_log.read_text().splitlines()]
+                self.assertEqual(calls[0]['headers'].get('Authorization'), 'Bearer ' + token if token else None)
+                self.assertNotIn('Authorization', calls[1]['headers'], 'never send the token to asset hosts')
+                self.assertTrue((root / 'tools/mpv/LICENSE.GPL').is_file())
+                self.assertEqual((root / 'tools/mpv/mpv.exe').read_bytes(), b'player fixture')
+
     def test_ollama_uses_official_publisher_and_unattended_options(self):
         self.wrapper.write_text('''param($CacheDir)
 $ErrorActionPreference='Stop'

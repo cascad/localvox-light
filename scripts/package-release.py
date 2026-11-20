@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import tomllib
 import zipfile
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -22,6 +23,12 @@ SCRIPTS = ('install.ps1', 'install.sh', 'install-release.ps1', 'install-release.
 def digest(path):
     with path.open('rb') as file:
         return hashlib.file_digest(file, 'sha256').hexdigest()
+
+
+def check_release_tag(tag):
+    version = tomllib.loads((ROOT / 'Cargo.toml').read_text(encoding='utf-8'))['workspace']['package']['version']
+    if tag != 'v' + version:
+        raise RuntimeError(f'Release tag {tag} does not match workspace version {version}; bump the version before publishing')
 
 
 def run(*args):
@@ -140,6 +147,8 @@ def main():
     parser.add_argument('--desktop', action='store_true')
     parser.add_argument('--release-tag', help='Published tag; omitted for unversioned development artifacts')
     args = parser.parse_args()
+    if args.release_tag is not None:
+        check_release_tag(args.release_tag)
     args.output.mkdir(parents=True, exist_ok=True)
     archive = args.output.resolve() / ('localvox-' + args.target + ('.zip' if 'windows' in args.target else '.tar.gz'))
     with tempfile.TemporaryDirectory(prefix='localvox-pack-', dir=args.output) as temp:

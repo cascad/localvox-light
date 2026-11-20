@@ -1,5 +1,12 @@
 # Покрытие требований и состояние реализации
 
+Подготовка SETUP-009 (delta), 2026-11-20:
+[выпуск v0.2.2](../changes/add-interactive-install-wizard/evidence/release-v0.2.2.md).
+Версии workspace/desktop/UI согласованы; tagged packaging проверяет версию workspace.
+После 81 e2e на `5c37e93` UI workflow остановился на неавторизованном mpv API 403;
+передача scoped token проверена локально без передачи credentials хосту assets.
+Публикация и новые hosted результаты фиксируются отдельно по факту.
+
 Дополнение SETUP-009 (delta), 2026-11-20:
 [версия до reuse комплекта](../changes/add-interactive-install-wizard/evidence/release-version-reuse.md).
 По новому поручению ordinary bootstrap проверяет опубликованный тег перед reuse,

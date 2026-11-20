@@ -67,6 +67,13 @@ class PackageContracts(unittest.TestCase):
         manifest = json.loads((self.out / 'bundle.json').read_text())
         self.assertIsNone(manifest['release_tag'])
 
+    def test_release_tag_must_match_the_compiled_workspace_version(self):
+        (self.root / 'Cargo.toml').write_text('[workspace.package]\nversion="0.2.2"\n', encoding='utf-8')
+        with patch.object(package, 'ROOT', self.root):
+            package.check_release_tag('v0.2.2')
+            with self.assertRaisesRegex(RuntimeError, 'does not match workspace version'):
+                package.check_release_tag('v0.2.3')
+
     def test_missing_native_dependency_is_not_a_valid_package(self):
         self.windows_input()
         (self.native / 'libvosk.dll').unlink()

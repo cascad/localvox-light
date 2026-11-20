@@ -52,7 +52,11 @@ jobs:
           npm test
           npx --no-install playwright install chromium
           npm run test:e2e
-          npm run setup:mpv
+      - name: Prepare verified mpv for native media tests
+        working-directory: ui
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: npm run setup:mpv
       - name: Rust client, styles, ConPTY and process ownership
         run: cargo test --locked -p localvox-light-client -p localvox-light-terminal -p localvox-light-process
       - name: Shared coordinator, main launcher delegation and snapshot settings

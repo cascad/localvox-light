@@ -17,7 +17,9 @@ try {
   const current = createHash("sha256").update(await readFile(executable)).digest("hex");
   if (installed.executable_sha256 === current) { console.log(`mpv already installed: ${executable}`); process.exit(0); }
 } catch { /* New installation or an incomplete previous attempt. */ }
-const response = await fetch("https://api.github.com/repos/mpv-player/mpv/releases/tags/git-release", { signal: AbortSignal.timeout(30_000), headers: { "User-Agent": "localvox-development-setup" } });
+const headers = { "User-Agent": "localvox-development-setup" };
+if (process.env.GH_TOKEN) headers.Authorization = `Bearer ${process.env.GH_TOKEN}`;
+const response = await fetch("https://api.github.com/repos/mpv-player/mpv/releases/tags/git-release", { signal: AbortSignal.timeout(30_000), headers });
 if (!response.ok) throw new Error(`mpv release metadata: HTTP ${response.status}`);
 const release = await response.json();
 const asset = release.assets.find((asset) => /^mpv-.*-x86_64-w64-mingw32-full\.zip$/.test(asset.name));
