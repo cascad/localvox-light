@@ -75,6 +75,10 @@ main() (
   [[ "$WORK" != "$TEMP_BASE"/localvox-bootstrap.* ]] || rm -rf -- "$WORK"
  }
  trap cleanup EXIT
+ # Non-interactive Bash may ignore SIGINT while an asynchronous curl continues.
+ # Exit explicitly; the EXIT trap then stops/waits for our owned transfer.
+ trap 'exit 130' INT
+ trap 'exit 143' TERM
  local URL="$RELEASE_BASE/releases/download/$TAG/$NAME"
  echo "LocalVox $TAG"
  curl -fsSL "$URL.sha256" > "$WORK/checksum"

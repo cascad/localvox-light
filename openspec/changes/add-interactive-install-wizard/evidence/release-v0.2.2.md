@@ -47,3 +47,12 @@ New main CI, tag creation/push, all five tagged platform builds, full public rel
 and public bootstrap verification remain **not-run** at preparation time. Prior
 green jobs are not claimed as evidence for the new version commit. Hardware/Mac
 installation acceptance is still separate from automated delivery.
+
+## Tagged candidate result
+
+Tag v0.2.2 was sent on `f94803e`. Release run `44807211244` stopped at Mac ARM
+Delivery job `136534374651`: Ctrl+C was echoed at 12%, but asynchronous curl
+continued to 100% before the deliberate digest failure. This is a real Unix
+cancellation defect in the new meter; the assertion was preserved. Publication
+is gated and did not run. The tag is retained as failed-candidate history.
+The correction/next intended release is [v0.2.3](release-v0.2.3.md).
