@@ -153,7 +153,7 @@ impl Preview {
 
     fn back(&mut self) {
         self.send(b"\x1b");
-        self.wait("Продолжить текущий шаг");
+        self.active("Вернуться или отменить?");
         self.send(ENTER);
     }
 
@@ -321,7 +321,7 @@ fn esc_ctrl_c_and_decline_restore_cursor_and_leave_no_changes() {
         }
         demo.send(keys);
         if stage == 1 {
-            demo.wait("Продолжить текущий шаг");
+            demo.active("Вернуться или отменить?");
             demo.send(b"\x03"); // Ctrl+C again leaves the navigation menu.
         } else if stage == 2 {
             demo.send(DOWN); // Continue / Back / Cancel.
@@ -400,7 +400,7 @@ fn back_from_source_can_disable_summary_without_visiting_stale_model_questions()
     demo.send(ENTER);
     demo.active("Откуда брать модель");
     demo.send(b"\x1b");
-    demo.wait("Продолжить текущий шаг");
+    demo.active("Вернуться или отменить?");
     demo.capture("back-menu-wide");
     demo.send(ENTER);
     demo.active("Компоненты");
@@ -470,13 +470,13 @@ fn navigation_can_resume_the_current_step_or_cancel_explicitly() {
     demo.send(ENTER);
     demo.wait("Дополнительно проверять имена");
     demo.send(b"\x1b");
-    demo.wait("Продолжить текущий шаг");
+    demo.active("Вернуться или отменить?");
     demo.capture("back-menu");
     demo.send(DOWN);
     demo.send(ENTER); // Stay.
     demo.active("Компоненты");
     demo.send(b"\x1b");
-    demo.wait("Продолжить текущий шаг");
+    demo.active("Вернуться или отменить?");
     demo.send(DOWN);
     demo.send(DOWN);
     demo.send(ENTER);

@@ -26,6 +26,23 @@ pending; this document separates preparation from the eventual hosted release.
 
 ## Pending delivery
 
+### Follow-up: Mac terminal fixture and publication gate
+
+On `98684da`, Interface run `44802653117` passed completely. In Build
+`44802653137`, both Linux targets passed, while Mac ARM job `136518605795`
+failed in preview navigation: after Stay, the fixture waited for the old completed
+menu's text still present in terminal history, sent arrows before a new menu was
+active, and reached Summary source instead of Cancel. This is a confirmed stale
+screen synchronization error in the fixture, not evidence of a new mpv failure.
+
+All five navigation-menu waits now require the active prompt marker, using the
+fixture's existing `active` helper. Assertions/deadlines remain unchanged. The
+complete native preview suite passed **11/11** locally after this correction.
+The release workflow now reuses the full Interface workflow and gates publication
+on both Interface and all five platform builds. A tag may start validation; a
+public release is created only after those checks pass. This avoids publishing
+with a red/unfinished Interface run.
+
 New main CI, tag creation/push, all five tagged platform builds, full public release
 and public bootstrap verification remain **not-run** at preparation time. Prior
 green jobs are not claimed as evidence for the new version commit. Hardware/Mac

@@ -303,10 +303,15 @@ jobs:
           path: dist/${{ matrix.artifact }}.*
           if-no-files-found: error
 
+  interface:
+    name: Release interface checks
+    if: ${{ startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish_release == 'true' && github.event.inputs.release_tag != '') }}
+    uses: ./.github/workflows/interface-tests.yml
+
   release:
     name: Publish GitHub Release
-    needs: build
-    if: ${{ needs.build.result == 'success' && (startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish_release == 'true' && github.event.inputs.release_tag != '')) }}
+    needs: [build, interface]
+    if: ${{ needs.build.result == 'success' && needs.interface.result == 'success' && (startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish_release == 'true' && github.event.inputs.release_tag != '')) }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
