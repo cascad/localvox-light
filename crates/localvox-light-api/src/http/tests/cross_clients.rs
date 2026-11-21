@@ -120,19 +120,23 @@ fn produce(root: &Path, name: &str) {
         .unwrap();
     }
     progress::new_run(&dir);
-    progress::mark(
-        &dir,
-        progress::Stage::Summary,
-        progress::StageState::Running,
-        Some("Synthetic producer; no model inference"),
-    );
+    // The fixture has no refined version: do not claim an unproduced artifact.
+    for stage in progress::Stage::CHAIN
+        .into_iter()
+        .filter(|stage| *stage != progress::Stage::Refine)
     {
-        let operation = journal::Operation::start(&dir, "summary", "synthetic-producer", None);
-        for index in 1..=35 {
-            operation.log(&format!("Synthetic detail {index}"));
+        progress::mark(
+            &dir,
+            stage,
+            progress::StageState::Running,
+            Some("Synthetic producer; no model inference"),
+        );
+        if stage == progress::Stage::Summary {
+            let operation = journal::Operation::start(&dir, "summary", "synthetic-producer", None);
+            for index in 1..=35 {
+                operation.log(&format!("Synthetic detail {index}"));
+            }
         }
-    }
-    for stage in progress::Stage::CHAIN {
         progress::mark(&dir, stage, progress::StageState::Done, None);
     }
     jobs::JobQueue::mutate(&archive, |queue| {
@@ -296,7 +300,11 @@ fn shared_workspace_fixture() {
             screen.set_size(24, 80);
             // Keep both clients open on the same archive. Keyboard navigation
             // opens the actual notes delivered by the browser, without a mock.
-            writer.write_all(b"\t\tj\r\t").unwrap();
+            assert!(
+                screen.screen().contents().contains("> Разделы"),
+                "entry starts in the sections menu"
+            );
+            writer.write_all(b"j\r\t").unwrap();
             writer.flush().unwrap();
         }
         if reading && !reconnecting && screen.screen().contents().contains("Общая заметка")
@@ -337,27 +345,21 @@ fn shared_workspace_fixture() {
         if reconnect_submitted
             && !opening
             && !screen.screen().contents().contains("Подключение к демону")
-            && screen.screen().contents().contains("Список")
-            && screen.screen().contents().contains("Общий архив UI TUI")
+            && screen.screen().contents().contains("Общая заметка")
         {
-            writer.write_all(b"\t").unwrap();
-            writer.flush().unwrap();
             opening = true;
-            trace_step("archive list seen; sent Tab");
+            trace_step("reconnection preserved notes view and reloaded actual HTTP notes");
         }
         if opening
             && !root.join("terminal-reconnected").exists()
-            && screen
-                .screen()
-                .contents()
-                .contains("Архитектура клиента согласована")
+            && screen.screen().contents().contains("Общая заметка")
         {
             fs::write(
                 root.join("terminal-reconnected"),
                 "same private API verified again",
             )
             .unwrap();
-            trace_step("reconnected summary seen; marker saved");
+            trace_step("reconnected note seen; marker saved");
         }
         if browser.has_exited().unwrap() && !quitting {
             trace_step("browser exited");

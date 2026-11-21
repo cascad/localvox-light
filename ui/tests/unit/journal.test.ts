@@ -1,7 +1,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { groupJournal, journalActive, journalSeconds, journalDuration, journalStageTiming, journalState, mergeJournal, type JournalEntry, type JournalPage } from "../../src/journal-model.ts";
+import { groupJournal, journalActive, journalSeconds, journalDuration, journalStageTiming, journalState, mergeJournal, processingDuration, processingRemainder, type JournalEntry, type JournalPage } from "../../src/journal-model.ts";
+
+test("wall clock partition is readable without losing seconds at formatting boundaries", () => {
+  assert.equal(processingDuration(59.96), "1:00.0");
+  assert.equal(processingDuration(18.452), "0:18.5");
+  assert.equal(processingDuration(0.09), "0:00.1");
+  assert.equal(processingDuration(processingRemainder(18.671, 17.446)), "0:01.3");
+  assert.equal(processingDuration(processingRemainder(21.475, 18.671)), "0:02.8");
+  for (const value of [null, undefined, NaN, -1, Infinity]) assert.equal(processingDuration(value), "—");
+});
 
 const entry = (id: string, extra: Partial<JournalEntry> = {}): JournalEntry => ({ id, run: "r1", stage: "summary", kind: "log", at: "2026-10-31T07:00:00Z", label: "summary", ...extra });
 const page = (events: JournalEntry[], reset = false): JournalPage => ({ events, reset, next_cursor: "next", previous_cursor: "previous", has_more: false, truncated: false, discarded: 0, read_bytes: 0 });

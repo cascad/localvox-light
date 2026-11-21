@@ -110,6 +110,19 @@ export function journalDuration(seconds: number) {
   return `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
 }
 
+/** Tenths keep the displayed wall-clock partition within one second. */
+export function processingDuration(seconds: number | null | undefined) {
+  if (seconds == null || !Number.isFinite(seconds) || seconds < 0) return "—";
+  const tenths = Math.round(seconds * 10);
+  return `${Math.floor(tenths / 600)}:${String(Math.floor(tenths / 10) % 60).padStart(2, "0")}.${tenths % 10}`;
+}
+
+/** Round the partition in the same unit as its total: visible addends must add up. */
+export function processingRemainder(total: number | null | undefined, part: number | null | undefined) {
+  if (total == null || part == null || !Number.isFinite(total) || !Number.isFinite(part) || part < 0 || total < part) return NaN;
+  return (Math.round(total * 10) - Math.round(part * 10)) / 10;
+}
+
 export function journalState(group: JournalGroup, active?: boolean) {
   if (group.state === "cancelled") return { symbol: "■", label: "отменено", cls: "mute" };
   if (group.state === "failed" || group.state === "invalid") return { symbol: "!", label: group.state === "invalid" ? "не подтверждён" : "ошибка", cls: "err" };

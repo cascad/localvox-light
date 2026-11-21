@@ -498,6 +498,19 @@ struct JournalProjection {
 fn journal_lines(a: &App, t: Theme) -> Vec<Line<'static>> {
     journal_projection(a, t).lines
 }
+fn processing_remainder(total: f64, part: f64) -> f64 {
+    // Round the whole partition in tenths, avoiding e.g. 17.4 + 1.2 = 18.7.
+    (total * 10.0).round() / 10.0 - (part * 10.0).round() / 10.0
+}
+
+fn processing_duration(seconds: f64) -> String {
+    if !seconds.is_finite() || seconds < 0.0 {
+        return "—".into();
+    }
+    let tenths = (seconds * 10.0).round() as u64;
+    format!("{}:{:02}.{}", tenths / 600, tenths / 10 % 60, tenths % 10)
+}
+
 fn journal_duration(seconds: Option<f64>) -> String {
     match seconds {
         Some(value) if value > 0.0 && value < 1.0 => "<1 с".into(),
@@ -579,18 +592,52 @@ fn journal_projection(a: &App, t: Theme) -> JournalProjection {
     if let Some(timing) = &a.progress.timing {
         let duration = |v: Option<f64>| {
             v.filter(|s| s.is_finite() && *s >= 0.0)
-                .map(timecode)
+                .map(|s| {
+                    if timing.stages_sec.is_some() {
+                        processing_duration(s)
+                    } else {
+                        timecode(s)
+                    }
+                })
                 .unwrap_or_else(|| "—".into())
         };
         lines.push(Line::from(Span::styled(
             format!(
                 "Ожидание старта: {} · после старта: {} · всего: {}",
-                duration(timing.queue_sec),
+                duration(if timing.stages_sec.is_some() {
+                    timing
+                        .total_sec
+                        .zip(timing.processing_sec)
+                        .map(|(total, part)| processing_remainder(total, part))
+                } else {
+                    timing.queue_sec
+                }),
                 duration(timing.processing_sec),
                 duration(timing.total_sec)
             ),
             Style::default().fg(t.dim),
         )));
+        if let (Some(stages), Some(_), Some(processing)) =
+            (timing.stages_sec, timing.between_sec, timing.processing_sec)
+        {
+            lines.push(Line::from(Span::styled(
+                format!(
+                    "Этапы{}: {} + запуск/ожидание/переходы: {} = после старта: {}",
+                    if timing.overlap_sec.is_some_and(|s| s > 0.0) {
+                        " (без пересечений)"
+                    } else {
+                        ""
+                    },
+                    processing_duration(stages),
+                    processing_duration(processing_remainder(processing, stages)),
+                    timing
+                        .processing_sec
+                        .map(processing_duration)
+                        .unwrap_or_else(|| "—".into())
+                ),
+                Style::default().fg(t.dim),
+            )));
+        }
     }
     if let Some(execution) = &a.progress.execution {
         let elapsed = execution
@@ -1671,6 +1718,38 @@ mod tests {
             failed.contains("ошибка") && failed.contains("00:03"),
             "{failed}"
         );
+    }
+
+    #[test]
+    fn wall_clock_balance_is_visible_with_tenths_and_no_double_counted_overlap() {
+        let mut app = App {
+            focus: 2,
+            tab: Tab::Progress,
+            current: Some("fixture".into()),
+            ..Default::default()
+        };
+        app.progress.timing = Some(localvox_light_client::ProgressTiming {
+            queue_sec: Some(1.0),
+            processing_sec: Some(19.0),
+            total_sec: Some(20.0),
+            stages_sec: Some(14.1),
+            between_sec: Some(4.9),
+            overlap_sec: Some(1.0),
+            ..Default::default()
+        });
+        let mut terminal = Terminal::new(TestBackend::new(180, 40)).unwrap();
+        terminal.draw(|frame| draw(frame, &app)).unwrap();
+        let buffer = terminal.backend().buffer();
+        let text = (0..40)
+            .map(|y| {
+                (0..180)
+                    .map(|x| buffer[(x, y)].symbol())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(text.contains("Этапы (без пересечений): 0:14.1 + запуск/ожидание/переходы: 0:04.9 = после старта: 0:19.0"), "{text}");
+        assert_eq!(processing_duration(59.96), "1:00.0");
     }
 
     #[test]

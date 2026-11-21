@@ -398,6 +398,9 @@ pub struct ProgressTiming {
     pub queue_sec: Option<f64>,
     pub processing_sec: Option<f64>,
     pub total_sec: Option<f64>,
+    pub stages_sec: Option<f64>,
+    pub between_sec: Option<f64>,
+    pub overlap_sec: Option<f64>,
 }
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(default)]

@@ -17,6 +17,12 @@ pub struct Timing {
     pub queue_sec: Option<f64>,
     pub processing_sec: Option<f64>,
     pub total_sec: Option<f64>,
+    /// Union of recorded stage intervals, including retries, without overlap.
+    pub stages_sec: Option<f64>,
+    /// Measured wall time outside stages: startup, scheduling, transitions.
+    pub between_sec: Option<f64>,
+    /// Overlap removed from the sum of stage intervals (not child operations).
+    pub overlap_sec: Option<f64>,
 }
 
 fn timestamp(s: &str) -> Option<f64> {
@@ -50,7 +56,77 @@ pub fn timing(
         queue_sec,
         processing_sec,
         total_sec,
+        ..Default::default()
     }
+}
+
+/// A wall-clock partition, not a sum of nested operation timers. Unknown stage
+/// boundaries leave the partition unknown rather than attributing lost work to gaps.
+fn account_timing(value: &mut Timing, events: &[progress::StageEvent], live: bool, now: &str) {
+    let Some((from, to)) = value.started_at.as_deref().and_then(timestamp).zip(
+        value
+            .ended_at
+            .as_deref()
+            .or(live.then_some(now))
+            .and_then(timestamp),
+    ) else {
+        return;
+    };
+    if to < from {
+        return;
+    }
+    let mut intervals = Vec::new();
+    for stage in Stage::CHAIN {
+        let mut start = None;
+        for event in events.iter().filter(|e| e.stage == stage) {
+            let Some(at) = timestamp(&event.at) else {
+                return;
+            };
+            if at < from || at > to {
+                return;
+            }
+            match event.state {
+                StageState::Running => {
+                    start.get_or_insert(at);
+                }
+                StageState::Done
+                | StageState::Failed
+                | StageState::Cancelled
+                | StageState::Invalid
+                | StageState::Skipped => {
+                    if let Some(begin) = start.take() {
+                        if at < begin {
+                            return;
+                        }
+                        intervals.push((begin, at));
+                    } else if event.state != StageState::Skipped {
+                        return;
+                    }
+                }
+                _ => {}
+            }
+        }
+        if let Some(begin) = start {
+            if !live {
+                return;
+            }
+            intervals.push((begin, to));
+        }
+    }
+    intervals.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let raw = intervals
+        .iter()
+        .map(|(start, end)| end - start)
+        .sum::<f64>();
+    let mut covered = 0.0;
+    let mut boundary = from;
+    for (start, end) in intervals {
+        covered += (end - start.max(boundary)).max(0.0);
+        boundary = boundary.max(end);
+    }
+    value.stages_sec = Some(covered);
+    value.between_sec = Some((to - from - covered).max(0.0));
+    value.overlap_sec = Some((raw - covered).max(0.0));
 }
 
 #[derive(Serialize)]
@@ -549,18 +625,112 @@ pub fn view(session: &Path, job: Option<&Job>, from_link: bool, now: &str) -> Vi
     let mut execution = execution(job, &stages, now, coordinator.as_ref());
     (execution.run, execution.operation) =
         crate::journal::execution_identity(session, job.and_then(|j| j.execution_id.as_deref()));
+    let mut clocks = timing(queued, started, ended, live, now);
+    account_timing(&mut clocks, &events, live, now);
     View {
         at: now.into(),
         stages,
         running: live,
         phase: job.filter(|j| j.state != JobState::Done).map(|j| j.phase),
-        timing: timing(queued, started, ended, live, now),
+        timing: clocks,
         execution,
     }
 }
 
 #[cfg(test)]
 mod tests {
+    fn clock_event(stage: Stage, state: StageState, second: &str) -> progress::StageEvent {
+        progress::StageEvent {
+            stage,
+            state,
+            at: format!("2026-11-21T00:00:{second}Z"),
+            note: None,
+            done: None,
+            total: None,
+        }
+    }
+
+    #[test]
+    fn accounting_partitions_wall_time_with_retries_and_overlapping_stages() {
+        use Stage::*;
+        use StageState::*;
+        let events = vec![
+            clock_event(Download, Running, "01.100"),
+            clock_event(Download, Running, "02"), // heartbeat is not a start
+            clock_event(Download, Done, "05.200"),
+            clock_event(Extract, Running, "04.200"), // one second overlaps
+            clock_event(Extract, Done, "06.200"),
+            clock_event(Transcribe, Running, "07.200"),
+            clock_event(Transcribe, Failed, "08.200"),
+            clock_event(Transcribe, Running, "10.200"),
+            clock_event(Transcribe, Done, "14.200"),
+            clock_event(Refine, Skipped, "14.200"),
+            clock_event(Summary, Running, "15.200"),
+            clock_event(Summary, Done, "19.200"),
+        ];
+        let mut clocks = timing(
+            Some("2026-11-21T00:00:00Z".into()),
+            Some("2026-11-21T00:00:01Z".into()),
+            Some("2026-11-21T00:00:20Z".into()),
+            false,
+            "unused",
+        );
+        account_timing(&mut clocks, &events, false, "unused");
+        assert!((clocks.stages_sec.unwrap() - 14.1).abs() < 0.001);
+        assert!((clocks.between_sec.unwrap() - 4.9).abs() < 0.001);
+        assert!((clocks.overlap_sec.unwrap() - 1.0).abs() < 0.001);
+        assert!(
+            (clocks.stages_sec.unwrap() + clocks.between_sec.unwrap()
+                - clocks.processing_sec.unwrap())
+            .abs()
+                < 0.001
+        );
+        assert_eq!(
+            clocks.queue_sec.unwrap() + clocks.processing_sec.unwrap(),
+            clocks.total_sec.unwrap()
+        );
+    }
+
+    #[test]
+    fn accounting_rejects_unknown_or_invalid_boundaries_and_ticks_only_live_work() {
+        use Stage::*;
+        use StageState::*;
+        let start = "2026-11-21T00:00:00Z";
+        let end = "2026-11-21T00:00:10Z";
+        for events in [
+            vec![clock_event(Summary, Done, "05")],
+            vec![
+                clock_event(Summary, Running, "06"),
+                clock_event(Summary, Done, "05"),
+            ],
+            vec![clock_event(Summary, Running, "01")],
+            vec![clock_event(Summary, Running, "oops")],
+        ] {
+            let mut clocks = timing(
+                Some(start.into()),
+                Some(start.into()),
+                Some(end.into()),
+                false,
+                end,
+            );
+            account_timing(&mut clocks, &events, false, end);
+            assert!(clocks.stages_sec.is_none());
+            assert!(clocks.between_sec.is_none());
+        }
+        let mut clocks = timing(Some(start.into()), Some(start.into()), None, true, end);
+        account_timing(
+            &mut clocks,
+            &[
+                clock_event(Transcribe, Running, "01"),
+                clock_event(Transcribe, Running, "09"),
+            ],
+            true,
+            end,
+        );
+        assert_eq!(clocks.stages_sec, Some(9.0));
+        assert_eq!(clocks.between_sec, Some(1.0));
+    }
+
     #[test]
     fn recook_keeps_verified_preparation_without_reusing_old_stt() {
         let root = tempfile::tempdir().unwrap();

@@ -7,6 +7,98 @@ use localvox_light_core::{
 };
 
 #[test]
+fn producer_cursor_pages_preserve_stage_clocks_in_the_terminal_client() {
+    use localvox_light_core::{
+        journal,
+        progress::{self, Stage, StageState},
+    };
+    use localvox_light_terminal::journal::Journal;
+    let root = tempfile::tempdir().unwrap();
+    session(root.path(), "timed");
+    let dir = root.path().join("sessions/timed");
+    for artifact in [
+        localvox_light_core::processing::TRANSCRIPT,
+        localvox_light_core::processing::SUMMARY,
+    ] {
+        localvox_light_core::processing::record(
+            &dir,
+            artifact,
+            "synthetic producer",
+            localvox_light_core::processing::Outcome::Ok,
+            None,
+            Some(2),
+        )
+        .unwrap();
+    }
+    progress::new_run(&dir);
+    progress::mark(&dir, Stage::Transcribe, StageState::Running, None);
+    let server = journal_http_fixture(root.path(), None);
+    let client = Client::new(&server.address, String::new()).unwrap();
+    let first = client.journal("timed", None, None).unwrap();
+    let run = first.events[0].run.clone();
+    assert!(!run.is_empty());
+    let mut cache = Journal::new();
+    cache.merge(first, false);
+    for stage in [Stage::Transcribe, Stage::Summary] {
+        if stage == Stage::Summary {
+            progress::mark(&dir, stage, StageState::Running, None);
+        }
+        let operation = journal::Operation::start(
+            &dir,
+            &format!("{stage:?}").to_lowercase(),
+            "actual worker operation",
+            None,
+        );
+        progress::progress(&dir, stage, 1, 2);
+        drop(operation);
+        progress::mark(&dir, stage, StageState::Done, None);
+        let mut reads = 0;
+        loop {
+            // Force real HTTP boundaries between start, heartbeat, operation end,
+            // and completion; do not construct already-normalized JournalEntry fixtures.
+            let page: localvox_light_client::JournalPage = client
+                .request(
+                    "GET",
+                    &["api", "sessions", "timed", "journal"],
+                    &[("after", &cache.after), ("limit", "1")],
+                    None,
+                    std::time::Duration::from_secs(3),
+                )
+                .unwrap();
+            assert_eq!(page.events.len(), 1);
+            assert_eq!(page.events[0].run, run);
+            let more = page.has_more;
+            cache.merge(page, false);
+            reads += 1;
+            assert!(reads < 10);
+            if !more {
+                break;
+            }
+        }
+        let progress = client.progress("timed").unwrap();
+        let name = format!("{stage:?}").to_lowercase();
+        let groups = cache.groups();
+        let stage_groups = groups
+            .iter()
+            .filter(|g| g.stage == name && g.operation.is_none())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            stage_groups.len(),
+            1,
+            "a stage must not split into current and historical groups"
+        );
+        let clock = stage_groups[0]
+            .stage_timing(Some(&run), &progress.stages)
+            .expect("actual stage boundaries must survive HTTP polling");
+        let start =
+            chrono::DateTime::parse_from_rfc3339(clock.started_at.as_deref().unwrap()).unwrap();
+        let end = chrono::DateTime::parse_from_rfc3339(clock.ended_at.as_deref().unwrap()).unwrap();
+        assert!(end >= start);
+    }
+    assert!(cache.entries.iter().all(|e| e.run == run));
+}
+
+#[test]
 fn empty_token_from_portable_presets_uses_local_auth_and_keeps_host_origin_checks() {
     let root = tempfile::tempdir().unwrap();
     for token in [None, Some("")] {

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Journal } from "./Journal";
+import { processingDuration, processingRemainder } from "./journal-model";
 import { api, type Session, type Stage, type StageState } from "./api";
 import { usePolling } from "./usePolling";
 
@@ -80,6 +81,11 @@ export function ProgressChain({ session }: { session: Session }) {
 
   if (!prog) return <p className={error ? "err" : "hint"}>{error ? `Статус недоступен: ${error}` : "загрузка…"}</p>;
   const clockNow = error && prog.at ? new Date(prog.at).getTime() : now;
+  const preciseTiming = prog.timing?.stages_sec != null;
+  const showTime = (seconds: number | null | undefined) => preciseTiming
+    ? processingDuration(seconds) : seconds == null ? "—" : hms(seconds);
+  const queueSeconds = preciseTiming
+    ? processingRemainder(prog.timing?.total_sec, prog.timing?.processing_sec) : prog.timing?.queue_sec;
 
   const stages = prog.stages ?? [];
   const heard = new Map(stages.map((s) => [s.stage, s]));
@@ -137,9 +143,14 @@ export function ProgressChain({ session }: { session: Session }) {
         {" "}«Готово» означает, что файл результата проверен. Время ролика не входит в расчёт.
       </p>
       {prog.timing && <p className="hint">
-        Ожидание старта: <b>{prog.timing.queue_sec == null ? "—" : hms(prog.timing.queue_sec)}</b>
-        {" · "}После старта: <b>{prog.timing.processing_sec == null ? "—" : hms(prog.timing.processing_sec)}</b>
-        {" · "}Всего: <b>{prog.timing.total_sec == null ? "—" : hms(prog.timing.total_sec)}</b>
+        Ожидание старта: <b>{showTime(queueSeconds)}</b>
+        {" · "}После старта: <b>{showTime(prog.timing.processing_sec)}</b>
+        {" · "}Всего: <b>{showTime(prog.timing.total_sec)}</b>
+      </p>}
+      {prog.timing?.stages_sec != null && prog.timing.between_sec != null && <p className="hint" data-testid="timing-balance">
+        Этапы{(prog.timing.overlap_sec ?? 0) > 0 ? " (без пересечений)" : ""}: <b>{processingDuration(prog.timing.stages_sec)}</b>
+        {" + запуск / ожидание / переходы: "}<b>{processingDuration(processingRemainder(prog.timing.processing_sec, prog.timing.stages_sec))}</b>
+        {" = после старта: "}<b>{processingDuration(prog.timing.processing_sec)}</b>
       </p>}
       {prog.execution && <div className={["blocked", "failed", "stalled", "attention", "unavailable"].includes(prog.execution.state) ? "note err" : "note"} data-state={prog.execution.state} data-nocopy aria-live="polite">
         <span>

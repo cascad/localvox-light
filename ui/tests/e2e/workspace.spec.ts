@@ -255,6 +255,26 @@ test("completed stage tail uses its own phase clock and preserves a fast child o
   await expect(child.getByLabel("Длительность операции")).toHaveText("<1 с");
 });
 
+test("processing wall clock shows stages plus transitions without double counting", async ({page}) => {
+  await workspace(page);
+  let timing={queue_sec:1,processing_sec:19,total_sec:20,stages_sec:14.1,between_sec:4.9,overlap_sec:1};
+  await page.route("**/progress", route => route.fulfill({json:{running:false,
+    stages:[{stage:"summary",state:"done",started_at:"2026-10-31T06:00:15.200Z",ended_at:"2026-10-31T06:00:19.200Z"}],
+    timing,
+    execution:{run:"r1",state:"done",current:null,operation:null,next:[],message:"Готово"}
+  }}));
+  await page.getByRole("button",{name:"Ход",exact:true}).click();
+  const balance=page.getByTestId("timing-balance");
+  await expect(balance).toHaveText("Этапы (без пересечений): 0:14.1 + запуск / ожидание / переходы: 0:04.9 = после старта: 0:19.0");
+  await page.clock.runFor(5100);
+  await expect(balance).toContainText("0:19.0");
+  await expect(page.getByText("Ожидание старта: 0:01.0 · После старта: 0:19.0 · Всего: 0:20.0")).toBeVisible();
+  timing={queue_sec:2.804,processing_sec:18.671,total_sec:21.475,stages_sec:17.446,between_sec:1.225,overlap_sec:0};
+  await page.clock.runFor(5100);
+  await expect(balance).toHaveText("Этапы: 0:17.4 + запуск / ожидание / переходы: 0:01.3 = после старта: 0:18.7");
+  await expect(page.getByText("Ожидание старта: 0:02.8 · После старта: 0:18.7 · Всего: 0:21.5")).toBeVisible();
+});
+
 test("voice grouping stays active after all audio was read and retains its measured time", async ({ page }) => {
   // Exact elapsed assertions advance only through runFor, independently of runner latency.
   await workspace(page, { time: new Date("2026-10-31T06:00:25Z") });

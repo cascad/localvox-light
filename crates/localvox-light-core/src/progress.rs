@@ -150,7 +150,17 @@ pub fn progress(session_dir: &Path, stage: Stage, done: u32, total: u32) {
 }
 
 fn append(session_dir: &Path, event: StageEvent) {
-    let Ok(mut line) = serde_json::to_string(&event) else {
+    // Each record must identify its run independently: cursor pages need not
+    // contain the marker, and workers append from separate processes.
+    #[derive(Serialize)]
+    struct Record {
+        #[serde(flatten)]
+        event: StageEvent,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        run: Option<String>,
+    }
+    let (run, _) = crate::journal::execution_identity(session_dir, None);
+    let Ok(mut line) = serde_json::to_string(&Record { event, run }) else {
         return;
     };
     line.push('\n');

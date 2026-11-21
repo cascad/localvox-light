@@ -1,5 +1,14 @@
 # Покрытие требований и состояние реализации
 
+PIPE-011 / US-007, 2026-11-21: [cursor-идентичность и баланс времени](../changes/fix-journal-stage-durations/evidence/cursor-accounting.md).
+Исправлено разделение свежих этапов на исторические группы при after-poll.
+Producer → HTTP по одному событию → группы TUI и общий настоящий UI/TUI стенд
+прошли; исходная запись проверена read-only 71 последовательным запросом.
+Core 451 / API 94 / TUI 218 library tests passed, 9 ConPTY, 16 UI unit и 82 browser
+e2e passed; model/hardware/helper ignores перечислены в evidence, не выданы за
+полную аппаратную приёмку. Баланс учитывает переходы/ожидание, повторы и объединяет
+пересечения. F:\lv обновлён и проверен локально, публикации на GitHub не было.
+
 Пустой плеер RUN-005 (delta), ARCH-002, US-015, 2026-11-21:
 [placeholder и native diagnostics](../changes/add-vox-entry-command/evidence/idle-player-native-diagnostics.md).
 Без выбранной записи нет фиктивных часов/загрузки волны. 66 render tests и

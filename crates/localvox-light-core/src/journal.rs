@@ -447,7 +447,7 @@ pub fn read(session: &Path, query: &Query) -> Result<Page> {
     );
     file.seek(SeekFrom::Start(start))?;
     let mut bytes = Vec::new();
-    file.take(end - start).read_to_end(&mut bytes)?;
+    (&mut file).take(end - start).read_to_end(&mut bytes)?;
     let mut page = Page {
         reset,
         truncated: start > 0 && !forward,
@@ -498,15 +498,50 @@ pub fn read(session: &Path, query: &Query) -> Result<Page> {
                 } else {
                     page.discarded += 1;
                 }
-            } else if let Some(r) = value.get("run").and_then(|v| v.as_str()) {
-                run = safe_text(r).chars().take(128).collect();
-            } else if let Ok(event) = serde_json::from_value::<crate::progress::StageEvent>(value) {
+            } else if value.as_object().is_some_and(|o| o.len() == 1)
+                && value.get("run").and_then(|v| v.as_str()).is_some()
+            {
+                run = safe_text(value["run"].as_str().unwrap())
+                    .chars()
+                    .take(128)
+                    .collect();
+            } else if let Ok(event) =
+                serde_json::from_value::<crate::progress::StageEvent>(value.clone())
+            {
+                let explicit_run = value.get("run").and_then(|v| v.as_str());
+                if explicit_run.is_none() && run.is_empty() && start > 0 {
+                    // Legacy records have no own identity. Look for a real marker
+                    // before this page using only the *remaining* 1 MiB I/O budget.
+                    // Never guess from current metadata or a structured operation.
+                    let budget = MAX_SCAN.saturating_sub(page.read_bytes.saturating_sub(33));
+                    let context_start = start.saturating_sub(budget);
+                    file.seek(SeekFrom::Start(context_start))?;
+                    let mut context = Vec::new();
+                    (&mut file)
+                        .take(start - context_start)
+                        .read_to_end(&mut context)?;
+                    page.read_bytes += context.len() as u64;
+                    for (i, line) in context.split_inclusive(|b| *b == b'\n').enumerate() {
+                        if i == 0 && context_start > 0 {
+                            continue;
+                        }
+                        if let Ok(mark) = serde_json::from_slice::<serde_json::Value>(line) {
+                            if mark.as_object().is_some_and(|o| o.len() == 1) {
+                                if let Some(r) = mark.get("run").and_then(|v| v.as_str()) {
+                                    run = safe_text(r).chars().take(128).collect();
+                                }
+                            }
+                        }
+                    }
+                }
                 rows.push((
                     offset,
                     next,
                     Entry {
                         id: cursor(&generation, offset, false),
-                        run: run.clone(),
+                        run: explicit_run
+                            .map(|r| safe_text(r).chars().take(128).collect())
+                            .unwrap_or_else(|| run.clone()),
                         stage: format!("{:?}", event.stage).to_lowercase(),
                         kind: "stage".into(),
                         at: safe_text(&event.at).chars().take(64).collect(),
@@ -573,6 +608,84 @@ pub fn read(session: &Path, query: &Query) -> Result<Page> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn self_contained_stages_survive_a_marker_outside_the_scan_budget() {
+        use crate::progress::{self, Stage, StageState};
+        let dir = tempfile::tempdir().unwrap();
+        progress::new_run(dir.path());
+        let (run, _) = execution_identity(dir.path(), None);
+        append_line(dir.path(), &vec![b'x'; MAX_SCAN as usize + 100]).unwrap();
+        append_line(dir.path(), b"\n").unwrap();
+        progress::mark(dir.path(), Stage::Summary, StageState::Running, None);
+        progress::mark(dir.path(), Stage::Summary, StageState::Done, None);
+        let page = read(
+            dir.path(),
+            &Query {
+                limit: MAX_EVENTS,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(page.events.len(), 2);
+        assert!(page
+            .events
+            .iter()
+            .all(|event| Some(&event.run) == run.as_ref()));
+        assert!(page.read_bytes <= MAX_SCAN + 33);
+        // Stage records with their own run must not be mistaken for a run marker.
+        assert_eq!(progress::read_run(dir.path()).events.len(), 2);
+    }
+
+    #[test]
+    fn stage_identity_survives_successive_cursor_reads_and_legacy_pages() {
+        use crate::progress::{self, Stage, StageState};
+        let dir = tempfile::tempdir().unwrap();
+        progress::new_run(dir.path());
+        progress::mark(dir.path(), Stage::Download, StageState::Running, None);
+        let first = read(dir.path(), &Query::default()).unwrap();
+        let run = first.events[0].run.clone();
+        assert!(!run.is_empty());
+        let operation = Operation::start(dir.path(), "download", "download audio", None);
+        drop(operation);
+        progress::mark(dir.path(), Stage::Download, StageState::Done, None);
+        let next = read(
+            dir.path(),
+            &Query {
+                after: Some(first.next_cursor),
+                limit: MAX_EVENTS,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(next.events.len(), 3);
+        assert!(
+            next.events.iter().all(|event| event.run == run),
+            "a cursor page must retain its producer run"
+        );
+        let legacy = tempfile::tempdir().unwrap();
+        append_line(
+            legacy.path(),
+            b"{\"run\":\"old\"}\n{\"stage\":\"summary\",\"state\":\"running\",\"at\":\"start\"}\n",
+        )
+        .unwrap();
+        let first = read(legacy.path(), &Query::default()).unwrap();
+        begin_run(legacy.path(), "unrelated-metadata");
+        append_line(
+            legacy.path(),
+            b"{\"stage\":\"summary\",\"state\":\"done\",\"at\":\"end\"}\n",
+        )
+        .unwrap();
+        let next = read(
+            legacy.path(),
+            &Query {
+                after: Some(first.next_cursor),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(next.events[0].run, "old");
+        assert!(next.read_bytes <= MAX_SCAN + 33);
+    }
     #[test]
     fn operation_identity_is_bound_to_its_attempt_and_old_ends_cannot_clear_a_retry() {
         let dir = tempfile::tempdir().unwrap();

@@ -370,6 +370,9 @@ export interface Progress {
     queue_sec?: number | null;
     processing_sec?: number | null;
     total_sec?: number | null;
+    stages_sec?: number | null;
+    between_sec?: number | null;
+    overlap_sec?: number | null;
   };
 }
 
