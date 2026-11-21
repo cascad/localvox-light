@@ -1011,9 +1011,12 @@ fn spawn_http_api(
 ) -> Option<String> {
     let bind = std::env::var("LOCALVOX_API_BIND")
         .unwrap_or_else(|_| localvox_light_core::presets::baked("LOCALVOX_API_BIND").into());
-    let token = std::env::var("LOCALVOX_API_TOKEN").ok();
-    if token.is_none() && !bind.starts_with("127.0.0.1") && !bind.starts_with("localhost") {
-        tracing::warn!("HTTP API: bind {bind} without LOCALVOX_API_TOKEN — API not started");
+    let config = localvox_light_api::http::HttpConfig {
+        bind: bind.clone(),
+        token: std::env::var("LOCALVOX_API_TOKEN").ok(),
+    };
+    if let Err(error) = config.validate_bind() {
+        tracing::warn!("HTTP API not started: {error:#}");
         return None;
     }
     let server = match localvox_light_api::http::bind(&bind) {
@@ -1036,7 +1039,7 @@ fn spawn_http_api(
             if let Err(e) = localvox_light_api::http::serve_application(
                 server,
                 archive,
-                localvox_light_api::http::HttpConfig { bind, token },
+                config,
                 Some(application),
             ) {
                 tracing::error!("HTTP API: {e:#}");

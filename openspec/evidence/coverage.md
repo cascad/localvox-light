@@ -1,5 +1,14 @@
 # Покрытие требований и состояние реализации
 
+Регрессия RUN-005/004 (delta), API-001, SETUP-007 (delta), 2026-11-21:
+[пустой токен при запуске vox](../changes/add-vox-entry-command/evidence/empty-token-startup.md).
+В опубликованном v0.2.5 portable preset превращал пустой API token в включённую
+авторизацию; HTTP 401 скрывался за readiness timeout. Исправлено в исходниках
+и по поручению владельца в F:\lv, без нового release. Red→green, 43 HTTP tests,
+6 launcher tests, настоящий ConPTY и оптимизированный standalone HTTP пройдены.
+Bundle check пройден, .env/модели/архив сохранены; пользовательский повтор vox,
+новая публикация и Mac/Linux runtime остаются отдельной проверкой.
+
 Полная публичная установка SETUP-001/003/009 (delta), INV-SETUP-001, PIPE-008/011,
 2026-11-21: [v0.2.5 опубликован и установлен начисто на Windows](../changes/add-interactive-install-wizard/evidence/release-v0.2.5.md).
 Пять release targets и Interface зелёные, latest/assets/digests/source сверены.

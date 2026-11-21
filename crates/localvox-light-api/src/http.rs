@@ -72,6 +72,28 @@ pub struct HttpConfig {
     pub bind: String,
     pub token: Option<String>,
 }
+impl HttpConfig {
+    /// An empty env field means no credential, including when inherited from vox.
+    pub fn access_token(&self) -> Option<&str> {
+        self.token.as_deref().filter(|token| !token.is_empty())
+    }
+
+    pub fn validate_bind(&self) -> Result<()> {
+        let local = self
+            .bind
+            .parse::<std::net::SocketAddr>()
+            .is_ok_and(|address| address.ip().is_loopback())
+            || self.bind.rsplit_once(':').is_some_and(|(host, port)| {
+                host.eq_ignore_ascii_case("localhost") && port.parse::<u16>().is_ok()
+            });
+        anyhow::ensure!(
+            self.access_token().is_some() || local,
+            "bind {} without a token: set LOCALVOX_API_TOKEN for access from outside localhost",
+            self.bind
+        );
+        Ok(())
+    }
+}
 
 /// A synchronous bind — the "port is busy" error is visible to the caller right away,
 /// not in the log of a background thread.
@@ -80,6 +102,7 @@ pub fn bind(addr: &str) -> Result<Server> {
 }
 
 pub fn run_http(archive: Arc<Archive>, cfg: HttpConfig) -> Result<()> {
+    cfg.validate_bind()?;
     let server = bind(&cfg.bind)?;
     serve(server, archive, cfg)
 }
@@ -127,10 +150,11 @@ fn serve_with(
     budget: RequestBudget,
     mut spawn: impl FnMut(RequestHandler) -> std::io::Result<()>,
 ) -> Result<()> {
+    cfg.validate_bind()?;
     tracing::info!(
         "HTTP API: http://{} (token: {})",
         cfg.bind,
-        if cfg.token.is_some() {
+        if cfg.access_token().is_some() {
             "enabled"
         } else {
             "none — localhost only"
@@ -379,9 +403,9 @@ fn handle_request(
         if let Some(rest) = path.strip_prefix("/api/sessions/") {
             if let Some((name, "audio.wav")) = rest.split_once('/') {
                 let q_token = query_param(query, "token");
-                let ok = match &cfg.token {
+                let ok = match cfg.access_token() {
                     Some(t) => {
-                        q_token.as_deref() == Some(t.as_str())
+                        q_token.as_deref() == Some(t)
                             || auth_header.as_deref() == Some(&format!("Bearer {t}"))
                     }
                     None => is_local,
@@ -400,7 +424,7 @@ fn handle_request(
     // too, otherwise a third-party site, through the victim's browser (CSRF / DNS
     // rebinding), writes notes and reads the archive. With a token this check is not
     // applied: there the Host is a LAN address, and the token is what protects.
-    if cfg.token.is_none() {
+    if cfg.access_token().is_none() {
         let host = request
             .headers()
             .iter()
@@ -559,7 +583,7 @@ fn respond_json(request: tiny_http::Request, status: u16, payload: Value) {
 }
 
 fn authorized(cfg: &HttpConfig, auth_header: Option<&str>, is_local: bool) -> bool {
-    match &cfg.token {
+    match cfg.access_token() {
         Some(t) => {
             let expected = format!("Bearer {t}");
             auth_header.is_some_and(|h| ct_eq(h.as_bytes(), expected.as_bytes()))

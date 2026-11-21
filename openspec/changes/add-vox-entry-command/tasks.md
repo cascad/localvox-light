@@ -9,3 +9,8 @@
 
 - [x] 2.1 Включить vox в package/installers и default PATH registration с opt-out; actual Windows package/install/check/reconcile и portable delivery fixtures, без глобальных изменений тестами.
 - [x] 2.2 Выполнить relevant TUI/launcher/delivery/spec checks, обновить evidence/coverage и commit; native Mac/host UI оставить not-run. Зафиксировать обсуждение полного выхода отдельным proposal, не выдавать его за готовую функцию.
+
+## 3. Регрессия запуска после установки, 2026-11-21
+
+- [x] 3.1 Воспроизвести пустой LOCALVOX_API_TOKEN из portable presets и исправить единое определение настроенного токена для HTTP/daemon/standalone API с сохранением loopback/Host/Origin и защиты LAN; проверить настоящий HTTP и авторизованный доступ без capture. Red→green, 43 HTTP tests и оптимизированный настоящий API пройдены. [Результаты](evidence/empty-token-startup.md).
+- [x] 3.2 Сохранить конкретный отказ HTTP/совместимости при ожидании запущенного демона вместо ложного startup timeout; проверить launcher/native TUI, обновить справочник/evidence и закоммитить. Рабочий пользовательский демон и архив не перезапускать ради проверок. Launcher 6 passed / 1 helper ignored, настоящий ConPTY passed; по прямому поручению владельца после его выхода через трей обновлены бинарники F:\lv с backup и проверкой комплекта. [Границы](evidence/empty-token-startup.md).

@@ -50,22 +50,12 @@ fn main() -> Result<()> {
 
     // exposing the API to the network without a token is forbidden (the archive is
     // private)
-    if cli.token.is_none()
-        && !cli.bind.starts_with("127.0.0.1")
-        && !cli.bind.starts_with("localhost")
-    {
-        anyhow::bail!(
-            "bind {} without a token: set --token/LOCALVOX_API_TOKEN for access from outside localhost",
-            cli.bind
-        );
-    }
+    let config = HttpConfig {
+        bind: cli.bind,
+        token: cli.token,
+    };
+    config.validate_bind()?;
 
     let archive = Arc::new(Archive::new(cli.work_dir));
-    run_http(
-        archive,
-        HttpConfig {
-            bind: cli.bind,
-            token: cli.token,
-        },
-    )
+    run_http(archive, config)
 }

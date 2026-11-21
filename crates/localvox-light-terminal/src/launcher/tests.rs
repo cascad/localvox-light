@@ -173,6 +173,22 @@ fn failed_and_timed_out_starts_are_bounded_and_never_retried() {
 }
 
 #[test]
+fn authorization_failure_after_start_is_reported_instead_of_a_readiness_timeout() {
+    let directory = tempfile::tempdir().unwrap();
+    let marker = directory.path().join("alive");
+    fs::write(&marker, "keep fixture alive").unwrap();
+    let client = unused_client();
+    let result = ensure(&client, true, START_TIMEOUT, || {
+        Ok(helper(&client, &marker, "unauthorized"))
+    });
+    fs::remove_file(&marker).unwrap();
+    wait_file(&marker.with_extension("exited"));
+    let error = format!("{:#}", result.unwrap_err());
+    assert!(error.contains("401"), "{error}");
+    assert!(!error.contains("не стал готов"), "{error}");
+}
+
+#[test]
 #[ignore = "bounded daemon child fixture invoked by launcher process tests"]
 fn daemon_fixture() {
     let Ok(config) = std::env::var("LOCALVOX_LAUNCHER_FIXTURE") else {
@@ -186,14 +202,21 @@ fn daemon_fixture() {
             std::process::exit(7);
         }
         "timeout" => std::thread::sleep(Duration::from_secs(4)),
-        "ready" => {
+        "ready" | "unauthorized" => {
             let server =
                 Server::http(address.trim_start_matches("http://").trim_end_matches('/')).unwrap();
             let deadline = Instant::now() + START_TIMEOUT + Duration::from_secs(2);
             while marker.exists() && Instant::now() < deadline {
                 if let Some(request) = server.recv_timeout(Duration::from_millis(20)).unwrap() {
                     assert_eq!(request.url(), "/api/health");
-                    request.respond(Response::from_string(health())).unwrap();
+                    request
+                        .respond(if mode == "unauthorized" {
+                            Response::from_string("{\"error\":\"unauthorized\"}")
+                                .with_status_code(401)
+                        } else {
+                            Response::from_string(health())
+                        })
+                        .unwrap();
                 }
             }
         }

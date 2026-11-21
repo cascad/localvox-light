@@ -73,9 +73,19 @@ fn ensure(
             reap_later(child);
             bail!("API не стал готов за {} с. Проверьте localvox-light --daemon; подключитесь повторно через палитру", budget.as_secs_f32());
         }
-        if compatible(client, remaining.min(Duration::from_millis(500))).is_ok() {
-            reap_later(child);
-            return Ok(());
+        match compatible(client, remaining.min(Duration::from_millis(500))) {
+            Ok(()) => {
+                reap_later(child);
+                return Ok(());
+            }
+            Err(error)
+                if error
+                    .downcast_ref::<localvox_light_client::NetworkUnavailable>()
+                    .is_some() => {}
+            Err(error) => {
+                reap_later(child);
+                return Err(error.context("Демон ответил, но подключение не подтверждено"));
+            }
         }
         std::thread::sleep(
             deadline

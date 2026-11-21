@@ -7,6 +7,84 @@ use localvox_light_core::{
 };
 
 #[test]
+fn empty_token_from_portable_presets_uses_local_auth_and_keeps_host_origin_checks() {
+    let root = tempfile::tempdir().unwrap();
+    for token in [None, Some("")] {
+        let server = journal_http_fixture(root.path(), token);
+        let client = Client::new(&server.address, String::new()).unwrap();
+        assert!(client.health().unwrap().compatible());
+        assert!(client.sessions().unwrap().is_empty());
+        let url = format!("{}/api/health", server.address);
+        for (header, value) in [("Host", "evil.example"), ("Origin", "https://evil.example")] {
+            assert!(matches!(
+                ureq::get(&url).set(header, value).call(),
+                Err(ureq::Error::Status(403, _))
+            ));
+        }
+        assert_eq!(
+            respond(
+                &Archive::new(root.path().into()),
+                &cfg(token),
+                &Method::Get,
+                "/api/health",
+                Some("Bearer "),
+                false,
+                ""
+            )
+            .0,
+            401
+        );
+    }
+    let server = journal_http_fixture(root.path(), Some("synthetic-token"));
+    assert!(Client::new(&server.address, String::new())
+        .unwrap()
+        .health()
+        .is_err());
+    assert!(Client::new(&server.address, "synthetic-token".into())
+        .unwrap()
+        .health()
+        .unwrap()
+        .compatible());
+}
+
+#[test]
+fn empty_api_token_never_authorizes_a_network_bind() {
+    for token in [None, Some("")] {
+        for bind in [
+            "127.0.0.1:3017",
+            "127.0.0.2:3017",
+            "[::1]:3017",
+            "localhost:3017",
+        ] {
+            let config = HttpConfig {
+                bind: bind.into(),
+                token: token.map(str::to_owned),
+            };
+            assert!(config.validate_bind().is_ok(), "{bind}");
+        }
+        for bind in [
+            "0.0.0.0:3017",
+            "[::]:3017",
+            "192.0.2.1:3017",
+            "localhost.evil:3017",
+            "127.0.0.1.evil:3017",
+        ] {
+            let config = HttpConfig {
+                bind: bind.into(),
+                token: token.map(str::to_owned),
+            };
+            assert!(config.validate_bind().is_err(), "{bind}");
+        }
+    }
+    assert!(HttpConfig {
+        bind: "0.0.0.0:3017".into(),
+        token: Some("synthetic-token".into())
+    }
+    .validate_bind()
+    .is_ok());
+}
+
+#[test]
 fn missing_summary_is_an_empty_document_but_missing_sessions_and_read_failures_still_fail() {
     let root = tempfile::tempdir().unwrap();
     session(root.path(), "no-summary");
