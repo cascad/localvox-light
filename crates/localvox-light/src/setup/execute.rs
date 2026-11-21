@@ -46,14 +46,12 @@ pub(super) fn apply_owned(
 
 pub(super) fn apply_actions(plan: &Plan, layout: &Layout, install: &Path) -> Result<()> {
     for action in &plan.actions {
-        println!(
-            "\n└ {}",
-            Plan {
-                actions: vec![action.clone()],
-                changes: vec![]
-            }
-            .describe()[0]
-        );
+        let label = Plan {
+            actions: vec![action.clone()],
+            changes: vec![],
+        }
+        .describe()[0]
+            .clone();
         match action {
             Action::Download {
                 component,
@@ -63,7 +61,7 @@ pub(super) fn apply_actions(plan: &Plan, layout: &Layout, install: &Path) -> Res
             } => {
                 // Another successful attempt may already have completed the work.
                 if component.validate(layout, destination).is_ok() {
-                    println!("  Уже готово; загрузка пропущена.");
+                    println!("│ ✓ {label} · Уже готово");
                     continue;
                 }
                 let mut cmd = script_command(install, "fetch-models");
@@ -92,18 +90,19 @@ pub(super) fn apply_actions(plan: &Plan, layout: &Layout, install: &Path) -> Res
                     "PATH",
                     super::tools::command_path(&Default::default(), install)?,
                 );
-                run_command(cmd)?;
+                run_command_named(cmd, &label)?;
                 component
                     .validate(layout, destination)
                     .context("Загрузчик завершился, но комплект модели не готов")?;
             }
             Action::InstallOllama => {
                 if probe::cli().is_some() || probe::tags("http://localhost:11434/v1").is_ok() {
-                    println!("  Ollama уже есть; установка пропущена.");
+                    println!("│ ✓ Ollama уже установлена");
                     continue;
                 }
                 // Deliberate OS-owned handoff, outside worker kill-on-close jobs: the official
                 // installer can launch the persistent Ollama app. Never terminate that app.
+                println!("└ {label}");
                 let status = script_command(install, "setup-ollama")
                     .arg(if cfg!(windows) {
                         "-CacheDir"
@@ -121,7 +120,12 @@ pub(super) fn apply_actions(plan: &Plan, layout: &Layout, install: &Path) -> Res
             Action::EnsureTag { base, model, gguf } => {
                 ensure_tag(base, model, gguf.as_deref(), install)?
             }
-            Action::EnsureOllama { base } => ensure_ollama(base, install)?,
+            Action::EnsureOllama { base } => {
+                let mut activity = localvox_setup_ui::activity::Activity::start(label);
+                let result = ensure_ollama(base, install);
+                activity.finish(result.is_ok());
+                result?;
+            }
         }
     }
     Ok(())
@@ -213,10 +217,21 @@ pub fn ensure_ollama(base: &str, install: &Path) -> Result<()> {
 }
 
 pub fn run_command(cmd: Command) -> Result<()> {
-    let (observer, receiver, _) = localvox_light_process::OutputObserver::channel(16);
+    run_command_named(cmd, "Выполнение действия")
+}
+
+pub fn run_command_named(cmd: Command, label: &str) -> Result<()> {
+    let mut activity = localvox_setup_ui::activity::Activity::start(label);
+    let mut stdout = activity.writer();
+    let mut stderr = activity.writer();
+    let (observer, receiver, dropped) = localvox_light_process::OutputObserver::channel(64);
     let display = std::thread::spawn(move || {
         for chunk in receiver {
-            eprint!("{}", String::from_utf8_lossy(&chunk.bytes));
+            let writer = match chunk.stream {
+                localvox_light_process::Stream::Stdout => &mut stdout,
+                localvox_light_process::Stream::Stderr => &mut stderr,
+            };
+            let _ = writer.write_all(&chunk.bytes);
         }
     });
     let output = localvox_light_process::run_observed(
@@ -224,23 +239,36 @@ pub fn run_command(cmd: Command) -> Result<()> {
         None,
         localvox_light_process::Limits::new(Duration::from_secs(4 * 3600)),
         || false,
-        |_, elapsed| eprintln!("  Выполняется · {} мин", elapsed.as_secs() / 60),
+        |_, _| {},
         Some(observer),
     );
     let _ = display.join();
     let output = output?;
-    anyhow::ensure!(
-        output.termination.success(),
-        "Действие не завершено: {:?}",
-        output.termination
-    );
+    let success = output.termination.success();
+    if !success && dropped.load(std::sync::atomic::Ordering::Relaxed) != 0 {
+        let mut writer = activity.writer();
+        let tail = &output.stderr[output.stderr.len().saturating_sub(16 * 1024)..];
+        let _ = writer.write_all(tail);
+        let _ = writer.flush();
+    }
+    activity.finish(success);
+    if !success {
+        use localvox_light_process::Termination;
+        let reason = match output.termination {
+            Termination::Exited(status) => format!("процесс завершился: {status}"),
+            Termination::Cancelled => "действие отменено".into(),
+            Termination::TimedOut => "истекло время ожидания".into(),
+            Termination::OutputLimit => "превышен предел размера журнала".into(),
+        };
+        anyhow::bail!("{label}: {reason}");
+    }
     Ok(())
 }
 
 pub fn ensure_tag(base: &str, model: &str, gguf: Option<&Path>, install: &Path) -> Result<()> {
     super::plan::valid_tag(model)?;
     if probe::has_tag(&probe::tags(base)?, model) {
-        println!("  Модель уже есть; pull/import пропущен.");
+        println!("│ ✓ Модель сводки уже готова: {model}");
         return Ok(());
     }
     if let Some(file) = gguf {
@@ -268,8 +296,10 @@ pub fn ensure_tag(base: &str, model: &str, gguf: Option<&Path>, install: &Path) 
                 "OLLAMA_HOST",
                 probe::endpoint(base, "")?.trim_end_matches('/'),
             );
-        run_command(command)?;
+        run_command_named(command, &format!("Импортировать модель сводки: {model}"))?;
     } else {
+        let mut activity =
+            localvox_setup_ui::activity::Activity::start(format!("Скачать модель сводки: {model}"));
         let url = probe::endpoint(base, "api/pull")?;
         let response = ureq::AgentBuilder::new()
             .timeout(Duration::from_secs(4 * 3600))
@@ -278,10 +308,12 @@ pub fn ensure_tag(base: &str, model: &str, gguf: Option<&Path>, install: &Path) 
             .post(&url)
             .send_json(serde_json::json!({"model": model, "stream": true}))
             .map_err(|_| anyhow::anyhow!("Не удалось начать скачивание модели Ollama"))?;
-        pull_progress(
+        let result = pull_progress(
             std::io::BufReader::new(response.into_reader()),
-            &mut std::io::stderr(),
-        )?;
+            &mut activity.writer(),
+        );
+        activity.finish(result.is_ok());
+        result?;
     }
     anyhow::ensure!(
         probe::has_tag(&probe::tags(base)?, model),
@@ -321,4 +353,50 @@ pub fn pull_progress(mut input: impl BufRead, out: &mut impl Write) -> Result<()
         "Поток скачивания оборвался до подтверждения success"
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn command_failure_keeps_its_stage_and_child_error_in_plain_output() {
+        let output = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "setup::execute::tests::command_output_fixture",
+                "--ignored",
+                "--nocapture",
+            ])
+            .env("LOCALVOX_SETUP_OUTPUT_FIXTURE", "1")
+            .env("FORCE_COLOR", "1")
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let text = String::from_utf8_lossy(&output.stderr);
+        assert!(text.contains("Проверка модели"), "{text}");
+        assert!(text.contains("checksum-test-failure"), "{text}");
+        assert!(text.contains("× Ошибка"), "{text}");
+        assert!(
+            !text.contains('\u{1b}') && !text.contains("Выполняется ·"),
+            "{text}"
+        );
+    }
+
+    #[test]
+    #[ignore = "subprocess fixture; invoked by command_failure test"]
+    fn command_output_fixture() {
+        assert!(std::env::var_os("LOCALVOX_SETUP_OUTPUT_FIXTURE").is_some());
+        let mut command = if cfg!(windows) {
+            let mut command = Command::new("cmd.exe");
+            command.args(["/D", "/C", "echo checksum-test-failure 1>&2 & exit /b 7"]);
+            command
+        } else {
+            let mut command = Command::new("sh");
+            command.args(["-c", "printf 'checksum-test-failure\\n' >&2; exit 7"]);
+            command
+        };
+        command.env_remove("FORCE_COLOR");
+        assert!(run_command_named(command, "Проверка модели").is_err());
+    }
 }

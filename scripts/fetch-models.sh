@@ -112,7 +112,10 @@ for ci in $(seq 0 $((n_comp - 1))); do
     approx="$(jq -r '.approx' <<<"$comp")"
     required="$(jq -r '.required' <<<"$comp")"
 
-    wanted "$id" "$required" || { echo "— $title: пропущено"; continue; }
+    wanted "$id" "$required" || {
+        [[ ${#ONLY[@]} -gt 0 ]] || echo "— $title: Не выбрано"
+        continue
+    }
     echo "$title (~$approx)"
     component_dir="$(jq -r '.directory' <<<"$comp")"
     component_path="$(jq -r --arg id "$id" '.components[] | select(.id == $id) | .path // ""' <<<"$MODEL_LOCATIONS")"

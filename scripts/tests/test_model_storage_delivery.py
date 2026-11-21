@@ -21,6 +21,18 @@ BASH = os.getenv('LOCALVOX_TEST_BASH') or (r'C:\Program Files\Git\bin\bash.exe' 
 
 
 class ModelStorageDelivery(unittest.TestCase):
+    def test_component_download_omits_other_steps_and_explicit_skip_is_understandable(self):
+        for shell in self.shells():
+            with self.subTest(shell=shell):
+                result = self.run_fetch(shell, '-Only' if shell == 'ps' else '--only', 'gigaam')
+                output = result.stdout.decode('utf-8', errors='replace')
+                self.assertNotIn('пропущено', output)
+                self.assertNotIn('GLiNER', output)
+                self.assertNotIn('Диаризация', output)
+                result = self.run_fetch(shell, '-Skip' if shell == 'ps' else '--skip', 'ner',
+                                        '-Check' if shell == 'ps' else '--check', expected=1)
+                self.assertIn('Не выбрано', result.stdout.decode('utf-8', errors='replace'))
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='localvox-model-paths-')
         self.addCleanup(self.temp.cleanup)

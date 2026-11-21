@@ -20,7 +20,38 @@ fn probe(root: &Path) {
 }
 
 fn while_scan_is_paused(post: bool) {
+    let _env = super::tests::POST_ENV_LOCK
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
     let root = tempfile::tempdir().unwrap();
+    // This test isolates queue locking, not fingerprints of whatever real models
+    // happen to be installed on the developer's machine (possibly gigabytes).
+    let keys: Vec<String> = ["vosk", "gigaam", "diarize", "ner"]
+        .into_iter()
+        .map(|id| localvox_light_core::model_paths::component(id).env.clone())
+        .collect();
+    struct Restore(Vec<(String, Option<String>)>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            localvox_light_core::settings::apply_live(&self.0);
+        }
+    }
+    let _restore = Restore(
+        keys.iter()
+            .map(|key| (key.clone(), std::env::var(key).ok()))
+            .collect(),
+    );
+    let absent = root
+        .path()
+        .join("models-not-used-by-this-test")
+        .display()
+        .to_string();
+    localvox_light_core::settings::apply_live(
+        &keys
+            .into_iter()
+            .map(|key| (key, Some(absent.clone())))
+            .collect::<Vec<_>>(),
+    );
     probe(root.path());
     let work_dir = root.path();
     let (entered_tx, entered) = mpsc::channel();

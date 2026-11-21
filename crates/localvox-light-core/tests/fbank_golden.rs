@@ -119,6 +119,7 @@ fn the_voice_vector_matches_the_reference_when_the_model_is_installed() {
         .sum::<f64>()
         .sqrt();
     let cosine = dot / (na * nb);
+    eprintln!("voice cosine {cosine:.8}, dimensions {}", ours.len());
 
     // The cosine is exactly what we later tell people apart by. Let it diverge — and «the
     // same person» stops being the same person.

@@ -79,6 +79,8 @@ jobs:
       - name: Source checker contracts (local HTTP)
         run: python -m unittest discover -s scripts/tests -p test_model_sources.py -v
       - name: Verify public HEAD and bounded Range downloads (no weights)
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: python scripts/check-model-sources.py
 
   build:

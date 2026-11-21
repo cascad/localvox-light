@@ -224,6 +224,29 @@ fn recommended_fresh_and_existing_reuse_are_safe() {
         }
         demo.capture(&format!("{scenario}-review"));
         demo.send(ENTER);
+        demo.wait("Демо завершено");
+        let display = demo.parser.screen().contents();
+        let components = display
+            .lines()
+            .find(|line| line.contains("Демо · проверка компонентов"))
+            .expect("child log remains visible");
+        assert!(
+            !components.contains("готовые файлы"),
+            "logs remain separate terminal lines"
+        );
+        assert!(display
+            .lines()
+            .any(|line| line.contains("Демо · готовые файлы используются повторно")));
+        let complete = display
+            .lines()
+            .find(|line| line.contains("Готово · Демо"))
+            .expect("activity completion");
+        assert!(
+            !complete.contains("Различать голоса"),
+            "completion ends before the next installer block"
+        );
+        assert!(!display.contains("Выполняется · 0 мин"));
+        demo.capture(&format!("{scenario}-activity"));
         demo.finish("Демо завершено");
     }
 }

@@ -84,7 +84,7 @@ function Get-Verified([string]$url, [string]$target, $wantSha, $note) {
 
 foreach ($comp in $manifest.components) {
     if (-not (Test-Wanted $comp.id ([bool]$comp.required))) {
-        Write-Host "— $($comp.title): пропущено"
+        if ($Only.Count -eq 0) { Write-Host "— $($comp.title): Не выбрано" }
         continue
     }
     Write-Host "$($comp.title) (~$($comp.approx))"

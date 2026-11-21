@@ -2,9 +2,12 @@
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import importlib.util
 import io
+import json
+import os
 from pathlib import Path
 import threading
 import unittest
+from unittest.mock import patch
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -14,6 +17,40 @@ spec.loader.exec_module(sources)
 
 
 class ModelSources(unittest.TestCase):
+    def test_github_digest_drift_fails_before_the_model_download(self):
+        url = 'https://github.com/owner/models/releases/download/speakers/embedding.onnx'
+        metadata = {'assets': [{'name': 'embedding.onnx', 'digest': 'sha256:' + 'b' * 64}]}
+        with patch.object(sources.urllib.request, 'urlopen', return_value=io.BytesIO(json.dumps(metadata).encode())) as get:
+            ok, message = sources.check_item('diarize', {'url': url, 'kind': 'file', 'sha256': 'a' * 64})
+        self.assertFalse(ok)
+        self.assertIn('SHA-256 differs', message)
+        self.assertEqual(get.call_count, 1, 'a drift must fail before HEAD/GET or building the release')
+
+    def test_github_metadata_token_never_reaches_model_head_or_range(self):
+        url = 'https://github.com/owner/models/releases/download/speakers/embedding.onnx'
+        calls = []
+        class Response(io.BytesIO):
+            headers = {'Content-Length': '64'}
+        def get(request, **_):
+            calls.append(request)
+            if request.full_url.startswith('https://api.github.com/'):
+                return Response(json.dumps({'assets': [{'name': 'embedding.onnx', 'digest': 'sha256:' + 'a' * 64}]}).encode())
+            return Response(b'x' * 64)
+        with patch.dict(os.environ, {'GH_TOKEN': 'fixture-token'}), patch.object(sources.urllib.request, 'urlopen', side_effect=get):
+            ok, message = sources.check_item('diarize', {'url': url, 'kind': 'file', 'sha256': 'a' * 64})
+        self.assertTrue(ok, message)
+        self.assertEqual(calls[0].full_url, 'https://api.github.com/repos/owner/models/releases/tags/speakers')
+        self.assertEqual(calls[0].get_header('Authorization'), 'Bearer fixture-token')
+        self.assertEqual([r.get_header('Authorization') for r in calls[1:]], [None, None])
+        self.assertEqual(calls[-1].get_header('Range'), 'bytes=0-63')
+
+    def test_github_missing_digest_is_not_an_integrity_pass(self):
+        url = 'https://github.com/owner/models/releases/download/speakers/embedding.onnx'
+        for assets in ([], [{'name': 'embedding.onnx', 'digest': None}], [{'name': 'other.onnx', 'digest': 'sha256:' + 'a' * 64}]):
+            with self.subTest(assets=assets), patch.object(sources.urllib.request, 'urlopen', return_value=io.BytesIO(json.dumps({'assets': assets}).encode())):
+                ok, _ = sources.check_item('diarize', {'url': url, 'kind': 'file', 'sha256': 'a' * 64})
+                self.assertFalse(ok)
+
     def setUp(self):
         archive = io.BytesIO()
         with zipfile.ZipFile(archive, 'w') as zip_file:

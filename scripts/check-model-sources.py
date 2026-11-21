@@ -2,24 +2,51 @@
 """Check public model URLs without downloading weights or changing the installation.
 
 HEAD follows redirects; a bounded Range GET catches endpoints that advertise a
-file but refuse downloads. This checks availability, not full hashes/inference.
+file but refuse downloads. GitHub release digests are compared with the catalog.
+This does not compute hashes of the full weights or execute inference.
 """
 import argparse
 from concurrent.futures import ThreadPoolExecutor
 import json
+import os
 from pathlib import Path
 import sys
 import urllib.error
 import urllib.request
+import urllib.parse
 
 MANIFEST = Path(__file__).resolve().with_name('models.json')
 HEADERS = {'User-Agent': 'localvox-fetch-models/1.0', 'Accept-Encoding': 'identity'}
+
+
+def check_published_digest(url, expected, timeout):
+    """Compare GitHub's published asset digest without downloading its weights."""
+    parsed = urllib.parse.urlsplit(url)
+    parts = parsed.path.split('/')
+    if parsed.netloc != 'github.com' or len(parts) != 7 or parts[3:5] != ['releases', 'download']:
+        return
+    owner, repo, tag, name = (urllib.parse.unquote(parts[i]) for i in (1, 2, 5, 6))
+    api = 'https://api.github.com/repos/{}/{}/releases/tags/{}'.format(
+        urllib.parse.quote(owner, safe=''), urllib.parse.quote(repo, safe=''),
+        urllib.parse.quote(tag, safe=''))
+    headers = dict(HEADERS)
+    if os.getenv('GH_TOKEN'):
+        headers['Authorization'] = 'Bearer ' + os.environ['GH_TOKEN']
+    with urllib.request.urlopen(urllib.request.Request(api, headers=headers), timeout=timeout) as response:
+        data = response.read(4 * 1024 * 1024 + 1)
+    if len(data) > 4 * 1024 * 1024:
+        raise ValueError('GitHub release metadata exceeds 4 MiB')
+    assets = [asset for asset in json.loads(data).get('assets', []) if asset.get('name') == name]
+    if len(assets) != 1 or assets[0].get('digest') != 'sha256:' + expected:
+        raise ValueError('published GitHub asset SHA-256 differs from the model manifest')
 
 
 def check_item(component, item, timeout=20):
     url = item['url']
     label = f"{component}: {url}"
     try:
+        if item.get('sha256'):
+            check_published_digest(url, item['sha256'], timeout)
         request = urllib.request.Request(url, method='HEAD', headers=HEADERS)
         with urllib.request.urlopen(request, timeout=timeout) as response:
             size = response.headers.get('Content-Length')

@@ -1,5 +1,15 @@
 # Покрытие требований и состояние реализации
 
+Локальная полная установка SETUP-001/003/009 (delta), INV-SETUP-001, 2026-11-21:
+[отказ embedding и реальный проход на Windows](../changes/add-interactive-install-wizard/evidence/full-windows-install.md).
+Upstream изменил только metadata экспортёра; новый digest подтверждён целым файлом
+и реальным golden (cosine 1.00000000). На F:\lv реально установлены все выбранные
+модели, doctor 0 и повтор без скачивания/изменений моделей и .env проверены.
+Единый индикатор/раздельные логи и «Не выбрано» покрыты native терминалом и PS5.
+Source gate дополнен сравнением GitHub digest до сборки. Публикация v0.2.5 и
+отдельная чистая установка из GitHub ещё pending; прежний cancel smoke не
+выдаётся за такую проверку. Ошибки и исправления самого стенда сохранены в отчёте.
+
 Доставка SETUP-003/009 (delta), PIPE-008/011, 2026-11-21:
 [v0.2.4 опубликован и проверен](../changes/add-interactive-install-wizard/evidence/release-v0.2.4.md).
 Все пять release targets, reusable Interface и оба main workflows прошли на

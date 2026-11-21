@@ -69,6 +69,10 @@ impl Tool {
         if let Some(local) = std::env::var_os("LOCALAPPDATA") {
             directories.push(PathBuf::from(local).join("Microsoft/WinGet/Links"));
         }
+        #[cfg(windows)]
+        if self == Self::YtDlp {
+            directories.extend(registered_package_directories("yt-dlp.yt-dlp"));
+        }
         directories
             .into_iter()
             .map(|dir| dir.join(&name))
@@ -89,7 +93,13 @@ impl Tool {
         let output = localvox_light_process::run_observed(
             command,
             None,
-            localvox_light_process::Limits::new(Duration::from_secs(3)),
+            // The Windows portable yt-dlp unpacks its Python runtime even for
+            // --version; allow for that startup without assuming the tool is missing.
+            localvox_light_process::Limits::new(Duration::from_secs(if self == Self::YtDlp {
+                15
+            } else {
+                3
+            })),
             || false,
             |_, _| {},
             None,
@@ -162,6 +172,42 @@ pub fn install(
 }
 
 #[cfg(windows)]
+fn package_directories(key: &winreg::RegKey, package: &str) -> Vec<PathBuf> {
+    key.enum_keys()
+        .filter_map(Result::ok)
+        .filter(|name| {
+            name.split_once('_')
+                .is_some_and(|(id, _)| id.eq_ignore_ascii_case(package))
+        })
+        .filter_map(|name| {
+            key.open_subkey(name)
+                .ok()?
+                .get_value::<String, _>("InstallLocation")
+                .ok()
+        })
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .collect()
+}
+
+#[cfg(windows)]
+fn registered_package_directories(package: &str) -> Vec<PathBuf> {
+    use winreg::{
+        enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE},
+        RegKey,
+    };
+    [HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE]
+        .into_iter()
+        .flat_map(|hive| {
+            RegKey::predef(hive)
+                .open_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall")
+                .map(|key| package_directories(&key, package))
+                .unwrap_or_default()
+        })
+        .collect()
+}
+
+#[cfg(windows)]
 pub(super) fn registered_paths() -> Vec<PathBuf> {
     use windows_sys::Win32::System::Environment::ExpandEnvironmentStringsW;
     use winreg::{
@@ -215,4 +261,45 @@ pub fn command_path(
         }
     }
     Ok(std::env::join_paths(directories)?)
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn registered_portable_package_is_found_without_accepting_other_ids_or_relative_roots() {
+        use winreg::{enums::HKEY_CURRENT_USER, RegKey};
+        let temp = tempfile::tempdir().unwrap();
+        let name = format!(
+            "Software\\LocalVox\\Tests\\{}",
+            temp.path().file_name().unwrap().to_string_lossy()
+        );
+        struct Cleanup(String);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = RegKey::predef(HKEY_CURRENT_USER).delete_subkey_all(&self.0);
+            }
+        }
+        let _cleanup = Cleanup(name.clone());
+        let (root, _) = RegKey::predef(HKEY_CURRENT_USER)
+            .create_subkey(&name)
+            .unwrap();
+        for (id, location) in [
+            ("yt-dlp.yt-dlp_Source", temp.path().display().to_string()),
+            (
+                "yt-dlp.yt-dlp-extra_Source",
+                temp.path().display().to_string(),
+            ),
+            ("yt-dlp.yt-dlp_Other", "relative-folder".into()),
+        ] {
+            let (key, _) = root.create_subkey(id).unwrap();
+            key.set_value("InstallLocation", &location).unwrap();
+        }
+        root.create_subkey("yt-dlp.yt-dlp_NoLocation").unwrap();
+        assert_eq!(
+            package_directories(&root, "yt-dlp.yt-dlp"),
+            vec![temp.path().to_owned()]
+        );
+    }
 }

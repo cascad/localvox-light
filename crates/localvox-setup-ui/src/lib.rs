@@ -1,6 +1,7 @@
 //! Presentation only. Receives discovery data; never downloads, probes or writes configuration.
 use std::collections::BTreeMap;
 use std::io;
+pub mod activity;
 mod wizard;
 
 struct InstallerTheme {
@@ -234,10 +235,16 @@ pub fn review(data: &ViewData, selected: &Selection) -> String {
 
 /// Deliberately no backend callbacks: it is impossible for this preview to install anything.
 pub fn demonstrate(selected: &Selection) -> io::Result<()> {
-    let spinner = cliclack::spinner();
-    spinner.start("Демо · подготовка записи и расшифровки");
-    std::thread::sleep(std::time::Duration::from_millis(300));
-    spinner.stop("Демо · запись и расшифровка готовы");
+    use std::io::Write;
+    let mut progress = activity::Activity::start("Демо · подготовка записи и расшифровки");
+    for line in [
+        "Демо · проверка компонентов",
+        "Демо · готовые файлы используются повторно",
+    ] {
+        writeln!(progress.writer(), "{line}")?;
+        std::thread::sleep(std::time::Duration::from_millis(150));
+    }
+    progress.finish(true);
     for feature in &selected.features {
         cliclack::log::info(format!("Демо · {}", feature.title()))?;
     }
