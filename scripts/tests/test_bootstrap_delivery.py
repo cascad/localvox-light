@@ -8,6 +8,7 @@ import hashlib
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import io
 import itertools
+import json
 import os
 from pathlib import Path
 import shutil
@@ -25,6 +26,36 @@ BASH = os.getenv('LOCALVOX_TEST_BASH') or (r'C:\Program Files\Git\bin\bash.exe' 
 
 
 class BootstrapDelivery(unittest.TestCase):
+    @unittest.skipUnless(PS, 'Windows asynchronous download wait')
+    def test_windows_ready_reads_do_not_pay_a_progress_timer_per_block(self):
+        wrapper = self.root / 'ready-reads.ps1'
+        wrapper.write_text('''param($Bootstrap)
+$ErrorActionPreference='Stop'
+function Show-DownloadProgress { $script:updates++ }
+$script:updates=0
+$tokens=$null; $errors=$null
+$ast=[System.Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($Bootstrap),[ref]$tokens,[ref]$errors)
+if ($errors.Count) { throw 'Bootstrap syntax error' }
+$helper=$ast.Find({param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Wait-DownloadTask'},$true)
+if (-not $helper) { throw 'Download task wait not found' }
+Invoke-Expression $helper.Extent.Text
+$null=Wait-DownloadTask ([Threading.Tasks.Task]::Delay(5))
+$watch=[Diagnostics.Stopwatch]::StartNew()
+for ($i=0; $i -lt 100; $i++) { $null=Wait-DownloadTask ([Threading.Tasks.Task]::Delay(5)) }
+@{elapsed_ms=$watch.ElapsedMilliseconds;updates=$script:updates} | ConvertTo-Json -Compress
+''', encoding='utf-8-sig')
+        for shell in dict.fromkeys(filter(None, (PS, shutil.which('pwsh')))):
+            with self.subTest(shell=shell):
+                result = subprocess.run([shell, '-NoProfile', '-File', str(wrapper),
+                                         '-Bootstrap', str(ROOT / 'scripts/install.ps1')],
+                                        env=self.environment, capture_output=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
+                sample = json.loads(result.stdout)
+                self.assertGreater(sample['updates'], 0, 'waiting must still refresh progress')
+                # The task chain needs ~0.5–1.6 s, with generous scheduling room.
+                # A fixed 100 ms sleep per ready read introduces ~10 s instead.
+                self.assertLess(sample['elapsed_ms'], 6000, sample)
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='localvox-bootstrap-fixture-')
         self.addCleanup(self.temp.cleanup)

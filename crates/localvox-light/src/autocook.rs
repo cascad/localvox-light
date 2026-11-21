@@ -1017,7 +1017,7 @@ mod tests {
     }
 
     #[cfg(windows)]
-    fn wait_for_outcome_journal(session: &Path) {
+    fn wait_for_outcome_journal(session: &Path) -> progress::StageState {
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {
             // Windows append briefly locks this same file. Poll after that lock as well.
@@ -1033,7 +1033,12 @@ mod tests {
                     entry.kind == "operation_start" && entry.label == "Ожидание сохранения очереди"
                 })
             }) {
-                return;
+                // The next append can lock the file between the journal query
+                // and the legacy progress read. Observe both in this bounded
+                // wait instead of unwrapping a transiently empty second read.
+                if let Some(event) = progress::read(session).last() {
+                    return event.state;
+                }
             }
             assert!(
                 Instant::now() < deadline,
@@ -1114,16 +1119,13 @@ mod tests {
             let _stop = StopRecovery(&running);
             let helper =
                 scope.spawn(|| fail_phase(root.path(), &running, &job, "worker timed out"));
-            wait_for_outcome_journal(&session);
+            let state_before_acceptance = wait_for_outcome_journal(&session);
             assert!(!helper.is_finished());
             assert_eq!(
                 std::fs::read(root.path().join("jobs.json")).unwrap(),
                 before
             );
-            assert_eq!(
-                progress::read(&session).last().unwrap().state,
-                progress::StageState::Running
-            );
+            assert_eq!(state_before_acceptance, progress::StageState::Running);
             drop(deny);
             assert!(helper.join().unwrap());
         });

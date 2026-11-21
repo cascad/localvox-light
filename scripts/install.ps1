@@ -127,7 +127,9 @@ try {
             while (-not $Task.IsCompleted) {
                 Show-DownloadProgress
                 if ($stall.Elapsed.TotalSeconds -gt 60) { throw 'Release download stalled: no response for 60 seconds' }
-                Start-Sleep -Milliseconds 100
+                # Wake as soon as I/O completes; a sleep here caps every read
+                # (often one TLS record) at ten blocks per second.
+                [void][Threading.Tasks.Task]::WaitAny([Threading.Tasks.Task[]]@($Task), 100)
             }
             $Task.GetAwaiter().GetResult()
         }

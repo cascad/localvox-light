@@ -323,13 +323,14 @@ jobs:
       - name: Download all build artifacts
         uses: actions/download-artifact@v8
         with:
+          pattern: localvox-*
           path: dist
 
       - name: Собрать вложения релиза
         run: |
           set -euo pipefail
           mkdir -p release-assets
-          find dist -type f \( -name '*.zip' -o -name '*.tar.gz' -o -name '*.sha256' \) -exec cp {} release-assets/ \;
+          find dist -type f \( -name 'localvox-*.zip' -o -name 'localvox-*.tar.gz' -o -name 'localvox-*.sha256' \) -exec cp {} release-assets/ \;
           cp scripts/install.ps1 scripts/install.sh scripts/install-release.ps1 scripts/install-release.sh release-assets/
           ls -la release-assets/
           test "$(ls -1 release-assets | wc -l)" -gt 0

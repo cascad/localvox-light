@@ -4,10 +4,12 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tempfile
 import tarfile
+import textwrap
 import unittest
 from unittest.mock import patch
 import zipfile
@@ -37,6 +39,34 @@ class PackageContracts(unittest.TestCase):
             (self.source / (name + '.exe')).write_bytes(b'fake executable: ' + name.encode())
         for name in ('libvosk.dll', 'libgcc_s_seh-1.dll', 'libstdc++-6.dll', 'libwinpthread-1.dll'):
             (self.native / name).write_bytes(b'native fixture')
+
+    @unittest.skipUnless(BASH and Path(BASH).is_file(), 'Bash release assembly')
+    def test_publication_keeps_browser_traces_out_of_product_assets(self):
+        workflow = (ROOT / '.github/workflows/build-binaries.yml').read_text(encoding='utf-8')
+        block = re.search(r'      - name: Собрать вложения релиза\n        run: \|\n((?:          [^\n]*\n|\n)+)', workflow)
+        self.assertIsNotNone(block)
+        expected = set()
+        for target, extension in ((WINDOWS, '.zip'), ('x86_64-unknown-linux-gnu', '.tar.gz'),
+                                  ('aarch64-unknown-linux-gnu', '.tar.gz'),
+                                  ('x86_64-apple-darwin', '.tar.gz'), ('aarch64-apple-darwin', '.tar.gz')):
+            name = 'localvox-' + target + extension
+            folder = self.root / 'dist' / ('localvox-' + target)
+            folder.mkdir(parents=True)
+            (folder / name).write_bytes(b'product archive fixture')
+            (folder / (name + '.sha256')).write_text('fixture hash')
+            expected.update((name, name + '.sha256'))
+        traces = self.root / 'dist/interface-test-evidence-windows/test-results/browser'
+        traces.mkdir(parents=True)
+        (traces / 'trace.zip').write_bytes(b'browser evidence must stay in Actions artifacts')
+        (self.root / 'scripts').mkdir()
+        for name in ('install.ps1', 'install.sh', 'install-release.ps1', 'install-release.sh'):
+            (self.root / 'scripts' / name).write_bytes((ROOT / 'scripts' / name).read_bytes())
+            expected.add(name)
+        result = subprocess.run([BASH, '-c', textwrap.dedent(block[1])], cwd=self.root,
+                                capture_output=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
+        self.assertEqual({p.name for p in (self.root / 'release-assets').iterdir()}, expected)
+        self.assertTrue((traces / 'trace.zip').is_file(), 'diagnostics must remain available in Actions')
 
     def test_bundle_contains_consistent_helpers_native_and_hashes_but_no_user_env(self):
         self.windows_input()

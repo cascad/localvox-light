@@ -1,5 +1,15 @@
 # Покрытие требований и состояние реализации
 
+Дополнение SETUP-003/009 (delta), PIPE-008/011, 2026-11-21:
+[публичный v0.2.3](../changes/add-interactive-install-wizard/evidence/release-v0.2.3.md)
+прошёл пять release targets и Interface; public assets/digests, полный Windows ZIP
+и installed doctor/reconcile проверены. Отдельный main Windows fixture упал на
+краткой блокировке журнала; public one-liner выявил задержку на каждом async read.
+[Подготовка v0.2.4](../changes/add-interactive-install-wizard/evidence/release-v0.2.4.md)
+фиксирует red→green, фильтр release assets, PS5/PS7 и исправленный local bootstrap
+до настоящего мастера за 9 с загрузки. Новый hosted/public результат ещё pending;
+аппаратная приёмка и реальные OS/model installs этим не подтверждены.
+
 Подготовка SETUP-009 (delta), 2026-11-20:
 [выпуск v0.2.2](../changes/add-interactive-install-wizard/evidence/release-v0.2.2.md).
 Версии workspace/desktop/UI согласованы; tagged packaging проверяет версию workspace.
