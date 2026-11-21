@@ -1,5 +1,13 @@
 # Покрытие требований и состояние реализации
 
+Пустой плеер RUN-005 (delta), ARCH-002, US-015, 2026-11-21:
+[placeholder и native diagnostics](../changes/add-vox-entry-command/evidence/idle-player-native-diagnostics.md).
+Без выбранной записи нет фиктивных часов/загрузки волны. 66 render tests и
+ConPTY startup прошли; 14 snapshots изменились только в строке плеера.
+Два Windows delivery tests подтвердили scoped guard и текстовый отказ настоящего
+exe без DLL, без системного окна. F:\lv обновлён и проверен, новая публикация
+не выполнялась; происхождение прежнего окна и пределы проверки записаны.
+
 Навигация при запуске RUN-005 (delta), US-061, 2026-11-21:
 [меню до загрузки данных](../changes/add-vox-entry-command/evidence/startup-navigation.md).
 Стартовый focus в пустом списке и сброс навигации на health/первом списке исправлены.

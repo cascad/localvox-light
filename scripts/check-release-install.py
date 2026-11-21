@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Exercise a complete native bundle without models, inference or developer settings."""
 import argparse
+from contextlib import contextmanager
 import hashlib
 import json
 import os
@@ -12,11 +13,31 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 
 
+@contextmanager
+def native_errors_to_exit_code():
+    """Keep a broken Windows fixture from opening a system DLL/crash dialog."""
+    if os.name != 'nt':
+        yield
+        return
+    import ctypes
+    kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+    previous = kernel.GetErrorMode()
+    kernel.SetErrorMode(previous | 3)  # SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX
+    try:
+        yield
+    finally:
+        kernel.SetErrorMode(previous)
+
+
 def run(arguments, expected=0, *, cwd=None, input=None, environment=None):
-    result = subprocess.run([str(a) for a in arguments], cwd=cwd, input=input,
-                            env=environment, text=True, encoding='utf-8', errors='replace',
-                            capture_output=True, timeout=90)
+    with native_errors_to_exit_code():
+        result = subprocess.run([str(a) for a in arguments], cwd=cwd, input=input,
+                                env=environment, text=True, encoding='utf-8', errors='replace',
+                                capture_output=True, timeout=90)
     if result.returncode != expected:
+        if (result.returncode & 0xffffffff) == 0xc0000135:
+            raise RuntimeError(f'{Path(str(arguments[0])).name}: missing native DLL (0xC0000135); '
+                               'use the complete bundle or provide its native library search path')
         raise RuntimeError(f'{Path(str(arguments[0])).name}: exit {result.returncode}, expected {expected}\n'
                            + result.stdout[-4000:] + result.stderr[-4000:])
     return result.stdout

@@ -30,6 +30,12 @@ pub(super) fn player_bar(f: &mut Frame, a: &App, area: Rect, t: Theme) {
 }
 
 pub(super) fn player_line(a: &App, t: Theme, width: u16) -> Line<'static> {
+    if a.current.is_none() {
+        return Line::from(Span::styled(
+            " Выберите запись для прослушивания",
+            Style::default().fg(t.dim),
+        ));
+    }
     let duration = a.media_duration();
     let duration_text = duration.map(timecode).unwrap_or_else(|| "—".into());
     let position_text = format!(

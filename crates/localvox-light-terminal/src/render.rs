@@ -2084,10 +2084,10 @@ mod tests {
             assert!(text.contains("F8"), "{w}x{h}");
             assert!(text.contains("F10"), "{w}x{h}");
             if w >= 35 {
-                assert!(buffer
-                    .content
-                    .iter()
-                    .any(|c| c.fg == Theme::for_app(&a).command));
+                assert!(
+                    text.contains("Выберите запись для прослушивания"),
+                    "{w}x{h}"
+                );
             }
         }
     }

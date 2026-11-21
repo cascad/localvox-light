@@ -219,3 +219,38 @@ fn play_pause_keeps_the_waveform_in_the_same_columns() {
         );
     }
 }
+
+#[test]
+fn no_selected_audio_does_not_claim_to_be_loading_a_waveform() {
+    let app = App::default();
+    let text: String = player_line(&app, Theme::for_app(&app), 120)
+        .spans
+        .iter()
+        .map(|span| span.content.as_ref())
+        .collect();
+    assert!(text.contains("Выберите запись для прослушивания"), "{text}");
+    assert!(!text.contains("загружается") && !text.contains("00:00"));
+    assert!(app.effects.is_empty() && app.player_effects.is_empty());
+}
+
+#[test]
+fn selected_audio_still_distinguishes_pending_failed_and_empty_waveforms() {
+    let mut app = App {
+        current: Some("demo".into()),
+        ..Default::default()
+    };
+    let text = |a: &App| -> String {
+        player_line(a, Theme::for_app(a), 120)
+            .spans
+            .iter()
+            .map(|s| s.content.as_ref())
+            .collect()
+    };
+    assert!(text(&app).contains("волна загружается"));
+    app.errors
+        .insert(Resource::Peaks, "synthetic read error".into());
+    assert!(text(&app).contains("волна: ошибка"));
+    app.errors.remove(&Resource::Peaks);
+    app.last_request.insert(Resource::Peaks, 1);
+    assert!(text(&app).contains("волны пока нет"));
+}

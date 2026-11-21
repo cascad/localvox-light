@@ -53,6 +53,7 @@ on:
       - "scripts/package-release.py"
       - "scripts/build-onnxruntime-macos.py"
       - "scripts/tests/test_native_delivery.py"
+      - "scripts/tests/test_native_probe_delivery.py"
       - "scripts/check-release-install.py"
       - "scripts/tests/test_ci_delivery.py"
       - "scripts/tests/test_release_delivery.py"
