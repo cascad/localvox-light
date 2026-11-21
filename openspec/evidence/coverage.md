@@ -1,5 +1,16 @@
 # Покрытие требований и состояние реализации
 
+Полная публичная установка SETUP-001/003/009 (delta), INV-SETUP-001, PIPE-008/011,
+2026-11-21: [v0.2.5 опубликован и установлен начисто на Windows](../changes/add-interactive-install-wizard/evidence/release-v0.2.5.md).
+Пять release targets и Interface зелёные, latest/assets/digests/source сверены.
+Настоящий public bootstrap в новом профиле на D: скачал все четыре группы моделей
+и завершился с 0; восемь полных SHA совпали, setup-check/runtime doctor 0,
+все 11 runtime findings ok. Повтор без загрузок и изменений моделей/.env прошёл.
+Готовые Ollama/модель и системные инструменты использованы повторно; PATH защищён
+NoPathUpdate. Чистая ОС/новая Ollama, полная Mac/Linux установка и аппаратура
+остаются not-run. Исходный main Chromium ERR_NO_BUFFER_SPACE и ошибки verifier
+сохранены отдельно от успешного повтора. Ниже — исторические границы этапов.
+
 Локальная полная установка SETUP-001/003/009 (delta), INV-SETUP-001, 2026-11-21:
 [отказ embedding и реальный проход на Windows](../changes/add-interactive-install-wizard/evidence/full-windows-install.md).
 Upstream изменил только metadata экспортёра; новый digest подтверждён целым файлом

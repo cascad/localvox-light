@@ -92,3 +92,7 @@ clean OS, fresh Ollama install, physical capture or native Mac/Linux acceptance.
 The public 0.2.4 catalog is still old. The owner's next request explicitly requires
 v0.2.5 publication and a separate clean public install with real downloads before
 being notified that GitHub installation is ready. That gate remains pending.
+
+Follow-up: [published v0.2.5 and the clean public Windows installation](release-v0.2.5.md)
+subsequently passed this gate. The paragraph above records the local preparation
+boundary; it is not the current publication status.
