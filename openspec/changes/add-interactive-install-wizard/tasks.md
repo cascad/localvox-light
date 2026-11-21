@@ -48,4 +48,4 @@ Windows one-liner проверен до настоящего мастера и �
 ## 9. Скорость Windows bootstrap и чистота публикации
 
 - [x] 9.1 Исправить подтверждённую паузу на каждом async read, отсечь browser trace из release assets и синхронизировать Windows outcome fixture с краткой блокировкой журнала. Проверить red→green, PS5/PS7, настоящий публичный архив и native мастер без установки моделей; согласовать версии 0.2.4 и записать scoped evidence.
-- [ ] 9.2 Опубликовать v0.2.4 после пяти native targets и Interface, проверить public assets/checksums и настоящий Windows one-liner до мастера/отмены. Не считать программную проверку аппаратной приёмкой.
+- [x] 9.2 Опубликовать v0.2.4 после пяти native targets и Interface, проверить public assets/checksums и настоящий Windows one-liner до мастера/отмены. Все release/main workflows прошли; 14 public assets сверены, настоящий public bootstrap скачал 116.3 MiB за 6 с, проверил native v0.2.4 и отменился без изменений. [Результат](evidence/release-v0.2.4.md). Аппаратная приёмка остаётся отдельной.

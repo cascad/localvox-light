@@ -1,5 +1,14 @@
 # Покрытие требований и состояние реализации
 
+Доставка SETUP-003/009 (delta), PIPE-008/011, 2026-11-21:
+[v0.2.4 опубликован и проверен](../changes/add-interactive-install-wizard/evidence/release-v0.2.4.md).
+Все пять release targets, reusable Interface и оба main workflows прошли на
+97d33e4. Public assets ровно 14; digests/checksums/scripts и идентичность тега
+сверены. Настоящий Windows one-liner скачал полный ZIP за 6 с, проверил native
+v0.2.4, открыл мастер и отменился без установки/настроек/PATH/моделей. Это закрывает
+доставку исправления async-read delay; аппаратная приёмка и реальные OS/model
+installs остаются not-run. Исторические отказы ниже не переписаны как успех.
+
 Дополнение SETUP-003/009 (delta), PIPE-008/011, 2026-11-21:
 [публичный v0.2.3](../changes/add-interactive-install-wizard/evidence/release-v0.2.3.md)
 прошёл пять release targets и Interface; public assets/digests, полный Windows ZIP
