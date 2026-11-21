@@ -78,6 +78,7 @@ pub fn run(vox: bool) -> anyhow::Result<()> {
     let address = cli.address.unwrap_or_else(|| default_address(vox));
     let client = localvox_light_client::Client::new(&address, cli.token)?;
     let app = crate::app::App {
+        focus: 0,
         preferences: crate::app::UiPreferences {
             keymap,
             ascii: cli.ascii,

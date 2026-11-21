@@ -12,6 +12,8 @@ use std::{
 };
 
 struct ApiFixture {
+    held: Arc<AtomicUsize>,
+    entered: Arc<AtomicUsize>,
     activity: Arc<AtomicUsize>,
     list_reads: Arc<AtomicUsize>,
     preview: Arc<AtomicUsize>,
@@ -27,6 +29,9 @@ impl ApiFixture {
         Self::with_token(None)
     }
     fn with_token(token: Option<&str>) -> Self {
+        Self::with_startup(token, 0, false)
+    }
+    fn with_startup(token: Option<&str>, held: usize, empty: bool) -> Self {
         let token = token.map(str::to_owned);
         let server = tiny_http::Server::http("127.0.0.1:0").unwrap();
         let address = format!("http://{}", server.server_addr());
@@ -44,6 +49,10 @@ impl ApiFixture {
         let activity_state = activity.clone();
         let list_reads = Arc::new(AtomicUsize::new(0));
         let reads = list_reads.clone();
+        let held = Arc::new(AtomicUsize::new(held));
+        let entered = Arc::new(AtomicUsize::new(0));
+        let holding = held.clone();
+        let entering = entered.clone();
         let thread = std::thread::spawn(move || {
             let fixture: serde_json::Value =
                 serde_json::from_str(include_str!("../../../tests/fixtures/workspace.json"))
@@ -52,6 +61,17 @@ impl ApiFixture {
                 if let Some(mut request) = server.recv_timeout(Duration::from_millis(50)).unwrap() {
                     let path = request.url().split('?').next().unwrap().to_owned();
                     let path = path.as_str();
+                    let gate = match path {
+                        "/api/health" => 1,
+                        "/api/sessions" => 2,
+                        _ => 0,
+                    };
+                    entering.fetch_or(gate, Ordering::Relaxed);
+                    while holding.load(Ordering::Relaxed) & gate != 0
+                        && !stopping.load(Ordering::Relaxed)
+                    {
+                        std::thread::sleep(Duration::from_millis(5));
+                    }
                     let mode = activity_state.load(Ordering::Relaxed);
                     if matches!(path, "/api/sessions" | "/api/queue") {
                         reads.fetch_add(1, Ordering::Relaxed);
@@ -111,23 +131,27 @@ impl ApiFixture {
                                 "api_protocol":1,"capabilities":["technical-journal-v1","terminal-workspace-v1"]
                             }),
                             "/api/sessions" => {
-                                if mode == 7 {
-                                    serde_json::json!((0..80).map(|n|serde_json::json!({"name":format!("page{n:02}"),"title":format!("Встреча {n:02}"),"cooked":true})).collect::<Vec<_>>())
+                                if empty {
+                                    serde_json::json!([])
                                 } else {
-                                    let mut sessions = fixture["sessions"].clone();
-                                    if mode > 0 {
-                                        sessions[0]["title"] = "Активная встреча".into();
-                                        sessions[0]["job"] = match mode {
-                                            1 => "running".into(),
-                                            2 => "pending".into(),
-                                            4 => "failed".into(),
-                                            6 => "waiting_input".into(),
-                                            _ => serde_json::Value::Null,
-                                        };
-                                        sessions[0]["recording"] = matches!(mode, 1 | 6).into();
-                                        sessions.as_array_mut().unwrap().push(serde_json::json!({"name":"other","title":"Вторая встреча","cooked":true}));
+                                    if mode == 7 {
+                                        serde_json::json!((0..80).map(|n|serde_json::json!({"name":format!("page{n:02}"),"title":format!("Встреча {n:02}"),"cooked":true})).collect::<Vec<_>>())
+                                    } else {
+                                        let mut sessions = fixture["sessions"].clone();
+                                        if mode > 0 {
+                                            sessions[0]["title"] = "Активная встреча".into();
+                                            sessions[0]["job"] = match mode {
+                                                1 => "running".into(),
+                                                2 => "pending".into(),
+                                                4 => "failed".into(),
+                                                6 => "waiting_input".into(),
+                                                _ => serde_json::Value::Null,
+                                            };
+                                            sessions[0]["recording"] = matches!(mode, 1 | 6).into();
+                                            sessions.as_array_mut().unwrap().push(serde_json::json!({"name":"other","title":"Вторая встреча","cooked":true}));
+                                        }
+                                        sessions
                                     }
-                                    sessions
                                 }
                             }
                             "/api/queue" => {
@@ -183,6 +207,8 @@ impl ApiFixture {
             }
         });
         Self {
+            held,
+            entered,
             activity,
             list_reads,
             preview,
@@ -279,6 +305,122 @@ fn wait_until(
 #[test]
 fn real_terminal_accepts_paste_resize_and_restores_screen_on_quit() {
     exercise_terminal(false, false);
+}
+
+#[test]
+fn startup_navigation_works_before_health_during_loading_and_after_empty_or_ready_lists() {
+    fn menu_selected(screen: &vt100::Screen, label: &str) -> bool {
+        let (rows, columns) = screen.size();
+        (0..rows)
+            .find(|row| {
+                screen
+                    .contents_between(*row, 0, *row, columns)
+                    .contains(label)
+            })
+            .and_then(|row| screen.cell(row, 3))
+            .is_some_and(|cell| cell.inverse())
+    }
+    for empty in [true, false] {
+        let api = ApiFixture::with_startup(None, 3, empty);
+        let pair = native_pty_system()
+            .openpty(PtySize {
+                rows: 36,
+                cols: 120,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .unwrap();
+        let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_vox"));
+        // An explicit private endpoint wins over portable presets; no developer daemon is used.
+        command.args(["--address", &api.address, "--ascii", "--no-color"]);
+        command.env("LOCALVOX_API_TOKEN", "");
+        let mut child = OwnedChild(pair.slave.spawn_command(command).unwrap());
+        drop(pair.slave);
+        let mut reader = pair.master.try_clone_reader().unwrap();
+        let mut writer = pair.master.take_writer().unwrap();
+        let (tx, rx) = mpsc::channel();
+        let output = std::thread::spawn(move || {
+            let mut bytes = [0; 8192];
+            while let Ok(n) = reader.read(&mut bytes) {
+                if n == 0 || tx.send(bytes[..n].to_vec()).is_err() {
+                    break;
+                }
+            }
+        });
+        let mut all = vec![];
+        let mut screen = vt100::Parser::new(36, 120, 0);
+        let mut queries = 0;
+        let deadline = Instant::now() + Duration::from_secs(15);
+        macro_rules! see {
+            ($needle:expr) => {
+                wait_for(
+                    $needle,
+                    &mut all,
+                    &mut screen,
+                    &rx,
+                    &mut writer,
+                    &mut queries,
+                    deadline,
+                )
+            };
+        }
+        macro_rules! selected {
+            ($label:expr) => {
+                wait_until(
+                    $label,
+                    |_, s| menu_selected(s, $label),
+                    &mut all,
+                    &mut screen,
+                    &rx,
+                    &mut writer,
+                    &mut queries,
+                    deadline,
+                )
+            };
+        }
+        macro_rules! press {
+            ($bytes:expr) => {{
+                writer.write_all($bytes).unwrap();
+                writer.flush().unwrap();
+            }};
+        }
+        see!("> Разделы");
+        press!(b"j");
+        selected!("Заметки");
+        press!(b"\x1b[B");
+        selected!("Очередь");
+        assert_eq!(
+            api.entered.load(Ordering::Relaxed) & 2,
+            0,
+            "list must still be waiting for health"
+        );
+        api.held.fetch_and(!1, Ordering::Relaxed);
+        see!("Подключено к API LocalVox");
+        selected!("Очередь");
+        press!(b"k");
+        selected!("Заметки");
+        press!(b"\x1b[B");
+        selected!("Очередь");
+        api.held.fetch_and(!2, Ordering::Relaxed);
+        see!(if empty {
+            "Пока пусто"
+        } else {
+            "Обсуждение архитектуры"
+        });
+        selected!("Очередь");
+        press!(b"\x1b[A");
+        selected!("Заметки");
+        press!(b"\r");
+        see!("> Заметки");
+        see!("> Список");
+        press!(b"\x1b[21~");
+        see!("\x1b[?1049l");
+        assert!(child.0.wait().unwrap().success());
+        drop(writer);
+        drop(pair.master);
+        drop(rx);
+        output.join().unwrap();
+    }
 }
 
 #[test]
@@ -895,6 +1037,7 @@ fn real_terminal_animates_server_activity_filters_names_and_accepts_russian_comm
     api.activity.store(6, Ordering::Relaxed);
     see!("ждём кусок");
     // First slash enters local search; the next slash and j/k are literal input.
+    writer.write_all(b"\r").unwrap(); // Enter the archive list from the initial sections menu.
     writer.write_all(b"//jk").unwrap();
     writer.flush().unwrap();
     see!("Список · 0/2");

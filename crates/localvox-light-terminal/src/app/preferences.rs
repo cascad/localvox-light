@@ -15,6 +15,38 @@ pub struct UiPreferences {
 mod tests {
     use super::*;
     #[test]
+    fn initial_connection_keeps_keyboard_navigation_and_late_sessions_keep_menu_cursor() {
+        let mut app = App {
+            focus: 0,
+            ..Default::default()
+        };
+        app.key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+        app.key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+        assert_eq!((app.focus, app.nav), (0, 2));
+        app.reconnected("http://127.0.0.1:1234".into());
+        assert_eq!((app.focus, app.nav), (0, 2));
+        app.apply(Response {
+            resource: Resource::Sessions,
+            epoch: 0,
+            id: 1,
+            result: Ok(Data::Sessions(vec![Session {
+                name: "first".into(),
+                ..Default::default()
+            }])),
+        });
+        assert_eq!((app.focus, app.nav), (0, 2));
+        app.key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE));
+        assert_eq!(app.nav, 1);
+        app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert_eq!((app.view, app.focus), (View::Notes, 1));
+        app.reconnected("http://127.0.0.1:1234".into());
+        assert_eq!((app.view, app.focus, app.nav), (View::Notes, 1, 1));
+        assert!(app
+            .effects
+            .iter()
+            .any(|(resource, _)| *resource == Resource::Notes));
+    }
+    #[test]
     fn reconnect_preserves_all_preferences_but_never_replays_mutations_or_old_documents() {
         let preferences = UiPreferences {
             ascii: true,
@@ -85,10 +117,15 @@ impl App {
             });
         let console = std::mem::take(&mut self.console);
         let preferences = self.preferences.clone();
+        let (view, tab, focus, nav) = (self.view, self.tab, self.focus, self.nav);
         *self = Self {
             console,
             preferences,
             address,
+            view,
+            tab,
+            focus,
+            nav,
             ..Default::default()
         };
         self.status = "Подключено к API LocalVox".into();

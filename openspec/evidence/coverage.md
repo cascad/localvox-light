@@ -1,5 +1,14 @@
 # Покрытие требований и состояние реализации
 
+Навигация при запуске RUN-005 (delta), US-061, 2026-11-21:
+[меню до загрузки данных](../changes/add-vox-entry-command/evidence/startup-navigation.md).
+Стартовый focus в пустом списке и сброс навигации на health/первом списке исправлены.
+State regression red→green, 215 library tests passed / 3 helpers ignored, все 9
+ConPTY tests passed. Новый native сценарий удерживает health/список и проверяет
+j/k/стрелки до загрузки, после пустого/непустого ответа без предварительного Tab.
+Клиенты F:\lv обновлены, bundle-check пройден; daemon/config/models/archive
+не менялись. Публикация и ручной повтор владельца отдельно.
+
 Регрессия RUN-005/004 (delta), API-001, SETUP-007 (delta), 2026-11-21:
 [пустой токен при запуске vox](../changes/add-vox-entry-command/evidence/empty-token-startup.md).
 В опубликованном v0.2.5 portable preset превращал пустой API token в включённую

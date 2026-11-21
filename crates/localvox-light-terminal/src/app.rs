@@ -388,8 +388,10 @@ impl App {
             self.item = 0;
             self.clear_document_errors();
         }
+        if self.view != View::Archive {
+            self.nav = 0;
+        }
         self.view = View::Archive;
-        self.nav = 0;
         if !self.visible_sessions().iter().any(|s| s.name == name) {
             self.archive_filter.clear();
         }

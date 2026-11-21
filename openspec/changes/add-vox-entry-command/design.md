@@ -16,6 +16,9 @@ Main CLI зависит от capture DLLs, а shell aliases не сохраня�
 - Второй binary vox в terminal crate; общий entry вместо дублирования main.
   vox загружает соседние presets/.env и фиксирует свой cwd, затем использует тот
   же client/runtime/launcher. Raw localvox-tui сохраняет прежний cwd и defaults.
+- Entry сразу фокусирует меню разделов. При подключении view/tab/focus/nav
+  сохраняются как локальная навигация; серверные документы и команды сбрасываются.
+  Автоматическое открытие первой записи в уже открытом архиве не меняет курсор меню.
 - Отдельный модуль регистрации: Windows user PATH через HKCU Environment,
   Unix Bash/Zsh/Fish startup config. Новая команда указывает на каталог установки,
   поэтому сохраняется соседство daemon/worker и не нужны wrappers или копии DLL.
