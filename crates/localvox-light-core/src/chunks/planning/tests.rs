@@ -139,6 +139,86 @@ fn pcm(n: usize) -> Vec<i16> {
 }
 
 #[test]
+fn live_default_seals_both_tracks_and_offers_work_after_thirty_seconds_without_stop() {
+    use crate::jobs::{prefix, JobKind, JobQueue};
+    let mut f = Fixture::new();
+    Arc::get_mut(&mut f.params).unwrap().chunk_sec =
+        crate::presets::number("LOCALVOX_LIGHT_CHUNK_SEC");
+    let audio = pcm(61 * 16000);
+    let mut mic = f.recorder(0);
+    let mut system = f.recorder(1);
+    let mut planner = f.planner();
+    for frame in audio[..31 * 16000].chunks(crate::audio::CHUNK_FRAMES) {
+        mic.feed(frame);
+        system.feed(frame);
+    }
+    let input = capture::read(&f.session).unwrap();
+    assert!(input.terminal.is_none());
+    assert!(input
+        .sources
+        .values()
+        .all(|s| s.ranges.len() == 1 && s.end() >= 30 * 16000));
+    assert!(!planner.advance(&|| false).unwrap());
+    assert!(f.snapshot().common_end >= 8 * 16000);
+    let horizon = crate::incremental::Horizon::read(&f.session)
+        .unwrap()
+        .freeze(&f.session)
+        .unwrap();
+    let mut queue = JobQueue::load(f._root.path());
+    assert!(queue
+        .offer_prefix(
+            &prefix::Observation {
+                session: "session".into(),
+                generation: input.generation,
+                input: Some(horizon),
+                ended: false,
+                enabled: true
+            },
+            (false, false, true)
+        )
+        .unwrap());
+    assert_eq!(queue.jobs()[0].kind, JobKind::Incremental);
+    assert!(capture::read(&f.session).unwrap().terminal.is_none());
+    for frame in audio[31 * 16000..].chunks(crate::audio::CHUNK_FRAMES) {
+        mic.feed(frame);
+        system.feed(frame);
+    }
+    mic.finalize_current();
+    system.finalize_current();
+    f.end(mic.end_samples(), system.end_samples());
+    assert!(planner.advance(&|| false).unwrap());
+    let actual = windows(&f);
+    let mut vad = Vad::new_with_rate_and_mode(SampleRate::Rate16kHz, VadMode::LowBitrate);
+    let mut windower = Recipe::default().windower();
+    let mut expected = Vec::new();
+    let mut emit = |w: Window<'_>| {
+        expected.push((
+            w.start_sample,
+            w.start_sample + w.pcm.len() as u64,
+            crate::windowing::pcm_sha256(w.pcm),
+        ));
+        Ok(())
+    };
+    windower
+        .feed_all(
+            &audio,
+            &mut |frame| vad.is_voice_segment(frame).unwrap_or(true),
+            &mut emit,
+        )
+        .unwrap();
+    windower.finish_all(&mut emit).unwrap();
+    for source in actual.values() {
+        assert_eq!(
+            source
+                .iter()
+                .map(|w| (w.start_sample, w.end_sample, w.pcm_sha256.clone()))
+                .collect::<Vec<_>>(),
+            expected
+        );
+    }
+}
+
+#[test]
 fn sealed_transport_and_pause_preserve_native_vad_windows_and_only_eof_flushes() {
     let f = Fixture::new();
     let audio = pcm(35 * 16000 + 117);

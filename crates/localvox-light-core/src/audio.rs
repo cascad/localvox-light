@@ -1090,6 +1090,9 @@ pub fn reload_capture_from_env() -> bool {
     if let Ok(v) = std::env::var("LOCALVOX_LIGHT_LOOPBACK_DEVICE") {
         cfg.loopback_device = v;
     }
+    if let Some(v) = crate::cli::env_truthy("LOCALVOX_LIGHT_LOOPBACK") {
+        cfg.loopback = v;
+    }
     drop(cfg);
     // The supervisors watch this counter; bumping it makes them close the current streams and
     // open new ones from the config above.

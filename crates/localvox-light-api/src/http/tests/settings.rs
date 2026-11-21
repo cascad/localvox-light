@@ -350,6 +350,38 @@ fn settings_http_masks_unknown_values_and_reports_snapshot_restart_before_and_af
         assert_eq!(fs::read(&env_path).unwrap(), before_noop);
         drop(held);
     }
+    // A standalone API first reports capture changes as restart-required; once
+    // controls exist, saving the Boolean must change the actual capture snapshot.
+    let enable: Reply = client
+        .save_settings([("LOCALVOX_LIGHT_LOOPBACK".into(), Some("on".into()))].into())
+        .unwrap();
+    assert!(!enable.need_restart.is_empty());
+    let _: Value = client
+        .request(
+            "GET",
+            &["fixture", "register-capture"],
+            &[],
+            None,
+            Duration::from_secs(3),
+        )
+        .unwrap();
+    for (value, expected) in [(Some("off"), false), (Some("on"), true), (None, true)] {
+        let reply = client
+            .save_settings([("LOCALVOX_LIGHT_LOOPBACK".into(), value.map(str::to_owned))].into())
+            .unwrap();
+        assert!(reply.need_restart.is_empty());
+        let state: Value = client
+            .request(
+                "GET",
+                &["fixture", "capture-state"],
+                &[],
+                None,
+                Duration::from_secs(3),
+            )
+            .unwrap();
+        assert_eq!(state["loopback"], expected);
+        assert!(state["reloads"].as_u64().unwrap() > 0);
+    }
     fs::remove_file(&env_path).unwrap();
     fs::create_dir(&env_path).unwrap();
     assert!(client
@@ -378,11 +410,24 @@ fn settings_fixture() {
     assert_eq!(exe.parent().unwrap(), root);
     assert_eq!(std::env::current_dir().unwrap(), root);
     localvox_light_core::presets::apply_missing().unwrap();
+    assert!(std::env::var_os("LOCALVOX_LIGHT_LOOPBACK").is_none());
     assert!(std::env::var_os("LOCALVOX_LIGHT_MIC").is_none());
     assert!(std::env::var_os("LOCALVOX_LIGHT_LOOPBACK_DEVICE").is_none());
+    // Blank user values select the preset instead of silently disabling output.
+    {
+        use clap::Parser;
+        std::env::set_var("LOCALVOX_LIGHT_LOOPBACK", "");
+        let cli = localvox_light_core::Cli::try_parse_from(["localvox-light"]).unwrap();
+        assert!(localvox_light_core::resolve_audio_from_cli_and_file(&cli).loopback);
+        std::env::remove_var("LOCALVOX_LIGHT_LOOPBACK");
+    }
     let server = Server::http("127.0.0.1:0").unwrap();
     let config = cfg(Some("synthetic-token"));
     let archive = Archive::new(root.join("archive"));
+    let capture_devices = std::sync::Arc::new(std::sync::RwLock::new(
+        localvox_light_core::LightDeviceConfig::default(),
+    ));
+    let reloads = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
     localvox_light_core::artifacts::atomic_write(
         &root.join("address"),
         format!("http://{}", server.server_addr()).as_bytes(),
@@ -391,6 +436,20 @@ fn settings_fixture() {
     let deadline = Instant::now() + Duration::from_secs(20);
     while !root.join("stop").exists() && Instant::now() < deadline {
         if let Some(request) = server.recv_timeout(Duration::from_millis(20)).unwrap() {
+            if request.url() == "/fixture/register-capture" {
+                localvox_light_core::audio::register_capture(
+                    localvox_light_core::audio::CaptureControls {
+                        devices: capture_devices.clone(),
+                        reload_gen: reloads.clone(),
+                    },
+                );
+                request.respond(Response::from_string("{} ")).unwrap();
+                continue;
+            }
+            if request.url() == "/fixture/capture-state" {
+                request.respond(Response::from_string(json!({"loopback":capture_devices.read().unwrap().loopback,"reloads":reloads.load(std::sync::atomic::Ordering::SeqCst)}).to_string())).unwrap();
+                continue;
+            }
             // Test-only observation of the live scheduler, not the saved settings view.
             if request.url() == "/fixture/early-enabled" {
                 request

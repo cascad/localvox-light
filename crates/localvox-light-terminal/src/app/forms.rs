@@ -28,11 +28,7 @@ impl App {
         });
     }
     pub(super) fn confirm(&mut self, title: &str, task: Task) {
-        self.open(
-            title,
-            FormKind::Confirm(task),
-            &[("Введите ДА для подтверждения", "")],
-        );
+        self.open(title, FormKind::Confirm(task), &[]);
     }
     pub(super) fn action(&mut self, t: Task) {
         if self.shutdown_started.is_some() {
@@ -241,12 +237,7 @@ impl App {
                 get(1),
             ),
             FormKind::Shutdown => Task::Shutdown,
-            FormKind::Confirm(t) => {
-                if get(0) != "ДА" {
-                    return Err("Введите ДА или Esc для отмены".into());
-                }
-                t
-            }
+            FormKind::Confirm(t) => t,
             FormKind::LlmServer => {
                 let url = localvox_light_client::normalize_llm_server(&get(0))
                     .map_err(|error| error.to_string())?;
@@ -263,7 +254,7 @@ impl App {
                 );
                 self.settings_edits
                     .insert("LOCALVOX_LLM_BASE_URL".into(), Some(url));
-                self.status = "Сервер в черновике · S сохранить настройки".into();
+                self.status = "Сервер в черновике · s сохранить настройки".into();
                 self.form = None;
                 return Ok(());
             }
@@ -338,9 +329,6 @@ impl App {
                 return Ok(());
             }
             FormKind::DiscardSettings => {
-                if get(0) != "ДА" {
-                    return Err("Введите ДА или Esc для отмены".into());
-                }
                 if self.settings_pending.is_some() {
                     return Err("Дождитесь результата сохранения настроек".into());
                 }
@@ -367,7 +355,7 @@ impl App {
                     self.settings_edits.remove(&key);
                 }
                 self.status = if self.settings_edits.contains_key(&key) {
-                    "Изменение в черновике · S сохранить настройки"
+                    "Изменение в черновике · s сохранить настройки"
                 } else {
                     "Значение не изменено"
                 }

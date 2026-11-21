@@ -72,6 +72,26 @@ test("settings show editable presets and stage reusable LLM servers", async ({pa
   await expect(page.getByRole("combobox",{name:"Адрес сервера"})).toHaveValue("https://models.example/v1");
 });
 
+test("system sound has a visible independent on switch and output selector", async ({page}) => {
+  await workspace(page);
+  const settings=[
+    {key:"LOCALVOX_LIGHT_LOOPBACK",group:"Устройства",label:"Записывать системный звук",kind:"bool",value:null,default_value:"on",applies:"capture",hint:"Микрофон и системный звук записываются вместе",set:false},
+    {key:"LOCALVOX_LIGHT_LOOPBACK_DEVICE",group:"Устройства",label:"Выход системного звука",kind:"text",value:null,default_value:"",applies:"capture",hint:"Автоматический выход",set:false,options:[{value:"default-output",label:"Системный выход"}]}
+  ];
+  let saved:unknown;
+  await page.route("**/api/settings",async route=>{
+    if(route.request().method()==="POST") { saved=route.request().postDataJSON(); return route.fulfill({json:{msg:"Применено",need_restart:[]}}); }
+    return route.fulfill({json:{settings,extra:[],env_path:"synthetic/.env"}});
+  });
+  await page.getByRole("button",{name:/⚙ Настройки/}).click();
+  const toggle=page.locator(".set-row").filter({has:page.getByText("LOCALVOX_LIGHT_LOOPBACK",{exact:true})}).locator("select");
+  await expect(toggle).toHaveValue("on");
+  await expect(page.getByText("Выход системного звука",{exact:true})).toBeVisible();
+  await toggle.selectOption("off");
+  await page.getByRole("button",{name:/Сохранить/}).click();
+  expect(JSON.stringify(saved)).toContain('"LOCALVOX_LIGHT_LOOPBACK":"off"');
+});
+
 test("missing summary is a neutral document instead of a service error", async ({ page }) => {
   await workspace(page);
   await page.route("**/summary", route => route.fulfill({ json: { available: false, blocks: [], provenance: null } }));

@@ -89,6 +89,7 @@ jobs:
           cargo test --locked -p localvox-light-api http::tests::settings --lib
           cargo test --locked -p localvox-light-core settings:: --lib
           cargo test --locked -p localvox-light-core presets:: --lib
+          cargo test --locked -p localvox-light-core cli_helpers_tests:: --lib
           cargo test --locked -p localvox-light-core env_file:: --lib
           cargo test --locked -p localvox-light-core jobs:: --lib
           cargo test --locked -p localvox-light-core workflow:: --lib

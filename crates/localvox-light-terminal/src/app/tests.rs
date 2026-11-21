@@ -67,7 +67,8 @@ fn palette_repeat_and_delete_require_confirmation_for_the_original_session() {
     choose_palette(&mut app, "Удалить запись");
     app.current = Some("another".into());
     app.paste("нет");
-    assert!(app.submit_form().is_err() && app.effects.is_empty());
+    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(app.form.is_some() && app.effects.is_empty());
     app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
     assert!(app.form.is_none() && app.effects.is_empty());
     app.current = Some("original".into());
@@ -540,7 +541,6 @@ fn settings_are_staged_and_failure_does_not_lose_changed_keys() {
     assert!(a.effects.is_empty());
     assert_eq!(a.settings_edits.len(), 1);
     a.command(Action::SaveSettings);
-    a.form.as_mut().unwrap().fields[0].value = "ДА".into();
     a.submit_form().unwrap();
     assert!(
         matches!(&a.effects[0].1,Task::SaveSettings(set) if set.len()==1&&set["ONE"].as_deref()==Some("20"))
@@ -752,7 +752,6 @@ fn deleting_a_session_drops_its_document_and_ignores_an_older_list() {
         ..Default::default()
     }];
     a.command(Action::DeleteSession);
-    a.form.as_mut().unwrap().fields[0].value = "ДА".into();
     a.submit_form().unwrap();
     a.apply(Response {
         id: 10,
@@ -935,7 +934,8 @@ fn settings_filter_edits_the_visible_key_and_discard_is_local_and_explicit() {
     a.submit_form().unwrap();
     assert_eq!(a.settings_edits["SECOND"].as_deref(), Some("20"));
     a.command(Action::DiscardSettings);
-    assert!(a.submit_form().is_err());
+    a.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(a.form.is_some());
     a.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
     assert_eq!(a.settings_edits.len(), 1);
     a.command(Action::DiscardSettings);

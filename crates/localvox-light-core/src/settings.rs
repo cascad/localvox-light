@@ -176,9 +176,17 @@ pub const CATALOGUE: &[Setting] = &[
         applies: Applies::Capture,
     },
     Setting {
+        key: "LOCALVOX_LIGHT_LOOPBACK",
+        group: "Устройства",
+        label: "Записывать системный звук",
+        hint: "Микрофон и системный звук записываются вместе; можно отключить системный звук",
+        kind: Kind::Bool,
+        applies: Applies::Capture,
+    },
+    Setting {
         key: "LOCALVOX_LIGHT_LOOPBACK_DEVICE",
         group: "Устройства",
-        label: "Системный звук (loopback)",
+        label: "Выход системного звука",
         hint: "Автоматически: сохранённый или системный выход",
         kind: Kind::Text,
         applies: Applies::Capture,
@@ -201,7 +209,7 @@ pub const CATALOGUE: &[Setting] = &[
         label: "Ротация файлов аудио, сек",
         // Not a quality knob: neighbouring chunks join sample-exactly, so this changes how the
         // recording is SPLIT ON DISK and nothing about what is recorded.
-        hint: "Ротация аудиофайлов; соседние части соединяются без потери звука",
+        hint: "Готовая порция живой записи для раннего распознавания; соседние части соединяются без потери звука",
         kind: Kind::Number,
         applies: Applies::Restart,
     },

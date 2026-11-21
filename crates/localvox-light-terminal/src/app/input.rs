@@ -230,7 +230,9 @@ impl App {
                 self.command(Action::ToggleAdvancedSettings);
                 return;
             }
-            if key.code == KeyCode::Char('S') {
+            if matches!(shortcut.code, KeyCode::Char('s' | 'S'))
+                && !key.modifiers.contains(KeyModifiers::CONTROL)
+            {
                 self.command(Action::SaveSettings);
                 return;
             }
@@ -261,9 +263,15 @@ impl App {
                 self.form = None;
                 return;
             }
-            if key.modifiers.contains(KeyModifiers::CONTROL)
-                && matches!(shortcut.code, KeyCode::Enter | KeyCode::Char('s' | 'S'))
-            {
+            let confirmation = self.form.as_ref().is_some_and(Form::is_confirmation);
+            let submit = key.modifiers.contains(KeyModifiers::CONTROL)
+                && matches!(shortcut.code, KeyCode::Enter | KeyCode::Char('s' | 'S'));
+            let plain_confirm =
+                confirmation && key.modifiers.is_empty() && shortcut.code == KeyCode::Char('s');
+            if submit || plain_confirm {
+                if confirmation && key.kind != crossterm::event::KeyEventKind::Press {
+                    return;
+                }
                 if let Err(e) = self.submit_form() {
                     if let Some(f) = &mut self.form {
                         f.error = Some(e);

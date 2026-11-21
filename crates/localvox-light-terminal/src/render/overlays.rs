@@ -42,16 +42,19 @@ pub(super) fn draw(f: &mut Frame, a: &App, area: Rect, t: Theme) {
         f.render_widget(Paragraph::new("УПРАВЛЕНИЕ\nSpace play/pause; p fragment; g/п time; Alt+Left/Right +/-15s\nF6 — стрелки плееру; повтор — к документу\n\nTab / Shift+Tab — фокус панели\nEsc — окно → детали → список → меню\n↑↓ — выбрать строку; Enter — открыть\nМеню разделов: l/Enter — выбрать\nСписок: j/k ↑↓; l/Enter открыть; / поиск; Ctrl+←/→ ширина\nВ поиске буквы и / — текст; Esc — сброс и выход\n1–5 — вкладки; y — блок/реплика; Ctrl+Y — всё; 3 → y — весь текст\n/ или точка в RU — поиск в выбранной панели; : / F2 — действия; n — создать; i — URL → Enter\nF8 — остановить запись; F9 — начать запись\nX — отменить обработку; R — продолжить этап\nPgUp / PgDn, Home / End — чтение документа\n← / → или h/l — свернуть / раскрыть подробности\n\nВ форме: Tab — поле; Enter — новая строка\nCtrl+Enter — отправить; Esc — отменить\nURL, настройка, время: Enter — подтвердить\nВставка остаётся текстом, команды не исполняются.\nI — сведения в «Ход»; A / S — все настройки / сохранить\n~ / ё — консоль ошибок; F12 — также из формы\n\nF10 / Ctrl+Q — выход; qq/йй за 0.5 с — вне ввода.\nДругая клавиша или вставка отменяет первое q.\nДемон и запись продолжают работать.\n\nЛюбая клавиша — закрыть справку").block(borders(a.preferences.ascii).title(" Помощь ").title_style(t.focus_style()).border_style(Style::default().fg(t.focus)).style(Style::default().bg(t.bg).fg(t.ink))).wrap(Wrap{trim:false}),rect);
     }
     if let Some(form) = &a.form {
-        let desired = match &form.kind {
-            crate::app::FormKind::SettingChoice { options, .. } => {
-                (options.len() as u16 + 5).clamp(7, 24)
+        let desired = if form.is_confirmation() {
+            10
+        } else {
+            match &form.kind {
+                crate::app::FormKind::SettingChoice { options, .. } => {
+                    (options.len() as u16 + 5).clamp(7, 24)
+                }
+                crate::app::FormKind::Seek
+                | crate::app::FormKind::Import
+                | crate::app::FormKind::LlmServer
+                | crate::app::FormKind::Setting(_) => 9,
+                _ => 30,
             }
-            crate::app::FormKind::Seek
-            | crate::app::FormKind::Import
-            | crate::app::FormKind::LlmServer
-            | crate::app::FormKind::Setting(_) => 9,
-            crate::app::FormKind::Shutdown => 10,
-            _ => 30,
         };
         let rect = modal(
             area,
@@ -70,16 +73,28 @@ pub(super) fn draw(f: &mut Frame, a: &App, area: Rect, t: Theme) {
             .style(Style::default().bg(t.bg).fg(t.ink));
         let inner = block.inner(rect);
         f.render_widget(block, rect);
-        if matches!(form.kind, crate::app::FormKind::Shutdown) {
+        if form.is_confirmation() {
+            let shutdown = matches!(form.kind, crate::app::FormKind::Shutdown);
             let mut lines = vec![
-                Line::from(Span::styled("Запись закроется.", t.label_style())),
                 Line::from(Span::styled(
-                    "Очередь продолжится при следующем запуске.",
+                    if shutdown {
+                        "Запись закроется."
+                    } else {
+                        "Выполнить действие из заголовка?"
+                    },
+                    t.label_style(),
+                )),
+                Line::from(Span::styled(
+                    if shutdown {
+                        "Очередь продолжится при следующем запуске."
+                    } else {
+                        "Изменения применятся после подтверждения."
+                    },
                     t.label_style(),
                 )),
                 Line::from(""),
                 Line::from(Span::styled(
-                    "Ctrl+S / Ctrl+Enter — завершить",
+                    "s подтвердить · Ctrl+S / Ctrl+Enter",
                     Style::default().fg(t.command).add_modifier(Modifier::BOLD),
                 )),
                 Line::from(Span::styled("Esc отменить", Style::default().fg(t.dim))),

@@ -656,7 +656,11 @@ impl ChunkLane {
                     self.conversions.clone(),
                 )
             });
-            rec.feed(&ring);
+            // Seed through normal capture frames: a long pre-roll must not become
+            // one oversized file that defeats the short rotation used by live STT.
+            for frame in ring.chunks(crate::audio::CHUNK_FRAMES) {
+                rec.feed(frame);
+            }
             self.recorded_since_open = true;
         }
     }
@@ -1837,6 +1841,30 @@ mod tests {
         let src0 = recorded_sec(&meta, 0);
         assert!(src0 >= 1.4, "the pre-roll was not seeded: {src0:.2} s");
         assert_eq!(meta.title.as_deref(), Some("Планёрка"));
+    }
+
+    #[test]
+    fn long_preroll_uses_short_live_rotation_without_losing_samples() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = sess_cfg(dir.path(), 90.0, 0.0);
+        cfg.chunk_sec = crate::presets::number("LOCALVOX_LIGHT_CHUNK_SEC");
+        let mut lane = ChunkLane::new(&cfg);
+        for source in 0..2 {
+            lane.feed(source, &vec![5000i16; 90 * 16000]);
+        }
+        lane.start("Short batches".into());
+        let sessions = session_dirs(dir.path());
+        let session = dir.path().join("sessions").join(&sessions[0]);
+        let input = crate::chunks::capture::read(&session).unwrap();
+        assert!(input.terminal.is_none());
+        assert!(input.sources.values().all(|s| s.ranges.len() >= 2));
+        let meta = read_meta(&session);
+        assert!(meta.chunks.iter().all(|c| c.duration_sec <= 30.04));
+        lane.finalize_all();
+        let meta = read_meta(&session);
+        for source in 0..2 {
+            assert!((recorded_sec(&meta, source) - 90.0).abs() < 0.001);
+        }
     }
 
     /// The recording began BEFORE the button, so `started_at` must be moved back by exactly as

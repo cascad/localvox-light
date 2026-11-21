@@ -1,5 +1,14 @@
 # Покрытие требований и состояние реализации
 
+Замечания владельца по записи/подтверждениям, 2026-11-21:
+[REC-006 / CFG-006](../changes/shorten-recording-feedback/evidence/implementation.md),
+[RUN-006 / RUN-007](../changes/unify-client-confirmations/evidence/implementation.md).
+Живые порции 30 с, микрофон + системный звук по умолчанию, отдельный Capture Bool;
+проверены реальные sealed ranges/horizon/раннее задание до Stop, стыковка PCM и
+settings HTTP controls. Подтверждения без ДА, s→s, compact render, настоящий ConPTY
+settings POST и shutdown. F:\lv обновлён, владелец сообщил «оно работает»;
+длинный hardware/Mac gate остаётся not-run. Новые IDs пока в delta, таблица ниже — main specs.
+
 PIPE-011 / US-007, 2026-11-21: [cursor-идентичность и баланс времени](../changes/fix-journal-stage-durations/evidence/cursor-accounting.md).
 Исправлено разделение свежих этапов на исторические группы при after-poll.
 Producer → HTTP по одному событию → группы TUI и общий настоящий UI/TUI стенд

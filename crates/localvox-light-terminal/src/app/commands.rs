@@ -649,7 +649,7 @@ impl App {
             Action::DiscardSettings if !self.settings_edits.is_empty() => self.open(
                 "Отменить несохранённые настройки",
                 FormKind::DiscardSettings,
-                &[("Введите ДА для отмены черновика", "")],
+                &[],
             ),
             Action::SelectVersion
             | Action::ChangeLanguage

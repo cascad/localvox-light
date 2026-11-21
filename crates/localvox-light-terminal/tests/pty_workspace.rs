@@ -22,6 +22,7 @@ struct ApiFixture {
     stops: Arc<AtomicUsize>,
     recording: Arc<AtomicBool>,
     shutdowns: Arc<AtomicUsize>,
+    settings_saves: Arc<AtomicUsize>,
     thread: Option<std::thread::JoinHandle<()>>,
 }
 impl ApiFixture {
@@ -42,6 +43,8 @@ impl ApiFixture {
         let recording = Arc::new(AtomicBool::new(true));
         let shutdowns = Arc::new(AtomicUsize::new(0));
         let full_exits = shutdowns.clone();
+        let settings_saves = Arc::new(AtomicUsize::new(0));
+        let saved_settings = settings_saves.clone();
         let active = recording.clone();
         let preview = Arc::new(AtomicUsize::new(0));
         let progress = preview.clone();
@@ -101,6 +104,16 @@ impl ApiFixture {
                     }
                     let body = if request.method().as_str() == "POST" {
                         match path {
+                            "/api/settings" => {
+                                let mut body = String::new();
+                                request.as_reader().read_to_string(&mut body).unwrap();
+                                assert_eq!(
+                                    serde_json::from_str::<serde_json::Value>(&body).unwrap(),
+                                    serde_json::json!({"set":{"LOCALVOX_LIGHT_LOOPBACK":"off"}})
+                                );
+                                saved_settings.fetch_add(1, Ordering::Relaxed);
+                                serde_json::json!({"msg":"Сохранено","need_restart":[]})
+                            }
                             "/api/application/shutdown" => {
                                 let mut body = String::new();
                                 request.as_reader().read_to_string(&mut body).unwrap();
@@ -175,6 +188,9 @@ impl ApiFixture {
                                 record
                             }
                             "/api/jobs" => fixture["jobs"].clone(),
+                            "/api/settings" => {
+                                serde_json::json!({"settings":[{"key":"LOCALVOX_LIGHT_LOOPBACK","group":"Устройства","label":"Записывать системный звук","kind":"bool","default_value":"on","value":if saved_settings.load(Ordering::Relaxed)>0 {Some("off")} else {None},"applies":"capture","hint":"Микрофон и системный звук"}],"extra":[]})
+                            }
                             p if p.ends_with("/journal") => serde_json::from_str(include_str!(
                                 "../../../tests/fixtures/journal.json"
                             ))
@@ -217,6 +233,7 @@ impl ApiFixture {
             stops,
             recording,
             shutdowns,
+            settings_saves,
             thread: Some(thread),
         }
     }
@@ -522,6 +539,90 @@ fn exercise_terminal(vox: bool, full_exit: bool) {
         &mut queries,
         deadline,
     );
+    if full_exit {
+        // Real terminal events, no typed confirmation token: edit a Boolean,
+        // s opens a reviewable dialog, another s sends one actual HTTP request.
+        writer.write_all(b"jjjj\r").unwrap();
+        writer.flush().unwrap();
+        wait_for(
+            "Записывать системный звук",
+            &mut all,
+            &mut screen,
+            &rx,
+            &mut writer,
+            &mut queries,
+            deadline,
+        );
+        writer.write_all(b"\r").unwrap();
+        writer.flush().unwrap();
+        wait_for(
+            "Выключено",
+            &mut all,
+            &mut screen,
+            &rx,
+            &mut writer,
+            &mut queries,
+            deadline,
+        );
+        writer.write_all(b"\x1b[B\x1b[B\r").unwrap();
+        writer.flush().unwrap();
+        wait_for(
+            "Изменение в черновике",
+            &mut all,
+            &mut screen,
+            &rx,
+            &mut writer,
+            &mut queries,
+            deadline,
+        );
+        writer.write_all(b"s").unwrap();
+        writer.flush().unwrap();
+        wait_for(
+            "s подтвердить",
+            &mut all,
+            &mut screen,
+            &rx,
+            &mut writer,
+            &mut queries,
+            deadline,
+        );
+        assert_eq!(api.settings_saves.load(Ordering::Relaxed), 0);
+        assert!(!screen.screen().contents().contains("Введите"));
+        writer.write_all(b"s").unwrap();
+        writer.flush().unwrap();
+        wait_for(
+            "Сохранено",
+            &mut all,
+            &mut screen,
+            &rx,
+            &mut writer,
+            &mut queries,
+            deadline,
+        );
+        assert_eq!(api.settings_saves.load(Ordering::Relaxed), 1);
+        writer.write_all(b"\x1b").unwrap();
+        writer.flush().unwrap();
+        wait_for(
+            "> Разделы",
+            &mut all,
+            &mut screen,
+            &rx,
+            &mut writer,
+            &mut queries,
+            deadline,
+        );
+        writer.write_all(b"kkkk\r\x1b[Z").unwrap();
+        writer.flush().unwrap();
+        wait_for(
+            "Архитектура и следующие шаги",
+            &mut all,
+            &mut screen,
+            &rx,
+            &mut writer,
+            &mut queries,
+            deadline,
+        );
+    }
     writer.write_all(b"\x1b[1;5C").unwrap(); // Control+Right: wider list, independent of layout.
     writer.flush().unwrap();
     wait_until(
@@ -700,7 +801,7 @@ fn exercise_terminal(vox: bool, full_exit: bool) {
         );
         assert_eq!(api.shutdowns.load(Ordering::Relaxed), 0);
         assert!(screen.screen().contents().contains("Запись закроется"));
-        writer.write_all(b"\x13").unwrap();
+        writer.write_all(b"s").unwrap();
     } else {
         writer.write_all(b"\x1b[21~").unwrap(); // F10, including an open form
     }

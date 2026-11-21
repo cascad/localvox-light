@@ -148,9 +148,9 @@ pub(super) fn project(a: &App, t: Theme, _metadata: bool) -> Projection {
                 projection.lines.push(Line::from(""));
                 projection.lines.push(Line::from(Span::styled(
                     if a.settings_advanced {
-                        "Enter изменить · S сохранить · A основные"
+                        "Enter изменить · s сохранить · A основные"
                     } else {
-                        "Enter изменить · S сохранить · A все"
+                        "Enter изменить · s сохранить · A все"
                     },
                     Style::default().fg(t.command),
                 )));

@@ -239,10 +239,11 @@ fn long_flag_in_argv(long: &str) -> bool {
     std::env::args().any(|a| a == long || a.starts_with(&eq))
 }
 
-fn env_truthy(name: &str) -> Option<bool> {
+pub(crate) fn env_truthy(name: &str) -> Option<bool> {
     std::env::var(name)
         .ok()
-        .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+        .filter(|v| !v.trim().is_empty())
+        .map(|v| crate::presets::bool_value(&v))
 }
 
 /// Boolean flags from `.env` / the environment, if the corresponding `--long` was not passed
@@ -317,16 +318,42 @@ pub fn resolve_audio_from_cli_and_file(cli: &Cli) -> crate::light_config::LightD
         .as_ref()
         .and_then(|p| crate::light_config::LightDeviceConfig::load(p).ok());
 
+    resolve_audio_config(
+        cli,
+        file_cfg,
+        &crate::presets::load().map(|p| p.values).unwrap_or_default(),
+        env_truthy("LOCALVOX_LIGHT_LOOPBACK"),
+    )
+}
+
+fn resolve_audio_config(
+    cli: &Cli,
+    file_cfg: Option<crate::light_config::LightDeviceConfig>,
+    defaults: &std::collections::BTreeMap<String, String>,
+    loopback_override: Option<bool>,
+) -> crate::light_config::LightDeviceConfig {
+    let preset = |key: &str| defaults.get(key).filter(|v| !v.trim().is_empty()).cloned();
+
     let mut mic = file_cfg
         .as_ref()
         .map(|c| c.mic.clone())
         .filter(|s| !s.is_empty())
+        .or_else(|| preset("LOCALVOX_LIGHT_MIC"))
         .unwrap_or_else(|| "default".into());
-    let mut loopback = file_cfg.as_ref().map(|c| c.loopback).unwrap_or(false);
+    let mut loopback = loopback_override
+        .or_else(|| file_cfg.as_ref().map(|c| c.loopback))
+        .unwrap_or_else(|| {
+            crate::presets::bool_value(
+                preset("LOCALVOX_LIGHT_LOOPBACK")
+                    .as_deref()
+                    .unwrap_or(crate::presets::baked("LOCALVOX_LIGHT_LOOPBACK")),
+            )
+        });
     let mut loopback_device = file_cfg
         .as_ref()
         .map(|c| c.loopback_device.clone())
         .filter(|s| !s.is_empty())
+        .or_else(|| preset("LOCALVOX_LIGHT_LOOPBACK_DEVICE"))
         .unwrap_or_else(|| "default-output".into());
 
     if let Some(ref m) = cli.mic {
@@ -567,6 +594,27 @@ mod cli_helpers_tests {
     use clap::Parser;
     use std::fs;
     use tempfile::tempdir;
+
+    #[test]
+    fn capture_defaults_enable_both_but_never_override_saved_or_explicit_off() {
+        let mut cli = Cli::try_parse_from(["localvox-light"]).unwrap();
+        let defaults = [("LOCALVOX_LIGHT_LOOPBACK".to_owned(), "true".to_owned())].into();
+        let saved = crate::light_config::LightDeviceConfig {
+            mic: "saved mic".into(),
+            loopback: false,
+            loopback_device: "saved output".into(),
+        };
+        assert!(resolve_audio_config(&cli, None, &defaults, None).loopback);
+        assert!(!resolve_audio_config(&cli, Some(saved.clone()), &defaults, None).loopback);
+        assert!(resolve_audio_config(&cli, Some(saved.clone()), &defaults, Some(true)).loopback);
+        let mut enabled = saved.clone();
+        enabled.loopback = true;
+        assert!(!resolve_audio_config(&cli, Some(enabled), &defaults, Some(false)).loopback);
+        cli.loopback = true;
+        assert!(resolve_audio_config(&cli, Some(saved.clone()), &defaults, Some(false)).loopback);
+        cli.no_loopback = true;
+        assert!(!resolve_audio_config(&cli, Some(saved), &defaults, Some(true)).loopback);
+    }
 
     #[test]
     fn retention_defaults_to_manual_deletion_and_accepts_opt_in_age() {

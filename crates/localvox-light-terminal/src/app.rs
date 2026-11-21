@@ -71,6 +71,14 @@ pub struct Form {
     pub error: Option<String>,
     pub session: Option<String>,
 }
+impl Form {
+    pub fn is_confirmation(&self) -> bool {
+        matches!(
+            self.kind,
+            FormKind::Confirm(_) | FormKind::Shutdown | FormKind::DiscardSettings
+        )
+    }
+}
 #[derive(Clone)]
 pub enum FormKind {
     Import,
@@ -668,6 +676,7 @@ fn basic_setting(key: &str) -> bool {
     matches!(
         key,
         "LOCALVOX_LIGHT_MIC"
+            | "LOCALVOX_LIGHT_LOOPBACK"
             | "LOCALVOX_LIGHT_LOOPBACK_DEVICE"
             | "LOCALVOX_LIGHT_AUTOCOOK_SUMMARY"
             | "LOCALVOX_LIGHT_INCREMENTAL_TRANSCRIBE"

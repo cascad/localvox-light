@@ -5,6 +5,13 @@ use std::{collections::BTreeMap, path::PathBuf};
 const PACKAGED: &str = include_str!("../../../.env.defaults");
 pub const LLM_SERVERS: &str = "LOCALVOX_LLM_SERVER_URLS";
 
+pub(crate) fn bool_value(value: &str) -> bool {
+    matches!(
+        value.trim().to_ascii_lowercase().as_str(),
+        "1" | "true" | "yes" | "on"
+    )
+}
+
 pub fn baked(key: &str) -> &'static str {
     PACKAGED
         .lines()
@@ -107,6 +114,11 @@ pub fn default_value(key: &str) -> Option<String> {
 pub fn apply_missing() -> Result<()> {
     let defaults = load()?;
     for (key, value) in defaults.values {
+        // Device presets are the lowest layer, below the saved device config.
+        // Materializing them as env would turn a default into an explicit override.
+        if crate::settings::applies(&key) == crate::settings::Applies::Capture {
+            continue;
+        }
         if !value.is_empty() && std::env::var_os(&key).is_none_or(|v| v.is_empty()) {
             std::env::set_var(key, value);
         }
@@ -154,6 +166,8 @@ mod tests {
         assert_eq!(number::<u64>("LOCALVOX_LIGHT_AUTOCOOK_INTERVAL_SEC"), 5);
         assert_eq!(baked("LOCALVOX_API_TOKEN"), "");
         assert_eq!(baked("LOCALVOX_LIGHT_INCREMENTAL_TRANSCRIBE"), "on");
+        assert_eq!(baked("LOCALVOX_LIGHT_LOOPBACK"), "on");
+        assert_eq!(number::<u32>("LOCALVOX_LIGHT_CHUNK_SEC"), 30);
         assert!(parse("LOCALVOX_LIGHT_PREROLL_SEC=oops").is_err());
         assert!(parse("LOCALVOX_API_TOKEN=secret").is_err());
     }
