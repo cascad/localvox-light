@@ -73,7 +73,11 @@ impl Preview {
             })
             .unwrap();
         let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_localvox-setup-preview"));
-        command.args(["--scenario", scenario]);
+        if scenario == "download" {
+            command.arg("--download-demo");
+        } else {
+            command.args(["--scenario", scenario]);
+        }
         command.cwd(sandbox.path());
         for key in ["HOME", "USERPROFILE", "LOCALAPPDATA", "APPDATA"] {
             command.env(key, sandbox.path());
@@ -251,6 +255,23 @@ fn recommended_fresh_and_existing_reuse_are_safe() {
         );
         assert!(!display.contains("Выполняется · 0 мин"));
         demo.capture(&format!("{scenario}-activity"));
+        demo.finish("Демо завершено");
+    }
+}
+
+#[test]
+fn byte_progress_unknown_size_and_unpacking_share_one_safe_indicator() {
+    for cols in [80, 110] {
+        let mut demo = Preview::new("download", cols);
+        demo.wait_for("download bytes/speed/ETA", |screen| {
+            screen.contains("осталось") && screen.contains("/s") && screen.contains("25%")
+        });
+        demo.capture(&format!("download-known-size-{cols}"));
+        demo.wait("Распаковка");
+        demo.wait_for("unknown-size progress", |screen| {
+            screen.contains("размер неизвестен.bin") && !screen.contains("осталось")
+        });
+        demo.capture(&format!("download-unknown-size-{cols}"));
         demo.finish("Демо завершено");
     }
 }
@@ -636,5 +657,14 @@ fn pipe_is_rejected_and_help_needs_no_terminal() {
     let help = run(&["--help"]);
     assert!(help.status.success());
     assert!(String::from_utf8_lossy(&help.stdout).contains("fresh|existing"));
+    let download = run(&["--download-demo"]);
+    assert!(download.status.success());
+    let rendered = String::from_utf8_lossy(&download.stderr);
+    assert!(
+        rendered.contains("осталось")
+            && rendered.contains("MiB")
+            && rendered.contains("Распаковка")
+    );
+    assert!(!rendered.contains("@localvox-download-v1") && !rendered.contains('\u{1b}'));
     assert!(snapshot(sandbox.path()).is_empty());
 }

@@ -2,6 +2,7 @@
 use std::collections::BTreeMap;
 use std::io;
 pub mod activity;
+pub mod progress;
 mod wizard;
 
 struct InstallerTheme {
@@ -253,5 +254,46 @@ pub fn demonstrate(selected: &Selection) -> io::Result<()> {
     for feature in &selected.features {
         cliclack::log::info(format!("Демо · {}", feature.title()))?;
     }
+    cliclack::outro("Демо завершено. Ничего не скачано и не изменено.")
+}
+
+/// The real renderer/protocol, synthetic bytes; never opens a model or network connection.
+pub fn demonstrate_download_progress() -> io::Result<()> {
+    use progress::{Phase, Progress};
+    use std::io::Write;
+    cliclack::intro("LocalVox · демо загрузки, без скачивания")?;
+    let mut activity = activity::Activity::start("Демо · модель");
+    let mut writer = activity.writer();
+    for n in 0..=8 {
+        let event = Progress {
+            name: "модель.zip".into(),
+            phase: Phase::Downloading,
+            bytes: n * 512 * 1024,
+            total: Some(4 * 1024 * 1024),
+            elapsed_ms: n * 200 + 1,
+        };
+        let mut wire = Vec::new();
+        event.write(&mut wire)?;
+        for fragment in wire.chunks(3) {
+            writer.write_all(fragment)?;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(130));
+    }
+    Progress::stage("модель.zip", Phase::Verifying).write(&mut writer)?;
+    std::thread::sleep(std::time::Duration::from_millis(250));
+    Progress::stage("модель.zip", Phase::Unpacking).write(&mut writer)?;
+    std::thread::sleep(std::time::Duration::from_millis(250));
+    for n in 1..=3 {
+        Progress {
+            name: "размер неизвестен.bin".into(),
+            phase: Phase::Downloading,
+            bytes: n * 512 * 1024,
+            total: None,
+            elapsed_ms: n * 500,
+        }
+        .write(&mut writer)?;
+        std::thread::sleep(std::time::Duration::from_millis(150));
+    }
+    activity.finish(true);
     cliclack::outro("Демо завершено. Ничего не скачано и не изменено.")
 }

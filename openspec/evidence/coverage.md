@@ -773,3 +773,9 @@ Vosk как необязательная возможность, 2026-11-22:
 | Требования | Изменение | Проверка | Граница |
 |---|---|---|---|
 | LIVE-002, SETUP-001/003 | [delta и задачи](../changes/make-live-vosk-optional/tasks.md), engine/pipeline, doctor, installer, клиентские подсказки и `vox setup` | [test-run](../changes/make-live-vosk-optional/evidence/implementation.md): core 494, API 94, TUI 222 + entry 2, native installer 12/setup 11, мастер ConPTY 11/клиент 9, UI 16/84; настоящий daemon → HTTP → production UI в двух режимах без моделей | Main ещё не sync; native Mac/Linux, качество физического звука/ASR и новая публичная установка not-run; URL/транспорт загрузки моделей не изменены |
+
+Наблюдаемая доставка моделей, 2026-11-22:
+
+| Требования | Изменение | Проверка | Граница |
+|---|---|---|---|
+| INV-SETUP-001, SETUP-010 (delta) | [transport/progress, PS/Bash, закреплённый Vosk primary/fallback](../changes/accelerate-model-downloads/tasks.md) | [test-run](../changes/accelerate-model-downloads/evidence/implementation.md): полные ZIP official/mirror с одинаковым SHA; настоящий native download + PS распаковка 63,64 с и повтор 0,21 с; HTTP/PS5/Git Bash/ConPTY 80 и 110 колонок; F:\lv обновлён, bundle и vox setup проверены | Main не sync; новая публичная установка и native Linux/macOS not-run; измерение скорости зависит от сети |

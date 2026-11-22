@@ -75,28 +75,58 @@ wanted() {
 }
 
 MISSING=0
+NATIVE_DOWNLOADER="${LOCALVOX_MODEL_DOWNLOADER:-}"
+if [ -z "$NATIVE_DOWNLOADER" ]; then
+    for candidate in "$HERE/../localvox-install" "$HERE/../localvox-install.exe"; do
+        if [ -x "$candidate" ] && [ "$("$candidate" --download-protocol 2>/dev/null)" = localvox-download-v1 ]; then
+            NATIVE_DOWNLOADER="$candidate"; break
+        fi
+    done
+fi
 
 # Скачивание идёт в «.part» и переименовывается только после проверки. Оборванная закачка
 # на 1.8 ГБ иначе осталась бы лежать под правильным именем и при следующем запуске
 # сошла бы за готовый файл — а это молча испорченная модель.
 fetch_verified() {
-    local url="$1" target="$2" want_sha="$3" note="$4"
+    local url="$1" target="$2" want_sha="$3" note="$4" mirrors="${5:-[]}" size="${6:-0}"
     new_model_parent "$target"
     local part="$target.part"
     echo "  ⇣ $(basename "$target")"
-    if ! curl -fL --progress-bar -A "localvox-fetch-models/1.0" "$url" > "$part"; then
+    local -a sources=("$url") options=()
+    local mirror
+    while IFS= read -r mirror; do [ -z "$mirror" ] || sources+=("$mirror"); done < <(jq -r '.[]' <<<"$mirrors")
+    local downloaded=0
+    if [ -n "$NATIVE_DOWNLOADER" ]; then
+        options=(--download-file "$url" --download-output "$part")
+        [ "$want_sha" = null ] || [ -z "$want_sha" ] || options+=(--download-sha256 "$want_sha")
+        [ "$size" = null ] || [ "$size" = 0 ] || options+=(--download-size "$size")
+        for mirror in "${sources[@]:1}"; do options+=(--download-fallback "$mirror"); done
+        if "$NATIVE_DOWNLOADER" "${options[@]}"; then downloaded=1; fi
+    else
+        for mirror in "${sources[@]}"; do
+            if curl -fL --progress-bar -A "localvox-fetch-models/1.0" "$mirror" > "$part"; then downloaded=1; break; fi
+        done
+    fi
+    if [ "$downloaded" = 0 ]; then
         rm -f "$part"
         echo "Не удалось скачать модель: $url. Готовые модели сохранены." >&2
         return 1
     fi
 
-    if [ "$want_sha" != "null" ] && [ -n "$want_sha" ]; then
+    if [ "$size" != null ] && [ "$size" != 0 ] && [ "$(wc -c < "$part" | tr -d '[:space:]')" != "$size" ]; then
+        rm -f "$part"
+        echo "Размер скачанного файла не совпал с ожидаемым: $size байт" >&2
+        return 1
+    fi
+    if [ "$want_sha" != "null" ] && [ -n "$want_sha" ] && [ -z "$NATIVE_DOWNLOADER" ]; then
         local got; got="$(sha256_of "$part")"
         if [ "$got" != "$want_sha" ]; then
             rm -f "$part"
             echo "    sha256 НЕ СОВПАЛ: ждали $want_sha, получили $got. Файл удалён." >&2
             exit 1
         fi
+        echo "    sha256 совпал"
+    elif [ "$want_sha" != "null" ] && [ -n "$want_sha" ]; then
         echo "    sha256 совпал"
     elif [ -n "$note" ] && [ "$note" != "null" ]; then
         echo "    sha256 вверху не публикуют — $note"
@@ -136,7 +166,8 @@ for ci in $(seq 0 $((n_comp - 1))); do
             if [ "$CHECK_ONLY" = 1 ]; then echo "  НЕТ: $(jq -r '.dest' <<<"$item")"; MISSING=1; continue; fi
             [[ "$location_source" != explicit ]] || { echo "Configured model is incomplete: $component_path. Choose download/repair in --setup or use an explicit --root." >&2; exit 1; }
             fetch_verified "$(jq -r '.url' <<<"$item")" "$dest" \
-                "$(jq -r '.sha256' <<<"$item")" "$(jq -r '.sha256_note // ""' <<<"$item")"
+                "$(jq -r '.sha256' <<<"$item")" "$(jq -r '.sha256_note // ""' <<<"$item")" \
+                "$(jq -c '.mirrors // []' <<<"$item")" "$(jq -r '.size // 0' <<<"$item")"
             ;;
         text)
             dest="$(model_payload "$component_path" "$component_dir" "$(jq -r '.dest' <<<"$item")")"
@@ -153,9 +184,14 @@ for ci in $(seq 0 $((n_comp - 1))); do
             [[ "$location_source" != explicit ]] || { echo "Configured model needs repair: $component_path. Choose download/repair in --setup or use an explicit --root." >&2; exit 1; }
             unpack_to="$(assert_model_replacement "$unpack_to" "$component_path")"
 
-            tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+            new_model_parent "$component_path"
+            tmp="$(mktemp -d "$(dirname "$component_path")/.localvox-download.XXXXXXXX")"; trap 'rm -rf "$tmp"' EXIT
             fetch_verified "$(jq -r '.url' <<<"$item")" "$tmp/a.zip" \
-                "$(jq -r '.sha256' <<<"$item")" "$(jq -r '.sha256_note // ""' <<<"$item")"
+                "$(jq -r '.sha256' <<<"$item")" "$(jq -r '.sha256_note // ""' <<<"$item")" \
+                "$(jq -c '.mirrors // []' <<<"$item")" "$(jq -r '.size // 0' <<<"$item")"
+            if [ "${LOCALVOX_DOWNLOAD_PROTOCOL:-}" = 1 ]; then
+                printf '@localvox-download-v1 %s\n' "$(jq -cn --arg name "$title" '{name:$name,phase:"unpacking",bytes:0,total:null,elapsed_ms:0}')"
+            fi
             echo "  распаковка…"
             unzip -q "$tmp/a.zip" -d "$tmp/x"
             # Архив несёт свой корневой каталог (vosk-model-ru-0.42/…). Кладём его СОДЕРЖИМОЕ

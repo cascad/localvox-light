@@ -4,8 +4,11 @@ use std::io::{self, IsTerminal};
 
 fn main() -> io::Result<()> {
     let args: Vec<_> = std::env::args().skip(1).collect();
+    if args.as_slice() == ["--download-demo"] {
+        return localvox_setup_ui::demonstrate_download_progress();
+    }
     if args.iter().any(|a| a == "--help" || a == "-h") {
-        println!("LocalVox · демо установщика, без установки\n\nlocalvox-setup-preview [--scenario fresh|existing]\n\nfresh — первая установка, existing — всё уже готово (фиктивные данные).\n↑/↓ — выбор, Пробел — галочка, Enter — дальше, Esc — назад / отмена.");
+        println!("LocalVox · демо установщика, без установки\n\nlocalvox-setup-preview [--scenario fresh|existing]\nlocalvox-setup-preview --download-demo\n\nfresh — первая установка, existing — всё уже готово (фиктивные данные).\n↑/↓ — выбор, Пробел — галочка, Enter — дальше, Esc — назад / отмена.");
         return Ok(());
     }
     let scenario = match args.as_slice() {

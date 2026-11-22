@@ -5,6 +5,18 @@ use localvox_light::setup::install;
 #[derive(Parser)]
 #[command(about = "Установка и проверка LocalVox", version)]
 struct Args {
+    #[arg(long, hide = true, conflicts_with = "download_file")]
+    download_protocol: bool,
+    #[arg(long, hide = true, requires = "download_output")]
+    download_file: Option<String>,
+    #[arg(long, hide = true, requires = "download_file")]
+    download_output: Option<std::path::PathBuf>,
+    #[arg(long, hide = true, requires = "download_file")]
+    download_sha256: Option<String>,
+    #[arg(long, hide = true, requires = "download_file")]
+    download_size: Option<u64>,
+    #[arg(long, hide = true, requires = "download_file")]
+    download_fallback: Vec<String>,
     #[arg(long)]
     install_dir: Option<std::path::PathBuf>,
     #[arg(long)]
@@ -27,6 +39,30 @@ fn main() -> anyhow::Result<()> {
         windows_sys::Win32::System::Diagnostics::Debug::SetErrorMode(3);
     }
     let args = Args::parse();
+    if args.download_protocol {
+        println!("{}", localvox_setup_ui::progress::PROTOCOL);
+        return Ok(());
+    }
+    if let Some(url) = args.download_file {
+        let request = localvox_light::setup::download::Request {
+            urls: std::iter::once(url).chain(args.download_fallback).collect(),
+            output: args.download_output.expect("clap requires download_output"),
+            sha256: args.download_sha256,
+            size: args.download_size,
+        };
+        return if std::env::var("LOCALVOX_DOWNLOAD_PROTOCOL").as_deref() == Ok("1") {
+            let mut output = std::io::stdout().lock();
+            localvox_light::setup::download::fetch(&request, |event| {
+                let _ = event.write(&mut output);
+            })
+        } else {
+            let mut activity = localvox_setup_ui::activity::Activity::start("Скачивание модели");
+            let result =
+                localvox_light::setup::download::fetch(&request, |event| activity.progress(event));
+            activity.finish(result.is_ok());
+            result
+        };
+    }
     let destination = args
         .install_dir
         .unwrap_or_else(install::default_program_dir);

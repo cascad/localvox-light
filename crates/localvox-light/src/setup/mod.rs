@@ -1,5 +1,6 @@
 //! Terminal setup shares runtime discovery and manifest downloaders with the product.
 pub mod bundle;
+pub mod download;
 pub mod execute;
 pub mod install;
 pub mod pending;

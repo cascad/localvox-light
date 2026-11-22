@@ -90,6 +90,20 @@ pub(super) fn apply_actions(plan: &Plan, layout: &Layout, install: &Path) -> Res
                     "PATH",
                     super::tools::command_path(&Default::default(), install)?,
                 );
+                let downloader = install.join(super::bundle::executable("localvox-install"));
+                if downloader.is_file()
+                    && Command::new(&downloader)
+                        .arg("--download-protocol")
+                        .output()
+                        .is_ok_and(|result| {
+                            result.status.success()
+                                && String::from_utf8_lossy(&result.stdout).trim()
+                                    == localvox_setup_ui::progress::PROTOCOL
+                        })
+                {
+                    cmd.env("LOCALVOX_MODEL_DOWNLOADER", downloader)
+                        .env("LOCALVOX_DOWNLOAD_PROTOCOL", "1");
+                }
                 run_command_named(cmd, &label)?;
                 component
                     .validate(layout, destination)
@@ -323,8 +337,11 @@ pub fn ensure_tag(base: &str, model: &str, gguf: Option<&Path>, install: &Path) 
 }
 
 pub fn pull_progress(mut input: impl BufRead, out: &mut impl Write) -> Result<()> {
+    use localvox_setup_ui::progress::{Phase, Progress};
     let mut previous = String::new();
     let mut success = false;
+    let mut started = std::time::Instant::now();
+    let mut last = std::time::Instant::now();
     loop {
         let mut line = Vec::new();
         let len = input
@@ -341,10 +358,54 @@ pub fn pull_progress(mut input: impl BufRead, out: &mut impl Write) -> Result<()
             anyhow::bail!("Ollama: {error}");
         }
         if let Some(status) = event["status"].as_str() {
-            if status != previous {
-                writeln!(out, "  {status}")?;
-                previous = status.into();
+            let digest = event["digest"]
+                .as_str()
+                .unwrap_or("")
+                .chars()
+                .take(12)
+                .collect::<String>();
+            let name = if digest.is_empty() {
+                status.to_string()
+            } else {
+                format!("{status} · {digest}")
+            };
+            let bytes = event["completed"].as_u64().unwrap_or(0);
+            let total = event["total"].as_u64();
+            anyhow::ensure!(
+                total.is_none_or(|total| bytes <= total),
+                "Ollama прислала неверный размер загрузки"
+            );
+            let changed = name != previous;
+            if changed {
+                started = std::time::Instant::now();
             }
+            if changed
+                || last.elapsed() >= Duration::from_millis(250)
+                || total == Some(bytes)
+                || status == "success"
+            {
+                let phase = if status == "success" {
+                    Phase::Complete
+                } else if total.is_some() || bytes > 0 {
+                    Phase::Downloading
+                } else if status.contains("verif")
+                    || status.contains("manifest") && !status.starts_with("pulling")
+                {
+                    Phase::Verifying
+                } else {
+                    Phase::Connecting
+                };
+                Progress {
+                    name: name.clone(),
+                    phase,
+                    bytes,
+                    total,
+                    elapsed_ms: started.elapsed().as_millis() as u64,
+                }
+                .write(out)?;
+                last = std::time::Instant::now();
+            }
+            previous = name;
             success |= status == "success";
         }
     }
@@ -358,6 +419,30 @@ pub fn pull_progress(mut input: impl BufRead, out: &mut impl Write) -> Result<()
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ollama_uses_the_same_byte_protocol_and_rejects_impossible_counters() {
+        use localvox_setup_ui::progress::{Phase, Progress};
+        let input = b"{\"status\":\"pulling layer\",\"digest\":\"abc\",\"total\":100,\"completed\":20}\n{\"status\":\"pulling layer\",\"digest\":\"abc\",\"total\":100,\"completed\":100}\n{\"status\":\"verifying sha256 digest\"}\n{\"status\":\"success\"}\n";
+        let mut output = Vec::new();
+        pull_progress(std::io::Cursor::new(input), &mut output).unwrap();
+        let events: Vec<_> = std::str::from_utf8(&output)
+            .unwrap()
+            .lines()
+            .map(|line| Progress::parse(line).unwrap())
+            .collect();
+        assert_eq!((events[0].bytes, events[0].total), (20, Some(100)));
+        assert!(events
+            .iter()
+            .any(|e| e.phase == Phase::Downloading && e.bytes == 100));
+        assert!(events.iter().any(|e| e.phase == Phase::Verifying));
+        assert_eq!(events.last().unwrap().phase, Phase::Complete);
+        assert!(pull_progress(
+            std::io::Cursor::new(b"{\"status\":\"pulling\",\"total\":1,\"completed\":2}\n"),
+            &mut Vec::new()
+        )
+        .is_err());
+    }
 
     #[test]
     fn command_failure_keeps_its_stage_and_child_error_in_plain_output() {

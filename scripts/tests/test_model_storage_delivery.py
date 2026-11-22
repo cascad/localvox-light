@@ -21,12 +21,65 @@ BASH = os.getenv('LOCALVOX_TEST_BASH') or (r'C:\Program Files\Git\bin\bash.exe' 
 
 
 class ModelStorageDelivery(unittest.TestCase):
+    def test_native_helper_uses_the_same_pinned_fallback_and_keeps_download_staging_on_model_volume(self):
+        target = Path(os.getenv('CARGO_TARGET_DIR', ROOT / 'target/native-ci-build'))
+        platform = 'x86_64-pc-windows-msvc' if os.name == 'nt' else os.getenv('CARGO_BUILD_TARGET', '')
+        name = 'localvox-install.exe' if os.name == 'nt' else 'localvox-install'
+        candidates = [target / platform / profile / name for profile in ('release', 'debug')]
+        native = next((p for p in candidates if p.is_file()), None)
+        if native is None:
+            self.skipTest('built native downloader required')
+        shutil.copy2(native, self.install / name)
+        for library in (ROOT / 'vosk-lib').glob('*'):
+            if library.is_file() and (library.suffix in ('.dll', '.dylib') or '.so' in library.name):
+                shutil.copy2(library, self.install / library.name)
+        item = self.manifest['components'][0]['items'][0]
+        item['mirrors'] = [item['url']]
+        item['url'] = f'http://127.0.0.1:{self.server.server_port}/denied'
+        self.save_manifest()
+        for shell in self.shells():
+            with self.subTest(shell=shell):
+                self.requests.clear()
+                destination = self.root / ('native-' + shell)
+                options = (['-Root', str(destination), '-Only', 'vosk'] if shell == 'ps' else
+                           ['--root', self.unix(destination), '--only', 'vosk'])
+                result = self.run_fetch(shell, *options)
+                output = (result.stdout + result.stderr).decode('utf-8', errors='replace')
+                self.assertIn('резервный источник', output)
+                self.assertIn('KiB', output)
+                self.assertNotIn('@localvox-download-v1', output)
+                self.assertTrue((destination / 'models/vosk-model-ru-0.42/am/final.mdl').is_file())
+                self.assertEqual(self.requests, ['/denied', '/vosk-0'])
+                self.assertFalse(list(destination.rglob('.localvox-download*')))
+                self.requests.clear()
+                self.run_fetch(shell, *options)
+                self.assertEqual(self.requests, [])
+
+                # Real PS/Bash children also forward typed frames to the native master's renderer.
+                self.environment['LOCALVOX_DOWNLOAD_PROTOCOL'] = '1'
+                try:
+                    destination = self.root / ('native-protocol-' + shell)
+                    options = (['-Root', str(destination), '-Only', 'vosk'] if shell == 'ps' else
+                               ['--root', self.unix(destination), '--only', 'vosk'])
+                    result = self.run_fetch(shell, *options)
+                    prefix = '@localvox-download-v1 '
+                    events = [json.loads(line[len(prefix):]) for line in
+                              result.stdout.decode('utf-8').splitlines() if line.startswith(prefix)]
+                    self.assertTrue(any(e['phase'] == 'downloading' and e['bytes'] == item['size'] for e in events))
+                    self.assertTrue(any(e['phase'] == 'unpacking' for e in events))
+                    self.assertTrue((destination / 'models/vosk-model-ru-0.42/am/final.mdl').is_file())
+                finally:
+                    self.environment.pop('LOCALVOX_DOWNLOAD_PROTOCOL', None)
+
     def test_required_only_downloads_gigaam_without_vosk(self):
         self.assertEqual([c['id'] for c in self.manifest['components'] if c['required']], ['gigaam'])
         for shell in self.shells():
             with self.subTest(shell=shell):
                 self.requests.clear()
-                self.run_fetch(shell, '-RequiredOnly' if shell == 'ps' else '--required-only')
+                destination = self.root / ('required-' + shell)
+                options = (['-Root', str(destination), '-RequiredOnly'] if shell == 'ps' else
+                           ['--root', self.unix(destination), '--required-only'])
+                self.run_fetch(shell, *options)
                 self.assertTrue(any(path.startswith('/gigaam-') for path in self.requests))
                 self.assertFalse(any(path.startswith('/vosk-') for path in self.requests))
 
@@ -108,6 +161,8 @@ class ModelStorageDelivery(unittest.TestCase):
                     file.write_bytes(('tiny ' + name).encode())
                 item['url'] = f'http://127.0.0.1:{self.server.server_port}/{name}'
                 item['sha256'] = hashlib.sha256(file.read_bytes()).hexdigest()
+                item['mirrors'] = []
+                item['size'] = file.stat().st_size
         self.save_manifest()
 
     def stop_server(self):

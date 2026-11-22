@@ -45,6 +45,16 @@ if ($ComponentDir) { $placement.components[$Only[0]].path = [IO.Path]::GetFullPa
 # между парой минут и получасом.
 $ProgressPreference = 'SilentlyContinue'
 $missing = $false
+$nativeDownloader = $env:LOCALVOX_MODEL_DOWNLOADER
+if (-not $nativeDownloader) {
+    $candidate = Join-Path (Split-Path -Parent $here) 'localvox-install.exe'
+    if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+        try {
+            $protocol = & $candidate --download-protocol 2>$null
+            if ($LASTEXITCODE -eq 0 -and "$protocol".Trim() -eq 'localvox-download-v1') { $nativeDownloader = $candidate }
+        } catch { $nativeDownloader = $null }
+    }
+}
 
 function Test-Wanted([string]$id, [bool]$required) {
     if ($Skip -contains $id) { return $false }
@@ -56,12 +66,27 @@ function Test-Wanted([string]$id, [bool]$required) {
 # Качаем в «.part» и переименовываем только после проверки. Оборванная закачка на 1.8 ГБ
 # иначе осталась бы лежать под правильным именем и при следующем запуске сошла бы за
 # готовый файл — а это молча испорченная модель.
-function Get-Verified([string]$url, [string]$target, $wantSha, $note) {
+function Get-Verified([string]$url, [string]$target, $wantSha, $note, $mirrors = @(), $size = 0) {
     New-ModelParent $target $placement.user_root
     $part = "$target.part"
     Write-Host "  ⇣ $(Split-Path -Leaf $target)"
     try {
-        Invoke-WebRequest -Uri $url -OutFile $part -UserAgent 'localvox-fetch-models/1.0' -UseBasicParsing
+        if ($nativeDownloader) {
+            $arguments = @('--download-file', $url, '--download-output', $part)
+            if ($wantSha) { $arguments += @('--download-sha256', [string]$wantSha) }
+            if ($size -gt 0) { $arguments += @('--download-size', [string]$size) }
+            foreach ($mirror in $mirrors) { if ($mirror) { $arguments += @('--download-fallback', [string]$mirror) } }
+            & $nativeDownloader @arguments
+            if ($LASTEXITCODE -ne 0) { throw 'Native model download failed' }
+        } else {
+            $sources = @(@($url) + @($mirrors) | Where-Object { $_ })
+            for ($attempt = 0; $attempt -lt $sources.Count; $attempt++) {
+                try {
+                    Invoke-WebRequest -Uri $sources[$attempt] -OutFile $part -UserAgent 'localvox-fetch-models/1.0' -UseBasicParsing
+                    break
+                } catch { if ($attempt -eq $sources.Count - 1) { throw } }
+            }
+        }
     } catch {
         if (Test-Path -LiteralPath $part) { Remove-Item -LiteralPath $part -Force }
         $response = $_.Exception.Response
@@ -69,13 +94,19 @@ function Get-Verified([string]$url, [string]$target, $wantSha, $note) {
         throw "Не удалось скачать модель ($reason): $url. Готовые модели сохранены."
     }
 
-    if ($wantSha) {
+    if ($size -gt 0 -and (Get-Item -LiteralPath $part).Length -ne $size) {
+        Remove-Item -LiteralPath $part -Force
+        throw "Размер скачанного файла не совпал с ожидаемым: $size байт"
+    }
+    if ($wantSha -and -not $nativeDownloader) {
         $got = (Get-FileHash -LiteralPath $part -Algorithm SHA256).Hash.ToLower()
         if ($got -ne $wantSha) {
             Remove-Item -LiteralPath $part -Force
             throw "sha256 НЕ СОВПАЛ у $(Split-Path -Leaf $target): ждали $wantSha, получили $got. Файл удалён."
         }
         Write-Host "    sha256 совпал"
+    } elseif ($wantSha) {
+        Write-Host '    sha256 совпал'
     } elseif ($note) {
         Write-Host "    sha256 вверху не публикуют — $note"
     }
@@ -100,7 +131,7 @@ foreach ($comp in $manifest.components) {
                 if (Test-Path -LiteralPath $dest -PathType Leaf) { Write-Host "  уже на месте: $(Split-Path -Leaf $dest)"; break }
                 if ($Check) { Write-Host "  НЕТ: $($item.dest)"; $script:missing = $true; break }
                 if ($location.source -eq 'explicit') { throw "Configured model is incomplete: $componentPath. Choose download/repair in --setup or use an explicit -Root." }
-                Get-Verified $item.url $dest $item.sha256 $item.sha256_note
+                Get-Verified $item.url $dest $item.sha256 $item.sha256_note $item.mirrors $item.size
             }
             'text' {
                 if ($Check -or $location.source -eq 'explicit') { break }
@@ -120,11 +151,16 @@ foreach ($comp in $manifest.components) {
                 if ($location.source -eq 'explicit') { throw "Configured model needs repair: $componentPath. Choose download/repair in --setup or use an explicit -Root." }
                 Assert-ModelReplacement $unpackTo $componentPath
 
-                $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("lv-" + [Guid]::NewGuid().ToString())
+                New-ModelParent $componentPath $placement.user_root
+                $tempParent = [IO.Path]::GetFullPath((Split-Path -Parent $componentPath))
+                $tmp = Join-Path $tempParent ('.localvox-download-' + [Guid]::NewGuid().ToString())
                 New-Item -ItemType Directory -Force -Path $tmp | Out-Null
                 try {
                     $zip = Join-Path $tmp 'a.zip'
-                    Get-Verified $item.url $zip $item.sha256 $item.sha256_note
+                    Get-Verified $item.url $zip $item.sha256 $item.sha256_note $item.mirrors $item.size
+                    if ($env:LOCALVOX_DOWNLOAD_PROTOCOL -eq '1') {
+                        Write-Host ('@localvox-download-v1 ' + (@{name=$comp.title;phase='unpacking';bytes=0;total=$null;elapsed_ms=0} | ConvertTo-Json -Compress))
+                    }
                     Write-Host "  распаковка…"
                     Expand-Archive -LiteralPath $zip -DestinationPath (Join-Path $tmp 'x') -Force
                     # Архив несёт свой корневой каталог (vosk-model-ru-0.42\…). Кладём его
@@ -146,8 +182,8 @@ foreach ($comp in $manifest.components) {
                         throw "После распаковки нет $($item.marker) в $unpackTo"
                     }
                 } finally {
-                    $tempParent = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\','/') + [IO.Path]::DirectorySeparatorChar
-                    if ([IO.Path]::GetFullPath($tmp).StartsWith($tempParent, [StringComparison]::OrdinalIgnoreCase) -and (Split-Path -Leaf $tmp).StartsWith('lv-')) {
+                    $safeParent = $tempParent.TrimEnd('\','/') + [IO.Path]::DirectorySeparatorChar
+                    if ([IO.Path]::GetFullPath($tmp).StartsWith($safeParent, [StringComparison]::OrdinalIgnoreCase) -and (Split-Path -Leaf $tmp).StartsWith('.localvox-download-')) {
                         Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
                     }
                 }
