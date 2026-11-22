@@ -24,7 +24,7 @@ pub enum State {
     Ok,
     /// Продукт запустится, но чего-то не будет уметь. Человек должен знать ЧЕГО.
     Warn,
-    /// Не заработает. Без этого запускаться бессмысленно.
+    /// Обязательная или явно выбранная возможность недоступна.
     Fail,
 }
 
@@ -78,6 +78,7 @@ impl Finding {
 /// Куда всё разрешилось. Строится из среды один раз; ниже — только чистые проверки.
 #[derive(Debug, Clone)]
 pub struct Layout {
+    pub live_asr: bool,
     pub vosk_model: PathBuf,
     pub gigaam: Option<PathBuf>,
     pub diarize: Option<PathBuf>,
@@ -117,6 +118,10 @@ impl Layout {
         // daemon does not build, and a doctor spelling the directory on its own would report on
         // a place nothing looks at.
         Layout {
+            live_asr: crate::presets::bool_value(
+                &std::env::var("LOCALVOX_LIGHT_LIVE_ASR")
+                    .unwrap_or_else(|_| crate::presets::baked("LOCALVOX_LIGHT_LIVE_ASR").into()),
+            ),
             vosk_model,
             diarize: crate::lang::sibling_model_dir(crate::lang::DIARIZE, gigaam.as_deref()),
             ner: crate::lang::sibling_model_dir(crate::lang::NER, gigaam.as_deref()),
@@ -141,26 +146,67 @@ fn first_missing<'a>(dir: &Path, files: &[&'a str]) -> Option<&'a str> {
     files.iter().copied().find(|f| !dir.join(f).is_file())
 }
 
+/// Contextual help about configured capabilities, never an inference health claim.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ModelNotice {
+    pub component: String,
+    pub text: String,
+}
+
+pub fn model_notices(layout: &Layout) -> Vec<ModelNotice> {
+    let mut notices = Vec::new();
+    let voice = if !layout.live_asr {
+        Some("Голосовые команды и мгновенный черновик выключены в настройках. Изменения режима действуют после перезапуска. Включить: Настройки → Голосовое управление. Доустановить Vosk: завершите LocalVox и запустите vox setup.")
+    } else if crate::cli::validate_vosk_model_dir(&layout.vosk_model).is_err() {
+        Some("Модель Vosk не найдена или неполна. Без неё недоступны голосовые команды и мгновенный черновик; запись и GigaAM работают. Доустановка: завершите LocalVox и запустите vox setup.")
+    } else {
+        None
+    };
+    if let Some(text) = voice {
+        notices.push(ModelNotice {
+            component: "vosk".into(),
+            text: text.into(),
+        });
+    }
+    if inspect(layout)
+        .iter()
+        .any(|finding| finding.id == "gigaam" && finding.state != State::Ok)
+    {
+        notices.push(ModelNotice {
+            component: "gigaam".into(),
+            text: "Модель GigaAM не найдена или неполна. Для новой расшифровки требуется модель; готовые тексты доступны. Доустановка: завершите LocalVox и запустите vox setup.".into(),
+        });
+    }
+    notices
+}
+
 /// Полный разбор — чистая функция от разложенных путей.
 pub fn inspect(l: &Layout) -> Vec<Finding> {
     let mut out = Vec::new();
 
-    // ── Живое распознавание. Без него демон не стартует вообще: validate_vosk_model
-    //    вызывается в main() безусловно.
-    out.push(match crate::cli::validate_vosk_model_dir(&l.vosk_model) {
-        Ok(()) => Finding::ok(
+    // Disabled features do not require weights; explicit opt-in must be healthy.
+    out.push(if !l.live_asr {
+        Finding::ok(
             "vosk",
-            "Vosk (живое распознавание)",
-            l.vosk_model.display().to_string(),
-        ),
-        Err(e) => Finding::bad(
-            "vosk",
-            "Vosk (живое распознавание)",
-            State::Fail,
-            format!("{}: {e}", l.vosk_model.display()),
-            "scripts/fetch-models.sh --only vosk (или fetch-models.ps1 -Only vosk); \
+            "Vosk · голосовое управление",
+            "Выключено · запись и расшифровка GigaAM работают без Vosk",
+        )
+    } else {
+        match crate::cli::validate_vosk_model_dir(&l.vosk_model) {
+            Ok(()) => Finding::ok(
+                "vosk",
+                "Vosk (живое распознавание)",
+                l.vosk_model.display().to_string(),
+            ),
+            Err(e) => Finding::bad(
+                "vosk",
+                "Vosk (живое распознавание)",
+                State::Fail,
+                format!("{}: {e}", l.vosk_model.display()),
+                "scripts/fetch-models.sh --only vosk (или fetch-models.ps1 -Only vosk); \
              путь задаётся LOCALVOX_LIGHT_MODEL",
-        ),
+            ),
+        }
     });
 
     // ── Расшифровка архива.
@@ -346,6 +392,7 @@ mod tests {
 
     fn layout(root: &Path) -> Layout {
         Layout {
+            live_asr: true,
             vosk_model: root.join("vosk"),
             gigaam: None,
             diarize: None,
@@ -377,6 +424,49 @@ mod tests {
         assert_eq!(find(&fs, "Диаризация").state, State::Warn);
         assert_eq!(find(&fs, "GLiNER").state, State::Warn);
         assert_eq!(worst(&fs), State::Fail);
+    }
+
+    #[test]
+    fn disabled_vosk_is_not_a_missing_required_model() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut l = layout(tmp.path());
+        l.live_asr = false;
+        let fs = inspect(&l);
+        let vosk = find(&fs, "Vosk");
+        assert_eq!(vosk.state, State::Ok);
+        assert!(vosk.detail.contains("Выключено"));
+        assert_eq!(find(&fs, "GigaAM").state, State::Fail);
+        l.live_asr = true;
+        assert_eq!(find(&inspect(&l), "Vosk").state, State::Fail);
+    }
+
+    #[test]
+    fn model_notices_distinguish_disabled_missing_and_present_weights_without_loading() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut l = layout(tmp.path());
+        l.live_asr = false;
+        let notices = model_notices(&l);
+        assert_eq!(notices.len(), 2);
+        assert!(notices[0].text.contains("выключены"));
+        l.live_asr = true;
+        assert!(model_notices(&l)[0].text.contains("не найдена"));
+        touch(&l.vosk_model.join("am/final.mdl"));
+        let gigaam = tmp.path().join("gigaam");
+        for file in [
+            "v3_e2e_ctc.int8.onnx",
+            "v3_e2e_ctc.yaml",
+            "v3_e2e_ctc_vocab.txt",
+        ] {
+            touch(&gigaam.join(file));
+        }
+        l.gigaam = Some(gigaam);
+        assert!(
+            model_notices(&l).is_empty(),
+            "presence only; synthetic weights are never loaded"
+        );
+        l.live_asr = false;
+        assert_eq!(model_notices(&l).len(), 1);
+        assert!(l.vosk_model.join("am/final.mdl").is_file());
     }
 
     /// Каждая находка не-Ok обязана нести назначение. Диагноз без «что делать» человек

@@ -279,7 +279,7 @@ fn ask(step: Step, draft: &mut Draft, data: &ViewData, details: Option<&str>) ->
         Components => {
             cliclack::note(
                 "Всегда включено",
-                "✓ Запись и расшифровка · Vosk + GigaAM\n  Входит в любую установку.",
+                "✓ Запись и расшифровка · GigaAM ≈215 МБ\n  Входит в любую установку. Vosk нужен только для голосовых команд и мгновенного черновика.",
             )?;
             let mut checklist =
                 cliclack::multiselect("Компоненты · ↑/↓ · Пробел — галочка · Enter — дальше")
@@ -373,7 +373,7 @@ fn ask(step: Step, draft: &mut Draft, data: &ViewData, details: Option<&str>) ->
                 .item(
                     self::Directories::ExistingModels,
                     "Указать готовые папки моделей",
-                    "Vosk и GigaAM · можно из разных мест",
+                    "GigaAM и выбранные дополнительные модели · можно из разных мест",
                 )
                 .initial_value(draft.directories)
                 .interact()?;
@@ -390,7 +390,11 @@ fn ask(step: Step, draft: &mut Draft, data: &ViewData, details: Option<&str>) ->
         ModelsDir => {
             draft.models_dir = text("Папка моделей", &draft.models_dir)?;
             if draft.directories == self::Directories::ExistingModels {
-                ModelPath(ModelKind::Vosk)
+                if draft.features.contains(&Feature::Voice) {
+                    ModelPath(ModelKind::Vosk)
+                } else {
+                    ModelPath(ModelKind::Gigaam)
+                }
             } else {
                 Review
             }

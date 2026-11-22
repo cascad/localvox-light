@@ -7,6 +7,7 @@ import { NotesPane } from "./Notes";
 import { QueuePane } from "./Queue";
 import { RecordBar } from "./RecordBar";
 import { SettingsPane } from "./Settings";
+import { ModelHints } from "./ModelHints";
 import { AskHistory, AskPane } from "./Ask";
 import { dayLabel, mmss, shortTitle, stateOf } from "./lib";
 import { usePolling } from "./usePolling";
@@ -253,7 +254,7 @@ export default function App() {
       </aside>
 
       {view === "note" ? (
-        <NotesPane voice={record?.voice ?? null} say={say} />
+        <NotesPane voice={record?.voice ?? null} say={say} notices={record?.model_notices} />
       ) : view === "ask" ? (
         <AskPane
           current={currentAsk}
@@ -262,9 +263,10 @@ export default function App() {
           say={say}
         />
       ) : view === "settings" ? (
-        <SettingsPane say={say} />
+        <SettingsPane say={say} notices={record?.model_notices} />
       ) : view === "queue" ? (
         <QueuePane
+          notices={record?.model_notices}
           open={(n) => {
             setView("archive");
             setCurrent(n);
@@ -275,6 +277,7 @@ export default function App() {
         />
       ) : session ? (
         <DocumentPane
+          notices={record?.model_notices}
           session={session}
           tab={tab}
           setTab={setTab}
@@ -287,6 +290,7 @@ export default function App() {
         <main className="main">
           <div className="pane">
             <p className="hint">Записей пока нет.</p>
+            <ModelHints notices={record?.model_notices} component="gigaam" />
           </div>
         </main>
       )}

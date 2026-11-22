@@ -12,6 +12,12 @@ impl Archive {
         let session = localvox_light_core::jobs::recording_session(&self.work_dir);
         let engine = engine_alive(&self.work_dir);
         RecordState {
+            model_notices: localvox_light_core::doctor::model_notices(
+                &localvox_light_core::doctor::Layout::from_env(
+                    localvox_light_core::model_paths::default_vosk().into(),
+                    self.work_dir.clone(),
+                ),
+            ),
             engine,
             recording: engine && session.is_some(),
             session: session.filter(|_| engine),

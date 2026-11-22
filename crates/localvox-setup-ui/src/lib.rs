@@ -39,6 +39,7 @@ pub enum Feature {
     Links,
     Player,
     Names,
+    Voice,
 }
 
 #[derive(
@@ -69,14 +70,16 @@ impl Feature {
             Self::Links => "links",
             Self::Player => "player",
             Self::Names => "names",
+            Self::Voice => "voice",
         }
     }
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::Speakers,
         Self::Summary,
         Self::Links,
         Self::Player,
         Self::Names,
+        Self::Voice,
     ];
     pub fn title(self) -> &'static str {
         match self {
@@ -85,6 +88,7 @@ impl Feature {
             Self::Links => "Обрабатывать ссылки YouTube",
             Self::Player => "Слушать записи в терминале",
             Self::Names => "Дополнительно проверять имена",
+            Self::Voice => "Голосовые команды и мгновенный черновик",
         }
     }
     fn hint(self) -> &'static str {
@@ -94,6 +98,7 @@ impl Feature {
             Self::Links => "yt-dlp + ffmpeg · загрузка и подготовка аудио",
             Self::Player => "mpv · прослушивание и перемотка в TUI",
             Self::Names => "GLiNER ≈580 МБ · необязательно",
+            Self::Voice => "Vosk ≈1,9 ГБ · для записи и расшифровки не требуется",
         }
     }
 }
@@ -180,7 +185,7 @@ pub fn review(data: &ViewData, selected: &Selection) -> String {
         if data.core_ready {
             "уже готовы"
         } else {
-            "Vosk + GigaAM, ≈2 ГБ"
+            "GigaAM, ≈215 МБ"
         }
     )];
     for feature in Feature::ALL {

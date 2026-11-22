@@ -83,8 +83,14 @@ impl Session {
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct ModelNotice {
+    pub component: String,
+    pub text: String,
+}
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(default)]
 pub struct RecordState {
+    pub model_notices: Vec<ModelNotice>,
     pub engine: bool,
     pub recording: bool,
     pub session: Option<String>,

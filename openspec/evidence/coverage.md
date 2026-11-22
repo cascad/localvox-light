@@ -767,3 +767,9 @@ Delta coherence, 2026-11-13:
 | Requirement | Код / delta | Проверка | Граница |
 |---|---|---|---|
 | LLM-003, PIPE-006 | [retention delta](../changes/fix-text-correction-retention/specs/llm-processing/spec.md) | [reconciliation](../changes/fix-text-correction-retention/evidence/delta-reconciliation-2026-11-13.md): hosted 44df41e functional checks включая shared UI/TUI passed, specification validation failed из-за трёх пропущенных main-сценариев; восстановлены дословно; strict main + все 39 workflow changes passed локально | Нормативный main, runtime и исторические результаты не менялись; весь hosted Interface ещё не green |
+
+Vosk как необязательная возможность, 2026-11-22:
+
+| Требования | Изменение | Проверка | Граница |
+|---|---|---|---|
+| LIVE-002, SETUP-001/003 | [delta и задачи](../changes/make-live-vosk-optional/tasks.md), engine/pipeline, doctor, installer, клиентские подсказки и `vox setup` | [test-run](../changes/make-live-vosk-optional/evidence/implementation.md): core 494, API 94, TUI 222 + entry 2, native installer 12/setup 11, мастер ConPTY 11/клиент 9, UI 16/84; настоящий daemon → HTTP → production UI в двух режимах без моделей | Main ещё не sync; native Mac/Linux, качество физического звука/ASR и новая публичная установка not-run; URL/транспорт загрузки моделей не изменены |

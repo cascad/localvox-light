@@ -4,7 +4,7 @@ use localvox_light::setup::{
     install,
     plan::{Action, Component},
 };
-use localvox_setup_ui::{Selection, SummarySource};
+use localvox_setup_ui::{Feature, Selection, SummarySource};
 use std::path::Path;
 
 fn put(path: &Path, bytes: &[u8]) {
@@ -201,6 +201,63 @@ fn runtime_startup_accepts_missing_env_and_reports_parse_errors_without_secret_v
     );
     assert!(!String::from_utf8_lossy(&fresh.stderr).contains("ERROR"));
     serde_json::from_slice::<serde_json::Value>(&fresh.stdout).unwrap();
+
+    // An unavailable microphone is deliberate: reach capture setup without ever
+    // opening a real device. Missing Vosk must not prevent that in either mode.
+    for mode in ["off", "on"] {
+        let archive = temp.path().join(format!("archive-{mode}"));
+        put(
+            &archive.join("old-live.part"),
+            b"keep interrupted live audio",
+        );
+        let mut cmd = std::process::Command::new(&binary);
+        cmd.current_dir(&cwd)
+            .args([
+                "--no-tui",
+                "--no-loopback",
+                "--mic",
+                "__localvox_nonexistent_test_microphone__",
+                "--live-asr",
+                mode,
+                "--model",
+            ])
+            .arg(temp.path().join("missing-vosk"))
+            .arg("--audio-dir")
+            .arg(&archive)
+            .env("HOME", temp.path())
+            .env("USERPROFILE", temp.path())
+            .env("LOCALVOX_LIGHT_CALL_DETECT", "off");
+        let result = localvox_light_process::run(
+            cmd,
+            None,
+            localvox_light_process::Limits::new(std::time::Duration::from_secs(10)),
+            || false,
+            |_, _| {},
+        )
+        .unwrap();
+        assert!(
+            matches!(
+                result.termination,
+                localvox_light_process::Termination::Exited(_)
+            ),
+            "{:?}",
+            result.termination
+        );
+        let error = String::from_utf8_lossy(&result.stderr);
+        assert!(
+            error.contains("Микрофон"),
+            "capture setup was reached: {error}"
+        );
+        assert!(
+            !error.contains("Vosk model:"),
+            "optional weights blocked startup: {error}"
+        );
+        assert_eq!(
+            std::fs::read(archive.join("old-live.part")).unwrap(),
+            b"keep interrupted live audio"
+        );
+        assert!(!archive.join("transcript.jsonl").exists());
+    }
 }
 
 #[test]
@@ -215,7 +272,7 @@ fn separate_ready_model_paths_are_validated_and_noop_reconciliation_preserves_fi
     let discovered = install::layout(&config, &source, &destination);
     let selected = Selection {
         custom: true,
-        features: vec![],
+        features: vec![Feature::Voice],
         program_dir: destination.display().to_string(),
         models_dir: temp.path().join("future downloads").display().to_string(),
         model_paths: [
@@ -247,7 +304,7 @@ fn separate_ready_model_paths_are_validated_and_noop_reconciliation_preserves_fi
     let layout = install::layout(&config, &destination, &destination);
     let view = install::view(&config, &layout, &destination, existing).unwrap();
     let selected = view.initial.unwrap();
-    assert!(selected.features.is_empty());
+    assert_eq!(selected.features, vec![Feature::Voice]);
     assert_eq!(selected.models_dir, first.selected.models_dir);
     let mut repeat = install::prepare(&destination, &selected, &layout).unwrap();
     repeat.register_path = false;
@@ -272,10 +329,13 @@ fn separate_ready_model_paths_are_validated_and_noop_reconciliation_preserves_fi
         b"fixture"
     );
     let mut bad = selected;
+    bad.features.clear();
     bad.model_paths.insert(
         localvox_setup_ui::ModelKind::Vosk,
         temp.path().join("missing").display().to_string(),
     );
+    assert!(install::prepare(&destination, &bad, &layout).is_ok());
+    bad.features.push(Feature::Voice);
     assert!(install::prepare(&destination, &bad, &layout).is_err());
 }
 
@@ -663,7 +723,7 @@ fn selected_download_folder_is_exact_and_disabled_summary_never_schedules_llm() 
         model_paths: Default::default(),
     };
     let installation = install::prepare(&source, &selected, &layout).unwrap();
-    assert_eq!(installation.plan.actions.len(), 2);
+    assert_eq!(installation.plan.actions.len(), 1);
     for action in &installation.plan.actions {
         let Action::Download {
             component,
@@ -674,10 +734,33 @@ fn selected_download_folder_is_exact_and_disabled_summary_never_schedules_llm() 
             panic!("unexpected LLM/system action")
         };
         assert_eq!(destination.parent(), Some(model_dir.as_path()));
-        assert!([Component::Vosk, Component::Gigaam].contains(component));
+        assert_eq!(*component, Component::Gigaam);
     }
     assert!(installation.describe().contains("Сводки: выключены"));
     assert!(!model_dir.exists());
+
+    let mut selected = selected;
+    selected.features.push(Feature::Voice);
+    let with_voice = install::prepare(&source, &selected, &layout).unwrap();
+    assert_eq!(with_voice.plan.actions.len(), 2);
+    assert!(with_voice.plan.actions.iter().any(|action| matches!(
+        action,
+        Action::Download {
+            component: Component::Vosk,
+            ..
+        }
+    )));
+    assert!(with_voice
+        .plan
+        .changes
+        .contains(&("LOCALVOX_LIGHT_LIVE_ASR".into(), Some("on".into()))));
+    assert!(
+        !Component::Vosk.valid(&layout),
+        "disabled doctor status is not proof of installed weights"
+    );
+    assert!(Component::Vosk
+        .validate(&layout, &layout.vosk_model)
+        .is_err());
 }
 
 #[test]

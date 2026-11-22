@@ -58,8 +58,8 @@ def inspect_doctor(text):
     required = {'vosk', 'gigaam', 'worker', 'archive', 'ollama_cli', 'ollama_api', 'llm_model'}
     if len(indexed) != len(findings) or not required.issubset(indexed):
         raise RuntimeError('Doctor report missing stable component IDs or has duplicates')
-    if indexed['worker'] != 'ok' or indexed['vosk'] != 'fail' or indexed['gigaam'] != 'fail':
-        raise RuntimeError(f'Doctor must detect installed worker and deliberately missing ASR: {indexed}')
+    if indexed['worker'] != 'ok' or indexed['vosk'] != 'ok' or indexed['gigaam'] != 'fail':
+        raise RuntimeError(f'Doctor must detect installed worker, disabled Vosk and missing GigaAM: {indexed}')
     return indexed
 
 
@@ -110,6 +110,11 @@ def check(archive):
         # must fail clearly, never accidentally accept an installation plan.
         run([binary, '--setup'], 1, cwd=install, input='q\n', environment=environment)
         native_installer = install / ('localvox-install.exe' if windows else 'localvox-install')
+        vox = install / ('vox.exe' if windows else 'vox')
+        # The public maintenance entry must preserve doctor's exit status and
+        # delegate to the same wizard, never autostart the recording daemon.
+        run([vox, 'setup', '--check'], 2, cwd=install, environment=environment)
+        run([vox, 'setup'], 1, cwd=install, input='\n', environment=environment)
         run([native_installer, '--bundle-check', '--install-dir', install], cwd=install, environment=environment)
         run([native_installer, '--install-dir', install, '--no-path-update'], 1,
             cwd=install, input='\n', environment=environment)
@@ -132,7 +137,7 @@ def check(archive):
         if (install / '.env').read_text(encoding='utf-8') != original:
             raise RuntimeError('Installer changed existing configuration')
         return {'doctor': findings, 'missing_asr_exit': 2, 'check_before_install': True,
-                'wizard_requires_tty_without_mutation': True, 'bundle_check': True,
+                'wizard_requires_tty_without_mutation': True, 'vox_setup_delegate_and_check': True, 'bundle_check': True,
                 'reconcile_unchanged': True, 'fetch_check_readonly': True}
 
 

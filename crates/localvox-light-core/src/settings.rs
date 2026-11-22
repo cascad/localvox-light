@@ -139,6 +139,14 @@ pub fn apply_live(changes: &[(String, Option<String>)]) -> Vec<String> {
 
 /// The curated catalogue. Order is the order on screen.
 pub const CATALOGUE: &[Setting] = &[
+    Setting {
+        key: "LOCALVOX_LIGHT_LIVE_ASR",
+        group: "Голосовое управление",
+        label: "Голосовые команды и мгновенный черновик",
+        hint: "Требуется модель Vosk: выберите эту возможность в установщике. Запись и ранняя расшифровка GigaAM работают и без неё.",
+        kind: Kind::Bool,
+        applies: Applies::Restart,
+    },
     // ── Инструменты ──────────────────────────────────────────────────────────
     // The group that started all this: the daemon ingest resolved these to bare names and failed
     // with "not installed" while the binary sat in `bin/`.

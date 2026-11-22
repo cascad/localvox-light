@@ -51,7 +51,7 @@ class InstalledCheckContracts(unittest.TestCase):
         self.assertIn('- "rust-toolchain.toml"', build)
 
     def test_structured_doctor_requires_unique_ids_and_detects_the_deliberately_missing_models(self):
-        states = {'vosk': 'fail', 'gigaam': 'fail', 'worker': 'ok', 'archive': 'warn',
+        states = {'vosk': 'ok', 'gigaam': 'fail', 'worker': 'ok', 'archive': 'warn',
                   'ollama_cli': 'warn', 'ollama_api': 'warn', 'llm_model': 'warn'}
         report = {'schema': 1, 'findings': [{'id': k, 'state': v} for k, v in states.items()]}
         self.assertEqual(smoke.inspect_doctor(json.dumps(report)), states)
@@ -60,7 +60,7 @@ class InstalledCheckContracts(unittest.TestCase):
             if mode == 'schema': changed['schema'] = 9
             elif mode == 'duplicate': changed['findings'].append(changed['findings'][0])
             elif mode == 'missing': changed['findings'].pop()
-            else: changed['findings'][0]['state'] = 'ok'
+            else: changed['findings'][1]['state'] = 'ok'
             with self.assertRaises(RuntimeError, msg=mode): smoke.inspect_doctor(json.dumps(changed))
 
     def test_readonly_snapshot_catches_empty_directories_and_rewrites_of_identical_bytes(self):

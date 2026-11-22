@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
-import { api } from "./api";
+import { api, type ModelNotice } from "./api";
+import { ModelHints } from "./ModelHints";
 import { usePolling } from "./usePolling";
 
 /** THE QUEUE: what is being cooked now, and what comes after it, in order.
@@ -16,10 +17,12 @@ export function QueuePane({
   open,
   say,
   onChanged,
+  notices,
 }: {
   open: (n: string) => void;
   say: (m: string) => void;
   onChanged: () => void;
+  notices?: ModelNotice[];
 }) {
   const { data: items, error: err, refresh } = usePolling("queue", async (signal) => (await api.queue(signal)).queue ?? []);
   const submitting = useRef(new Map<string, "retry" | "cancel">());
@@ -45,6 +48,7 @@ export function QueuePane({
     <main className="main">
       <div className="pane">
         <h1 style={{ fontSize: 19, margin: "0 0 4px" }}>Очередь обработки</h1>
+        <ModelHints notices={notices} component="gigaam" />
         {err && <p className="err">Очередь не обновляется: {err}. Показаны последние полученные данные.</p>}
         <p className="hint" style={{ marginTop: 0 }}>
           {items.some(i=>i.kind==="incremental") ? "Обычные задания идут перед следующей ранней порцией. Отменённые ждут ручного продолжения." : "Порядок настоящий — демон берёт записи сверху вниз. Отменённые остаются для ручного продолжения."}

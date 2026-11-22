@@ -33,6 +33,8 @@ pub fn run_engine(
     transcript_hook: Option<crate::events::TranscriptHook>,
 ) -> Result<()> {
     let work_dir = PathBuf::from(&cli.audio_dir);
+    // Missing optional weights must not take recording or its control API down.
+    let live_asr = cli.live_asr && crate::cli::validate_vosk_model(&cli).is_ok();
     std::fs::create_dir_all(&work_dir)?;
     info!("Workspace: {}", work_dir.display());
 
@@ -47,7 +49,12 @@ pub fn run_engine(
         Err(e) => anyhow::bail!("workspace directory lock: {e}"),
     };
 
-    session::remove_orphan_part_files(&work_dir);
+    if live_asr {
+        session::remove_orphan_part_files(&work_dir);
+    } else {
+        // A marker from a previous enabled run must not advertise a listener now.
+        crate::voice_note::clear(&work_dir);
+    }
 
     // The live length of the segment queue (RAM mode leaves no files to count).
     let pending_segments = Arc::new(AtomicUsize::new(0));
@@ -138,7 +145,11 @@ pub fn run_engine(
 
     // Recovery: all unprocessed WAVs from disk → into the channel BEFORE the pipeline (sorted
     // by src/seq).
-    let recovery = session::recover_unprocessed(&work_dir);
+    let recovery = if live_asr {
+        session::recover_unprocessed(&work_dir)
+    } else {
+        Vec::new()
+    };
     if !recovery.is_empty() {
         let n = recovery.len();
         debug!("Recovery: {n} unprocessed WAV(s) → channel");
@@ -171,6 +182,7 @@ pub fn run_engine(
     }
 
     let pipeline_cfg = PipelineConfig {
+        live_asr,
         max_chunk_sec: cli.max_chunk_sec,
         min_chunk_sec: cli.min_chunk_sec,
         vad_silence_sec: cli.vad_silence_sec,
@@ -255,109 +267,117 @@ pub fn run_engine(
             )
         })?;
 
-    let ui_load = ui_tx.clone();
-    let load_stats_dir = work_dir.clone();
-    thread::Builder::new()
-        .name("vosk-load".into())
-        .spawn(move || {
-            if let Some(ref t) = ui_load {
-                let _ = t.send(UiMsg::Log(StructuredLog {
-                    stage: "load".into(),
-                    source_id: 0,
-                    chunk_sec: 0.0,
-                    proc_sec: 0.0,
-                    detail: model_path_buf.display().to_string(),
-                    verbose_only: true,
-                }));
-            }
-            // Load progress: libvosk gives no callbacks, so the percentage comes from the
-            // duration of the previous load (stored in model-load.json).
-            let expected = read_model_load_sec(&load_stats_dir);
-            let t0 = Instant::now();
-            let loading = Arc::new(AtomicBool::new(true));
-            if let Some(ref t) = ui_load {
-                let t = t.clone();
-                let loading = Arc::clone(&loading);
-                thread::Builder::new()
-                    .name("vosk-load-progress".into())
-                    .spawn(move || {
-                        while loading.load(Ordering::Relaxed) {
-                            let elapsed = t0.elapsed().as_secs_f64();
-                            let msg = match expected {
-                                Some(exp) if exp > 1.0 => format!(
-                                    "Загрузка модели Vosk {} {elapsed:.0} с из ~{exp:.0} с",
-                                    progress_bar(elapsed / exp, 20)
-                                ),
-                                _ => format!(
-                                    // with no history — an asymptotic fill: the bar is alive
-                                    // but promises no 100%
-                                    "Загрузка модели Vosk {} {elapsed:.0} с (первый запуск)",
-                                    progress_bar(1.0 - (-elapsed / 20.0).exp(), 20)
-                                ),
-                            };
-                            let _ = t.send(UiMsg::Status(msg));
-                            thread::sleep(Duration::from_millis(500));
+    let asr_handle = if live_asr {
+        let ui_load = ui_tx.clone();
+        let load_stats_dir = work_dir.clone();
+        thread::Builder::new()
+            .name("vosk-load".into())
+            .spawn(move || {
+                if let Some(ref t) = ui_load {
+                    let _ = t.send(UiMsg::Log(StructuredLog {
+                        stage: "load".into(),
+                        source_id: 0,
+                        chunk_sec: 0.0,
+                        proc_sec: 0.0,
+                        detail: model_path_buf.display().to_string(),
+                        verbose_only: true,
+                    }));
+                }
+                // Load progress: libvosk gives no callbacks, so the percentage comes from the
+                // duration of the previous load (stored in model-load.json).
+                let expected = read_model_load_sec(&load_stats_dir);
+                let t0 = Instant::now();
+                let loading = Arc::new(AtomicBool::new(true));
+                if let Some(ref t) = ui_load {
+                    let t = t.clone();
+                    let loading = Arc::clone(&loading);
+                    thread::Builder::new()
+                        .name("vosk-load-progress".into())
+                        .spawn(move || {
+                            while loading.load(Ordering::Relaxed) {
+                                let elapsed = t0.elapsed().as_secs_f64();
+                                let msg = match expected {
+                                    Some(exp) if exp > 1.0 => format!(
+                                        "Загрузка модели Vosk {} {elapsed:.0} с из ~{exp:.0} с",
+                                        progress_bar(elapsed / exp, 20)
+                                    ),
+                                    _ => format!(
+                                        // with no history — an asymptotic fill: the bar is alive
+                                        // but promises no 100%
+                                        "Загрузка модели Vosk {} {elapsed:.0} с (первый запуск)",
+                                        progress_bar(1.0 - (-elapsed / 20.0).exp(), 20)
+                                    ),
+                                };
+                                let _ = t.send(UiMsg::Status(msg));
+                                thread::sleep(Duration::from_millis(500));
+                            }
+                        })
+                        .ok();
+                }
+                let r =
+                    crate::asr::vosk::VoskEngine::new(&model_path_buf).map_err(|e| e.to_string());
+                loading.store(false, Ordering::Relaxed);
+                let proc = t0.elapsed().as_secs_f64();
+                if r.is_ok() {
+                    write_model_load_sec(&load_stats_dir, proc);
+                }
+                if let Some(ref t) = ui_load {
+                    match &r {
+                        Ok(_) => {
+                            let _ = t.send(UiMsg::Log(StructuredLog {
+                                stage: "load".into(),
+                                source_id: 0,
+                                chunk_sec: 0.0,
+                                proc_sec: proc,
+                                detail: "Vosk ready".into(),
+                                verbose_only: true,
+                            }));
+                            let _ = t.send(UiMsg::Status(format!(
+                                "Запись — модель загружена за {proc:.0} с"
+                            )));
                         }
-                    })
-                    .ok();
-            }
-            let r = crate::asr::vosk::VoskEngine::new(&model_path_buf).map_err(|e| e.to_string());
-            loading.store(false, Ordering::Relaxed);
-            let proc = t0.elapsed().as_secs_f64();
-            if r.is_ok() {
-                write_model_load_sec(&load_stats_dir, proc);
-            }
-            if let Some(ref t) = ui_load {
-                match &r {
-                    Ok(_) => {
-                        let _ = t.send(UiMsg::Log(StructuredLog {
-                            stage: "load".into(),
-                            source_id: 0,
-                            chunk_sec: 0.0,
-                            proc_sec: proc,
-                            detail: "Vosk ready".into(),
-                            verbose_only: true,
-                        }));
-                        let _ = t.send(UiMsg::Status(format!(
-                            "Запись — модель загружена за {proc:.0} с"
-                        )));
-                    }
-                    Err(e) => {
-                        let _ = t.send(UiMsg::Log(StructuredLog {
-                            stage: "load".into(),
-                            source_id: 0,
-                            chunk_sec: 0.0,
-                            proc_sec: proc,
-                            detail: format!("FAILED: {e}"),
-                            verbose_only: false,
-                        }));
+                        Err(e) => {
+                            let _ = t.send(UiMsg::Log(StructuredLog {
+                                stage: "load".into(),
+                                source_id: 0,
+                                chunk_sec: 0.0,
+                                proc_sec: proc,
+                                detail: format!("FAILED: {e}"),
+                                verbose_only: false,
+                            }));
+                        }
                     }
                 }
-            }
-            let _ = engine_tx.send(r);
-        })?;
+                let _ = engine_tx.send(r);
+            })?;
 
-    let asr_work_dir = work_dir.clone();
-    let asr_running = running.clone();
-    let ui_asr = ui_tx.clone();
-    let asr_pending = Arc::clone(&pending_segments);
-    let num_workers = cli.asr_workers;
-    let asr_handle = thread::Builder::new()
-        .name("asr-pool".into())
-        .spawn(move || {
-            asr_worker_pool(
-                engine_rx,
-                noise_gate,
-                seg_rx,
-                asr_work_dir,
-                asr_running,
-                reset_rx,
-                ui_asr,
-                num_workers,
-                transcript_hook,
-                asr_pending,
-            );
-        })?;
+        let asr_work_dir = work_dir.clone();
+        let asr_running = running.clone();
+        let ui_asr = ui_tx.clone();
+        let asr_pending = Arc::clone(&pending_segments);
+        let num_workers = cli.asr_workers;
+        Some(
+            thread::Builder::new()
+                .name("asr-pool".into())
+                .spawn(move || {
+                    asr_worker_pool(
+                        engine_rx,
+                        noise_gate,
+                        seg_rx,
+                        asr_work_dir,
+                        asr_running,
+                        reset_rx,
+                        ui_asr,
+                        num_workers,
+                        transcript_hook,
+                        asr_pending,
+                    );
+                })?,
+        )
+    } else {
+        drop((seg_rx, engine_rx, engine_tx, reset_rx, transcript_hook));
+        None
+    };
 
     {
         let cfg = audio_devices
@@ -635,10 +655,17 @@ pub fn run_engine(
         })?;
 
     drop(pcm_tx);
-    info!("Recording (WAV → disk); Vosk loads in parallel. Ctrl+C to stop.");
+    info!(live_asr, "Audio capture ready; Ctrl+C to stop.");
     if let Some(ref t) = ui_tx {
         let _ = t.send(UiMsg::Status(
-            "Recording — WAV на диск, модель грузится…".into(),
+            if live_asr {
+                "Запись готова — Vosk загружается в фоне…"
+            } else if cli.live_asr {
+                "Запись готова — голосовое управление недоступно без модели Vosk"
+            } else {
+                "Запись готова — голосовое управление выключено"
+            }
+            .into(),
         ));
     }
 
@@ -650,8 +677,10 @@ pub fn run_engine(
         ("mic-capture", mic_handle),
         ("loopback-capture", loopback_handle),
         ("device-watch", device_watch),
-        ("live-asr", asr_handle),
-    ] {
+    ]
+    .into_iter()
+    .chain(asr_handle.map(|handle| ("live-asr", handle)))
+    {
         if let Err(e) = join_engine_component(name, handle, &running) {
             running.store(false, Ordering::SeqCst);
             join_errors.push(e.to_string());

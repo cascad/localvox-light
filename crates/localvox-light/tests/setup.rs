@@ -42,6 +42,7 @@ if (-not (Test-Path (Join-Path $PSScriptRoot 'out/probe.ps1'))) { throw 'ZIP rou
 
 fn layout(root: &Path) -> Layout {
     Layout {
+        live_asr: true,
         vosk_model: root.join("external/vosk"),
         gigaam: Some(root.join("external/gigaam")),
         diarize: None,
@@ -364,7 +365,7 @@ fn doctor_cli_json_uses_configured_external_paths_without_changing_files() {
     l.llm_base_url = server.url.clone();
     let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_localvox-light"));
     cmd.current_dir(tmp.path())
-        .args(["--doctor", "--doctor-json", "--model"])
+        .args(["--doctor", "--doctor-json", "--live-asr=on", "--model"])
         .arg(&l.vosk_model)
         .env("LOCALVOX_ASR_MODEL_DIR", l.gigaam.as_ref().unwrap())
         .env("LOCALVOX_LLM_BASE_URL", &server.url)

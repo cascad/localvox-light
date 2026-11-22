@@ -301,7 +301,13 @@ export interface SlotNotes {
   error?: string | null;
 }
 
+export interface ModelNotice {
+  component: string;
+  text: string;
+}
+
 export interface RecordState {
+  model_notices?: ModelNotice[];
   engine: boolean;
   recording: boolean;
   session?: string | null;

@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useRef, useState } from "react";
-import { api, type SlotNotes, type StoredNote, type VoiceStatus } from "./api";
+import { api, type ModelNotice, type SlotNotes, type StoredNote, type VoiceStatus } from "./api";
+import { ModelHints } from "./ModelHints";
 
 /** The notebook: what is actually IN the slots.
  *
@@ -9,7 +10,7 @@ import { api, type SlotNotes, type StoredNote, type VoiceStatus } from "./api";
  *
  *  Each note carries the file it lives in, so the list is CHECKABLE rather than merely reassuring:
  *  the person can open that file and see the same line. */
-export function NotesPane({ voice, say }: { voice: VoiceStatus | null; say: (m: string) => void }) {
+export function NotesPane({ voice, say, notices = [] }: { voice: VoiceStatus | null; say: (m: string) => void; notices?: ModelNotice[] }) {
   const [slots, setSlots] = useState<SlotNotes[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [active, setActive] = useState<string | null>(null);
@@ -46,6 +47,7 @@ export function NotesPane({ voice, say }: { voice: VoiceStatus | null; say: (m: 
         {/* The module's own state, spelled out. «Работает ли вообще» is the question that had no
             answer anywhere in the app — and an empty notebook is the same picture whether the
             module is dead or you simply have not dictated yet. */}
+        <ModelHints notices={notices} component="vosk" />
         {voice ? (
           <p className="note" data-nocopy>
             <span className="i" aria-hidden="true">🎙</span>
@@ -56,7 +58,7 @@ export function NotesPane({ voice, say }: { voice: VoiceStatus | null; say: (m: 
                 </>
               ) : (
                 <>
-                  <b>Голосовой модуль слушает.</b> <span className="mut">{voice.detail}</span>
+                  <b>{voice.active ? "Голосовой модуль слушает." : "Голосовой модуль не запущен."}</b> <span className="mut">{voice.detail}</span>
                 </>
               )}
               {voice.last && (
@@ -76,12 +78,12 @@ export function NotesPane({ voice, say }: { voice: VoiceStatus | null; say: (m: 
               )}
             </span>
           </p>
-        ) : (
+        ) : notices.some(n => n.component === "vosk") ? null : (
           <p className="note" data-nocopy>
             <span className="i" aria-hidden="true">🎙</span>
             <span>
-              <b>Голосовой модуль не запущен.</b> Он включается, когда рядом найден{" "}
-              <code>slots.toml</code>, и слушает команды только с микрофона.
+              <b>Голосовой модуль не запущен.</b> После включения голосового управления
+              перезапустите LocalVox; для команд также нужен настроенный <code>slots.toml</code>.
             </span>
           </p>
         )}

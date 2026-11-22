@@ -5,6 +5,31 @@ import { fileURLToPath } from "node:url";
 const fixture = JSON.parse(readFileSync(fileURLToPath(new URL("../../../tests/fixtures/workspace.json", import.meta.url)), "utf8"));
 const journalFixture = JSON.parse(readFileSync(fileURLToPath(new URL("../../../tests/fixtures/journal.json", import.meta.url)), "utf8"));
 
+test("missing speech models have quiet contextual hints and the voice toggle starts disabled", async ({ page }) => {
+  await workspace(page);
+  const notices = [
+    {component:"vosk",text:"Vosk не найден. Голосовые команды недоступны. Установите модель через мастер установки."},
+    {component:"gigaam",text:"GigaAM не найден. Новые записи пока не расшифровываются; готовые тексты доступны."},
+  ];
+  await page.route("**/api/record", route => route.fulfill({json:{...fixture.record,voice:null,model_notices:notices}}));
+  await page.route("**/api/settings", route => route.fulfill({json:{path:"test/.env",exists:true,settings:[
+    {key:"LOCALVOX_LIGHT_LIVE_ASR",group:"Голосовое управление",label:"Голосовые команды и мгновенный черновик",kind:"bool",value:null,default_value:"off",applies:"restart",hint:"Не требуется для GigaAM",set:false},
+  ],extra:[]}}));
+  await page.clock.runFor(1200);
+  await expect(page.getByRole("note").filter({hasText:"GigaAM не найден"})).toBeVisible();
+  await expect(page.getByRole("note").filter({hasText:"Vosk не найден"})).toHaveCount(0);
+  await page.locator(".nav").getByRole("button",{name:/Заметки/}).click();
+  await expect(page.getByRole("note").filter({hasText:"Vosk не найден"})).toBeVisible();
+  await expect(page.getByRole("note").filter({hasText:"GigaAM не найден"})).toHaveCount(0);
+  await expect(page.getByText("Голосовой модуль слушает.",{exact:true})).toHaveCount(0);
+  await page.locator(".nav").getByRole("button",{name:/Очередь/}).click();
+  await expect(page.getByRole("note").filter({hasText:"GigaAM не найден"})).toBeVisible();
+  await page.getByRole("button",{name:/⚙ Настройки/}).click();
+  await expect(page.getByRole("note").filter({hasText:"Vosk не найден"})).toBeVisible();
+  await expect(page.locator('.set-row select')).toHaveValue("off");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+});
+
 test("expanding journal details preserves both scroll positions until explicit follow", async ({page}) => {
   await page.setViewportSize({width:1000,height:650});
   await workspace(page);

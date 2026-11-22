@@ -54,6 +54,15 @@ fn settings_http_masks_unknown_values_and_reports_snapshot_restart_before_and_af
         .current_dir(directory.path())
         .env("LOCALVOX_SETTINGS_FIXTURE", directory.path())
         .env("LOCALVOX_LLM_MODEL", "before")
+        .env("LOCALVOX_LIGHT_LIVE_ASR", "off")
+        .env(
+            "LOCALVOX_LIGHT_MODEL",
+            directory.path().join("missing-vosk"),
+        )
+        .env(
+            "LOCALVOX_ASR_MODEL_DIR",
+            directory.path().join("missing-gigaam"),
+        )
         .env_remove("LOCALVOX_LIGHT_MIC")
         .env_remove("LOCALVOX_LIGHT_LOOPBACK_DEVICE")
         .env_remove("LOCALVOX_LIGHT_INCREMENTAL_TRANSCRIBE")
@@ -74,6 +83,12 @@ fn settings_http_masks_unknown_values_and_reports_snapshot_restart_before_and_af
     )
     .unwrap();
     assert!(client.health().unwrap().compatible());
+    // The same HTTP response used by both clients carries contextual model help.
+    let record = client.record().unwrap();
+    assert!(record
+        .model_notices
+        .iter()
+        .any(|notice| notice.component == "vosk"));
     let raw: Value = client
         .request(
             "GET",
@@ -90,6 +105,29 @@ fn settings_http_masks_unknown_values_and_reports_snapshot_restart_before_and_af
         json!({"key":"LOCALVOX_NEW_CREDENTIAL","set":true})
     );
     let doc = client.settings().unwrap();
+    let voice = doc
+        .settings
+        .iter()
+        .find(|s| s.key == "LOCALVOX_LIGHT_LIVE_ASR")
+        .unwrap();
+    assert_eq!(voice.default_value.as_deref(), Some("off"));
+    assert_eq!(voice.applies, "restart");
+    let mode = client
+        .save_settings([("LOCALVOX_LIGHT_LIVE_ASR".into(), Some("on".into()))].into())
+        .unwrap();
+    assert!(mode
+        .need_restart
+        .iter()
+        .any(|label| label.contains("Голосовые команды")));
+    assert!(client
+        .record()
+        .unwrap()
+        .model_notices
+        .iter()
+        .any(|n| n.component == "vosk" && n.text.contains("не найдена")));
+    client
+        .save_settings([("LOCALVOX_LIGHT_LIVE_ASR".into(), Some("off".into()))].into())
+        .unwrap();
     assert!(doc.settings.iter().any(|s| s.kind == "path"));
     assert!(doc.settings.iter().any(|s| s.kind == "bool"));
     assert!(doc.settings.iter().any(|s| s.kind == "number"));

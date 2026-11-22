@@ -96,6 +96,12 @@ pub struct Cli {
     )]
     pub model: String,
 
+    /// Enable Vosk live draft and voice commands (not needed for GigaAM transcription)
+    #[arg(long, env = "LOCALVOX_LIGHT_LIVE_ASR", default_value = "false",
+        action = clap::ArgAction::Set, num_args = 0..=1, default_missing_value = "true",
+        value_parser = clap::builder::BoolishValueParser::new())]
+    pub live_asr: bool,
+
     /// Print resolved model paths as read-only JSON and exit (no inference or downloads)
     #[arg(long)]
     pub model_paths_json: bool,
@@ -542,8 +548,7 @@ pub fn validate_vosk_model_dir(p: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Before audio capture and the TUI: the model is needed for recording (not for
-/// `--list-devices`).
+/// Validate weights for explicitly enabled Vosk live recognition.
 pub fn validate_vosk_model(cli: &Cli) -> Result<()> {
     let path_str = normalized_model_path(cli);
     if path_str.is_empty() {
@@ -661,6 +666,34 @@ mod cli_helpers_tests {
 
     fn cli_with_model(model: &str) -> Cli {
         Cli::try_parse_from(["localvox-light", "--model", model]).expect("cli")
+    }
+
+    #[test]
+    fn vosk_live_recognition_is_explicitly_optional() {
+        for value in ["off", "false", "0"] {
+            assert!(
+                !Cli::try_parse_from(["localvox-light", "--live-asr", value])
+                    .unwrap()
+                    .live_asr
+            );
+        }
+        for value in ["on", "true", "1"] {
+            assert!(
+                Cli::try_parse_from(["localvox-light", "--live-asr", value])
+                    .unwrap()
+                    .live_asr
+            );
+        }
+        assert!(
+            Cli::try_parse_from(["localvox-light", "--live-asr"])
+                .unwrap()
+                .live_asr
+        );
+        assert_eq!(crate::presets::baked("LOCALVOX_LIGHT_LIVE_ASR"), "off");
+        assert_eq!(
+            crate::settings::applies("LOCALVOX_LIGHT_LIVE_ASR"),
+            crate::settings::Applies::Restart
+        );
     }
 
     #[test]

@@ -680,6 +680,7 @@ fn basic_setting(key: &str) -> bool {
             | "LOCALVOX_LIGHT_LOOPBACK_DEVICE"
             | "LOCALVOX_LIGHT_AUTOCOOK_SUMMARY"
             | "LOCALVOX_LIGHT_INCREMENTAL_TRANSCRIBE"
+            | "LOCALVOX_LIGHT_LIVE_ASR"
             | "LOCALVOX_LLM_BASE_URL"
             | "LOCALVOX_LLM_MODEL"
             | "LOCALVOX_SUMMARY_PROVIDER"

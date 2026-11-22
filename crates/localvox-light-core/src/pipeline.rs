@@ -49,6 +49,8 @@ pub struct SegmentReady {
 }
 
 pub struct PipelineConfig {
+    /// Optional Vosk fast lane; continuous archive chunks are independent.
+    pub live_asr: bool,
     pub max_chunk_sec: f64,
     pub min_chunk_sec: f64,
     pub vad_silence_sec: f64,
@@ -1004,6 +1006,10 @@ fn feed_pcm_chunk(
     // segments.
     chunk_lane.feed(chunk.source_id, &chunk.samples);
 
+    if !cfg.live_asr {
+        return;
+    }
+
     let state = sources[sid].get_or_insert_with(|| {
         SourceState::new(
             chunk.source_id,
@@ -1439,6 +1445,95 @@ mod tests {
     use super::*;
 
     #[test]
+    fn recording_without_vosk_keeps_both_tracks_and_never_enqueues_fast_lane() {
+        for legacy_disk in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            let mut config = sess_cfg(dir.path(), 0.0, 0.0);
+            config.live_asr = false;
+            config.segments_to_disk = legacy_disk;
+            config.chunk_sec = 30.0;
+            let legacy = dir.path().join("old-segment.wav");
+            std::fs::write(&legacy, b"preserve old live audio").unwrap();
+            crate::jobs::request_record_start(dir.path(), "without Vosk").unwrap();
+            let (pcm_tx, pcm_rx) = crossbeam_channel::unbounded();
+            let (seg_tx, seg_rx) = crossbeam_channel::unbounded();
+            let frames = 1920;
+            let mut expected = [Vec::new(), Vec::new()];
+            for frame in 0..frames {
+                for source in 0..2 {
+                    let samples = vec![(frame + 100 * source) as i16; 512];
+                    expected[source].extend_from_slice(&samples);
+                    pcm_tx
+                        .send(PcmChunk {
+                            source_id: source as u8,
+                            samples,
+                        })
+                        .unwrap();
+                }
+            }
+            drop(pcm_tx);
+            let pending = Arc::new(AtomicUsize::new(0));
+            run(
+                config,
+                None,
+                pcm_rx,
+                seg_tx,
+                pending.clone(),
+                Arc::new(AtomicBool::new(true)),
+                Arc::new(AtomicBool::new(true)),
+                None,
+            );
+            assert_eq!(pending.load(Ordering::Relaxed), 0);
+            assert_eq!(seg_rx.try_iter().count(), 0);
+            assert_eq!(std::fs::read(&legacy).unwrap(), b"preserve old live audio");
+            let meta = only_meta(dir.path());
+            let session = dir
+                .path()
+                .join("sessions")
+                .join(&session_dirs(dir.path())[0]);
+            for source in 0..2 {
+                let chunks: Vec<_> = meta
+                    .chunks
+                    .iter()
+                    .filter(|c| c.source_id == source as u8)
+                    .collect();
+                assert_eq!(chunks.len(), 3, "two closed 30-second pieces and a tail");
+                let actual: Vec<i16> = chunks
+                    .iter()
+                    .flat_map(|chunk| {
+                        hound::WavReader::open(
+                            session
+                                .join("audio")
+                                .join(&chunk.file)
+                                .with_extension("wav"),
+                        )
+                        .unwrap()
+                        .into_samples::<i16>()
+                        .map(Result::unwrap)
+                        .collect::<Vec<_>>()
+                    })
+                    .collect();
+                assert_eq!(
+                    actual, expected[source],
+                    "every PCM sample survives in order"
+                );
+            }
+            assert_eq!(
+                std::fs::read_dir(dir.path())
+                    .unwrap()
+                    .filter_map(Result::ok)
+                    .filter(|entry| entry
+                        .path()
+                        .extension()
+                        .is_some_and(|e| e == "wav" || e == "part"))
+                    .count(),
+                1,
+                "no extra Vosk segments in either RAM or legacy mode"
+            );
+        }
+    }
+
+    #[test]
     fn capture_manifest_covers_preroll_pause_both_sources_and_only_true_stop() {
         let dir = tempfile::tempdir().unwrap();
         let c = sess_cfg(dir.path(), 1.0, 0.0);
@@ -1582,6 +1677,7 @@ mod tests {
 
     fn cfg(dir: &Path, to_disk: bool) -> PipelineConfig {
         PipelineConfig {
+            live_asr: true,
             max_chunk_sec: 0.1, // 100 ms — the segments close quickly
             min_chunk_sec: 0.0,
             vad_silence_sec: 0.02,

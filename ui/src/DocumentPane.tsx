@@ -1,4 +1,5 @@
-import { type Session } from "./api";
+import { type ModelNotice, type Session } from "./api";
+import { ModelHints } from "./ModelHints";
 import { ProgressChain } from "./Progress";
 import { sessionTitle, stateOf } from "./lib";
 import type { Tab } from "./document/types";
@@ -22,6 +23,7 @@ const TABS: [Tab, string][] = [
 ];
 
 interface Props {
+  notices?: ModelNotice[];
   session: Session;
   tab: Tab;
   setTab: (t: Tab) => void;
@@ -32,13 +34,14 @@ interface Props {
   onChanged: () => void;
   say: (msg: string) => void;
 }
-export function DocumentPane({ session, tab, setTab, pos, onSeek, onChanged, say }: Props) {
+export function DocumentPane({ session, tab, setTab, pos, onSeek, onChanged, say, notices }: Props) {
   const st = stateOf(session);
   const { doc, controlBusy, tick, copy, recook, scopeWord, control } = useDocumentController({ session, tab, onChanged, say });
   return (
     <main className="main">
       <div className="doc-head">
         <h1>{sessionTitle(session)}</h1>
+        <ModelHints notices={notices} component="gigaam" />
         <div className="m">
           <span>{Math.round(session.duration_sec / 60)} мин</span>
           <span className="sep">·</span>

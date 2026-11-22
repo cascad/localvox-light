@@ -99,6 +99,7 @@ pub fn layout(config: &BTreeMap<String, String>, source: &Path, destination: &Pa
         .map(PathBuf::from)
         .unwrap_or_else(|| "archive".into());
     Layout {
+        live_asr: enabled(config, "LOCALVOX_LIGHT_LIVE_ASR"),
         vosk_model: dir("vosk").unwrap_or_default(),
         gigaam: dir("gigaam"),
         diarize: dir("diarize"),
@@ -125,6 +126,9 @@ pub fn view(
 ) -> Result<ViewData> {
     let found = probe::tags(&layout.llm_base_url).ok();
     let mut installed = vec![];
+    if Component::Vosk.valid(layout) {
+        installed.push(Feature::Voice);
+    }
     if Component::Diarize.valid(layout) {
         installed.push(Feature::Speakers);
     }
@@ -176,6 +180,11 @@ pub fn view(
             })
             .collect::<Result<_>>()?;
     }
+    // Runtime settings are authoritative even when the installer selection is older.
+    features.retain(|feature| *feature != Feature::Voice);
+    if layout.live_asr {
+        features.push(Feature::Voice);
+    }
     let summary = if found.is_some()
         || layout.llm_base_url.trim_end_matches('/') == "http://localhost:11434/v1"
     {
@@ -190,7 +199,7 @@ pub fn view(
         program_dir: destination.display().to_string(),
         models_dir: models.display().to_string(),
         summary_model: layout.llm_model.clone(),
-        core_ready: Component::Vosk.valid(layout) && Component::Gigaam.valid(layout),
+        core_ready: Component::Gigaam.valid(layout),
         ollama_ready: probe::cli().is_some() || found.is_some(),
         installed,
         preview: false,
@@ -262,8 +271,9 @@ fn prepare_at(
         None => configuration(&destination)?,
     };
     let mut target = layout(&config, source, &destination);
-    let components = [Component::Vosk, Component::Gigaam].into_iter().chain(
+    let components = [Component::Gigaam].into_iter().chain(
         [
+            (Feature::Voice, Component::Vosk),
             (Feature::Speakers, Component::Diarize),
             (Feature::Names, Component::Ner),
         ]
@@ -346,6 +356,13 @@ fn prepare_at(
         }
     };
     let mut plan = plan::build(&target, &choices, llm, &tags)?;
+    let live_asr = selected.features.contains(&Feature::Voice);
+    let mode = if live_asr { "on" } else { "off" };
+    if config.get("LOCALVOX_LIGHT_LIVE_ASR").map(String::as_str) != Some(mode) {
+        plan.changes
+            .push(("LOCALVOX_LIGHT_LIVE_ASR".into(), Some(mode.into())));
+    }
+    target.live_asr = live_asr;
     let ids: Vec<_> = Feature::ALL
         .into_iter()
         .filter(|feature| selected.features.contains(feature))

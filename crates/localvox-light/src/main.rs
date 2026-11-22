@@ -196,9 +196,18 @@ fn main() -> Result<()> {
         );
     }
 
-    validate_vosk_model(&cli)?;
-
     init_tracing(cli.debug, cli.tui);
+
+    // Read-only model availability in the HTTP API must resolve the same explicit
+    // CLI choices as capture. Do this once before starting any runtime threads.
+    std::env::set_var(
+        "LOCALVOX_LIGHT_MODEL",
+        localvox_light_core::normalized_model_path(&cli),
+    );
+    std::env::set_var(
+        "LOCALVOX_LIGHT_LIVE_ASR",
+        if cli.live_asr { "on" } else { "off" },
+    );
 
     if !cli.tui && !cli.daemon {
         eprintln!(
@@ -233,7 +242,8 @@ fn main() -> Result<()> {
         return run_daemon_mode(cli, devices_shared, reload_gen, running);
     }
 
-    let (voice_hook, voice_handle, voice_status) = init_voice(None);
+    let (voice_hook, voice_handle, voice_status) =
+        init_voice(cli.live_asr && validate_vosk_model(&cli).is_ok(), None);
     eprintln!("Voice module: {voice_status}");
     let (_noop_reset_tx, noop_reset_rx) = crossbeam_channel::unbounded::<()>();
     run_engine(
@@ -326,12 +336,20 @@ mod launch_tests {
 /// Voice module (F2): active when slots.toml is present; a config error does not bring the
 /// recording down — we work without voice, and the reason is visible in the status.
 fn init_voice(
+    enabled: bool,
     ui: Option<crossbeam_channel::Sender<UiMsg>>,
 ) -> (
     Option<localvox_light_core::events::TranscriptHook>,
     Option<std::thread::JoinHandle<()>>,
     String,
 ) {
+    if !enabled {
+        return (
+            None,
+            None,
+            "off: голосовое управление и Vosk-черновик выключены".into(),
+        );
+    }
     match localvox_light_voice::spawn_from_env(ui) {
         Ok(Some(((hook, handle), summary))) => (Some(hook), Some(handle), summary),
         Ok(None) => (
@@ -370,12 +388,13 @@ fn drain_voice(handle: Option<std::thread::JoinHandle<()>>) {
 /// asked — «is anything listening where the LLM should be» and «is our port free».
 ///
 /// Exit code, so a script can branch: 0 — works, 1 — runs but cannot do everything, 2 — will not
-/// work.
+/// support the selected capability.
 fn run_doctor(cli: &Cli) -> i32 {
     use localvox_light_core::doctor::{self, State};
 
     let vosk = std::path::PathBuf::from(localvox_light_core::cli::normalized_model_path(cli));
-    let layout = doctor::Layout::from_env(vosk, std::path::PathBuf::from(&cli.audio_dir));
+    let mut layout = doctor::Layout::from_env(vosk, std::path::PathBuf::from(&cli.audio_dir));
+    layout.live_asr = cli.live_asr;
     let mut findings = doctor::inspect(&layout);
     findings.extend(localvox_light::setup::probe::ollama_findings(&layout));
     findings.push(probe_api_port(&layout));
@@ -410,7 +429,7 @@ fn run_doctor(cli: &Cli) -> i32 {
             1
         }
         State::Fail => {
-            println!("Не заработает: сначала строки с «НЕТ».");
+            println!("Есть недоступные возможности: проверьте строки с «НЕТ».");
             2
         }
     }
@@ -572,7 +591,8 @@ impl Daemon {
         let api_addr =
             spawn_http_api(&cli.audio_dir, application.clone()).map(|bind| connectable(&bind));
 
-        let (voice_hook, voice, voice_status) = init_voice(None);
+        let (voice_hook, voice, voice_status) =
+            init_voice(cli.live_asr && validate_vosk_model(cli).is_ok(), None);
         eprintln!("Voice module: {voice_status}");
 
         // Autocook (WP-C7): the daemon finishes cooking closed sessions in the background itself.

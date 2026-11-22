@@ -220,7 +220,11 @@ fn recommended_fresh_and_existing_reuse_are_safe() {
         if scenario == "existing" {
             assert!(screen.contains("уже готово"));
         } else {
-            assert!(screen.contains("≈2 ГБ"));
+            assert!(screen.contains("≈215 МБ"));
+            assert!(
+                !screen.contains("Vosk"),
+                "recommended install does not include Vosk"
+            );
         }
         demo.capture(&format!("{scenario}-review"));
         demo.send(ENTER);
@@ -259,7 +263,7 @@ fn space_toggles_components_and_skips_disabled_summary_at_80_columns() {
     demo.send(ENTER);
     demo.wait("Дополнительно проверять имена");
     demo.capture("custom-components");
-    // Leave only the optional name checker; recognition cannot be unchecked.
+    // Leave only the optional name checker; GigaAM recognition remains mandatory.
     for _ in 0..4 {
         demo.send(b" ");
         demo.send(DOWN);
@@ -475,6 +479,15 @@ fn back_from_review_keeps_typed_paths_and_allows_correction() {
     demo.send(b"corrected program");
     demo.send(ENTER);
     demo.active("Папка моделей");
+    // ConPTY can paint the prompt label before its retained-value row. Wait
+    // for the current input, not an earlier copy of the same prompt in history.
+    demo.wait_for("current retained model folder", |screen| {
+        screen
+            .lines()
+            .rev()
+            .take(3)
+            .any(|line| line.contains("retained models (default)"))
+    });
     demo.send(ENTER); // Accept retained path.
     demo.active("Показать демоустановку?");
     let screen = demo.parser.screen().contents();
@@ -569,6 +582,13 @@ fn separate_ready_model_directories_keep_program_and_download_folder_choices() {
     demo.send(b" ");
     demo.send(DOWN);
     demo.send(b" ");
+    demo.send(DOWN);
+    demo.send(b" "); // links off
+    demo.send(DOWN);
+    demo.send(b" "); // player off
+    demo.send(DOWN);
+    demo.send(DOWN);
+    demo.send(b" "); // Vosk explicitly on
     demo.send(ENTER);
     demo.wait("Указать готовые папки моделей");
     demo.send(DOWN);

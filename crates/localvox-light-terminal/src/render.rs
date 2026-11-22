@@ -1227,6 +1227,39 @@ mod tests {
     use ratatui::{backend::TestBackend, Terminal};
 
     #[test]
+    fn model_hints_are_local_to_the_relevant_section_and_never_open_a_modal() {
+        let mut app = App::default();
+        app.record.model_notices = vec![
+            localvox_light_client::ModelNotice {
+                component: "vosk".into(),
+                text: "Vosk недоступен · настройте голосовое управление".into(),
+            },
+            localvox_light_client::ModelNotice {
+                component: "gigaam".into(),
+                text: "GigaAM недоступен · установите распознавание".into(),
+            },
+        ];
+        let theme = Theme::for_app(&app);
+        for (view, expected, hidden) in [
+            (View::Archive, "GigaAM", "Vosk"),
+            (View::Queue, "GigaAM", "Vosk"),
+            (View::Notes, "Vosk", "GigaAM"),
+        ] {
+            app.view = view;
+            let projection = documents::project(&app, theme, true);
+            let text = projection
+                .lines
+                .iter()
+                .map(|line| line.to_string())
+                .collect::<Vec<_>>()
+                .join("\n");
+            assert!(text.contains(expected), "{text}");
+            assert!(!text.contains(hidden), "{text}");
+            assert!(app.form.is_none());
+        }
+    }
+
+    #[test]
     fn queue_retry_plan_shows_phase_reason_deadline_and_state_styles() {
         for state in ["retry_wait", "blocked", "stalled", "failed"] {
             let mut app = App::default();

@@ -62,6 +62,25 @@ pub(super) fn project(a: &App, t: Theme, _metadata: bool) -> Projection {
         selected: None,
     };
     let focused = a.focus == 2;
+    for notice in &a.record.model_notices {
+        let relevant = match a.view {
+            View::Archive | View::Queue => notice.component == "gigaam",
+            View::Notes => notice.component == "vosk",
+            View::Settings => {
+                notice.component == "vosk"
+                    && a.selected_setting()
+                        .is_some_and(|s| s.key == "LOCALVOX_LIGHT_LIVE_ASR")
+            }
+            _ => false,
+        };
+        if relevant {
+            projection.lines.push(Line::from(Span::styled(
+                label(&notice.text),
+                Style::default().fg(t.dim),
+            )));
+            projection.lines.push(Line::from(""));
+        }
+    }
     match a.view {
         View::Queue => {
             let retry = a.queue.get(a.selected).and_then(|job| job.retry.as_ref());

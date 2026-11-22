@@ -1,0 +1,16 @@
+{
+  "date": "2026-11-22",
+  "platform": "x86_64-pc-windows-msvc",
+  "missing_models_daemon": [
+    {"mode":"off","daemon":true,"http":true,"engine":true,"voice":false,"stale_marker_cleared":true,"legacy_preserved":true,"real_http_ui":true,"shutdown":true},
+    {"mode":"on","daemon":true,"http":true,"engine":true,"voice":false,"stale_marker_cleared":true,"legacy_preserved":true,"real_http_ui":true,"shutdown":true}
+  ],
+  "vox_setup": {
+    "check_exit_preserved": true,
+    "wizard_tty_boundary": true,
+    "env_address_ignored": true,
+    "no_download": true,
+    "unchanged": true,
+    "daemon_not_started": true
+  }
+}

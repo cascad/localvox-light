@@ -30,10 +30,11 @@ pub fn print_report(findings: &[doctor::Finding]) {
     }
 }
 pub fn run(cli: &Cli) -> Result<i32> {
-    let layout = Layout::from_env(
+    let mut layout = Layout::from_env(
         localvox_light_core::cli::normalized_model_path(cli).into(),
         cli.audio_dir.clone().into(),
     );
+    layout.live_asr = cli.live_asr;
     if cli.setup_check {
         let findings = report(&layout);
         print_report(&findings);

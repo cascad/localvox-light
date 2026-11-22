@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { api, token, type Setting, type SettingsDoc } from "./api";
+import { api, token, type ModelNotice, type Setting, type SettingsDoc } from "./api";
+import { ModelHints } from "./ModelHints";
 
 /** Env presets are visible values; .env stores only user overrides. */
-export function SettingsPane({ say }: { say: (m: string) => void }) {
+export function SettingsPane({ say, notices }: { say: (m: string) => void; notices?: ModelNotice[] }) {
   const [doc, setDoc] = useState<SettingsDoc | null>(null);
   const [err, setErr] = useState<string | null>(null);
   // Only what the person actually touched is sent. Sending the whole form back would rewrite keys
@@ -91,6 +92,7 @@ export function SettingsPane({ say }: { say: (m: string) => void }) {
         {groups.map(([group, items]) => (
           <section key={group} className="set-group">
             <h2>{group}</h2>
+            {group === "Голосовое управление" && <ModelHints notices={notices} component="vosk" />}
             {group === "После распознавания" && <>
               <p className="hint">Транскрибация обязательна. После неё можно автоматически построить сводку по исходной расшифровке. Во вкладке «Текст» доступна та же расшифровка; дополнительная очистка запускается вручную.</p>
               <p className="hint">Переключатель сводки действует без перезапуска для новых автоматических заданий. Текущий LLM-этап завершится и сохранит результат. Старые задания и явные ручные операции сохраняют свои параметры.</p>

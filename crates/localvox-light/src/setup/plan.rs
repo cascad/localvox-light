@@ -40,6 +40,9 @@ impl Component {
         }
     }
     pub fn valid(self, l: &Layout) -> bool {
+        if self == Self::Vosk {
+            return localvox_light_core::cli::validate_vosk_model_dir(&l.vosk_model).is_ok();
+        }
         doctor::inspect(l)
             .iter()
             .any(|f| f.id == self.id() && f.state == State::Ok)
@@ -47,6 +50,9 @@ impl Component {
     pub fn validate(self, l: &Layout, path: &Path) -> Result<()> {
         let mut candidate = l.clone();
         self.set(&mut candidate, path.into());
+        if self == Self::Vosk {
+            return localvox_light_core::cli::validate_vosk_model_dir(path);
+        }
         let finding = doctor::inspect(&candidate)
             .into_iter()
             .find(|f| f.id == self.id())

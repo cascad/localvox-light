@@ -21,6 +21,15 @@ BASH = os.getenv('LOCALVOX_TEST_BASH') or (r'C:\Program Files\Git\bin\bash.exe' 
 
 
 class ModelStorageDelivery(unittest.TestCase):
+    def test_required_only_downloads_gigaam_without_vosk(self):
+        self.assertEqual([c['id'] for c in self.manifest['components'] if c['required']], ['gigaam'])
+        for shell in self.shells():
+            with self.subTest(shell=shell):
+                self.requests.clear()
+                self.run_fetch(shell, '-RequiredOnly' if shell == 'ps' else '--required-only')
+                self.assertTrue(any(path.startswith('/gigaam-') for path in self.requests))
+                self.assertFalse(any(path.startswith('/vosk-') for path in self.requests))
+
     def test_component_download_omits_other_steps_and_explicit_skip_is_understandable(self):
         for shell in self.shells():
             with self.subTest(shell=shell):
@@ -227,8 +236,7 @@ class ModelStorageDelivery(unittest.TestCase):
         for shell in self.shells():
             with self.subTest(shell=shell):
                 root = self.root / ('http-' + shell)
-                options = (['-Root', str(root), '-RequiredOnly'] if shell == 'ps' else
-                           ['--root', self.unix(root), '--required-only'])
+                options = (['-Root', str(root)] if shell == 'ps' else ['--root', self.unix(root)])
                 item['url'] = f'http://127.0.0.1:{self.server.server_port}/denied'
                 self.save_manifest()
                 result = self.run_fetch(shell, *options, expected=1)
