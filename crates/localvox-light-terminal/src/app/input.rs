@@ -306,6 +306,13 @@ impl App {
             return;
         }
         if self.palette {
+            if key.modifiers.is_empty() {
+                key.code = match key.code {
+                    KeyCode::Char('h') => KeyCode::Esc,
+                    KeyCode::Char('l') => KeyCode::Enter,
+                    other => other,
+                };
+            }
             match key.code {
                 KeyCode::Esc => self.palette = false,
                 KeyCode::Down | KeyCode::Char('j') => {
@@ -332,10 +339,16 @@ impl App {
                 return;
             }
         }
-        if self.view == View::Archive && self.focus == 2 && key.modifiers.is_empty() {
+        if key.modifiers.is_empty() {
             key.code = match key.code {
-                KeyCode::Char('h') => KeyCode::Left,
-                KeyCode::Char('l') => KeyCode::Right,
+                KeyCode::Char('h') if self.focus <= 1 => KeyCode::Esc,
+                KeyCode::Char('l') if self.focus <= 1 => KeyCode::Enter,
+                KeyCode::Char('h') if self.view == View::Archive && self.focus == 2 => {
+                    KeyCode::Left
+                }
+                KeyCode::Char('l') if self.view == View::Archive && self.focus == 2 => {
+                    KeyCode::Right
+                }
                 other => other,
             };
         }
@@ -538,12 +551,6 @@ impl App {
                         self.journal.expanded.insert(g.id.clone());
                     }
                 }
-            }
-            KeyCode::Char('l')
-                if key.modifiers.is_empty()
-                    && (self.focus == 0 || (self.view == View::Archive && self.focus == 1)) =>
-            {
-                self.enter()
             }
             KeyCode::Enter => self.enter(),
             KeyCode::Esc => self.back(),

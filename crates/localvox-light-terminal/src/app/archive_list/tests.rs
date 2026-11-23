@@ -141,12 +141,13 @@ fn vim_horizontal_keys_match_document_arrows_and_remain_literal_in_input() {
         }
         a.palette = true;
         key(&mut a, right);
-        assert!(a.palette && !a.expanded && a.effects.is_empty());
+        assert!(!a.palette && !a.expanded && a.effects.is_empty());
+        assert!(matches!(a.form.as_ref().unwrap().kind, FormKind::Import));
     }
 }
 
 #[test]
-fn vim_right_selects_each_section_without_executing_palette_or_modified_keys() {
+fn vim_right_selects_each_section_and_palette_but_ignores_modified_keys() {
     for c in ['l', 'д'] {
         for (index, (view, _)) in VIEWS.iter().enumerate() {
             let mut a = fixture();
@@ -170,8 +171,8 @@ fn vim_right_selects_each_section_without_executing_palette_or_modified_keys() {
         }
         a.palette = true;
         key(&mut a, c);
-        assert!(a.palette && a.form.is_none() && a.effects.is_empty());
-        a.palette = false;
+        assert!(!a.palette && a.effects.is_empty());
+        assert!(matches!(a.form.as_ref().unwrap().kind, FormKind::Import));
         a.command(Action::NewAsk);
         key(&mut a, c);
         assert_eq!(a.form.as_ref().unwrap().fields[0].value, c.to_string());

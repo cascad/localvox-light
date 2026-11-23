@@ -1,11 +1,21 @@
 # Покрытие требований и состояние реализации
 
+Навигация меню/списков TUI, 2026-11-23:
+[ARCH-022 (delta)](../changes/complete-tui-menu-navigation/evidence/implementation.md).
+h/Esc и l/Enter действуют в меню, списках и палитре; детали, логи и ввод сохраняют
+прежний контекст. Windows library 242, I/O 3 и ConPTY 10 passed; Mac not-run.
+
+| Требование | Контракт и реализация | Проверка |
+|---|---|---|
+| ARCH-022 (delta) | [Спецификация](../changes/complete-tui-menu-navigation/specs/archive-playback/spec.md), [клавиши](../../crates/localvox-light-terminal/src/app/input.rs) | [State, snapshots и настоящий ConPTY — test-run](../changes/complete-tui-menu-navigation/evidence/implementation.md) |
+
 Контекстное удаление TUI, 2026-11-23:
 [ARCH-005 / NOTE-003 и новые ARCH-021 / NOTE-007 (delta)](../changes/fix-terminal-note-deletion/evidence/implementation.md).
 Выбор списка отделён от открытого документа; d/Delete → s, Esc отменяет,
 запоздалые чтения не восстанавливают удалённое. Windows TUI 238, I/O 3, ConPTY 10,
-HTTP workspace 24 и integrations 18 passed. Точное зависание при открытии удаления
-малой записи на Mac не воспроизведено; native Mac CI и приёмка владельца not-run.
+HTTP workspace 24 и integrations 18 passed. Владелец затем подтвердил удаление
+правильной командой (ранее выбирал заметку вместо записи); новые Mac клавиши и
+native Mac CI пока not-run, причина первоначального зависания не установлена.
 
 | Требование | Контракт и реализация | Проверка |
 |---|---|---|

@@ -439,7 +439,7 @@ fn record_deletion_from_list_confirms_the_pinned_target_and_stays_responsive() {
         .position(|(action, _)| *action == Action::DeleteSession)
         .unwrap();
     writer.write_all("j".repeat(index).as_bytes()).unwrap();
-    writer.write_all(b"\r").unwrap();
+    writer.write_all(b"l").unwrap();
     writer.flush().unwrap();
     wait_for(
         "Удалить навсегда: Small recording",
@@ -502,7 +502,8 @@ fn startup_navigation_works_before_health_during_loading_and_after_empty_or_read
         (0..rows)
             .find(|row| {
                 screen
-                    .contents_between(*row, 0, *row, columns)
+                    // Match the section in its own pane, not a document title on the same row.
+                    .contents_between(*row, 0, *row, columns.min(27))
                     .contains(label)
             })
             .and_then(|row| screen.cell(row, 3))
@@ -598,7 +599,13 @@ fn startup_navigation_works_before_health_during_loading_and_after_empty_or_read
         selected!("Очередь");
         press!(b"\x1b[A");
         selected!("Заметки");
-        press!(b"\r");
+        press!(b"l");
+        see!("> Заметки");
+        see!("> Список");
+        press!(b"h");
+        see!("> Разделы");
+        selected!("Заметки");
+        press!(b"l");
         see!("> Заметки");
         see!("> Список");
         press!(b"\x1b[21~");

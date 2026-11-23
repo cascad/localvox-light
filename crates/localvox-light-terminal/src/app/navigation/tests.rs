@@ -4,6 +4,165 @@ fn key(app: &mut App, code: KeyCode) {
     app.key(KeyEvent::new(code, KeyModifiers::NONE));
 }
 
+#[test]
+fn h_returns_each_list_to_the_menu_without_changing_selection_or_audio() {
+    for (view, _) in VIEWS {
+        for letter in ['h', 'р'] {
+            let mut app = document();
+            app.view = view;
+            app.focus = 1;
+            app.selected = 4;
+            app.list_scroll = 2;
+            app.playback.position = 42.0;
+            app.playback.paused = false;
+            key(&mut app, KeyCode::Char(letter));
+            assert_eq!((app.focus, app.selected, app.list_scroll), (0, 4, 2));
+            key(&mut app, KeyCode::Char(letter));
+            assert_eq!(app.focus, 0);
+            assert!(!app.quit && !app.playback.paused);
+            assert_eq!(app.playback.position, 42.0);
+            assert!(app.effects.is_empty() && app.player_effects.is_empty());
+        }
+    }
+}
+
+#[test]
+fn l_opens_selected_entries_in_each_list_with_the_same_context_as_enter() {
+    for (view, _) in VIEWS {
+        for letter in ['l', 'д'] {
+            let mut app = App {
+                view,
+                focus: 1,
+                sessions: vec![Session {
+                    name: "meeting".into(),
+                    ..Default::default()
+                }],
+                notes: vec![SlotNotes {
+                    name: "ideas".into(),
+                    ..Default::default()
+                }],
+                queue: vec![QueueItem {
+                    session: "meeting".into(),
+                    ..Default::default()
+                }],
+                hits: vec![Hit {
+                    session: "meeting".into(),
+                    start_sec: Some(12.0),
+                    ..Default::default()
+                }],
+                asks: vec![AskRecord {
+                    id: "question".into(),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            };
+            app.settings.settings.push(Setting {
+                key: "LOCALVOX_LLM_BASE_URL".into(),
+                kind: "string".into(),
+                ..Default::default()
+            });
+            key(&mut app, KeyCode::Char(letter));
+            match view {
+                View::Archive | View::Queue | View::Search => {
+                    assert_eq!((app.view, app.focus), (View::Archive, 2));
+                    assert_eq!(app.current.as_deref(), Some("meeting"));
+                    if view == View::Search {
+                        assert_eq!(
+                            (app.tab, app.document_target),
+                            (Tab::Transcript, Some(12.0))
+                        );
+                        assert!(matches!(
+                            app.detail_parent,
+                            Some(DetailParent::Search { .. })
+                        ));
+                    } else if view == View::Queue {
+                        assert_eq!(app.tab, Tab::Progress);
+                        assert!(matches!(
+                            app.detail_parent,
+                            Some(DetailParent::Queue { .. })
+                        ));
+                    }
+                }
+                View::Notes => assert_eq!(app.focus, 2),
+                View::Ask => {
+                    assert_eq!((app.focus, app.ask_id.as_deref()), (2, Some("question")));
+                    assert!(app.effects.iter().any(|(_, task)| matches!(task, Task::Read(Resource::Ask, id) if id == "question")));
+                }
+                View::Settings => assert!(app.form.is_some()),
+                View::Chat => assert!(app.expanded), // Same action as Enter; no child list yet.
+            }
+            if !matches!(view, View::Archive | View::Queue | View::Search) {
+                assert!(app.player_effects.is_empty());
+            }
+        }
+    }
+    let mut empty = App::default();
+    key(&mut empty, KeyCode::Char('l'));
+    assert_eq!(empty.focus, 1);
+    assert!(empty.current.is_none() && empty.effects.is_empty());
+}
+
+#[test]
+fn palette_h_cancels_and_l_keeps_destructive_confirmation() {
+    for (back, enter) in [('h', 'l'), ('р', 'д')] {
+        let mut app = App::default();
+        app.sessions.push(Session {
+            name: "selected".into(),
+            ..Default::default()
+        });
+        app.palette_index = COMMANDS
+            .iter()
+            .position(|(action, _)| *action == Action::DeleteSession)
+            .unwrap();
+        app.palette = true;
+        key(&mut app, KeyCode::Char(back));
+        assert!(!app.palette && app.form.is_none() && app.effects.is_empty());
+        app.palette = true;
+        key(&mut app, KeyCode::Char(enter));
+        assert!(!app.palette && app.effects.is_empty());
+        assert!(
+            matches!(&app.form.as_ref().unwrap().kind, FormKind::Confirm(Task::DeleteSession(id)) if id == "selected")
+        );
+    }
+}
+
+#[test]
+fn menu_aliases_do_not_capture_modifiers_editors_filters_or_details() {
+    for modifiers in [
+        KeyModifiers::CONTROL,
+        KeyModifiers::ALT,
+        KeyModifiers::SHIFT,
+    ] {
+        let mut app = document();
+        app.focus = 1;
+        for letter in ['h', 'l'] {
+            app.key(KeyEvent::new(KeyCode::Char(letter), modifiers));
+            assert_eq!(app.focus, 1);
+        }
+    }
+    let mut app = document();
+    app.command(Action::NewNote);
+    for letter in ['h', 'l', 'р', 'д'] {
+        key(&mut app, KeyCode::Char(letter));
+    }
+    assert_eq!(app.form.as_ref().unwrap().fields[0].value, "hlрд");
+    key(&mut app, KeyCode::Esc);
+    app.focus = 1;
+    key(&mut app, KeyCode::Char('/'));
+    for letter in ['h', 'l'] {
+        key(&mut app, KeyCode::Char(letter));
+    }
+    assert_eq!(app.archive_filter, "hl");
+    assert_eq!(app.focus, 1);
+    key(&mut app, KeyCode::Esc);
+    app.focus = 2;
+    app.expanded = true;
+    key(&mut app, KeyCode::Char('h'));
+    assert!(!app.expanded && app.focus == 2);
+    key(&mut app, KeyCode::Char('l'));
+    assert!(app.expanded && app.focus == 2);
+}
+
 fn document() -> App {
     App {
         current: Some("meeting".into()),
