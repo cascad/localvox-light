@@ -153,7 +153,7 @@ pub(super) fn items(f: &mut Frame, a: &App, area: Rect, t: Theme) {
     let block = list_block(a, t, &title);
     if entries.is_empty() {
         let message: String = if error.is_some() {
-            "Список недоступен · ~ консоль · r повторить".into()
+            "Список недоступен · ~ консоль · повтор автоматически".into()
         } else if a.view == View::Archive && !a.archive_filter.is_empty() {
             if a.archive_filter_editing {
                 "Нет совпадений\nEsc — сбросить фильтр".into()

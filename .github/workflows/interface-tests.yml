@@ -95,6 +95,8 @@ jobs:
           cargo test --locked -p localvox-light-core workflow:: --lib
           cargo test --locked -p localvox-light-core --features onnx cook:: --lib
           cargo test --locked -p localvox-light-core readable:: --lib
+      - name: Bounded source download attempts and owned temporary audio
+        run: cargo test --locked -p localvox-light-ingest --lib
       - name: Worker profiling fixture contracts (no speech models)
         run: |
           $ErrorActionPreference = 'Stop'

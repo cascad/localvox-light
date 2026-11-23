@@ -548,7 +548,7 @@ pub fn process_session(
             replacements: 0,
             llm_calls: 0,
             wall_sec: t0.elapsed().as_secs_f64(),
-            skipped: Some("there is no recognized speech in the recording".into()),
+            skipped: Some(localvox_light_core::processing::SUMMARY_NO_SPEECH.into()),
             unverified: None,
             source,
         });
@@ -702,10 +702,7 @@ pub fn process_session(
             replacements: replacements.len(),
             llm_calls,
             wall_sec: t0.elapsed().as_secs_f64(),
-            skipped: Some(
-                "the answer says nothing about this recording — there was nothing to analyse"
-                    .into(),
-            ),
+            skipped: Some(localvox_light_core::processing::SUMMARY_NO_CONTENT.into()),
             unverified: None,
             source,
         });

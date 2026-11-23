@@ -57,15 +57,8 @@ impl std::fmt::Display for CancellationRequested {
 }
 impl std::error::Error for CancellationRequested {}
 
-/// How many times a `Failed` job may be resurrected before it settles for good.
-///
-/// Revival exists for TRANSIENT failures: Ollama was down, it came back. Three tries spread over
-/// ~7 hours (1 h + 2 h + 4 h) answer that question honestly. What does not heal within that budget
-/// is not transient, and a hundredth attempt teaches nobody anything — the job stays `Failed`,
-/// visible, with its reason, until a human presses «переварить заново».
-///
-/// Without a bound this was a perpetual motion machine — see [`Job::revivals`].
-pub const MAX_REVIVALS: u32 = 3;
+/// A phase gets one finite series. Only an explicit user retry starts another.
+pub const MAX_PHASE_ATTEMPTS: u32 = 3;
 
 /// What has to be done to the session.
 ///
@@ -178,22 +171,10 @@ pub struct Job {
     pub finished_at: Option<String>,
     #[serde(default)]
     pub last_error: Option<String>,
-    /// The moment of the transition to `Failed` (unix seconds) — for reviving with
-    /// backoff.
+    /// The moment of the terminal failure (unix seconds), retained across restarts.
     #[serde(default)]
     pub failed_at: Option<u64>,
-    /// How many times this job has been RESURRECTED from `Failed`.
-    ///
-    /// Without this the queue was a perpetual motion machine: `mark_failed` gave up after
-    /// `max_attempts`, and `revive_failed` then reset `attempts` back to 0 and set the job
-    /// Pending again — every hour, and on every restart, FOREVER. Any permanent failure (a bug,
-    /// a model that always chokes on this recording) meant the archive re-cooked itself on every
-    /// launch. Measured on the owner's machine: sessions from two days ago still churning.
-    ///
-    /// Retries are bounded now. Revivals are for TRANSIENT failures (Ollama was down and came
-    /// back), and a few tries over several hours settle that question. What does not heal in
-    /// that budget will not heal by being tried a hundredth time — it stays `Failed`, visible,
-    /// with its reason, until a HUMAN says «try again» (which resets this counter).
+    /// Legacy automatic-revival counter. Read old queues, but never schedule from it.
     #[serde(default)]
     pub revivals: u32,
     /// Cook again regardless of an already finished version (`--force`). It is set when
@@ -670,6 +651,10 @@ impl JobQueue {
             return false;
         }
         self.update_job(index, "полная переобработка", |job| {
+            if job.kind == JobKind::Incremental {
+                job.kind = JobKind::Cook;
+                job.prefix = None;
+            }
             job.phase = JobPhase::Prepare;
             job.enqueued_at = Some(now_rfc3339());
             job.phase_queued_at = job.enqueued_at.clone();
@@ -680,7 +665,7 @@ impl JobQueue {
             job.attempts = 0;
             job.last_error = None;
             job.failed_at = None;
-            // A human repeat buys a fresh revival budget; recovery does not.
+            // An explicit user repeat starts a fresh attempt budget; recovery does not.
             job.revivals = 0;
             job.summary = summary;
             job.cleanup = cleanup;
@@ -883,6 +868,17 @@ impl JobQueue {
             return Ok(None);
         }
         let previous = job.clone();
+        if job.attempts >= MAX_PHASE_ATTEMPTS {
+            job.state = JobState::Failed;
+            job.failed_at = Some(unix_now());
+            job.finished_at = Some(now_rfc3339());
+            job.phase_started_at = None;
+            job.last_error.get_or_insert_with(|| {
+                "Лимит попыток этапа исчерпан после прерываний; продолжение — вручную".into()
+            });
+            self.commit_jobs(vec![(index, previous)], "исчерпан бюджет этапа")?;
+            return Ok(None);
+        }
         job.state = JobState::Running;
         job.phase_started_at = Some(now_rfc3339());
         job.execution_id = Some(uuid::Uuid::now_v7().to_string());
@@ -1061,7 +1057,7 @@ impl JobQueue {
             job.state = JobState::Done;
             job.finished_at = Some(now_rfc3339());
             job.last_error = None;
-            // A successful forced run must not invalidate derivatives on revival.
+            // Recovery of a completed forced run must not invalidate its derivatives.
             job.force = false;
         });
     }
@@ -1154,49 +1150,6 @@ impl JobQueue {
         };
         self.commit_jobs(vec![(index, previous)], "отказ этапа")?;
         Ok(())
-    }
-
-    /// Revive `Failed` jobs older than `min_age`: a transient failure (Ollama was
-    /// restarting, the disk was busy) heals itself without a daemon restart. The series
-    /// of attempts + the backoff keep the protection against hammering forever — the
-    /// cook is idempotent, and a repeat is cheap (`Skipped`).
-    pub fn revive_failed(&mut self, min_age: std::time::Duration) -> usize {
-        self.try_revive_failed(min_age).unwrap_or(0)
-    }
-
-    pub fn try_revive_failed(&mut self, min_age: std::time::Duration) -> anyhow::Result<usize> {
-        self.ensure_readable()?;
-        let now = unix_now();
-        let mut previous = Vec::new();
-        for (index, j) in self.file.jobs.iter_mut().enumerate() {
-            if j.state != JobState::Failed {
-                continue;
-            }
-            // THE BUDGET. Beyond it the job stays Failed for good — no more churn. Only a human
-            // («переварить заново») buys it a new budget.
-            if j.revivals >= MAX_REVIVALS {
-                continue;
-            }
-            // The wait doubles with every revival: 1 h, 2 h, 4 h. A failure that survives the
-            // whole budget is not transient, and hammering it every hour teaches nobody anything.
-            let wait = min_age.as_secs().saturating_mul(1u64 << j.revivals.min(16));
-            let old_enough = j
-                .failed_at
-                .map(|t| now.saturating_sub(t) >= wait)
-                .unwrap_or(true);
-            if !old_enough {
-                continue;
-            }
-            previous.push((index, j.clone()));
-            j.state = JobState::Pending;
-            j.phase_queued_at = Some(now_rfc3339());
-            j.phase_started_at = None;
-            j.attempts = 0;
-            j.failed_at = None;
-            j.finished_at = None;
-            j.revivals += 1;
-        }
-        self.commit_jobs(previous, "автоматический повтор заданий")
     }
 }
 
@@ -1356,15 +1309,6 @@ pub fn coordinator_status() -> Option<CoordinatorStatus> {
         .read()
         .unwrap_or_else(|e| e.into_inner())
         .clone()
-}
-pub fn automatic_retry_at(job: &Job) -> Option<String> {
-    if job.state != JobState::Failed || job.revivals >= MAX_REVIVALS {
-        return None;
-    }
-    let seconds = job
-        .failed_at?
-        .saturating_add(3600 * (1u64 << job.revivals.min(16)));
-    chrono::DateTime::from_timestamp(seconds.try_into().ok()?, 0).map(|at| at.to_rfc3339())
 }
 
 /// The recipe depends on the LANGUAGE, and every session has its own language, so what
@@ -1795,7 +1739,6 @@ mod tests {
         assert!(queue.try_start(0).is_err());
         assert!(queue.try_start_phase(0, &[JobPhase::Prepare]).is_err());
         assert!(queue.try_reclaim_abandoned(root.path()).is_err());
-        assert!(queue.try_revive_failed(std::time::Duration::ZERO).is_err());
         assert!(queue
             .try_mark_failed(0, "failure", 3)
             .unwrap_err()
@@ -1830,29 +1773,20 @@ mod tests {
     }
 
     #[test]
-    fn commit_failure_revival_keeps_the_whole_batch_and_only_spends_one_successful_round() {
+    fn manual_retry_commit_failure_preserves_the_failed_job_and_budget() {
         let root = tempfile::tempdir().unwrap();
         let mut queue = JobQueue::load(root.path());
-        for name in ["a", "b"] {
-            queue.enqueue_cook(name, true, false, false);
-        }
-        for id in [0, 1] {
-            queue.start(id).unwrap();
-            queue.mark_failed(id, "offline", 1);
-        }
-        let before = serde_json::to_value(&queue.file).unwrap();
+        queue.enqueue_cook("a", true, false, false);
+        queue.start(0).unwrap();
+        queue.mark_failed(0, "offline", 1);
+        let before = queue.jobs()[0].clone();
         let path = deny_queue_target(&mut queue);
-        let bytes = fs::read(&path).unwrap();
-        assert!(queue.try_revive_failed(std::time::Duration::ZERO).is_err());
-        assert_eq!(queue.revive_failed(std::time::Duration::ZERO), 0);
-        assert_eq!(serde_json::to_value(&queue.file).unwrap(), before);
-        assert_eq!(fs::read(&path).unwrap(), bytes);
+        assert!(!queue.retry_failed("a"));
+        assert_eq!(queue.jobs()[0], before);
         queue.path = path;
-        assert_eq!(queue.revive_failed(std::time::Duration::ZERO), 2);
-        assert!(queue
-            .jobs()
-            .iter()
-            .all(|job| job.state == JobState::Pending && job.revivals == 1 && job.attempts == 0));
+        assert!(queue.retry_failed("a"));
+        assert_eq!(queue.jobs()[0].state, JobState::Pending);
+        assert_eq!(queue.jobs()[0].attempts, 0);
     }
 
     #[test]
@@ -1940,7 +1874,7 @@ mod tests {
             job.follow_settings = index % 2 == 0;
             job.state = JobState::Failed;
             job.attempts = 3;
-            job.revivals = MAX_REVIVALS;
+            job.revivals = 3; // legacy metadata must not govern manual retry
             job.force = true;
             job.last_error = Some("synthetic failure".into());
             job.failed_at = Some(1);
@@ -2423,20 +2357,22 @@ mod tests {
     }
 
     #[test]
-    fn revive_failed_respects_backoff() {
+    fn failed_jobs_with_legacy_revival_metadata_stay_failed_after_restart() {
         let dir = tempdir().unwrap();
-        let mut q = JobQueue::load(dir.path());
-        q.enqueue_cook("s1", false, false, false);
-        let j = q.claim_next().unwrap();
-        q.mark_failed(j.id, "ollama down", 1); // attempts=1 >= cap → Failed
-        assert_eq!(q.jobs()[0].state, JobState::Failed);
-        // a fresh Failed under backoff — does not revive
-        assert_eq!(q.revive_failed(std::time::Duration::from_secs(3600)), 0);
-        assert_eq!(q.jobs()[0].state, JobState::Failed);
-        // without backoff (0) — revives with the attempts reset
-        assert_eq!(q.revive_failed(std::time::Duration::ZERO), 1);
-        assert_eq!(q.jobs()[0].state, JobState::Pending);
-        assert_eq!(q.jobs()[0].attempts, 0);
+        let mut queue = JobQueue::load(dir.path());
+        queue.enqueue_cook("s1", false, false, false);
+        queue.start(0).unwrap();
+        queue.mark_failed(0, "model unavailable", 1);
+        queue.file.jobs[0].revivals = 0;
+        queue.file.jobs[0].failed_at = Some(0); // Well beyond every old hourly deadline.
+        assert!(queue.save());
+        for _ in 0..10 {
+            let mut restored = JobQueue::load(dir.path());
+            restored.try_reclaim_abandoned(dir.path()).unwrap();
+            assert_eq!(restored.jobs()[0].state, JobState::Failed);
+            assert_eq!(restored.jobs()[0].attempts, 1);
+            assert!(restored.claim_next().is_none());
+        }
     }
 
     // ─── The queue MUST settle. Simulated failures — the owner's "и так происходит каждый
@@ -2453,7 +2389,7 @@ mod tests {
     /// «сорвалось, повторю» against directories that no longer existed — the app looked broken over
     /// recordings the owner had already thrown away.
     ///
-    /// And the sweep must run BEFORE `revive_failed`, or the retry faithfully resurrects the ghost.
+    /// Removing orphan jobs must preserve the work of sessions that still exist.
     #[test]
     fn a_job_for_a_deleted_session_is_dropped_and_not_revived() {
         let d = tempfile::tempdir().unwrap();
@@ -2463,7 +2399,7 @@ mod tests {
         let mut q = JobQueue::load(wd);
         q.enqueue_cook("alive", true, true, true);
         q.enqueue_cook("deleted", true, true, true);
-        // Both failed long enough ago that `revive_failed` would take them back.
+        // Both failures are terminal; the sweep removes only the missing session.
         for id in q.jobs().iter().map(|j| j.id).collect::<Vec<_>>() {
             q.mark_failed(id, "boom", 0);
         }
@@ -2472,13 +2408,13 @@ mod tests {
         let left: Vec<&str> = q.jobs().iter().map(|j| j.session.as_str()).collect();
         assert_eq!(left, vec!["alive"], "wrong job removed");
 
-        // The revival must not bring back what is gone — there is nothing left for it to find.
-        q.revive_failed(std::time::Duration::from_secs(0));
-        let after: Vec<&str> = q.jobs().iter().map(|j| j.session.as_str()).collect();
+        let mut restored = JobQueue::load(wd);
+        assert!(restored.claim_next().is_none());
+        let after: Vec<&str> = restored.jobs().iter().map(|j| j.session.as_str()).collect();
         assert_eq!(
             after,
             vec!["alive"],
-            "a deleted session came back through revive_failed"
+            "a deleted session came back after reload"
         );
     }
 
@@ -2493,8 +2429,7 @@ mod tests {
         assert_eq!(q.jobs().len(), 1);
     }
 
-    /// A failure must SURVIVE a reload. Only `revive_failed` (bounded, with backoff) or a human
-    /// may bring it back.
+    /// A terminal failure survives every reload; only an explicit user action resumes it.
     #[test]
     fn a_failed_job_survives_a_reload_and_is_not_resurrected() {
         let dir = tempdir().unwrap();
@@ -2515,7 +2450,7 @@ mod tests {
             );
             assert!(
                 q.jobs()[0].failed_at.is_some(),
-                "the tombstone was lost — the backoff has nothing to count from"
+                "the persisted failure timestamp was lost"
             );
         }
         // And it is not handed out for work.
@@ -2698,7 +2633,7 @@ mod tests {
         assert_eq!(q.jobs()[0].state, JobState::Running);
 
         // Restart after restart, the replay must never carry the wipe again.
-        for restart in 1..=5 {
+        for restart in 1..MAX_PHASE_ATTEMPTS {
             let mut q = JobQueue::load(dir.path());
             q.reclaim_abandoned(dir.path());
             let again = q.claim_next().expect("the interrupted cook was lost");
@@ -2707,106 +2642,89 @@ mod tests {
                 "restart {restart}: the replay still wipes the finished documents"
             );
         }
+        let mut q = JobQueue::load(dir.path());
+        q.reclaim_abandoned(dir.path());
+        assert!(q.claim_next().is_none());
+        assert_eq!(q.jobs()[0].state, JobState::Failed);
     }
 
     /// A PERMANENT failure settles. This models what actually happened: a step that always fails
-    /// on this recording (a bug, a model that chokes on it). It may be retried a few times over
-    /// hours — transient failures deserve that — but the budget is finite, and after it the job
-    /// stays Failed instead of eating the machine forever.
+    /// on this recording. Three attempts form one finite series, preserved across restarts.
+    /// After that only an explicit user action resumes work.
     #[test]
-    fn a_permanently_failing_job_settles_after_its_revival_budget() {
+    fn three_failed_attempts_stop_across_restarts_until_manual_retry() {
         let dir = tempdir().unwrap();
-        let mut q = JobQueue::load(dir.path());
-        q.enqueue_cook("s1", true, true, true);
-
-        let mut rounds = 0;
-        // Simulate: the job is handed out, it fails, it is revived, it fails again…
-        loop {
-            let Some(j) = q.claim_next() else { break };
-            q.mark_failed(j.id, "the LLM chokes on this recording", 0); // always straight to Failed
-            assert_eq!(q.jobs()[0].state, JobState::Failed);
-            // Zero backoff — as if all the waiting had already passed.
-            if q.revive_failed(std::time::Duration::ZERO) == 0 {
-                break; // the budget is spent: it settled
-            }
-            rounds += 1;
-            assert!(
-                rounds <= MAX_REVIVALS + 1,
-                "the queue is a perpetual motion machine"
-            );
+        let mut queue = JobQueue::load(dir.path());
+        queue.enqueue_cook("s1", true, false, false);
+        for expected in 1..=MAX_PHASE_ATTEMPTS {
+            let mut queue = JobQueue::load(dir.path());
+            let job = queue.claim_next().unwrap();
+            assert_eq!(job.attempts, expected);
+            queue
+                .try_mark_failed(
+                    job.id,
+                    "ASR model directory was not found",
+                    MAX_PHASE_ATTEMPTS,
+                )
+                .unwrap();
         }
-
-        assert_eq!(
-            rounds, MAX_REVIVALS,
-            "the revival budget is not what it claims"
-        );
-        assert_eq!(q.jobs()[0].state, JobState::Failed);
-        assert_eq!(q.jobs()[0].revivals, MAX_REVIVALS);
-        // From here on, nothing revives it — not a reload, not another hour, not ever.
-        for _ in 0..5 {
-            assert_eq!(q.revive_failed(std::time::Duration::ZERO), 0);
+        let mut restored = JobQueue::load(dir.path());
+        assert_eq!(restored.jobs()[0].state, JobState::Failed);
+        let stopped = restored.jobs()[0].clone();
+        for _ in 0..10 {
+            restored.try_reclaim_abandoned(dir.path()).unwrap();
+            assert!(restored.claim_next().is_none());
+            assert_eq!(restored.jobs()[0], stopped);
         }
-        assert_eq!(JobQueue::load(dir.path()).jobs()[0].state, JobState::Failed);
+        assert!(restored.retry_failed("s1"));
+        let retried = restored.claim_next().unwrap();
+        assert_eq!((retried.attempts, retried.phase), (1, stopped.phase));
+        assert!(!retried.force);
     }
 
-    /// The backoff doubles: 1 h, 2 h, 4 h. Hammering a broken thing every hour teaches nobody
-    /// anything, and the owner sees the churn.
+    /// An interrupted attempt spends the same budget as an observed failure.
     #[test]
-    fn the_revival_backoff_doubles_every_round() {
+    fn interrupted_attempts_cannot_buy_an_unbounded_restart_budget() {
         let dir = tempdir().unwrap();
-        let mut q = JobQueue::load(dir.path());
-        q.enqueue_cook("s1", false, false, false);
-        let j = q.claim_next().unwrap();
-        q.mark_failed(j.id, "down", 0);
-
-        // 1st revival: needs 1 h. Half an hour is not enough.
-        assert_eq!(q.revive_failed(std::time::Duration::from_secs(7200)), 0);
-        assert_eq!(q.revive_failed(std::time::Duration::ZERO), 1);
-        assert_eq!(q.jobs()[0].revivals, 1);
-
-        // 2nd revival now needs TWICE the base — with a base of 1 s, "1 s old" is not enough.
-        let j = q.claim_next().unwrap();
-        q.mark_failed(j.id, "down", 0);
-        assert_eq!(
-            q.revive_failed(std::time::Duration::from_secs(1)),
-            0,
-            "the second revival must wait twice as long"
-        );
+        let mut queue = JobQueue::load(dir.path());
+        queue.enqueue_cook("s1", false, false, false);
+        for expected in 1..=MAX_PHASE_ATTEMPTS {
+            let job = queue.claim_next().unwrap();
+            assert_eq!(job.attempts, expected);
+            queue = JobQueue::load(dir.path());
+            queue.try_reclaim_abandoned(dir.path()).unwrap();
+        }
+        assert!(queue.claim_next().is_none());
+        assert_eq!(queue.jobs()[0].state, JobState::Failed);
+        assert_eq!(queue.jobs()[0].attempts, MAX_PHASE_ATTEMPTS);
+        assert!(queue.jobs()[0]
+            .last_error
+            .as_ref()
+            .unwrap()
+            .contains("прерываний"));
+        assert_eq!(JobQueue::load(dir.path()).jobs()[0].state, JobState::Failed);
     }
 
     /// The human's word outweighs the budget. He pressed «переварить заново» — the job tries
     /// again, however many times it had failed before. Otherwise a burned-out job would swallow
     /// the button silently.
     #[test]
-    fn a_human_recook_buys_a_fresh_revival_budget() {
+    fn a_human_full_recook_gets_a_fresh_attempt_budget() {
         let dir = tempdir().unwrap();
-        let mut q = JobQueue::load(dir.path());
-        q.enqueue_cook("s1", true, true, true);
-        // Burn the whole budget.
-        for _ in 0..=MAX_REVIVALS {
-            if let Some(j) = q.claim_next() {
-                q.mark_failed(j.id, "boom", 0);
-            }
-            q.revive_failed(std::time::Duration::ZERO);
+        let mut queue = JobQueue::load(dir.path());
+        queue.enqueue_cook("s1", true, false, false);
+        for _ in 0..MAX_PHASE_ATTEMPTS {
+            let job = queue.claim_next().unwrap();
+            queue.mark_failed(job.id, "model offline", MAX_PHASE_ATTEMPTS);
         }
-        assert_eq!(q.jobs()[0].state, JobState::Failed);
+        assert_eq!(queue.jobs()[0].state, JobState::Failed);
+        assert!(queue.enqueue_recook("s1", true, false, false));
+        let job = queue.claim_next().unwrap();
         assert_eq!(
-            q.revive_failed(std::time::Duration::ZERO),
-            0,
-            "budget must be spent"
+            (job.state, job.phase, job.attempts),
+            (JobState::Running, JobPhase::Prepare, 1)
         );
-
-        assert!(
-            q.enqueue_recook("s1", true, true, true),
-            "the human's re-cook was refused"
-        );
-        assert_eq!(q.jobs()[0].state, JobState::Pending);
-        assert_eq!(
-            q.jobs()[0].revivals,
-            0,
-            "the button did not buy a fresh budget"
-        );
-        assert!(q.claim_next().is_some(), "the re-cook was not handed out");
+        assert!(job.force);
     }
 
     #[test]
@@ -3348,8 +3266,7 @@ mod tests {
     /// seconds. So the rule it protected meant "retry a broken job forever, a dozen times a
     /// minute", and the archive churned for days.
     ///
-    /// The rule is inverted now: a reload preserves a failure. Coming back is the job of
-    /// `revive_failed` (bounded, with backoff) or of a human.
+    /// A reload preserves a terminal failure. Only an explicit user action resumes it.
     #[test]
     fn a_reload_preserves_a_failure_instead_of_retrying_it_forever() {
         let dir = tempdir().unwrap();

@@ -56,12 +56,7 @@ fn owner_acknowledgement_is_execution_scoped_and_cancel_is_not_automatically_rev
     assert_eq!(stopped.state, JobState::Cancelled);
     assert!(stopped.finished_at.is_some());
     assert_eq!(stopped.phase, owner.phase);
-    assert!(automatic_retry_at(&stopped).is_none());
     assert_eq!(queue.try_reclaim_abandoned(root.path()).unwrap(), 0);
-    assert_eq!(
-        queue.try_revive_failed(std::time::Duration::ZERO).unwrap(),
-        0
-    );
     assert!(!queue.enqueue_cook("fixture", true, false, false));
     assert_eq!(queue.try_complete_cancellation("fixture").unwrap(), stopped);
     assert!(queue.retry_failed("fixture"));

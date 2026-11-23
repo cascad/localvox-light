@@ -7,6 +7,17 @@ pub enum DetailParent {
 }
 
 impl App {
+    /// The same viewport drives rendering and page navigation; the tail is filled too.
+    pub fn palette_window(&self, height: u16) -> (usize, usize) {
+        let count = usize::from(height.saturating_sub(2).min(20).saturating_sub(2))
+            .max(1)
+            .min(COMMANDS.len());
+        let offset = self
+            .palette_index
+            .saturating_sub(count / 2)
+            .min(COMMANDS.len() - count);
+        (count, offset)
+    }
     pub(super) fn open_list_record(&mut self, session: String, tab: Tab, time: Option<f64>) {
         let parent = match self.view {
             View::Queue => Some(DetailParent::Queue {

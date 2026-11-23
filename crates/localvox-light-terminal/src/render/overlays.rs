@@ -2,12 +2,12 @@ use super::*;
 
 pub(super) fn draw(f: &mut Frame, a: &App, area: Rect, t: Theme) {
     if a.palette {
-        let offset = a.palette_index.saturating_sub(8);
+        let (count, offset) = a.palette_window(area.height);
         let entries = COMMANDS
             .iter()
             .enumerate()
             .skip(offset)
-            .take(16)
+            .take(count)
             .map(|(i, (_, label))| {
                 ListItem::new(Line::from(vec![
                     Span::styled(format!(" {:02} ", i + 1), Style::default().fg(t.dim)),
@@ -23,6 +23,18 @@ pub(super) fn draw(f: &mut Frame, a: &App, area: Rect, t: Theme) {
                 .block(
                     borders(a.preferences.ascii)
                         .title(" Действия · Enter / Esc · l/h ")
+                        .title_bottom(format!(
+                            " {}{}–{} из {}{} · PgUp/PgDn · Home/End ",
+                            if offset > 0 { "↑ ещё · " } else { "" },
+                            offset + 1,
+                            offset + count,
+                            COMMANDS.len(),
+                            if offset + count < COMMANDS.len() {
+                                " · ещё ↓"
+                            } else {
+                                " · конец"
+                            }
+                        ))
                         .title_style(t.focus_style())
                         .border_style(Style::default().fg(t.focus))
                         .style(Style::default().bg(t.bg).fg(t.ink)),
@@ -39,7 +51,7 @@ pub(super) fn draw(f: &mut Frame, a: &App, area: Rect, t: Theme) {
     if a.help {
         let rect = modal(area, 78, 26);
         f.render_widget(Clear, rect);
-        f.render_widget(Paragraph::new("УПРАВЛЕНИЕ\nSpace play/pause; p fragment; g/п time; Alt+Left/Right +/-15s\nF6 — стрелки плееру; повтор — к документу\n\nTab / Shift+Tab — фокус панели\nEsc — окно → детали → список → меню\n↑↓ — выбрать строку; Enter — открыть\nМеню/списки: h/Esc назад; l/Enter открыть\nСписок: j/k ↑↓; l/Enter открыть; / поиск; Ctrl+←/→ ширина\nАрхив и заметки: d/Delete удалить выбранное; s подтвердить\nВ поиске буквы и / — текст; Esc — сброс и выход\n1–5 — вкладки; y — блок/реплика; Ctrl+Y — всё; 3 → y — весь текст\n/ или точка в RU — поиск в выбранной панели; : / F2 — действия; n — создать; i — URL → Enter\nF8 — остановить запись; F9 — начать запись\nX — отменить обработку; R — продолжить этап\nPgUp / PgDn, Home / End — чтение документа\n← / → или h/l — свернуть / раскрыть подробности\n\nВ форме: Tab — поле; Enter — новая строка\nCtrl+Enter — отправить; Esc — отменить\nURL, настройка, время: Enter — подтвердить\nВставка остаётся текстом, команды не исполняются.\nI — сведения в «Ход»; A / S — все настройки / сохранить\n~ / ё — консоль ошибок; F12 — также из формы\n\nF10 / Ctrl+Q — выход; qq/йй за 0.5 с — вне ввода.\nДругая клавиша или вставка отменяет первое q.\nДемон и запись продолжают работать.\n\nЛюбая клавиша — закрыть справку").block(borders(a.preferences.ascii).title(" Помощь ").title_style(t.focus_style()).border_style(Style::default().fg(t.focus)).style(Style::default().bg(t.bg).fg(t.ink))).wrap(Wrap{trim:false}),rect);
+        f.render_widget(Paragraph::new("УПРАВЛЕНИЕ\nSpace play/pause; p fragment; g/п time; Alt+Left/Right +/-15s\nF6 — стрелки плееру; повтор — к документу\n\nTab / Shift+Tab — фокус панели\nEsc — окно → детали → список → меню\n↑↓ — выбрать строку; Enter — открыть\nМеню/списки: h/Esc назад; l/Enter открыть\nСписок: j/k ↑↓; l/Enter открыть; / поиск; Ctrl+←/→ ширина\nАрхив и заметки: d/Delete удалить выбранное; s подтвердить\nВ поиске буквы и / — текст; Esc — сброс и выход\n1–5 — вкладки; y — блок/реплика; Ctrl+Y — всё; 3 → y — весь текст\n/ или точка в RU — поиск в выбранной панели; : / F2 — действия; n — создать; i — URL → Enter\nF8 — остановить запись; F9 — начать запись\nX — отменить обработку; r — переварить запись с аудио\nPgUp / PgDn, Home / End — чтение документа\n← / → или h/l — свернуть / раскрыть подробности\n\nВ форме: Tab — поле; Enter — новая строка\nCtrl+Enter — отправить; Esc — отменить\nURL, настройка, время: Enter — подтвердить\nВставка остаётся текстом, команды не исполняются.\nI — сведения в «Ход»; A / S — все настройки / сохранить\n~ / ё — консоль ошибок; F12 — также из формы\n\nF10 / Ctrl+Q — выход; qq/йй за 0.5 с — вне ввода.\nДругая клавиша или вставка отменяет первое q.\nДемон и запись продолжают работать.\n\nЛюбая клавиша — закрыть справку").block(borders(a.preferences.ascii).title(" Помощь ").title_style(t.focus_style()).border_style(Style::default().fg(t.focus)).style(Style::default().bg(t.bg).fg(t.ink))).wrap(Wrap{trim:false}),rect);
     }
     if let Some(form) = &a.form {
         let desired = if form.is_confirmation() {

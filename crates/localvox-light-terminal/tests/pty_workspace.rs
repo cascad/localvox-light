@@ -25,6 +25,7 @@ struct ApiFixture {
     settings_saves: Arc<AtomicUsize>,
     deletion_mode: Arc<AtomicBool>,
     deleted: Arc<Mutex<Vec<String>>>,
+    recooked: Arc<Mutex<Vec<String>>>,
     thread: Option<std::thread::JoinHandle<()>>,
 }
 impl ApiFixture {
@@ -51,6 +52,8 @@ impl ApiFixture {
         let deleting_fixture = deletion_mode.clone();
         let deleted = Arc::new(Mutex::new(Vec::<String>::new()));
         let removed = deleted.clone();
+        let recooked = Arc::new(Mutex::new(Vec::<String>::new()));
+        let reprocessed = recooked.clone();
         let active = recording.clone();
         let preview = Arc::new(AtomicUsize::new(0));
         let progress = preview.clone();
@@ -121,6 +124,10 @@ impl ApiFixture {
                         serde_json::json!({"ok":true,"deleted":target})
                     } else if request.method().as_str() == "POST" {
                         match path {
+                            p if p.ends_with("/recook") => {
+                                reprocessed.lock().unwrap().push(request.url().to_owned());
+                                serde_json::json!({"msg":"Запись поставлена на переварку"})
+                            }
                             "/api/settings" => {
                                 let mut body = String::new();
                                 request.as_reader().read_to_string(&mut body).unwrap();
@@ -227,6 +234,10 @@ impl ApiFixture {
                             ))
                             .unwrap(),
                             p if p.ends_with("/progress") => fixture["progress"].clone(),
+                            p if p.ends_with("/summary") && mode == 8 => serde_json::json!({
+                                "blocks":[], "available":false, "status":"skipped",
+                                "reason":"Модель не создала содержательной сводки по распознанному тексту; сводка пропущена"
+                            }),
                             p if p.ends_with("/summary") => fixture["summary"].clone(),
                             p if p.ends_with("/versions") => {
                                 serde_json::json!({"versions":fixture["versions"]})
@@ -267,6 +278,7 @@ impl ApiFixture {
             settings_saves,
             deletion_mode,
             deleted,
+            recooked,
             thread: Some(thread),
         }
     }
@@ -438,6 +450,44 @@ fn record_deletion_from_list_confirms_the_pinned_target_and_stays_responsive() {
         .iter()
         .position(|(action, _)| *action == Action::DeleteSession)
         .unwrap();
+    writer.write_all(b"\x1b[4~").unwrap();
+    writer.flush().unwrap();
+    wait_for(
+        "конец",
+        &mut all,
+        &mut screen,
+        &rx,
+        &mut writer,
+        &mut queries,
+        deadline,
+    );
+    assert!(screen
+        .screen()
+        .contents()
+        .contains(COMMANDS.last().unwrap().1));
+    writer.write_all(b"\x1b[5~").unwrap();
+    writer.flush().unwrap();
+    wait_until(
+        "previous palette page",
+        |_, s| !s.contents().contains(COMMANDS.last().unwrap().1),
+        &mut all,
+        &mut screen,
+        &rx,
+        &mut writer,
+        &mut queries,
+        deadline,
+    );
+    writer.write_all(b"\x1b[1~").unwrap();
+    writer.flush().unwrap();
+    wait_for(
+        "01 Импорт URL",
+        &mut all,
+        &mut screen,
+        &rx,
+        &mut writer,
+        &mut queries,
+        deadline,
+    );
     writer.write_all("j".repeat(index).as_bytes()).unwrap();
     writer.write_all(b"l").unwrap();
     writer.flush().unwrap();
@@ -477,6 +527,86 @@ fn record_deletion_from_list_confirms_the_pinned_target_and_stays_responsive() {
         .screen()
         .contents()
         .contains("Архитектура и следующие шаги"));
+    api.activity.store(8, Ordering::Relaxed);
+    wait_for(
+        "Сводка пропущена",
+        &mut all,
+        &mut screen,
+        &rx,
+        &mut writer,
+        &mut queries,
+        deadline,
+    );
+    wait_for(
+        "Модель не создала",
+        &mut all,
+        &mut screen,
+        &rx,
+        &mut writer,
+        &mut queries,
+        deadline,
+    );
+    api.activity.store(0, Ordering::Relaxed);
+    wait_for(
+        "Архитектура и следующие шаги",
+        &mut all,
+        &mut screen,
+        &rx,
+        &mut writer,
+        &mut queries,
+        deadline,
+    );
+    writer.write_all(b"r").unwrap();
+    writer.flush().unwrap();
+    wait_for(
+        "Переварить запись с аудио",
+        &mut all,
+        &mut screen,
+        &rx,
+        &mut writer,
+        &mut queries,
+        deadline,
+    );
+    assert!(api.recooked.lock().unwrap().is_empty());
+    writer.write_all(b"\x1b").unwrap();
+    writer.flush().unwrap();
+    wait_until(
+        "cancelled full recook",
+        |_, s| !s.contents().contains("s подтвердить"),
+        &mut all,
+        &mut screen,
+        &rx,
+        &mut writer,
+        &mut queries,
+        deadline,
+    );
+    assert!(api.recooked.lock().unwrap().is_empty());
+    writer.write_all(b"r").unwrap();
+    writer.flush().unwrap();
+    wait_for(
+        "Переварить запись с аудио",
+        &mut all,
+        &mut screen,
+        &rx,
+        &mut writer,
+        &mut queries,
+        deadline,
+    );
+    writer.write_all(b"ss").unwrap();
+    writer.flush().unwrap();
+    wait_for(
+        "Запись поставлена на переварку",
+        &mut all,
+        &mut screen,
+        &rx,
+        &mut writer,
+        &mut queries,
+        deadline,
+    );
+    assert_eq!(
+        *api.recooked.lock().unwrap(),
+        vec!["/api/sessions/20261031_demo/recook?scope=all"]
+    );
     writer.write_all(b"\x1b[21~").unwrap();
     writer.flush().unwrap();
     wait_for(

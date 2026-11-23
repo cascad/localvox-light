@@ -97,7 +97,7 @@ impl Archive {
     /// `Done` is deliberately absent. A queue is what is left to do; what is finished lives in the
     /// archive, with its own card and its own stages.
     pub fn queue(&self) -> Result<Vec<QueueItem>> {
-        use localvox_light_core::jobs::{JobKind, JobState as S, MAX_REVIVALS};
+        use localvox_light_core::jobs::{JobKind, JobState as S};
         let q = self.readable_queue()?;
         let coordinator = localvox_light_core::jobs::coordinator_status();
         let now = localvox_light_core::versions::now_rfc3339();
@@ -160,7 +160,7 @@ impl Archive {
                     phase: j.phase,
                     retry: localvox_light_core::workflow::retry_plan(j, coordinator.as_ref(), &now),
                     last_error: j.last_error.clone(),
-                    stuck: j.state == S::Failed && j.revivals >= MAX_REVIVALS,
+                    stuck: j.state == S::Failed,
                 }
             })
             .collect())

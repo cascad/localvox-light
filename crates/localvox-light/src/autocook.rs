@@ -17,7 +17,7 @@ use localvox_light_core::{
 };
 use localvox_light_process::{Limits, Termination};
 
-const MAX_ATTEMPTS: u32 = 3;
+const MAX_ATTEMPTS: u32 = jobs::MAX_PHASE_ATTEMPTS;
 
 mod execution;
 mod observer;
@@ -388,18 +388,16 @@ fn coordinate(cfg: &Config, running: &AtomicBool) {
                         owner.signal();
                     }
                 }
-                q.try_reconcile_cancellations(wd)?;
-                q.try_revive_failed(Duration::from_secs(3600))
+                q.try_reconcile_cancellations(wd)
             });
             match maintenance {
-                Ok(revived) => {
-                    if revived > 0 {
-                        tracing::info!(revived, "autocook: retrying after backoff");
-                    }
+                Ok(_) => {
                     jobs::report_coordinator("ready", "Координатор работает");
                 }
                 Err(error) => {
-                    let message = format!("Автоматический повтор не сохранён; очередь будет проверена снова: {error:#}");
+                    let message = format!(
+                        "Состояние очереди не сохранено; проверка будет повторена: {error:#}"
+                    );
                     tracing::error!("{message}");
                     jobs::report_coordinator("blocked", &message);
                     pause(running, cfg.interval);
@@ -530,7 +528,13 @@ fn run_step_with_worker(
         return false;
     }
     let session = cfg.work_dir.join("sessions").join(&job.session);
-    if job.phase == JobPhase::Prepare && job.attempts == 1 {
+    // Early transcription can start without Prepare. Bind every stage fact to a saved run
+    // before the model resolver or worker can fail; reads never create this identity.
+    if (job.phase == JobPhase::Prepare && job.attempts == 1)
+        || localvox_light_core::journal::execution_identity(&session, None)
+            .0
+            .is_none()
+    {
         progress::new_run(&session);
     }
     if job.kind != jobs::JobKind::Incremental
@@ -1063,6 +1067,58 @@ mod tests {
             queue.start(0).unwrap()
         });
         (root, job)
+    }
+
+    #[test]
+    fn an_early_asr_failure_before_worker_start_has_one_saved_run_and_a_measured_stage() {
+        let _guard = POST_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let (root, _) = outcome_fixture(false);
+        let session = root.path().join("sessions/result");
+        std::fs::remove_file(session.join(".journal-meta.json")).unwrap();
+        std::fs::remove_file(session.join("progress.jsonl")).unwrap();
+        let queue_path = root.path().join("jobs.json");
+        let mut queue: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&queue_path).unwrap()).unwrap();
+        queue["jobs"][0]["phase"] = serde_json::to_value(JobPhase::Transcribe).unwrap();
+        std::fs::write(&queue_path, serde_json::to_vec(&queue).unwrap()).unwrap();
+        let job = JobQueue::load(root.path()).jobs()[0].clone();
+        let worker = root.path().join(if cfg!(windows) {
+            "localvox-process.exe"
+        } else {
+            "localvox-process"
+        });
+        std::fs::write(&worker, b"private fixture").unwrap();
+        let cfg =
+            Config::from_env_in(root.path().to_string_lossy().into_owned(), root.path()).unwrap();
+        // The worker disappears after configuration, before the first early ASR attempt.
+        std::fs::remove_file(worker).unwrap();
+        assert!(!cfg.exe.exists());
+        let running = AtomicBool::new(true);
+        run_step_with_worker(&cfg, &running, &job, Duration::from_secs(1), None, None);
+        let stage = progress::fold(&progress::read(&session))
+            .into_iter()
+            .find(|s| s.stage == progress::Stage::Transcribe)
+            .unwrap();
+        assert_eq!(stage.state, progress::StageState::Failed);
+        assert!(stage.started_at.is_some() && stage.ended_at.is_some());
+        let page = localvox_light_core::journal::read(
+            &session,
+            &localvox_light_core::journal::Query {
+                limit: 200,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let stages: Vec<_> = page
+            .events
+            .iter()
+            .filter(|e| e.kind == "stage" && e.stage == "transcribe")
+            .collect();
+        assert_eq!(stages.len(), 2);
+        assert!(!stages[0].run.is_empty());
+        assert_eq!(stages[0].run, stages[1].run);
+        assert_eq!(stages[0].status.as_deref(), Some("running"));
+        assert_eq!(stages[1].status.as_deref(), Some("failed"));
     }
 
     #[cfg(windows)]

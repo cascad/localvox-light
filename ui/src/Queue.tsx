@@ -30,10 +30,11 @@ export function QueuePane({
 
   const change = async (s: string, action: "retry" | "cancel") => {
     if (submitting.current.has(s)) return;
+    if (action === "retry" && !confirm("Переварить запись с сохранённого аудио? Распознавание и включённая сводка будут созданы заново; аудио сохранится.")) return;
     submitting.current.set(s, action); setPending(new Map(submitting.current));
     try {
-      const r = await api[action](s);
-      say(r.msg ?? (action === "cancel" ? "Обработка отменена; результаты сохранены" : "Этап поставлен в очередь"));
+      const r = await (action === "retry" ? api.recook(s, "all") : api.cancel(s));
+      say(r.msg ?? (action === "cancel" ? "Обработка отменена; результаты сохранены" : "Запись поставлена на переварку"));
     } catch (e) {
       say((e as Error).message);
     } finally {
@@ -89,9 +90,9 @@ export function QueuePane({
                 </button>
                 {/* Exhausted jobs and explicit cancellations resume only by a human action. */}
                 <div className="qactions">
-                {((i.state === "failed" && i.stuck) || i.state === "cancelled") && (
+                {(i.state === "failed" || i.state === "cancelled") && (
                   <button className="btn sm" disabled={pending.has(i.session)} onClick={() => void change(i.session, "retry")}>
-                    {pending.get(i.session) === "retry" ? "Постановка…" : i.state === "cancelled" ? "Продолжить обработку" : "♻ Повторить этап"}
+                    {pending.get(i.session) === "retry" ? "Постановка…" : "♻ Переварить запись"}
                   </button>
                 )}
                 {["running", "pending", "failed", "waiting_input"].includes(i.state) && <button className="btn sm" disabled={pending.has(i.session)} onClick={() => void change(i.session, "cancel")}>

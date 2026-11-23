@@ -53,7 +53,8 @@ impl App {
                     | Task::Source(..)
                     | Task::Recook(..)
                     | Task::Confirm(..)
-            ) {
+            ) && !matches!(&t, Task::Recook(session, _) if self.current.as_ref() != Some(session))
+            {
                 self.pending_document = Some(self.epoch);
             }
             if matches!(t, Task::Retry(..)) {

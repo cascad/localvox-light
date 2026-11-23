@@ -1,5 +1,60 @@
 use super::playback::player_line;
 use super::*;
+
+#[test]
+fn palette_shows_the_visible_range_and_both_scroll_boundaries_on_short_screens() {
+    for height in [12, 36] {
+        let mut app = App::default();
+        app.viewport = (100, height);
+        app.palette = true;
+        for selected in [0, COMMANDS.len() / 2, COMMANDS.len() - 1] {
+            app.palette_index = selected;
+            let mut terminal = Terminal::new(TestBackend::new(100, height)).unwrap();
+            terminal.draw(|frame| draw(frame, &app)).unwrap();
+            let buffer = terminal.backend().buffer();
+            let text = buffer
+                .content
+                .iter()
+                .map(|cell| cell.symbol())
+                .collect::<String>();
+            let (count, offset) = app.palette_window(height);
+            assert!(text.contains(COMMANDS[selected].1));
+            assert!(text.contains(&format!(
+                "{}–{} из {}",
+                offset + 1,
+                offset + count,
+                COMMANDS.len()
+            )));
+            assert_eq!(text.contains("ещё ↓"), offset + count < COMMANDS.len());
+            assert_eq!(text.contains("↑ ещё"), offset > 0);
+            if selected + 1 == COMMANDS.len() {
+                assert!(text.contains("конец"));
+            }
+        }
+    }
+}
+
+#[test]
+fn skipped_summary_has_its_reason_and_the_full_recook_command_in_the_document() {
+    let mut app = App::default();
+    app.current = Some("short".into());
+    app.focus = 2;
+    app.summary.available = Some(false);
+    app.summary.status = Some("skipped".into());
+    app.summary.reason = Some("Модель не создала содержательной сводки по короткому тексту".into());
+    let mut terminal = Terminal::new(TestBackend::new(120, 36)).unwrap();
+    terminal.draw(|frame| draw(frame, &app)).unwrap();
+    let text = terminal
+        .backend()
+        .buffer()
+        .content
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect::<String>();
+    assert!(text.contains("Сводка пропущена") && text.contains("Модель не создала"));
+    assert!(text.contains("r — переварить запись с аудио"));
+    assert!(!text.contains("ещё не создана"));
+}
 use crate::io::Response;
 use localvox_light_client::{QueueItem, Setting};
 use ratatui::{backend::TestBackend, Terminal};

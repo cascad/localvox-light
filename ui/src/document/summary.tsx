@@ -17,12 +17,14 @@ export function Article({
   session,
   onSeek,
   onChanged,
+  onRecook,
   say,
   refresh,
 }: {
   session: Session;
   onSeek: (sec: number, until?: number) => void;
   onChanged: () => void;
+  onRecook: () => void | Promise<void>;
   say: (m: string) => void;
   refresh: number;
 }) {
@@ -44,19 +46,15 @@ export function Article({
     }
   };
 
-  const recook = async () => {
-    try {
-      const r = await api.recook(session.name, "summary");
-      say(r.msg ?? "Поставлено на переварку");
-      onChanged();
-    } catch (e) {
-      say((e as Error).message);
-    }
-  };
 
   if (err && !data) return <p className="err">{err}</p>;
   if (!data) return <p className="hint">загрузка…</p>;
-  if (data.available === false) return <p className="hint">Сводка ещё не создана. Текст и реплики доступны отдельно; ход обработки — во вкладке «Ход».</p>;
+  if (data.available === false) return <div className="hint" data-summary-status={data.status ?? "pending"}>
+    <p>{data.status === "skipped" ? "Сводка пропущена" : data.status === "failed" ? "Сводка не создана: обработка остановлена после ошибки" : "Сводка ещё не создана"}</p>
+    {data.reason && <p>{data.reason}</p>}
+    <p>Текст и реплики доступны отдельно; ход обработки — во вкладке «Ход».</p>
+    <p>Для нового запуска нажмите «Переварить запись» сверху.</p>
+  </div>;
 
   return (
     <>
@@ -76,7 +74,7 @@ export function Article({
             <button className="btn" onClick={confirm}>
               ✓ Всё верно
             </button>
-            <button className="btn" onClick={recook}>
+            <button className="btn" onClick={onRecook}>
               ♻ Переварить
             </button>
           </div>

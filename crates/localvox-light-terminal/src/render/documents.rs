@@ -241,13 +241,23 @@ pub(super) fn project(a: &App, t: Theme, _metadata: bool) -> Projection {
             }
             Tab::Summary => {
                 if a.summary.blocks.is_empty() && a.summary.available == Some(false) {
-                    projection.lines.push(Line::from(Span::styled(
-                        "Сводка ещё не создана",
-                        Style::default().fg(t.dim),
-                    )));
+                    let title = match a.summary.status.as_deref() {
+                        Some("skipped") => "Сводка пропущена",
+                        Some("failed") => "Сводка не создана: обработка остановлена после ошибки",
+                        _ => "Сводка ещё не создана",
+                    };
+                    projection
+                        .lines
+                        .push(Line::from(Span::styled(title, Style::default().fg(t.dim))));
+                    if let Some(reason) = &a.summary.reason {
+                        projection.lines.push(Line::from(label(reason)));
+                    }
                     projection.lines.push(Line::from(
                         "Текст и реплики доступны отдельно · 5 Ход обработки",
                     ));
+                    projection
+                        .lines
+                        .push(Line::from("r — переварить запись с аудио · s подтвердить"));
                 }
                 for (index, value) in a.summary.blocks.iter().enumerate() {
                     let text = if value.kind == "heading" {

@@ -26,7 +26,12 @@ fn cancel_shortcut_uses_queue_selection_once_and_never_stops_recording() {
     app.effects.clear();
     app.queue[0].state = "cancelled".into();
     app.key(KeyEvent::new(KeyCode::Char('R'), KeyModifiers::NONE));
-    assert!(matches!(&app.effects[0].1,Task::Retry(session) if session=="queued"));
+    assert!(app.effects.is_empty());
+    assert!(
+        matches!(&app.form.as_ref().unwrap().kind, FormKind::Confirm(Task::Recook(session, Scope::All)) if session=="queued")
+    );
+    app.key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
+    assert!(matches!(&app.effects[0].1,Task::Recook(session, Scope::All) if session=="queued"));
 }
 
 fn choose_palette(app: &mut App, label: &str) {
@@ -45,13 +50,10 @@ fn choose_palette(app: &mut App, label: &str) {
 
 #[test]
 fn palette_repeat_and_delete_require_confirmation_for_the_original_session() {
-    for (label, scope) in [
-        ("Повторить сводку", Scope::Summary),
-        ("Повторить текст", Scope::Text),
-        ("Повторить всё", Scope::All),
-    ] {
+    for (label, scope) in [("Переварить запись · r", Scope::All)] {
         let mut app = App::default();
         app.current = Some("original".into());
+        app.focus = 2;
         choose_palette(&mut app, label);
         assert!(app.effects.is_empty());
         assert!(matches!(&app.form.as_ref().unwrap().kind,
@@ -1617,46 +1619,31 @@ fn queue_read_errors_retain_snapshots_and_clear_only_on_their_own_recovery() {
 }
 
 #[test]
-fn retry_failed_uses_the_selected_queue_session_and_pending_actions_prevent_double_submit() {
+fn recook_r_uses_the_selected_queue_record_and_waits_for_confirmation_and_ack() {
     let mut app = App::default();
-    app.current = Some("old-open-session".into());
     app.view = View::Queue;
     app.focus = 1;
-    app.queue = vec![
-        QueueItem {
-            session: "running".into(),
-            state: "running".into(),
-            ..Default::default()
-        },
-        QueueItem {
-            session: "failed".into(),
-            state: "failed".into(),
-            ..Default::default()
-        },
-    ];
-    app.selected = 0;
-    app.key(KeyEvent::new(KeyCode::Char('R'), KeyModifiers::SHIFT));
+    app.current = Some("open-neighbour".into());
+    app.queue = vec![QueueItem {
+        session: "selected".into(),
+        state: "failed".into(),
+        ..Default::default()
+    }];
+    app.key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE));
     assert!(app.effects.is_empty());
-    app.selected = 1;
+    app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    assert!(app.effects.is_empty() && app.form.is_none());
+    choose_palette(&mut app, "Переварить запись · r");
     for _ in 0..2 {
-        app.key(KeyEvent::new(KeyCode::Char('R'), KeyModifiers::SHIFT));
+        app.key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
     }
     assert_eq!(app.effects.len(), 1);
-    assert!(matches!(&app.effects[0].1, Task::Retry(session) if session == "failed"));
-    app.effects.clear();
-    app.apply(Response {
-        id: 1,
-        epoch: app.epoch,
-        resource: Resource::Action,
-        result: Err("API retry unavailable".into()),
-    });
-    assert!(!app
-        .effects
-        .iter()
-        .any(|(_, task)| matches!(task, Task::Retry(..) | Task::Recook(..))));
-    app.effects.clear();
-    choose_palette(&mut app, "Повторить или продолжить этап");
-    assert!(matches!(&app.effects[0].1, Task::Retry(session) if session == "failed"));
+    assert!(matches!(&app.effects[0].1, Task::Recook(s, Scope::All) if s == "selected"));
+    assert_eq!(app.current.as_deref(), Some("open-neighbour"));
+    assert!(app.pending_document.is_none());
+    app.key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE));
+    assert!(app.form.is_none());
+    assert_eq!(app.effects.len(), 1);
 }
 
 #[test]

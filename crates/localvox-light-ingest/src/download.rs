@@ -14,86 +14,134 @@ pub fn pcm_s16le_to_f32(pcm: &[u8]) -> Vec<f32> {
         .collect()
 }
 
+/// All partial downloads and conversions belong to this object, including on error paths.
+pub struct DownloadedAudio {
+    _directory: tempfile::TempDir,
+    path: PathBuf,
+}
+impl std::ops::Deref for DownloadedAudio {
+    type Target = Path;
+    fn deref(&self) -> &Path {
+        &self.path
+    }
+}
+impl AsRef<Path> for DownloadedAudio {
+    fn as_ref(&self) -> &Path {
+        &self.path
+    }
+}
+
+/// The queue owns retries. These apply to each tool invocation, including metadata requests.
+pub const NETWORK_ARGS: &[&str] = &[
+    "--socket-timeout",
+    "10",
+    "--retries",
+    "0",
+    "--fragment-retries",
+    "0",
+    "--extractor-retries",
+    "0",
+    "--abort-on-unavailable-fragments",
+    "--no-playlist",
+];
+
 pub fn download_audio(
     yt_dlp: &str,
     url: &str,
     ffmpeg_location: Option<&str>,
     js_runtime: Option<&str>,
     verbose: bool,
-) -> Result<PathBuf> {
-    let base = std::env::temp_dir().join(format!(
-        "localvox_yt_{}_{}",
-        std::process::id(),
-        fast_simple_hash(url)
-    ));
-    let out_template = base.with_extension("%(ext)s");
-    let mut args = vec![
-        // Same reason as in `source_title`: on Windows yt-dlp writes a redirected stream in the
-        // ANSI code page, so without this its error text reaches our log as mojibake — and an
-        // unreadable error is barely better than the discarded one it replaced.
-        "--encoding",
-        "utf-8",
-        "-x",
-        "-f",
-        "bestaudio",
-        "-o",
-        out_template.to_str().unwrap(),
-    ];
-    if let Some(loc) = ffmpeg_location {
-        args.push("--ffmpeg-location");
-        args.push(loc);
+) -> Result<DownloadedAudio> {
+    download_with_command(
+        Command::new(yt_dlp),
+        url,
+        ffmpeg_location,
+        js_runtime,
+        verbose,
+        tempfile::Builder::new()
+            .prefix("localvox-download-")
+            .tempdir()?,
+        std::time::Duration::from_secs(1800),
+    )
+}
+
+fn download_with_command(
+    mut command: Command,
+    url: &str,
+    ffmpeg_location: Option<&str>,
+    js_runtime: Option<&str>,
+    verbose: bool,
+    directory: tempfile::TempDir,
+    timeout: std::time::Duration,
+) -> Result<DownloadedAudio> {
+    use localvox_light_process::{Limits, Scope};
+    let output = directory.path().join("audio.%(ext)s");
+    let manifest = directory.path().join("downloaded-path.txt");
+    command
+        .args(NETWORK_ARGS)
+        .args([
+            "--encoding",
+            "utf-8",
+            "-x",
+            "-f",
+            "bestaudio",
+            "--no-simulate",
+        ])
+        .arg("-o")
+        .arg(output)
+        .args(["--print-to-file", "after_move:filepath"])
+        .arg(&manifest);
+    if let Some(location) = ffmpeg_location {
+        command.arg("--ffmpeg-location").arg(location);
     }
-    if let Some(rt) = js_runtime {
-        args.push("--js-runtime");
-        args.push(rt);
+    if let Some(runtime) = js_runtime {
+        command.arg("--js-runtime").arg(runtime);
     }
-    args.push(url);
-    let mut cmd = Command::new(yt_dlp);
-    cmd.args(&args);
-    // STDERR IS CAPTURED, NOT DISCARDED.
-    //
-    // It used to be thrown away, and the failure surfaced as «yt-dlp exited with an error (without
-    // --verbose its stderr is hidden)» — a message that tells the operator to go and reproduce by
-    // hand what the daemon had already been told. Measured 18.07.2026: an ingest failed three
-    // times with that text, and the real reason was sitting in the discarded stderr —
-    // «Requested format is not available», YouTube's SABR experiment against a four-month-old
-    // yt-dlp. Diagnosing it took a manual re-run of the exact command.
-    //
-    // An error is a value with context. The child's own words ARE the context, and the only
-    // moment they exist is right here.
-    let out = if verbose {
-        cmd.status().map(|s| (s, String::new()))
-    } else {
-        cmd.stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::piped())
-            .output()
-            .map(|o| (o.status, String::from_utf8_lossy(&o.stderr).into_owned()))
-    };
-    let (status, stderr) =
-        out.context("yt-dlp (install it: https://github.com/yt-dlp/yt-dlp)")?;
-    if !status.success() {
-        // The tail, not the whole log: yt-dlp narrates every step, and the reason is what it says
-        // last. The whole thing would bury the answer in the progress it printed getting there.
-        let why: Vec<&str> = stderr
+    command.arg("--").arg(url);
+    let mut limits = Limits::new(timeout);
+    if std::env::var(localvox_light_process::CONTAINED_ENV).as_deref() == Ok("1") {
+        limits.scope = Scope::Inherit;
+    }
+    let result = localvox_light_process::run(command, None, limits, || false, |_, _| {})
+        .context("yt-dlp: не удалось запустить загрузку")?;
+    let stderr = String::from_utf8_lossy(&result.stderr);
+    if verbose {
+        eprint!("{stderr}");
+    }
+    if !result.termination.success() {
+        let why = stderr
             .lines()
             .map(str::trim)
             .filter(|l| !l.is_empty())
             .rev()
             .take(3)
-            .collect();
-        let why = why.into_iter().rev().collect::<Vec<_>>().join(" / ");
-        if why.is_empty() {
-            anyhow::bail!("yt-dlp завершился с ошибкой и ничего не сказал");
-        }
-        anyhow::bail!("yt-dlp: {why}");
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect::<Vec<_>>()
+            .join(" / ");
+        anyhow::bail!(
+            "yt-dlp: {:?}{}{}",
+            result.termination,
+            if why.is_empty() { "" } else { ": " },
+            why
+        );
     }
-    for ext in ["webm", "m4a", "opus", "ogg", "mp3"] {
-        let p = base.with_extension(ext);
-        if p.exists() {
-            return Ok(p);
-        }
-    }
-    anyhow::bail!("yt-dlp did not create the expected file next to {:?}", base)
+    let path = PathBuf::from(
+        std::fs::read_to_string(&manifest)
+            .context("yt-dlp не подтвердил путь скачанного аудио")?
+            .trim(),
+    );
+    let path = path.canonicalize().context("yt-dlp не создал аудиофайл")?;
+    let root = directory.path().canonicalize()?;
+    anyhow::ensure!(
+        path.parent() == Some(root.as_path()) && path.is_file() && path.metadata()?.len() > 0,
+        "yt-dlp вернул недопустимый путь аудио"
+    );
+    Ok(DownloadedAudio {
+        _directory: directory,
+        path,
+    })
 }
 
 pub fn convert_to_pcm_s16le(ffmpeg: &str, input: &Path, verbose: bool) -> Result<Vec<u8>> {
@@ -126,9 +174,114 @@ pub fn convert_to_pcm_s16le(ffmpeg: &str, input: &Path, verbose: bool) -> Result
     Ok(pcm)
 }
 
-fn fast_simple_hash(s: &str) -> u64 {
-    use std::hash::{Hash, Hasher};
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    s.hash(&mut h);
-    h.finish()
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    #[ignore = "private yt-dlp executable fixture, invoked by download ownership tests"]
+    fn downloader_fixture() {
+        let args: Vec<String> = std::env::args().collect();
+        for (name, value) in [
+            ("--socket-timeout", "10"),
+            ("--retries", "0"),
+            ("--fragment-retries", "0"),
+            ("--extractor-retries", "0"),
+        ] {
+            let at = args.iter().position(|a| a == name).unwrap();
+            assert_eq!(args[at + 1], value);
+        }
+        assert!(args.iter().any(|a| a == "--abort-on-unavailable-fragments"));
+        let output = PathBuf::from(&args[args.iter().position(|a| a == "-o").unwrap() + 1]);
+        let manifest =
+            PathBuf::from(&args[args.iter().position(|a| a == "--print-to-file").unwrap() + 2]);
+        std::fs::write(output.with_extension("flac.part"), b"partial").unwrap();
+        match std::env::var("LOCALVOX_DOWNLOAD_FIXTURE").unwrap().as_str() {
+            "failed" => {
+                eprintln!("DOWNLOAD FIXTURE UNAVAILABLE");
+                std::process::exit(42);
+            }
+            "timeout" => {
+                std::thread::sleep(Duration::from_secs(10));
+            }
+            _ => {}
+        }
+        let path = output.with_extension("flac");
+        std::fs::write(&path, b"complete fake audio").unwrap();
+        std::fs::write(manifest, path.to_str().unwrap()).unwrap();
+    }
+
+    fn command(mode: &str) -> Command {
+        let mut command = Command::new(std::env::current_exe().unwrap());
+        command.args([
+            "--ignored",
+            "--exact",
+            "download::tests::downloader_fixture",
+            "--nocapture",
+            "--",
+        ]);
+        command.env("LOCALVOX_DOWNLOAD_FIXTURE", mode);
+        command
+    }
+
+    #[test]
+    fn downloaded_audio_owns_the_complete_workspace_until_the_decoder_finishes() {
+        let parent = tempfile::tempdir().unwrap();
+        let directory = tempfile::tempdir_in(parent.path()).unwrap();
+        let owned = directory.path().to_path_buf();
+        let audio = download_with_command(
+            command("success"),
+            "https://example.invalid/audio",
+            None,
+            None,
+            false,
+            directory,
+            Duration::from_secs(3),
+        )
+        .unwrap();
+        assert_eq!(audio.extension().unwrap(), "flac");
+        assert!(audio.exists() && owned.exists());
+        drop(audio);
+        assert!(!owned.exists());
+    }
+
+    #[test]
+    fn failed_or_timed_out_download_preserves_the_reason_and_removes_partials() {
+        for mode in ["failed", "timeout"] {
+            let parent = tempfile::tempdir().unwrap();
+            let directory = tempfile::tempdir_in(parent.path()).unwrap();
+            let owned = directory.path().to_path_buf();
+            let start = Instant::now();
+            let error = download_with_command(
+                command(mode),
+                "https://example.invalid/audio",
+                None,
+                None,
+                false,
+                directory,
+                if mode == "timeout" {
+                    Duration::from_millis(150)
+                } else {
+                    Duration::from_secs(3)
+                },
+            )
+            .err()
+            .expect("the failed download must not produce audio");
+            let why = format!("{error:#}");
+            assert!(
+                why.contains(if mode == "timeout" {
+                    "TimedOut"
+                } else {
+                    "DOWNLOAD FIXTURE UNAVAILABLE"
+                }),
+                "{why}"
+            );
+            assert!(start.elapsed() < Duration::from_secs(5));
+            assert!(
+                !owned.exists(),
+                "a failed download left its partial workspace"
+            );
+        }
+    }
 }

@@ -128,7 +128,8 @@ test("missing summary is a neutral document instead of a service error", async (
   await expect(page.locator(".book")).toContainText(fixture.readable.lines[0].text);
 });
 
-test("queue cancellation waits for acknowledgement and resumes without a full recook", async ({ page }) => {
+test("queue cancellation waits for acknowledgement and full recook requires explicit confirmation", async ({ page }) => {
+  page.on("dialog", dialog => dialog.accept());
   await workspace(page);
   let state = "running"; const posts: string[] = [];
   let release!: () => void; const gate = new Promise<void>(resolve => { release = resolve; });
@@ -152,7 +153,7 @@ test("queue cancellation waits for acknowledgement and resumes without a full re
     await page.clock.runFor(3100);
     await expect(page.locator(".qrow")).toHaveClass(/cancelling/);
     await expect(page.locator(".bar > .queue")).toContainText("Останавливается");
-    await expect(page.getByRole("button", { name: "Продолжить обработку", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "♻ Переварить запись", exact: true })).toHaveCount(0);
     expect(posts).toEqual(["/api/sessions/20261031_demo/cancel"]);
   } finally { release(); }
   await expect(page.locator(".qrow")).toHaveClass(/cancelled/);
@@ -160,13 +161,14 @@ test("queue cancellation waits for acknowledgement and resumes without a full re
   await page.setViewportSize({ width: 480, height: 850 }); await page.mouse.move(0, 0);
   await expect(page.locator(".pane")).toHaveScreenshot("queue-cancelled-dark-480.png");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);
-  await page.getByRole("button", { name: "Продолжить обработку", exact: true }).click();
+  await page.getByRole("button", { name: "♻ Переварить запись", exact: true }).click();
   await expect(page.locator(".qrow")).toHaveClass(/pending/);
-  expect(posts).toEqual(["/api/sessions/20261031_demo/cancel", "/api/sessions/20261031_demo/retry"]);
+  expect(posts).toEqual(["/api/sessions/20261031_demo/cancel", "/api/sessions/20261031_demo/recook"]);
 });
 
 for (const status of [409, 503]) {
   test(`queue cancellation ${status} keeps the source and permits an explicit retry`, async ({ page }) => {
+  page.on("dialog", dialog => dialog.accept());
     await workspace(page); const posts: string[] = [];
     await page.route("**/cancel", route => {
       posts.push(new URL(route.request().url()).pathname);
@@ -181,6 +183,7 @@ for (const status of [409, 503]) {
 }
 
 test("queue cancellation timeout preserves its stopping state instead of declaring completion", async ({ page }) => {
+  page.on("dialog", dialog => dialog.accept());
   await workspace(page); let stopping = false;
   await page.route("**/api/queue", route => route.fulfill({ json: { queue: [{ ...fixture.queue[0], state: stopping ? "cancelling" : "running" }] } }));
   await page.route("**/cancel", route => { stopping = true; return route.fulfill({ status: 409, json: { error: "stop acknowledgement is pending" } }); });
@@ -188,11 +191,12 @@ test("queue cancellation timeout preserves its stopping state instead of declari
   await page.getByRole("button", { name: "Отменить обработку", exact: true }).click();
   await expect(page.getByText("stop acknowledgement is pending", { exact: true })).toBeVisible();
   await expect(page.locator(".qrow")).toHaveClass(/cancelling/);
-  await expect(page.getByRole("button", { name: "Продолжить обработку", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "♻ Переварить запись", exact: true })).toHaveCount(0);
   await page.clock.runFor(5100); await expect(page.locator(".qrow")).toHaveClass(/cancelling/);
 });
 
 test("document cancellation preserves readable text and shows the unfinished summary as cancelled", async ({ page }) => {
+  page.on("dialog", dialog => dialog.accept());
   await workspace(page); let state = "running"; const posts: string[] = [];
   await page.route(/\/api\/sessions(\?.*)?$/, route => route.fulfill({ json: fixture.sessions.map((session: object) => ({ ...session, job: state })) }));
   await page.route("**/progress", route => route.fulfill({ json: {
@@ -209,15 +213,15 @@ test("document cancellation preserves readable text and shows the unfinished sum
   const text = fixture.transcript.lines.map((line: { text: string }) => line.text).join(" ");
   await expect(page.locator("[data-plain-text]")).toHaveText(text);
   await page.getByRole("button", { name: "Отменить обработку", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Продолжить обработку", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "♻ Переварить запись", exact: true })).toBeVisible();
   await expect(page.locator("[data-plain-text]")).toHaveText(text);
   await page.getByRole("button", { name: "Ход", exact: true }).click();
   await expect(page.locator(".step.cancelled")).toContainText("Сводка");
   await expect(page.locator(".step.cancelled .st")).toHaveClass(/mute/);
   await expect(page.locator(".step.done").filter({ hasText: "Распознавание" })).toBeVisible();
-  await page.getByRole("button", { name: "Продолжить обработку", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Продолжить обработку", exact: true })).toHaveCount(0);
-  expect(posts).toEqual(["/api/sessions/20261031_demo/cancel", "/api/sessions/20261031_demo/retry"]);
+  await page.getByRole("button", { name: "♻ Переварить запись", exact: true }).click();
+  await expect(page.getByRole("button", { name: "♻ Переварить запись", exact: true })).toBeVisible();
+  expect(posts).toEqual(["/api/sessions/20261031_demo/cancel", "/api/sessions/20261031_demo/recook"]);
 });
 
 async function workspace(page: Page, options: { journalError?: boolean; record?: boolean; jobsError?: boolean; partial?: boolean; time?: Date } = {}) {
@@ -876,7 +880,7 @@ test("browser access remains editable after 401 and uses a masked local token", 
   expect(latest).toBe("");
 });
 
-test("document actions use real version IDs, explicit language and all three retry scopes", async ({ page }) => {
+test("document actions use real version IDs, explicit language and one full recook on every tab", async ({ page }) => {
   await workspace(page);
   const mutations: { path: string; body: unknown }[] = [];
   await page.route("**/api/**", (route) => {
@@ -897,7 +901,7 @@ test("document actions use real version IDs, explicit language and all three ret
   await page.getByLabel("Язык:", { exact: true }).selectOption("en");
   await expect.poll(() => mutations.length).toBe(2);
   expect(mutations[1]).toEqual({ path: "/api/sessions/20261031_demo/lang", body: { lang: "en" } });
-  for (const [tab, scope] of [["Сводка", "summary"], ["Текст", "text"], ["Участники", "all"]]) {
+  for (const [tab, scope] of [["Сводка", "all"], ["Текст", "all"], ["Участники", "all"]]) {
     await page.getByRole("button", { name: tab, exact: true }).click();
     page.once("dialog", (dialog) => dialog.accept());
     await page.locator(".doc-head").getByRole("button", { name: /Переварить/ }).click();
@@ -1424,6 +1428,7 @@ test("an initial queue read failure is visible and never claims all work is done
 });
 
 test("queue retry plan reports phase, blocked backoff, exhaustion and recovery without mutations", async ({ page }) => {
+  page.on("dialog", dialog => dialog.accept());
   await workspace(page);
   let state = "blocked", offline = false, recovered = false;
   const message = () => state === "retry_wait" ? "Ожидается автоматический повтор" : state === "stalled" ? "Координатор не подаёт сигнал" : "Автоматическая обработка выключена · повтор не подтверждён";
@@ -1441,7 +1446,7 @@ test("queue retry plan reports phase, blocked backoff, exhaustion and recovery w
   await expect(row).toContainText("Автоматическая обработка выключена");
   await expect(row).toContainText("Повтор не раньше: 31.10.2026, 11:00:00");
   await expect(page.locator(".qrow").nth(1)).not.toContainText("Повтор не раньше:");
-  await expect(page.locator(".qrow").nth(1).getByRole("button", { name: "♻ Повторить этап", exact: true })).toBeVisible();
+  await expect(page.locator(".qrow").nth(1).getByRole("button", { name: "♻ Переварить запись", exact: true })).toBeVisible();
   await expect(page.locator(".main .pane")).toHaveScreenshot("queue-retry-plan-dark.png");
   state = "retry_wait"; await page.clock.runFor(3100);
   await expect(row.locator("[data-retry-state]")).toHaveAttribute("data-retry-state", "retry_wait");
@@ -1459,6 +1464,7 @@ test("queue retry plan reports phase, blocked backoff, exhaustion and recovery w
 });
 
 test("queue legacy metadata never invents a phase, retry deadline or exhausted budget", async ({ page }) => {
+  page.on("dialog", dialog => dialog.accept());
   await workspace(page);
   let legacy = false;
   await page.route("**/api/queue", route => route.fulfill({ json: { queue: [{ ...fixture.queue[0], state: "failed", attempts: 2, stuck: false, last_error: "old failure", ...(!legacy ? { phase: "summary", retry: { state: "retry_wait", message: "Время отказа неизвестно; повтор возможен", retry_at: null } } : {}) }] } }));
@@ -1466,14 +1472,15 @@ test("queue legacy metadata never invents a phase, retry deadline or exhausted b
   const row = page.locator(".qrow");
   await expect(row).toContainText("Срок повтора неизвестен");
   await expect(row).not.toContainText("Повтор не раньше:");
-  await expect(row.getByRole("button", { name: "♻ Повторить этап", exact: true })).toHaveCount(0);
+  await expect(row.getByRole("button", { name: "♻ Переварить запись", exact: true })).toBeVisible();
   legacy = true; await page.clock.runFor(3100);
   await expect(row).toContainText("этап неизвестен · попыток: 2");
   await expect(row).toContainText("повтор не подтверждён");
   await expect(row).not.toContainText("Повтор не раньше:");
 });
 
-test("queue retry resumes its failed phase without requesting a full recook", async ({ page }) => {
+test("queue explicit full recook starts from audio after a failed phase", async ({ page }) => {
+  page.on("dialog", dialog => dialog.accept());
   await workspace(page);
   const posts: string[] = [];
   let accepted = false;
@@ -1484,20 +1491,21 @@ test("queue retry resumes its failed phase without requesting a full recook", as
     return route.fulfill({ json: { msg: "Этап поставлен в очередь" } });
   });
   await page.locator(".nav").getByRole("button", { name: /Очередь/ }).click();
-  await page.getByRole("button", { name: /♻ Повторить/ }).click();
+  await page.getByRole("button", { name: /♻ Переварить/ }).click();
   await expect.poll(() => posts.length).toBe(1);
-  expect(posts).toEqual(["/api/sessions/20261031_demo/retry"]);
+  expect(posts).toEqual(["/api/sessions/20261031_demo/recook"]);
   await expect(page.locator(".qrow")).toHaveClass(/pending/);
 });
 
 test("queue retry remains a single pending POST until the server acknowledges it", async ({ page }) => {
+  page.on("dialog", dialog => dialog.accept());
   await workspace(page);
   let posts = 0; let accepted = false;
   let release!: () => void; const gate = new Promise<void>(resolve => { release = resolve; });
   await page.route("**/api/queue", route => route.fulfill({ json: { queue: [{ ...fixture.queue[0], state: accepted ? "pending" : "failed", stuck: !accepted }] } }));
-  await page.route("**/retry", async route => { posts++; await gate; accepted = true; await route.fulfill({ json: { msg: "Этап поставлен в очередь" } }); });
+  await page.route(/\/recook\?scope=all$/, async route => { posts++; await gate; accepted = true; await route.fulfill({ json: { msg: "Этап поставлен в очередь" } }); });
   await page.locator(".nav").getByRole("button", { name: /Очередь/ }).click();
-  await page.getByRole("button", { name: "♻ Повторить этап", exact: true }).click();
+  await page.getByRole("button", { name: "♻ Переварить запись", exact: true }).click();
   const pending = page.getByRole("button", { name: "Постановка…", exact: true });
   await expect(pending).toBeDisabled();
   await pending.evaluate((node: HTMLButtonElement) => node.click());
@@ -1510,7 +1518,8 @@ test("queue retry remains a single pending POST until the server acknowledges it
 });
 
 for (const status of [503, 404]) {
-  test(`queue retry ${status} never falls back to full recook or loses the stopped job`, async ({ page }) => {
+  test(`queue retry ${status} does not silently resubmit or lose the stopped job`, async ({ page }) => {
+  page.on("dialog", dialog => dialog.accept());
     await workspace(page);
     const posts: string[] = [];
     await page.route("**/api/queue", route => route.fulfill({ json: { queue: [{ ...fixture.queue[0], state: "failed", stuck: true, last_error: "previous failure" }] } }));
@@ -1519,15 +1528,15 @@ for (const status of [503, 404]) {
       return route.fulfill({ status, json: { error: "retry unavailable" } });
     });
     await page.locator(".nav").getByRole("button", { name: /Очередь/ }).click();
-    const retry = page.getByRole("button", { name: "♻ Повторить этап", exact: true });
+    const retry = page.getByRole("button", { name: "♻ Переварить запись", exact: true });
     await retry.click();
     await expect(page.getByText("retry unavailable", { exact: true })).toBeVisible();
     await expect(retry).toBeEnabled();
     await expect(page.locator(".qrow")).toContainText("previous failure");
     await page.clock.runFor(5100);
-    expect(posts).toEqual(["/api/sessions/20261031_demo/retry"]);
+    expect(posts).toEqual(["/api/sessions/20261031_demo/recook"]);
     await retry.click(); await expect.poll(() => posts.length).toBe(2);
-    expect(posts.every(path => path.endsWith("/retry"))).toBe(true);
+    expect(posts.every(path => path.endsWith("/recook"))).toBe(true);
   });
 }
 
@@ -1634,6 +1643,8 @@ for (const width of [1440, 800, 480]) {
     const stop = page.getByRole("button", { name: "Остановить", exact: true });
     await expect(stop).toBeInViewport();
     await expect(page.locator(".list .item").first()).toBeInViewport();
+    await expect(page.locator(".doc-head").getByRole("button", { name: "♻ Переварить запись", exact: true })).toBeInViewport({ ratio: 1 });
+    expect(await page.locator(".main").evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
     await expect(page.locator(".app")).toHaveScreenshot(`workspace-recording-${width}.png`);
   });
 }
@@ -1731,4 +1742,38 @@ test("growing partial text preserves selection scroll and playing snapshot throu
   await expect(page.locator(".doc")).not.toContainText("Готовая часть");
   await expect(page.locator("[data-plain-text] span")).toHaveCount(120);
   expect(await page.locator("audio").evaluate(el=>el.currentTime)).toBe(50);
+});
+
+
+test("skipped summary explains the missing file and an idle document updates itself after one confirmed full recook", async ({ page }) => {
+  await workspace(page);
+  let ready = false;
+  const posts: string[] = [];
+  await page.route(/\/api\/sessions(\?.*)?$/, route => route.fulfill({ json: fixture.sessions.map((s: object) => ({ ...s, job: "done", recording: false, has_summary: ready })) }));
+  await page.route("**/summary", route => route.fulfill({ json: ready ? fixture.summary : {
+    available: false, status: "skipped", blocks: [], provenance: null,
+    reason: "Модель не создала содержательной сводки по распознанному тексту; сводка пропущена",
+  } }));
+  await page.route(/\/recook\?scope=all$/, route => {
+    posts.push(new URL(route.request().url()).pathname + new URL(route.request().url()).search);
+    ready = true;
+    return route.fulfill({ json: { ok: true, msg: "Запись поставлена на переварку" } });
+  });
+  await page.clock.runFor(3100);
+  await expect(page.getByText("Сводка пропущена", { exact: true })).toBeVisible();
+  await expect(page.locator("[data-summary-status=skipped]")).toContainText("Модель не создала содержательной сводки");
+  await expect(page.getByText("Сводка ещё не создана.", { exact: false })).toHaveCount(0);
+  expect(posts).toEqual([]);
+  await expect(page.locator(".doc")).toHaveScreenshot("summary-skipped-dark.png");
+  page.once("dialog", dialog => dialog.dismiss());
+  await page.keyboard.press("r");
+  expect(posts).toEqual([]);
+  page.once("dialog", dialog => { expect(dialog.message()).toContain("сохранённого аудио"); return dialog.accept(); });
+  // A physical KeyR in a Russian layout is the same command in UI.
+  await page.evaluate(() => window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyR", key: "к", bubbles: true })));
+  await expect.poll(() => posts.length).toBe(1);
+  expect(posts).toEqual(["/api/sessions/20261031_demo/recook?scope=all"]);
+  await page.clock.runFor(3100);
+  await expect(page.getByText("Архитектура и следующие шаги", { exact: true })).toBeVisible();
+  await expect(page.locator("[data-summary-status=skipped]")).toHaveCount(0);
 });

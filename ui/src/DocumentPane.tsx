@@ -64,16 +64,13 @@ export function DocumentPane({ session, tab, setTab, pos, onSeek, onChanged, say
             {controlBusy ? "Остановка…" : "Отменить обработку"}
           </button>}
           {session.job === "cancelling" && <span className="hint">Ожидается остановка…</span>}
-          {session.job === "cancelled" && <button className="tool" disabled={controlBusy} onClick={() => void control("retry")}>
-            {controlBusy ? "Постановка…" : "Продолжить обработку"}
-          </button>}
           <button className="tool" onClick={copy}
             aria-keyshortcuts={tab === "processed" ? "Control+Shift+C Meta+Shift+C" : undefined}
             title={`Скопировать документ (без служебных сносок)${tab === "processed" ? " · Ctrl+Shift+C" : ""}`}>
             ⧉ Копировать
           </button>
           <button className="tool" disabled={session.recording || controlBusy || session.job === "cancelling"} onClick={recook} title={`Переварить ${scopeWord}`}>
-            ♻ Переварить
+            ♻ Переварить запись
           </button>
         </div>
       </div>
@@ -93,10 +90,10 @@ export function DocumentPane({ session, tab, setTab, pos, onSeek, onChanged, say
           </>
         )}
         {tab === "summary" && (
-          <Article session={session} onSeek={onSeek} onChanged={onChanged} say={say} refresh={tick} />
+          <Article session={session} onSeek={onSeek} onChanged={onChanged} onRecook={recook} say={say} refresh={tick} />
         )}
         {tab === "processed" && (
-          <Readable session={session} onChanged={onChanged} say={say} refresh={tick} />
+          <Readable session={session} onRecook={recook} refresh={tick} />
         )}
         {tab === "speakers" && <Speakers session={session} say={say} refresh={tick} />}
         {tab === "progress" && <ProgressChain session={session} />}

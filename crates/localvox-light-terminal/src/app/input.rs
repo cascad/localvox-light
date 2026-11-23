@@ -315,6 +315,19 @@ impl App {
             }
             match key.code {
                 KeyCode::Esc => self.palette = false,
+                KeyCode::Home => self.palette_index = 0,
+                KeyCode::End => self.palette_index = COMMANDS.len() - 1,
+                KeyCode::PageDown => {
+                    self.palette_index = self
+                        .palette_index
+                        .saturating_add(self.palette_window(self.viewport.1).0)
+                        .min(COMMANDS.len() - 1)
+                }
+                KeyCode::PageUp => {
+                    self.palette_index = self
+                        .palette_index
+                        .saturating_sub(self.palette_window(self.viewport.1).0)
+                }
                 KeyCode::Down | KeyCode::Char('j') => {
                     self.palette_index = (self.palette_index + 1) % COMMANDS.len()
                 }
@@ -425,8 +438,13 @@ impl App {
                     (self.focus + 2) % 3
                 }
             }
-            KeyCode::Char('r') => self.refresh(),
-            KeyCode::Char('R') => self.command(Action::RetryFailed),
+            KeyCode::Char('r' | 'R')
+                if !key
+                    .modifiers
+                    .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+            {
+                self.command(Action::RecookAll)
+            }
             KeyCode::Char('X') => self.command(Action::CancelProcessing),
             KeyCode::Char(' ') => self.command(Action::TogglePlayback),
             KeyCode::Char('p') => self.command(Action::PlayFragment),

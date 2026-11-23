@@ -143,7 +143,7 @@ impl JobQueue {
                 intent.requested = input.clone();
             }
         }
-        if job.state != JobState::Running {
+        if !matches!(job.state, JobState::Running | JobState::Failed) {
             if intent.finalization_requested {
                 promote(job)
             } else if job.state != JobState::Failed {
@@ -227,6 +227,62 @@ fn promote(job: &mut Job) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn failed_early_processing_stays_stopped_when_more_audio_arrives_or_recording_ends() {
+        let (root, mut queue) = queue();
+        queue
+            .offer_prefix(&observation(1, 1), (true, false, false))
+            .unwrap();
+        for expected in 1..=MAX_PHASE_ATTEMPTS {
+            let job = queue.start_phase(0, &[JobPhase::Transcribe]).unwrap();
+            assert_eq!(job.attempts, expected);
+            queue
+                .try_mark_failed(
+                    job.id,
+                    "ASR model directory was not found",
+                    MAX_PHASE_ATTEMPTS,
+                )
+                .unwrap();
+        }
+        queue = JobQueue::load(root.path());
+        queue
+            .offer_prefix(&observation(2, 2), (true, false, false))
+            .unwrap();
+        let mut stopped = observation(3, 3);
+        stopped.ended = true;
+        queue.offer_prefix(&stopped, (true, false, false)).unwrap();
+        let job = &queue.jobs()[0];
+        assert_eq!(
+            (job.state, job.attempts),
+            (JobState::Failed, MAX_PHASE_ATTEMPTS)
+        );
+        assert!(job.prefix.as_ref().unwrap().finalization_requested);
+        assert_eq!(job.prefix.as_ref().unwrap().requested.revision, 3);
+        assert!(queue.start_phase(0, &[JobPhase::Transcribe]).is_none());
+        assert!(queue.retry_failed("recorded"));
+        queue.offer_prefix(&stopped, (true, false, false)).unwrap();
+        assert_eq!(
+            (queue.jobs()[0].kind, queue.jobs()[0].phase),
+            (JobKind::Cook, JobPhase::Prepare)
+        );
+        assert_eq!(queue.jobs()[0].attempts, 0);
+    }
+    #[test]
+    fn explicit_full_recook_retires_a_failed_early_intent_and_starts_from_audio() {
+        let (_root, mut queue) = queue();
+        queue
+            .offer_prefix(&observation(1, 1), (true, false, false))
+            .unwrap();
+        queue.start_phase(0, &[JobPhase::Transcribe]).unwrap();
+        queue.mark_failed(0, "model missing", 1);
+        assert!(queue.enqueue_recook("recorded", true, false, false));
+        let job = &queue.jobs()[0];
+        assert_eq!(
+            (job.kind, job.phase, job.state, job.attempts),
+            (JobKind::Cook, JobPhase::Prepare, JobState::Pending, 0)
+        );
+        assert!(job.force && job.prefix.is_none());
+    }
     fn observation(revision: u64, work: u8) -> Observation {
         Observation {
             session: "recorded".into(),

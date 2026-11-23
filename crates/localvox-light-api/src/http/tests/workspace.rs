@@ -197,6 +197,120 @@ fn missing_summary_is_an_empty_document_but_missing_sessions_and_read_failures_s
     assert!(!summary.blocks.is_empty());
 }
 
+#[test]
+fn skipped_summary_keeps_the_short_transcript_and_explains_why_there_is_no_file() {
+    use localvox_light_core::processing::{self, Outcome};
+    let root = tempfile::tempdir().unwrap();
+    let transcripts = session(root.path(), "short");
+    let dir = root.path().join("sessions/short");
+    fs::remove_file(dir.join("summary.md")).unwrap();
+    let original = fs::read(&transcripts[1]).unwrap();
+    let legacy = "the answer says nothing about this recording — there was nothing to analyse";
+    processing::record(
+        &dir,
+        "summary",
+        "fixture",
+        Outcome::Nothing,
+        Some(legacy.into()),
+        Some(2),
+    )
+    .unwrap();
+    let server = journal_http_fixture(root.path(), Some("synthetic-token"));
+    let client = Client::new(&server.address, "synthetic-token".into()).unwrap();
+    for _ in 0..3 {
+        let document = client.summary("short").unwrap();
+        assert_eq!(document.available, Some(false));
+        assert_eq!(document.status.as_deref(), Some("skipped"));
+        assert_eq!(
+            document.reason.as_deref(),
+            Some(processing::SUMMARY_NO_CONTENT)
+        );
+        assert!(document.blocks.is_empty());
+        assert_eq!(fs::read(&transcripts[1]).unwrap(), original);
+        assert!(!dir.join("summary.md").exists());
+    }
+    assert!(
+        jobs::JobQueue::load(root.path()).jobs().is_empty(),
+        "reading must not schedule a recook"
+    );
+    processing::record(
+        &dir,
+        "summary",
+        "fixture",
+        Outcome::Nothing,
+        Some(processing::SUMMARY_NO_SPEECH.into()),
+        Some(2),
+    )
+    .unwrap();
+    assert_eq!(
+        client.summary("short").unwrap().reason.as_deref(),
+        Some(processing::SUMMARY_NO_SPEECH)
+    );
+}
+
+#[test]
+fn a_stopped_job_survives_client_restart_and_full_recook_keeps_its_audio() {
+    use localvox_light_core::chunks::{ChunkParams, ChunkRecorder, SessionMeta};
+    use std::sync::{Arc, Mutex};
+    let root = tempfile::tempdir().unwrap();
+    let transcripts = session(root.path(), "stopped");
+    let dir = root.path().join("sessions/stopped");
+    let audio = dir.join("audio");
+    fs::create_dir_all(&audio).unwrap();
+    let meta: SessionMeta =
+        serde_json::from_slice(&fs::read(dir.join("meta.json")).unwrap()).unwrap();
+    let mut recorder = ChunkRecorder::new(
+        0,
+        Arc::new(ChunkParams {
+            audio_dir: audio.clone(),
+            meta_path: dir.join("meta.json"),
+            chunk_sec: 30.0,
+            flac: false,
+            ffmpeg: "unused".into(),
+        }),
+        Arc::new(Mutex::new(meta)),
+    );
+    recorder.feed(&vec![100; 16_000]);
+    recorder.finalize_current();
+    drop(recorder);
+    let wav = fs::read_dir(&audio)
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let original_audio = fs::read(&wav).unwrap();
+    jobs::JobQueue::mutate(root.path(), |queue| {
+        queue.requeue_derivatives("stopped", true, false, false);
+        for _ in 0..jobs::MAX_PHASE_ATTEMPTS {
+            let job = queue.start_phase(0, &[jobs::JobPhase::Summary]).unwrap();
+            queue.mark_failed(job.id, "provider unavailable", jobs::MAX_PHASE_ATTEMPTS);
+        }
+    });
+    let original_queue = fs::read(root.path().join("jobs.json")).unwrap();
+    let server = journal_http_fixture(root.path(), Some("synthetic-token"));
+    for _ in 0..3 {
+        let client = Client::new(&server.address, "synthetic-token".into()).unwrap();
+        assert_eq!(client.queue().unwrap()[0].state, "failed");
+        assert_eq!(
+            fs::read(root.path().join("jobs.json")).unwrap(),
+            original_queue
+        );
+    }
+    let client = Client::new(&server.address, "synthetic-token".into()).unwrap();
+    client.recook("stopped", Scope::All).unwrap();
+    let queue = jobs::JobQueue::load(root.path());
+    assert_eq!(queue.jobs().len(), 1);
+    let job = &queue.jobs()[0];
+    assert_eq!(
+        (job.state, job.phase, job.attempts),
+        (jobs::JobState::Pending, jobs::JobPhase::Prepare, 0)
+    );
+    assert!(job.force);
+    assert_eq!(fs::read(&wav).unwrap(), original_audio);
+    assert!(transcripts.iter().all(|path| path.is_file()));
+}
+
 pub(super) fn session(root: &Path, name: &str) -> Vec<std::path::PathBuf> {
     let dir = root.join("sessions").join(name);
     fs::create_dir_all(&dir).unwrap();
@@ -546,7 +660,7 @@ fn retry_rejects_busy_recording_invalid_queue_and_other_states_before_changing_p
 }
 
 #[test]
-fn queue_and_progress_share_retry_deadlines_and_never_reset_persisted_attempts() {
+fn queue_and_progress_keep_failed_jobs_manual_across_legacy_metadata_and_reloads() {
     let root = tempfile::tempdir().unwrap();
     session(root.path(), "waiting");
     jobs::JobQueue::mutate(root.path(), |queue| {
@@ -556,10 +670,9 @@ fn queue_and_progress_share_retry_deadlines_and_never_reset_persisted_attempts()
     });
     let path = root.path().join("jobs.json");
     let mut saved: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-    let failed_at = saved["jobs"][0]["failed_at"].as_u64().unwrap();
     let server = journal_http_fixture(root.path(), Some("synthetic-token"));
     let client = Client::new(&server.address, "synthetic-token".into()).unwrap();
-    for round in 0..=jobs::MAX_REVIVALS {
+    for round in [0, 1, 3, u32::MAX] {
         saved["jobs"][0]["revivals"] = json!(round);
         let bytes = serde_json::to_vec(&saved).unwrap();
         fs::write(&path, &bytes).unwrap();
@@ -573,16 +686,9 @@ fn queue_and_progress_share_retry_deadlines_and_never_reset_persisted_attempts()
             (&plan.state, &plan.retry_at)
         );
         assert!(execution.message.starts_with(&plan.message));
-        if round < jobs::MAX_REVIVALS {
-            let at = chrono::DateTime::parse_from_rfc3339(plan.retry_at.as_deref().unwrap())
-                .unwrap()
-                .timestamp() as u64;
-            assert_eq!(at - failed_at, 3600 * (1 << round));
-            assert!(!queue[0].stuck);
-        } else {
-            assert_eq!(plan.state, "failed");
-            assert!(plan.retry_at.is_none() && queue[0].stuck);
-        }
+        assert_eq!(plan.state, "failed");
+        assert!(plan.retry_at.is_none() && queue[0].stuck);
+        assert!(plan.message.contains("вручную"));
         assert_eq!(fs::read(&path).unwrap(), bytes);
         assert_eq!(jobs::JobQueue::load(root.path()).jobs()[0].revivals, round);
     }
@@ -595,8 +701,8 @@ fn queue_and_progress_share_retry_deadlines_and_never_reset_persisted_attempts()
     fs::write(&path, &bytes).unwrap();
     let queue = client.queue().unwrap();
     let plan = queue[0].retry.as_ref().unwrap();
-    assert_ne!(plan.state, "failed");
-    assert!(plan.retry_at.is_none() && !queue[0].stuck);
+    assert_eq!(plan.state, "failed");
+    assert!(plan.retry_at.is_none() && queue[0].stuck);
     assert_eq!(fs::read(&path).unwrap(), bytes);
 }
 

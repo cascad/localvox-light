@@ -146,13 +146,11 @@ function paragraphs(block: string): string[] {
 
 export function Readable({
   session,
-  onChanged,
-  say,
+  onRecook,
   refresh,
 }: {
   session: Session;
-  onChanged: () => void;
-  say: (m: string) => void;
+  onRecook: () => void | Promise<void>;
   refresh: number;
 }) {
   const { data, err } = useArtifact(
@@ -162,15 +160,6 @@ export function Readable({
     acceptsDocument,
   );
 
-  const recook = async () => {
-    try {
-      const r = await api.recook(session.name, "text");
-      say(r.msg ?? "Поставлено на переварку");
-      onChanged();
-    } catch (e) {
-      say((e as Error).message);
-    }
-  };
 
   if (err && !data) return <p className="err">{err}</p>;
   if (!data) return <p className="hint">загрузка…</p>;
@@ -194,7 +183,7 @@ export function Readable({
             <code>{session.processed_doubts}</code>. Решаете вы: запись можно послушать.
           </div>
           <div className="acts">
-            <button className="btn" onClick={recook}>
+            <button className="btn" onClick={onRecook}>
               ♻ Переварить
             </button>
           </div>

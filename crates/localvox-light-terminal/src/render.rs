@@ -445,7 +445,7 @@ fn document(f: &mut Frame, a: &App, area: Rect, t: Theme, title: &str) {
     }
     let projection = documents::project(a, t, true);
     if projection.lines.is_empty() {
-        f.render_widget(Paragraph::new("Результат пока недоступен.\nДругие вкладки можно читать независимо.\n\n: — действия · r — обновить").style(Style::default().fg(t.dim)).wrap(Wrap{trim:false}),rows[1]);
+        f.render_widget(Paragraph::new("Результат пока недоступен.\nДругие вкладки можно читать независимо.\n\nДанные обновляются автоматически · : действия").style(Style::default().fg(t.dim)).wrap(Wrap{trim:false}),rows[1]);
         return;
     }
     let scroll = documents::scroll(
@@ -1134,11 +1134,11 @@ fn context(f: &mut Frame, a: &App, area: Rect, t: Theme) {
         } else if a.view == View::Notes {
             "Enter открыть заметки\nj/k выбор\nd / Delete удалить\ns подтвердить\nn новая заметка\ny копировать заметку\nEsc назад\n\n~ консоль ошибок\n: все действия"
         } else if a.view == View::Archive && a.tab == Tab::Summary {
-            "y копировать блок сводки\nCtrl+Y вся сводка\n3 весь текст\nI сведения о записи\nEsc назад к списку\n\nSpace play / pause\np слушать источник\ng перейти ко времени\nF6 стрелки плееру\n\n~ консоль ошибок\n: все действия"
+            "y копировать блок сводки\nCtrl+Y вся сводка\n3 весь текст\nI сведения о записи\nr переварить запись\nEsc назад к списку\n\nSpace play / pause\np слушать источник\ng перейти ко времени\nF6 стрелки плееру\n\n~ консоль ошибок\n: все действия"
         } else if a.view == View::Archive && a.tab == Tab::Transcript {
-            "y копировать реплику\nCtrl+Y весь документ\n3 весь текст\nEsc назад к списку\n\nSpace play / pause\np слушать фрагмент\ng перейти ко времени\nF6 стрелки плееру\n\n~ консоль ошибок\n: все действия"
+            "y копировать реплику\nCtrl+Y весь документ\n3 весь текст\nr переварить запись\nEsc назад к списку\n\nSpace play / pause\np слушать фрагмент\ng перейти ко времени\nF6 стрелки плееру\n\n~ консоль ошибок\n: все действия"
         } else {
-            "I сведения о записи\n3 текст · y / Ctrl+Y копия\n5 ход обработки\ni добавить YouTube / URL\n\nSpace play / pause\np слушать фрагмент\ng перейти ко времени\nF6 стрелки плееру\n\n~ консоль ошибок\n: все действия"
+            "I сведения о записи\n3 текст · y / Ctrl+Y копия\n5 ход обработки\ni добавить YouTube / URL\nr переварить запись\n\nSpace play / pause\np слушать фрагмент\ng перейти ко времени\nF6 стрелки плееру\n\n~ консоль ошибок\n: все действия"
         };
         let mut lines = hints
             .lines()

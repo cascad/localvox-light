@@ -109,7 +109,20 @@ impl Archive {
         let text = match fs::read_to_string(dir.join("summary.md")) {
             Ok(text) => text,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                return Ok(json!({"blocks":[],"provenance":null,"available":false}))
+                let progress = self.progress(session)?;
+                let stage = progress
+                    .get("stages")
+                    .and_then(Value::as_array)
+                    .and_then(|stages| stages.iter().find(|s| s["stage"] == "summary"));
+                let status = match stage.and_then(|s| s["state"].as_str()) {
+                    Some("skipped") => "skipped",
+                    Some("failed" | "invalid") => "failed",
+                    _ => "pending",
+                };
+                let reason = stage.and_then(|s| s["note"].as_str());
+                return Ok(
+                    json!({"blocks":[],"provenance":null,"available":false,"status":status,"reason":reason}),
+                );
             }
             Err(error) => return Err(error).context("не удалось прочитать сводку"),
         };

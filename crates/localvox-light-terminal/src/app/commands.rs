@@ -79,9 +79,7 @@ pub const COMMANDS: &[(Action, &str)] = &[
     (Action::ChangeLanguage, "Изменить язык"),
     (Action::RenameParticipant, "Имя участника"),
     (Action::RenameSource, "Имя источника"),
-    (Action::RecookSummary, "Повторить сводку"),
-    (Action::RecookText, "Повторить текст"),
-    (Action::RecookAll, "Повторить всё"),
+    (Action::RecookAll, "Переварить запись · r"),
     (Action::ConfirmDocument, "Подтвердить документ"),
     (Action::DeleteSession, "Удалить запись"),
     (Action::DeleteNote, "Удалить заметку"),
@@ -98,7 +96,6 @@ pub const COMMANDS: &[(Action, &str)] = &[
     (Action::ToggleTheme, "Светлая / тёмная тема"),
     (Action::ToggleAscii, "ASCII / Unicode"),
     (Action::ToggleMonochrome, "Без цвета / цвет"),
-    (Action::Refresh, "Обновить"),
     (Action::Connection, "Подключение и токен"),
     (Action::AddLlmServer, "Добавить LLM-сервер"),
     (Action::SaveSettings, "Сохранить изменённые настройки"),
@@ -107,7 +104,6 @@ pub const COMMANDS: &[(Action, &str)] = &[
     (Action::RestoreDraft, "Восстановить черновик после ошибки"),
     (Action::FilterSettings, "Фильтр настроек"),
     (Action::DiscardSettings, "Отменить черновик настроек"),
-    (Action::RetryFailed, "Повторить или продолжить этап"),
     (Action::CancelProcessing, "Отменить обработку"),
     (Action::DocumentInfo, "Сведения о записи"),
     (Action::ToggleAdvancedSettings, "Основные / все настройки"),
@@ -119,6 +115,23 @@ pub const COMMANDS: &[(Action, &str)] = &[
 ];
 
 impl App {
+    fn record_target(&self) -> Option<(String, String)> {
+        match self.view {
+            View::Archive if self.focus == 1 => self
+                .visible_sessions()
+                .get(self.selected)
+                .map(|s| (s.name.clone(), s.title().to_owned())),
+            View::Archive => self
+                .current
+                .as_ref()
+                .map(|s| (s.clone(), self.current_title())),
+            View::Queue => self
+                .queue
+                .get(self.selected)
+                .map(|j| (j.session.clone(), j.title.clone())),
+            _ => None,
+        }
+    }
     pub fn command(&mut self, action: Action) {
         self.cancel_quit_confirmation();
         self.palette = false;
@@ -355,18 +368,28 @@ impl App {
                 FormKind::Source,
                 &[("ID источника", "0"), ("Имя (пустое — сброс)", "")],
             ),
-            Action::RecookSummary | Action::RecookText | Action::RecookAll if !s.is_empty() => self
-                .confirm(
-                    &format!("Повторить: {}", self.current_title()),
-                    Task::Recook(
-                        s,
-                        match action {
-                            Action::RecookSummary => Scope::Summary,
-                            Action::RecookText => Scope::Text,
-                            _ => Scope::All,
-                        },
-                    ),
-                ),
+            Action::RecookSummary | Action::RecookText | Action::RecookAll => {
+                if self.pending_actions.contains(&Resource::Action) {
+                    self.status = "Дождитесь завершения текущего действия".into();
+                } else if let Some((target, title)) = self.record_target() {
+                    self.confirm(
+                        &format!(
+                            "Переварить запись с аудио: {}",
+                            deletion_preview(&title, 80)
+                        ),
+                        Task::Recook(
+                            target,
+                            match action {
+                                Action::RecookSummary => Scope::Summary,
+                                Action::RecookText => Scope::Text,
+                                _ => Scope::All,
+                            },
+                        ),
+                    );
+                } else {
+                    self.status = "Выберите запись в архиве или очереди для переварки".into();
+                }
+            }
             Action::ConfirmDocument
                 if !s.is_empty()
                     && self.view == View::Archive
@@ -391,18 +414,7 @@ impl App {
                     self.status = "Дождитесь завершения текущего действия".into();
                     return;
                 }
-                let target = if self.focus == 1 {
-                    self.visible_sessions().get(self.selected).map(|session| {
-                        (
-                            session.name.clone(),
-                            session.title.as_deref().unwrap_or(&session.name).to_owned(),
-                        )
-                    })
-                } else {
-                    self.current
-                        .as_ref()
-                        .map(|name| (name.clone(), self.current_title()))
-                };
+                let target = self.record_target();
                 if let Some((target, title)) = target {
                     self.confirm(
                         &format!("Удалить навсегда: {}", deletion_preview(&title, 96)),
@@ -713,9 +725,6 @@ impl App {
             Action::SelectVersion
             | Action::ChangeLanguage
             | Action::RenameSource
-            | Action::RecookSummary
-            | Action::RecookText
-            | Action::RecookAll
             | Action::ConfirmDocument
             | Action::DiscardSettings => self.status = "Сначала выберите запись или элемент".into(),
         }

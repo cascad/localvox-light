@@ -230,6 +230,8 @@ pub struct Summary {
     pub blocks: Vec<SummaryBlock>,
     pub provenance: Option<Provenance>,
     pub available: Option<bool>,
+    pub status: Option<String>,
+    pub reason: Option<String>,
 }
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(default)]

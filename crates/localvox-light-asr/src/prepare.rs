@@ -148,15 +148,17 @@ pub fn ingest_into_session(session: &Path) -> Result<()> {
 fn source_title(yt_dlp: &str, url: &str) -> Option<String> {
     use localvox_light_process::{Limits, Scope};
     let mut command = std::process::Command::new(yt_dlp);
-    command.args([
-        "--encoding",
-        "utf-8",
-        "--skip-download",
-        "--print",
-        "%(title)s",
-        url,
-    ]);
-    let mut limits = Limits::new(std::time::Duration::from_secs(30));
+    command
+        .args(localvox_light_ingest::download::NETWORK_ARGS)
+        .args([
+            "--encoding",
+            "utf-8",
+            "--skip-download",
+            "--print",
+            "%(title)s",
+            url,
+        ]);
+    let mut limits = Limits::new(std::time::Duration::from_secs(10));
     if std::env::var(localvox_light_process::CONTAINED_ENV).as_deref() == Ok("1") {
         limits.scope = Scope::Inherit;
     }

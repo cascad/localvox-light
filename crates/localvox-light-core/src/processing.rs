@@ -25,6 +25,21 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+pub const SUMMARY_NO_SPEECH: &str = "Распознанной речи нет; сводка пропущена";
+pub const SUMMARY_NO_CONTENT: &str =
+    "Модель не создала содержательной сводки по распознанному тексту; сводка пропущена";
+
+/// Presentation compatibility for reasons stored by earlier releases; no files are migrated.
+pub fn empty_result_reason(reason: &str) -> &str {
+    match reason {
+        "there is no recognized speech in the recording" => SUMMARY_NO_SPEECH,
+        "the answer says nothing about this recording — there was nothing to analyse" => {
+            SUMMARY_NO_CONTENT
+        }
+        _ => reason,
+    }
+}
+
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
@@ -294,7 +309,10 @@ pub fn inspect(session_dir: &Path, artifact: &str) -> ArtifactStatus {
             } else {
                 ArtifactState::Ready
             },
-            reason: record.detail.clone(),
+            reason: record
+                .detail
+                .as_deref()
+                .map(|note| empty_result_reason(note).to_owned()),
             receipt: Some(receipt),
             at: Some(record.at.clone()),
             source: record.source,

@@ -4,7 +4,7 @@
 //! everything works synchronously — handy for `--debug`, where the spinner overlaps
 //! the tracing logs.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
@@ -72,7 +72,7 @@ pub fn download_audio_with_progress(
     ffmpeg_location: Option<&str>,
     js_runtime: Option<&str>,
     verbose: bool,
-) -> Result<PathBuf> {
+) -> Result<download::DownloadedAudio> {
     if hide_ui {
         return download::download_audio(yt_dlp, url, ffmpeg_location, js_runtime, verbose);
     }

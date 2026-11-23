@@ -163,35 +163,13 @@ pub struct RetryPlan {
 /// The same read-only explanation is used by the queue and the selected session's workflow.
 pub fn retry_plan(
     job: &Job,
-    coordinator: Option<&crate::jobs::CoordinatorStatus>,
-    now: &str,
+    _coordinator: Option<&crate::jobs::CoordinatorStatus>,
+    _now: &str,
 ) -> Option<RetryPlan> {
-    if job.state != JobState::Failed {
-        return None;
-    }
-    if job.revivals >= crate::jobs::MAX_REVIVALS {
-        return Some(RetryPlan {
-            state: "failed".into(),
-            message: "Попытки автоматического повтора исчерпаны; требуется ручной повтор".into(),
-            retry_at: None,
-        });
-    }
-    let retry_at = crate::jobs::automatic_retry_at(job);
-    let (state, message) = match coordinator {
-        None => ("blocked", "Состояние координатора неизвестно; автоматический повтор не подтверждён".into()),
-        Some(value) if value.state != "ready" => ("blocked", format!("{} · автоматический повтор не подтверждён", value.message)),
-        Some(value) if duration(Some(&value.at), Some(now)).is_none_or(|age| age > 30.0) =>
-            ("stalled", "Координатор не подаёт подтверждённый сигнал; автоматический повтор не подтверждён".into()),
-        Some(_) => ("retry_wait", if retry_at.is_some() {
-            "Обработчик остановлен после ошибки; ожидается автоматический повтор"
-        } else {
-            "Время отказа неизвестно; автоматический повтор возможен при работающем координаторе"
-        }.into()),
-    };
-    Some(RetryPlan {
-        state: state.into(),
-        message,
-        retry_at,
+    (job.state == JobState::Failed).then(|| RetryPlan {
+        state: "failed".into(),
+        message: "Обработка остановлена после ошибки; продолжение — вручную".into(),
+        retry_at: None,
     })
 }
 
@@ -354,7 +332,22 @@ fn execution(
                 .any(|s| matches!(s.state, StageState::Invalid | StageState::Failed))
         {
             value.state = "done".into();
-            value.message = "Все запрошенные результаты готовы; следующих этапов нет".into();
+            if let Some(skipped) = stages.iter().find(|s| {
+                s.stage == Stage::Summary
+                    && s.state == StageState::Skipped
+                    && requested_here(s.stage)
+            }) {
+                value.message = format!(
+                    "Обработка завершена; сводка пропущена · {}",
+                    skipped
+                        .note
+                        .as_deref()
+                        .map(crate::processing::empty_result_reason)
+                        .unwrap_or("этап пропущен")
+                );
+            } else {
+                value.message = "Все запрошенные результаты готовы; следующих этапов нет".into();
+            }
         } else if job.is_some() {
             value.state = "attention".into();
             value.message = "Задание завершалось, но часть результатов не подтверждена".into();
@@ -915,48 +908,48 @@ mod tests {
         }
     }
     #[test]
-    fn retry_plan_has_exact_backoff_unknown_dates_and_a_persistent_budget() {
+    fn failed_retry_plan_is_manual_with_or_without_legacy_timestamps_and_revivals() {
         let root = tempfile::tempdir().unwrap();
         let mut queue = crate::jobs::JobQueue::load(root.path());
         queue.enqueue_cook("retry", true, false, false);
         let mut job = queue.jobs()[0].clone();
         job.state = JobState::Failed;
-        job.phase = JobPhase::Summary;
-        let start = timestamp("2026-10-31T00:00:00Z").unwrap() as u64;
-        job.failed_at = Some(start);
-        let coordinator = crate::jobs::CoordinatorStatus {
-            state: "ready".into(),
-            message: "ready".into(),
-            at: "2026-10-31T00:00:25Z".into(),
-        };
-        for round in 0..crate::jobs::MAX_REVIVALS {
-            job.revivals = round;
-            let before = serde_json::to_value(&job).unwrap();
-            let plan = retry_plan(&job, Some(&coordinator), "2026-10-31T00:00:30Z").unwrap();
-            assert_eq!(plan.state, "retry_wait");
-            assert_eq!(
-                timestamp(plan.retry_at.as_deref().unwrap()).unwrap() as u64 - start,
-                3600 * (1 << round)
-            );
-            let restored: Job = serde_json::from_value(before.clone()).unwrap();
-            assert_eq!(
-                retry_plan(&restored, Some(&coordinator), "2026-10-31T00:00:30Z")
-                    .unwrap()
-                    .retry_at,
-                plan.retry_at
-            );
-            assert_eq!(serde_json::to_value(&job).unwrap(), before);
+        for failed_at in [None, Some(0)] {
+            for revivals in [0, 1, 3, u32::MAX] {
+                job.failed_at = failed_at;
+                job.revivals = revivals;
+                let before = serde_json::to_value(&job).unwrap();
+                let plan = retry_plan(&job, None, "2026-11-23T00:00:00Z").unwrap();
+                assert_eq!(plan.state, "failed");
+                assert!(plan.retry_at.is_none() && plan.message.contains("вручную"));
+                assert_eq!(serde_json::to_value(&job).unwrap(), before);
+            }
         }
-        job.failed_at = None;
-        let plan = retry_plan(&job, Some(&coordinator), "2026-10-31T00:00:30Z").unwrap();
-        assert_eq!(plan.state, "retry_wait");
-        assert!(plan.retry_at.is_none() && plan.message.contains("Время отказа неизвестно"));
-        job.revivals = crate::jobs::MAX_REVIVALS;
-        let plan = retry_plan(&job, None, "2026-10-31T00:00:30Z").unwrap();
-        assert_eq!(plan.state, "failed");
-        assert!(plan.retry_at.is_none() && plan.message.contains("ручной"));
         job.state = JobState::Pending;
-        assert!(retry_plan(&job, None, "2026-10-31T00:00:30Z").is_none());
+        assert!(retry_plan(&job, None, "2026-11-23T00:00:00Z").is_none());
+    }
+
+    #[test]
+    fn completed_with_skipped_summary_does_not_claim_that_all_files_were_created() {
+        let root = tempfile::tempdir().unwrap();
+        let mut queue = crate::jobs::JobQueue::load(root.path());
+        queue.enqueue_cook("short", true, false, false);
+        let mut job = queue.jobs()[0].clone();
+        job.state = JobState::Done;
+        let mut skipped = status(Stage::Summary, StageState::Skipped, None, None);
+        skipped.note = Some(crate::processing::SUMMARY_NO_CONTENT.into());
+        let stages = [
+            status(Stage::Transcribe, StageState::Done, None, None),
+            skipped,
+        ];
+        let result = execution(Some(&job), &stages, "2026-11-23T00:00:00Z", None);
+        assert_eq!(result.state, "done");
+        assert!(result.message.contains("сводка пропущена"));
+        assert!(result
+            .message
+            .contains(crate::processing::SUMMARY_NO_CONTENT));
+        assert!(!result.message.contains("Все запрошенные результаты готовы"));
+        assert!(result.next.is_empty());
     }
 
     #[test]
@@ -968,13 +961,13 @@ mod tests {
         job.state = JobState::Failed;
         job.failed_at = Some(1793404800);
         for (status, at, expected) in [
-            ("ready", "2026-10-31T00:00:25Z", "retry_wait"),
-            ("starting", "2026-10-31T00:00:25Z", "blocked"),
-            ("disabled", "2026-10-31T00:00:25Z", "blocked"),
-            ("blocked", "2026-10-31T00:00:25Z", "blocked"),
-            ("stopped", "2026-10-31T00:00:25Z", "blocked"),
-            ("ready", "2026-10-30T23:59:59Z", "stalled"),
-            ("ready", "invalid", "stalled"),
+            ("ready", "2026-10-31T00:00:25Z", "failed"),
+            ("starting", "2026-10-31T00:00:25Z", "failed"),
+            ("disabled", "2026-10-31T00:00:25Z", "failed"),
+            ("blocked", "2026-10-31T00:00:25Z", "failed"),
+            ("stopped", "2026-10-31T00:00:25Z", "failed"),
+            ("ready", "2026-10-30T23:59:59Z", "failed"),
+            ("ready", "invalid", "failed"),
         ] {
             let coordinator = crate::jobs::CoordinatorStatus {
                 state: status.into(),
@@ -988,8 +981,8 @@ mod tests {
             assert_eq!(view.message, plan.message);
         }
         let plan = retry_plan(&job, None, "2026-10-31T00:00:30Z").unwrap();
-        assert_eq!(plan.state, "blocked");
-        assert!(plan.message.contains("неизвестно"));
+        assert_eq!(plan.state, "failed");
+        assert!(plan.message.contains("вручную"));
     }
 
     #[test]
@@ -1007,12 +1000,9 @@ mod tests {
             at: "2026-10-31T00:00:00Z".into(),
         };
         let result = execution(Some(&job), &[], "2026-10-31T00:00:01Z", Some(&coordinator));
-        assert_eq!(result.state, "blocked");
-        assert!(result.message.contains("выключена"));
-        assert!(
-            result.retry_at.is_some(),
-            "the lower bound remains valid even while execution is blocked"
-        );
+        assert_eq!(result.state, "failed");
+        assert!(result.message.contains("вручную"));
+        assert!(result.retry_at.is_none());
     }
 
     #[test]
@@ -1071,11 +1061,8 @@ mod tests {
             "2026-10-31T00:00:30Z",
             Some(&coordinator),
         );
-        assert_eq!(state.state, "retry_wait");
-        assert_eq!(
-            timestamp(state.retry_at.as_deref().unwrap()).unwrap() - job.failed_at.unwrap() as f64,
-            3600.0
-        );
+        assert_eq!(state.state, "failed");
+        assert!(state.retry_at.is_none());
         job.revivals = 3;
         assert_eq!(
             execution(Some(&job), &stages, "2026-10-31T00:00:30Z", None).state,

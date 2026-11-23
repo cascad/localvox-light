@@ -5,6 +5,75 @@ fn key(app: &mut App, code: KeyCode) {
 }
 
 #[test]
+fn palette_pages_and_boundaries_keep_the_selected_command_visible_on_short_screens() {
+    for height in [10, 12, 24, 48] {
+        let mut app = App::default();
+        app.viewport = (80, height);
+        app.palette = true;
+        for code in [
+            KeyCode::End,
+            KeyCode::PageUp,
+            KeyCode::PageUp,
+            KeyCode::Home,
+            KeyCode::PageDown,
+        ] {
+            key(&mut app, code);
+            let (count, offset) = app.palette_window(height);
+            assert!(count <= usize::from(height.saturating_sub(4)));
+            assert!((offset..offset + count).contains(&app.palette_index));
+            assert!(offset + count <= COMMANDS.len());
+            if code == KeyCode::End {
+                assert_eq!(app.palette_index, COMMANDS.len() - 1);
+                assert_eq!(offset + count, COMMANDS.len());
+            }
+            if code == KeyCode::Home {
+                assert_eq!((app.palette_index, offset), (0, 0));
+            }
+            assert!(app.effects.is_empty() && app.form.is_none());
+        }
+    }
+}
+
+#[test]
+fn r_is_one_full_recook_of_the_selected_visible_record_and_is_literal_in_input() {
+    for letter in ['r', 'к'] {
+        let mut app = App::default();
+        app.current = Some("opened".into());
+        app.sessions = vec![Session {
+            name: "selected".into(),
+            title: Some("Find me".into()),
+            ..Default::default()
+        }];
+        app.archive_filter = "Find".into();
+        app.key(KeyEvent::new(KeyCode::Char(letter), KeyModifiers::NONE));
+        assert!(app.effects.is_empty());
+        assert!(
+            matches!(&app.form.as_ref().unwrap().kind, FormKind::Confirm(Task::Recook(s, Scope::All)) if s == "selected")
+        );
+        app.current = Some("other".into());
+        key(&mut app, KeyCode::Char('s'));
+        assert!(matches!(&app.effects[0].1, Task::Recook(s, Scope::All) if s == "selected"));
+        assert!(app.pending_document.is_none());
+        assert!(!COMMANDS.iter().any(|(a, _)| matches!(
+            a,
+            Action::RecookSummary | Action::RecookText | Action::RetryFailed | Action::Refresh
+        )));
+        let mut app = App::default();
+        key(&mut app, KeyCode::Char('/'));
+        key(&mut app, KeyCode::Char(letter));
+        assert_eq!(app.archive_filter, letter.to_string());
+        assert!(app.form.is_none());
+        key(&mut app, KeyCode::Esc);
+        app.command(Action::NewAsk);
+        key(&mut app, KeyCode::Char(letter));
+        assert_eq!(
+            app.form.as_ref().unwrap().fields[0].value,
+            letter.to_string()
+        );
+    }
+}
+
+#[test]
 fn h_returns_each_list_to_the_menu_without_changing_selection_or_audio() {
     for (view, _) in VIEWS {
         for letter in ['h', 'р'] {

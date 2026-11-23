@@ -1,5 +1,16 @@
 # Покрытие требований и состояние реализации
 
+Ручное восстановление обработки и честные статусы, 2026-11-23:
+[проверки и границы](../changes/harden-processing-recovery-and-status/evidence/implementation.md).
+Три попытки фазы, затем сохранённый Failed; одна полная переварка по r с аудио,
+автоматическое обновление документов, явная причина пропуска summary и полная палитра.
+
+| Требование | Код / delta | Проверка |
+|---|---|---|
+| PIPE-010/011 (delta) | [спецификация](../changes/harden-processing-recovery-and-status/specs/processing-pipeline/spec.md), [очередь](../../crates/localvox-light-core/src/jobs.rs), [координатор](../../crates/localvox-light/src/autocook.rs) | Durable reload/Stop/manual full recook, production HTTP и early failure/run timing — [test-run](../changes/harden-processing-recovery-and-status/evidence/implementation.md); native Mac not-run |
+| LLM-007 (delta) | [спецификация](../changes/harden-processing-recovery-and-status/specs/llm-processing/spec.md), [summary API](../../crates/localvox-light-api/src/archive/documents.rs) | Короткий текст/тишина/legacy receipt, UI/TUI skip reason и автообновление — [test-run](../changes/harden-processing-recovery-and-status/evidence/implementation.md); качество модели на Mac not-run |
+| ARCH-023 (delta) | [спецификация](../changes/harden-processing-recovery-and-status/specs/archive-playback/spec.md), [ввод](../../crates/localvox-light-terminal/src/app/input.rs), [палитра](../../crates/localvox-light-terminal/src/render/overlays.rs) | State/render/ConPTY range, страницы и выбранная цель полной переварки — [test-run](../changes/harden-processing-recovery-and-status/evidence/implementation.md) |
+
 Навигация меню/списков TUI, 2026-11-23:
 [ARCH-022 (delta)](../changes/complete-tui-menu-navigation/evidence/implementation.md).
 h/Esc и l/Enter действуют в меню, списках и палитре; детали, логи и ввод сохраняют
