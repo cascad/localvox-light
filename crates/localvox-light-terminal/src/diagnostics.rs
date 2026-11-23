@@ -158,41 +158,49 @@ impl Console {
             }
         }
     }
+    pub fn selected_text(&self) -> String {
+        self.entries
+            .get(self.selected)
+            .map(entry_text)
+            .unwrap_or_default()
+    }
     pub fn text(&self) -> String {
         self.entries
             .iter()
-            .map(|e| {
-                format!(
-                    "{} · {} · {} · сессия {} · фаза {}\n{}{}",
-                    chrono::DateTime::from_timestamp_millis(e.at_ms)
-                        .map(|at| at.format("%H:%M:%SZ").to_string())
-                        .unwrap_or_else(|| "время неизвестно".into()),
-                    e.context.source,
-                    e.context.operation,
-                    e.context.session.as_deref().unwrap_or("—"),
-                    e.context.phase.as_deref().unwrap_or("неизвестна"),
-                    e.text,
-                    if e.repeats > 1 {
-                        let last = e
-                            .repeat_times
-                            .back()
-                            .and_then(|at| {
-                                chrono::DateTime::from_timestamp_millis(*at)
-                                    .map(|at| at.format("%H:%M:%SZ").to_string())
-                            })
-                            .unwrap_or_else(|| "время неизвестно".into());
-                        format!(
-                            "\nДополнительных повторов: {} · последний {last}",
-                            e.repeats - 1
-                        )
-                    } else {
-                        String::new()
-                    }
-                )
-            })
+            .map(entry_text)
             .collect::<Vec<_>>()
             .join("\n\n")
     }
+}
+
+fn entry_text(e: &Entry) -> String {
+    format!(
+        "{} · {} · {} · сессия {} · фаза {}\n{}{}",
+        chrono::DateTime::from_timestamp_millis(e.at_ms)
+            .map(|at| at.format("%H:%M:%SZ").to_string())
+            .unwrap_or_else(|| "время неизвестно".into()),
+        e.context.source,
+        e.context.operation,
+        e.context.session.as_deref().unwrap_or("—"),
+        e.context.phase.as_deref().unwrap_or("неизвестна"),
+        e.text,
+        if e.repeats > 1 {
+            let last = e
+                .repeat_times
+                .back()
+                .and_then(|at| {
+                    chrono::DateTime::from_timestamp_millis(*at)
+                        .map(|at| at.format("%H:%M:%SZ").to_string())
+                })
+                .unwrap_or_else(|| "время неизвестно".into());
+            format!(
+                "\nДополнительных повторов: {} · последний {last}",
+                e.repeats - 1
+            )
+        } else {
+            String::new()
+        }
+    )
 }
 
 #[cfg(test)]

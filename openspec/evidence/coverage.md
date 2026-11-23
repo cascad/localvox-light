@@ -1,5 +1,17 @@
 # Покрытие требований и состояние реализации
 
+Mac модель / наблюдаемость / управление логами, 2026-11-23:
+[SETUP-002/008, PIPE-010/011, ARCH-020 (delta)](../changes/fix-recording-model-resolution-and-log-navigation/evidence/implementation.md).
+Координатор переведён на общий model resolver; queue DTO передаёт execution_id,
+неизменённый Failed snapshot не увеличивает счётчик. TUI j/k/h/l/y и выбранная копия,
+Ctrl+Y всего error log, 9 изменённых hints snapshots. Native Windows core 458,
+main 23, API 94, TUI 227 и 9 ConPTY passed; ignores и feature scope записаны отдельно.
+Настоящий Mac ASR/захват с новой сборкой not-run; main specs не sync.
+
+| Требование | Контракт и реализация | Проверка |
+|---|---|---|
+| ARCH-020 (delta) | [Спецификация](../changes/fix-recording-model-resolution-and-log-navigation/specs/archive-playback/spec.md), [TUI input](../../crates/localvox-light-terminal/src/app/input.rs), [console](../../crates/localvox-light-terminal/src/app/diagnostics.rs) | [State/ConPTY, английский и русский profiles, выбранная копия и snapshots — test-run](../changes/fix-recording-model-resolution-and-log-navigation/evidence/implementation.md) |
+
 Замечания владельца по записи/подтверждениям, 2026-11-21:
 [REC-006 / CFG-006](../changes/shorten-recording-feedback/evidence/implementation.md),
 [RUN-006 / RUN-007](../changes/unify-client-confirmations/evidence/implementation.md).

@@ -111,18 +111,21 @@ impl App {
         }
         match key.code {
             KeyCode::Esc => self.console.toggle(),
-            KeyCode::Up | KeyCode::PageUp => {
-                self.console.scroll = self
-                    .console
-                    .scroll
-                    .saturating_add(if key.code == KeyCode::Up { 1 } else { 8 });
+            KeyCode::Up | KeyCode::Char('k') => {
+                self.console.selected = self.console.selected.saturating_sub(1);
+                self.console.follow_selection = true;
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                self.console.selected =
+                    (self.console.selected + 1).min(self.console.entries.len().saturating_sub(1));
+                self.console.follow_selection = true;
+            }
+            KeyCode::PageUp => {
+                self.console.scroll = self.console.scroll.saturating_add(8);
                 self.console.follow_selection = false;
             }
-            KeyCode::Down | KeyCode::PageDown => {
-                self.console.scroll = self
-                    .console
-                    .scroll
-                    .saturating_sub(if key.code == KeyCode::Down { 1 } else { 8 });
+            KeyCode::PageDown => {
+                self.console.scroll = self.console.scroll.saturating_sub(8);
                 self.console.follow_selection = false;
             }
             KeyCode::End => {
@@ -131,8 +134,8 @@ impl App {
                 self.console.follow_selection = true;
             }
             KeyCode::Home => {
-                self.console.scroll = u16::MAX;
-                self.console.follow_selection = false;
+                self.console.selected = 0;
+                self.console.follow_selection = true;
             }
             KeyCode::Tab => {
                 self.console.selected = self.console.selected.saturating_sub(1);
@@ -149,8 +152,24 @@ impl App {
                 }
                 self.console.follow_selection = true;
             }
+            KeyCode::Left | KeyCode::Char('h') => {
+                if let Some(entry) = self.console.entries.get_mut(self.console.selected) {
+                    entry.expanded = false;
+                }
+                self.console.follow_selection = true;
+            }
+            KeyCode::Right | KeyCode::Char('l') => {
+                if let Some(entry) = self.console.entries.get_mut(self.console.selected) {
+                    entry.expanded = true;
+                }
+                self.console.follow_selection = true;
+            }
             KeyCode::Char('y' | 'Y' | 'н' | 'Н') => {
-                let text = self.console.text();
+                let text = if key.modifiers.contains(KeyModifiers::CONTROL) {
+                    self.console.text()
+                } else {
+                    self.console.selected_text()
+                };
                 if !text.is_empty() {
                     self.action(Task::Copy(text));
                 }

@@ -248,6 +248,8 @@ pub struct QueueItem {
     /// Place in the line. 1 — next. `None` for what is already running.
     pub position: Option<usize>,
     pub attempts: u32,
+    /// Durable attempt identity; polling the same failure is not another execution.
+    pub execution_id: Option<String>,
     pub phase: localvox_light_core::jobs::JobPhase,
     pub retry: Option<localvox_light_core::workflow::RetryPlan>,
     /// Why it failed, if it did — the reason belongs next to the fact, not in a log nobody opens.
@@ -532,10 +534,11 @@ mod tests {
             Some(1),
         )
         .unwrap();
-        JobQueue::mutate(work.path(), |queue| {
+        let execution = JobQueue::mutate(work.path(), |queue| {
             assert!(queue.requeue_derivatives("retained", true, false, false));
             let job = queue.claim_next().unwrap();
             queue.mark_failed(job.id, "summary service unavailable", 1);
+            job.execution_id.unwrap()
         });
         progress::mark(
             &session,
@@ -544,6 +547,10 @@ mod tests {
             Some("summary service unavailable"),
         );
         let archive = Archive::new(work.path().to_path_buf());
+        for _ in 0..3 {
+            let queue = serde_json::to_value(archive.queue().unwrap()).unwrap();
+            assert_eq!(queue[0]["execution_id"], execution);
+        }
         assert_eq!(
             archive.transcript("retained").unwrap().lines[0].text,
             "original speech"

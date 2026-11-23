@@ -659,7 +659,33 @@ fn exercise_terminal(vox: bool, full_exit: bool) {
         &mut queries,
         deadline,
     );
-    writer.write_all(b"\r").unwrap();
+    writer.write_all(b"ll").unwrap();
+    writer.flush().unwrap();
+    wait_for(
+        "Диагностическая строка 1",
+        &mut all,
+        &mut screen,
+        &rx,
+        &mut writer,
+        &mut queries,
+        deadline,
+    );
+    writer.write_all(b"hh").unwrap();
+    writer.flush().unwrap();
+    wait_until(
+        "h collapses the selected journal group",
+        |_, s| {
+            s.contents().contains("+ 35 lines")
+                && !s.contents().contains("Диагностическая строка 1")
+        },
+        &mut all,
+        &mut screen,
+        &rx,
+        &mut writer,
+        &mut queries,
+        deadline,
+    );
+    writer.write_all(b"l").unwrap();
     writer.flush().unwrap();
     wait_for(
         "Диагностическая строка 1",

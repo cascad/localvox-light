@@ -248,6 +248,18 @@ impl App {
                     .map(|l| l.text.as_str())
                     .collect::<Vec<_>>()
                     .join("\n\n"),
+                Tab::Progress => self
+                    .journal
+                    .visible_groups()
+                    .get(self.item)
+                    .map(|group| {
+                        format!(
+                            "Сессия {}\n{}",
+                            self.current.as_deref().unwrap_or("—"),
+                            group.text()
+                        )
+                    })
+                    .unwrap_or_default(),
                 _ => String::new(),
             },
             View::Ask => self

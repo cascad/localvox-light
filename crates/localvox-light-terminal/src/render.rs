@@ -832,7 +832,7 @@ fn journal_projection(a: &App, t: Theme) -> JournalProjection {
     let history_start = lines.len();
     lines.push(Line::from(Span::styled(
         format!(
-            "Журнал · Enter раскрыть · / фильтр · End хвост · o раньше{}",
+            "Журнал · j/k выбор · h/l детали · y копия · / фильтр · End хвост · o раньше{}",
             if a.journal.unseen > 0 {
                 format!(" · новых {}", a.journal.unseen)
             } else {

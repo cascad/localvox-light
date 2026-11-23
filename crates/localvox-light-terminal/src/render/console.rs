@@ -125,9 +125,9 @@ pub(super) fn render_console(f: &mut Frame, a: &App, t: Theme) {
     if inner.height > 0 {
         f.render_widget(
             Paragraph::new(if a.record.recording || a.pending_record.is_some() {
-                "F8 стоп · ~ / F12 · ↑↓ читать · Tab ошибка · Enter повторы · y копия"
+                "F8 стоп · j/k выбор · h/l детали · y копия · Ctrl+Y всё · F12 закрыть"
             } else {
-                "~ / F12 закрыть · ↑↓ читать · Tab событие · Enter повторы · y копия"
+                "j/k ↑↓ выбор · h/l детали · y копия · Ctrl+Y всё · F12 закрыть"
             })
             .style(Style::default().fg(t.dim)),
             Rect::new(inner.x, inner.bottom() - 1, inner.width, 1),

@@ -1465,3 +1465,172 @@ fn queue_keeps_server_order_and_retries_the_selected_session_with_explicit_scope
         );
     }
 }
+
+#[test]
+fn polling_a_failed_execution_never_invents_new_errors_but_a_new_execution_does() {
+    for identity in [None, Some("attempt-one".to_string())] {
+        let mut app = App::default();
+        let mut job = QueueItem {
+            session: "missing-model".into(),
+            state: "failed".into(),
+            attempts: 3,
+            execution_id: identity,
+            phase: Some("transcribe".into()),
+            last_error: Some("ASR model directory was not found".into()),
+            ..Default::default()
+        };
+        let poll = |app: &mut App, jobs| {
+            app.wall_ms += 1500;
+            app.apply(Response {
+                id: app.wall_ms as u64,
+                epoch: app.epoch,
+                resource: Resource::Queue,
+                result: Ok(Data::Queue(jobs)),
+            });
+        };
+        for _ in 0..100 {
+            poll(&mut app, vec![job.clone()]);
+        }
+        assert_eq!(app.console.entries.len(), 1);
+        assert_eq!(app.console.entries[0].repeats, 1);
+        app.console.toggle();
+        app.console.toggle();
+        poll(&mut app, vec![job.clone()]);
+        assert_eq!(app.console.unread(), 0);
+        // Same text and attempt counter after an unobserved retry: the durable ID distinguishes it.
+        if job.execution_id.is_some() {
+            job.execution_id = Some("attempt-two".into());
+        } else {
+            job.attempts += 1;
+        }
+        poll(&mut app, vec![job.clone()]);
+        assert_eq!(app.console.entries.len(), 2);
+        assert_eq!(app.console.unread(), 1);
+        for _ in 0..100 {
+            poll(&mut app, vec![job.clone()]);
+        }
+        assert_eq!(app.console.entries.len(), 2);
+        let mut pending = job.clone();
+        pending.state = "pending".into();
+        poll(&mut app, vec![pending]);
+        poll(&mut app, vec![job]);
+        assert_eq!(app.console.entries.len(), 3);
+    }
+}
+
+#[test]
+fn console_vim_keys_select_expand_and_copy_only_the_selected_error() {
+    let mut app = App::default();
+    for text in ["first error", "selected error", "last error"] {
+        let context = crate::diagnostics::Context {
+            source: "Пайплайн".into(),
+            operation: text.into(),
+            session: Some("session".into()),
+            phase: Some("transcribe".into()),
+        };
+        app.console.record(context.clone(), text, 1);
+        app.console.record(context, text, 2);
+    }
+    app.key(KeyEvent::new(KeyCode::F(12), KeyModifiers::NONE));
+    app.key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE));
+    assert_eq!(app.console.selected, 1);
+    for _ in 0..2 {
+        app.key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE));
+    }
+    assert!(app.console.entries[1].expanded);
+    for _ in 0..2 {
+        app.key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::NONE));
+    }
+    assert!(!app.console.entries[1].expanded);
+    app.key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE));
+    assert!(
+        matches!(app.effects.last(), Some((_, Task::Copy(text))) if text.contains("selected error") && text.contains("transcribe") && !text.contains("first error") && !text.contains("last error"))
+    );
+    app.pending_actions.clear();
+    app.key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::CONTROL));
+    assert!(
+        matches!(app.effects.last(), Some((_, Task::Copy(text))) if text.contains("selected error") && text.contains("first error") && text.contains("last error"))
+    );
+    app.key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+    assert_eq!(app.console.selected, 2);
+    app.key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
+    assert_eq!(app.console.selected, 1);
+    app.key(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE));
+    assert_eq!(app.console.selected, 0);
+    app.key(KeyEvent::new(KeyCode::End, KeyModifiers::NONE));
+    assert_eq!(app.console.selected, 2);
+    app.key(KeyEvent::new(KeyCode::Char('л'), KeyModifiers::NONE));
+    assert_eq!(app.console.selected, 1);
+    app.key(KeyEvent::new(KeyCode::Char('д'), KeyModifiers::NONE));
+    assert!(app.console.entries[1].expanded);
+    app.key(KeyEvent::new(KeyCode::Char('р'), KeyModifiers::NONE));
+    assert!(!app.console.entries[1].expanded);
+    app.key(KeyEvent::new(KeyCode::Char('о'), KeyModifiers::NONE));
+    assert_eq!(app.console.selected, 2);
+}
+
+#[test]
+fn journal_vim_keys_copy_the_selected_group_and_leave_filter_input_alone() {
+    let mut app = App::default();
+    app.view = View::Archive;
+    app.tab = Tab::Progress;
+    app.focus = 2;
+    app.current = Some("session".into());
+    app.journal.follow = false;
+    for (id, text) in [
+        ("first", "first operation"),
+        ("second", "selected operation"),
+    ] {
+        app.journal
+            .entries
+            .push(localvox_light_client::JournalEntry {
+                id: id.into(),
+                run: "run".into(),
+                operation: Some(id.into()),
+                kind: "operation_start".into(),
+                stage: "transcribe".into(),
+                label: text.into(),
+                text: Some(format!("details of {text}")),
+                ..Default::default()
+            });
+        app.journal
+            .entries
+            .push(localvox_light_client::JournalEntry {
+                id: format!("{id}-end"),
+                run: "run".into(),
+                operation: Some(id.into()),
+                kind: "operation_end".into(),
+                stage: "transcribe".into(),
+                status: Some("done".into()),
+                elapsed_sec: Some(0.125),
+                ..Default::default()
+            });
+    }
+    app.key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+    assert_eq!(app.item, 1);
+    let id = app.journal.visible_groups()[1].id.clone();
+    for _ in 0..2 {
+        app.key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE));
+    }
+    assert!(app.journal.expanded.contains(&id));
+    app.key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE));
+    assert!(
+        matches!(app.effects.last(), Some((_, Task::Copy(text))) if text.contains("selected operation") && text.contains("transcribe") && text.contains("session") && text.contains("0.125") && !text.contains("first operation"))
+    );
+    for _ in 0..2 {
+        app.key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::NONE));
+    }
+    assert!(!app.journal.expanded.contains(&id));
+    app.key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE));
+    assert_eq!(app.item, 0);
+    app.command(Action::FilterJournal);
+    let before = app.effects.len();
+    for ch in "jkhly".chars() {
+        app.key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+    }
+    assert!(app.form.as_ref().unwrap().fields[0]
+        .value
+        .ends_with("jkhly"));
+    assert_eq!(app.effects.len(), before);
+    assert_eq!(app.item, 0);
+}

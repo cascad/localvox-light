@@ -156,6 +156,7 @@ impl Archive {
                     .into(),
                     position,
                     attempts: j.attempts,
+                    execution_id: j.execution_id.clone(),
                     phase: j.phase,
                     retry: localvox_light_core::workflow::retry_plan(j, coordinator.as_ref(), &now),
                     last_error: j.last_error.clone(),

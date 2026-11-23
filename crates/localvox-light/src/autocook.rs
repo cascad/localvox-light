@@ -75,6 +75,17 @@ impl Config {
         Self::from_env_in(work_dir, exe.parent().context("executable directory")?)
     }
     fn from_env_in(work_dir: String, exe_dir: &Path) -> Result<Self> {
+        Self::from_env_with_models(
+            work_dir,
+            exe_dir,
+            localvox_light_core::model_paths::Context::capture(),
+        )
+    }
+    fn from_env_with_models(
+        work_dir: String,
+        exe_dir: &Path,
+        mut models: localvox_light_core::model_paths::Context,
+    ) -> Result<Self> {
         let cwd = std::env::current_dir()?;
         let absolute = |path: PathBuf| {
             if path.is_absolute() {
@@ -89,16 +100,11 @@ impl Config {
             "localvox-process"
         });
         anyhow::ensure!(exe.is_file(), "worker missing: {}", exe.display());
-        let model_dir = std::env::var_os("LOCALVOX_ASR_MODEL_DIR")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| {
-                let bundled = exe_dir.join("models/gigaam-v3-e2e-ctc");
-                if bundled.is_dir() {
-                    bundled
-                } else {
-                    cwd.join("models/gigaam-v3-e2e-ctc")
-                }
-            });
+        models.exe = Some(exe_dir.to_owned());
+        let model_dir = models
+            .resolve(localvox_light_core::model_paths::component("gigaam"), None)
+            .path
+            .unwrap_or_default();
         // A missing ASR model fails the STT phase, not the whole queue (text may already exist).
         Ok(Self {
             work_dir: absolute(work_dir.into()),
@@ -850,6 +856,59 @@ fn warm_indexes(cfg: &Config, running: &AtomicBool) -> bool {
 mod tests {
     use super::*;
     pub(super) static POST_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    fn coordinator_model_discovery_matches_doctor_for_home_portable_and_explicit_paths() {
+        use localvox_light_core::model_paths::{component, Context};
+        for mode in ["home", "portable", "cwd", "explicit", "missing-explicit"] {
+            let root = tempfile::tempdir().unwrap();
+            let exe = root.path().join("Applications/LocalVox");
+            let cwd = root.path().join("independent working directory");
+            let home = root.path().join("user home");
+            std::fs::create_dir_all(&exe).unwrap();
+            std::fs::create_dir_all(&cwd).unwrap();
+            std::fs::write(
+                exe.join(if cfg!(windows) {
+                    "localvox-process.exe"
+                } else {
+                    "localvox-process"
+                }),
+                [],
+            )
+            .unwrap();
+            let gigaam = component("gigaam");
+            let user = home.join(".localvox").join(&gigaam.directory);
+            std::fs::create_dir_all(&user).unwrap();
+            let mut context = Context {
+                home: Some(home),
+                exe: Some(exe.clone()),
+                cwd: Some(cwd.clone()),
+                overrides: Default::default(),
+            };
+            let expected = match mode {
+                "portable" => exe.join(&gigaam.directory),
+                "cwd" => cwd.join(&gigaam.directory),
+                "explicit" | "missing-explicit" => {
+                    context
+                        .overrides
+                        .insert(gigaam.env.clone(), "'external model'".into());
+                    cwd.join("external model")
+                }
+                _ => user,
+            };
+            if mode != "missing-explicit" {
+                std::fs::create_dir_all(&expected).unwrap();
+            }
+            assert_eq!(context.resolve(gigaam, None).path.as_ref(), Some(&expected));
+            let config = Config::from_env_with_models(
+                root.path().to_string_lossy().into_owned(),
+                &exe,
+                context,
+            )
+            .unwrap();
+            assert_eq!(config.model_dir, expected, "{mode}");
+        }
+    }
 
     #[test]
     fn observer_uses_saved_job_clocks_without_error_or_document_content() {

@@ -201,13 +201,7 @@ impl App {
             Data::Jobs(j) => self.jobs = j,
             Data::Queue(q) => {
                 for old in &self.queue {
-                    if old.state == "failed"
-                        && !q.iter().any(|job| {
-                            job.session == old.session
-                                && job.state == "failed"
-                                && job.attempts == old.attempts
-                                && job.last_error == old.last_error
-                        })
+                    if old.state == "failed" && !q.iter().any(|job| job.same_failed_execution(old))
                     {
                         self.console.recover(&crate::diagnostics::Context {
                             source: "Пайплайн".into(),
@@ -218,6 +212,9 @@ impl App {
                     }
                 }
                 for job in q.iter().filter(|job| job.state == "failed") {
+                    if self.queue.iter().any(|old| job.same_failed_execution(old)) {
+                        continue;
+                    }
                     if let Some(error) = &job.last_error {
                         self.console.record(
                             crate::diagnostics::Context {

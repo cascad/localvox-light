@@ -139,6 +139,7 @@ pub struct QueueItem {
     pub kind: String,
     pub position: Option<usize>,
     pub attempts: usize,
+    pub execution_id: Option<String>,
     pub phase: Option<String>,
     pub retry: Option<RetryPlan>,
     pub last_error: Option<String>,
@@ -152,6 +153,18 @@ pub struct RetryPlan {
     pub retry_at: Option<String>,
 }
 
+impl QueueItem {
+    pub fn same_failed_execution(&self, other: &Self) -> bool {
+        self.state == "failed"
+            && other.state == "failed"
+            && self.session == other.session
+            && self.phase == other.phase
+            && self.execution_id == other.execution_id
+            && self.attempts == other.attempts
+            && self.last_error == other.last_error
+    }
+}
+
 #[cfg(test)]
 mod retry_compatibility {
     use super::*;
@@ -160,6 +173,7 @@ mod retry_compatibility {
         let old: QueueItem =
             serde_json::from_str(r#"{"session":"old","state":"failed","attempts":3}"#).unwrap();
         assert!(old.phase.is_none() && old.retry.is_none());
+        assert!(old.execution_id.is_none());
         let new: QueueItem = serde_json::from_str(r#"{"session":"new","state":"failed","phase":"summary","retry":{"state":"blocked","message":"coordinator unavailable","retry_at":"2026-10-31T08:00:00Z"}}"#).unwrap();
         assert_eq!(new.phase.as_deref(), Some("summary"));
         assert_eq!(new.retry.unwrap().state, "blocked");

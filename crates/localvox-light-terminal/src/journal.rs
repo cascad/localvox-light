@@ -227,6 +227,33 @@ impl Journal {
     }
 }
 impl Group {
+    pub fn text(&self) -> String {
+        let mut lines = vec![
+            format!("Запуск {} · этап {}", self.run, self.stage),
+            format!("{} · {} · {}", self.label, self.state(), self.at),
+        ];
+        if let Some(seconds) = self
+            .elapsed_sec
+            .filter(|value| value.is_finite() && *value >= 0.0)
+        {
+            lines.push(format!("Длительность {seconds:.3} с"));
+        }
+        if let Some(command) = &self.command {
+            let mut line = command.program.clone();
+            for argument in &command.args {
+                line.push(' ');
+                line.push_str(&argument.name);
+                if let Some(value) = &argument.value {
+                    line.push(' ');
+                    line.push_str(value);
+                }
+            }
+            lines.push(line);
+        }
+        lines.extend(self.details.iter().filter_map(|entry| entry.text.clone()));
+        safe_text(&lines.join("\n"))
+    }
+
     /// Progress carries the real attempt boundaries even when the journal page starts
     /// at a heartbeat. Only attach them to that exact run/attempt, never to a child op.
     pub fn stage_timing<'a>(

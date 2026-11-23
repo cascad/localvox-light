@@ -3003,7 +3003,7 @@ checksum = "92daf443525c4cce67b150400bc2316076100ce0b3686209eb8cf3c31612e6f0"
 
 [[package]]
 name = "localvox-desktop"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "tauri",
  "tauri-build",
@@ -3012,7 +3012,7 @@ dependencies = [
 
 [[package]]
 name = "localvox-light"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "anyhow",
  "chrono",
@@ -3046,7 +3046,7 @@ dependencies = [
 
 [[package]]
 name = "localvox-light-api"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "anyhow",
  "chrono",
@@ -3074,7 +3074,7 @@ dependencies = [
 
 [[package]]
 name = "localvox-light-asr"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "anyhow",
  "clap",
@@ -3094,7 +3094,7 @@ dependencies = [
 
 [[package]]
 name = "localvox-light-bench"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "anyhow",
  "chrono",
@@ -3120,7 +3120,7 @@ dependencies = [
 
 [[package]]
 name = "localvox-light-client"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "anyhow",
  "serde",
@@ -3132,7 +3132,7 @@ dependencies = [
 
 [[package]]
 name = "localvox-light-core"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "anyhow",
  "chrono",
@@ -3170,7 +3170,7 @@ dependencies = [
 
 [[package]]
 name = "localvox-light-ingest"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "anyhow",
  "indicatif 0.17.11",
@@ -3181,7 +3181,7 @@ dependencies = [
 
 [[package]]
 name = "localvox-light-integrations"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "anyhow",
  "chrono",
@@ -3196,7 +3196,7 @@ dependencies = [
 
 [[package]]
 name = "localvox-light-llm"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "anyhow",
  "deunicode",
@@ -3215,7 +3215,7 @@ dependencies = [
 
 [[package]]
 name = "localvox-light-process"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "anyhow",
  "libc",
@@ -3227,7 +3227,7 @@ dependencies = [
 
 [[package]]
 name = "localvox-light-search"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "anyhow",
  "clap",
@@ -3243,7 +3243,7 @@ dependencies = [
 
 [[package]]
 name = "localvox-light-terminal"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "anyhow",
  "arboard",
@@ -3272,7 +3272,7 @@ dependencies = [
 
 [[package]]
 name = "localvox-light-voice"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "anyhow",
  "arboard",
@@ -3287,7 +3287,7 @@ dependencies = [
 
 [[package]]
 name = "localvox-light-youtube"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "anyhow",
  "clap",
@@ -3300,7 +3300,7 @@ dependencies = [
 
 [[package]]
 name = "localvox-setup-ui"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "cliclack",
  "console 0.16.6",
