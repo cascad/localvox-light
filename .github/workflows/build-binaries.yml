@@ -255,6 +255,14 @@ jobs:
         run: |
           cargo test --release --locked -p localvox-light-terminal --target ${{ matrix.target }} --lib command_path::
 
+      - name: macOS recording deletion terminal contract (no audio devices)
+        if: runner.os == 'macOS'
+        shell: bash
+        timeout-minutes: 5
+        env:
+          INSTA_UPDATE: "no"
+        run: cargo test --release --locked -p localvox-light-terminal --target ${{ matrix.target }} --test pty_workspace record_deletion_from_list_confirms_the_pinned_target_and_stays_responsive -- --exact
+
       - name: Installer keyboard and configuration contracts (isolated fixtures)
         shell: bash
         env:

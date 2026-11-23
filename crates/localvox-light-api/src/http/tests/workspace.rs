@@ -962,8 +962,17 @@ fn notes_and_asks_roundtrip_with_explicit_targets_and_provider() {
     assert!(slots[0].readable);
     let note = &slots[0].notes[0];
     assert_eq!(note.text, "Проверить диапазоны 🦀");
+    client.note("Соседнюю заметку сохранить", "идеи").unwrap();
     client.delete_note("идеи", note).unwrap();
-    assert!(client.slot_notes().unwrap()[0].notes.is_empty());
+    let remaining = client.slot_notes().unwrap();
+    assert_eq!(remaining[0].notes.len(), 1);
+    assert_eq!(remaining[0].notes[0].text, "Соседнюю заметку сохранить");
+    assert!(fs::read_to_string(&note_path)
+        .unwrap()
+        .contains("Соседнюю заметку сохранить"));
+    assert!(!fs::read_to_string(&note_path)
+        .unwrap()
+        .contains("Проверить диапазоны 🦀"));
     // An actual destination failure must remain an HTTP error; unreadable is
     // different from a readable slot containing no notes. Only a temp path.
     let blocked = directory.path().join("blocked");

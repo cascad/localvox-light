@@ -64,6 +64,7 @@ fn palette_repeat_and_delete_require_confirmation_for_the_original_session() {
     }
     let mut app = App::default();
     app.current = Some("original".into());
+    app.focus = 2;
     choose_palette(&mut app, "Удалить запись");
     app.current = Some("another".into());
     app.paste("нет");
@@ -240,7 +241,9 @@ fn paste_is_text_not_commands() {
 fn cancellation_never_deletes() {
     let mut a = App::default();
     a.current = Some("session".into());
+    a.focus = 2;
     a.command(Action::DeleteSession);
+    assert!(a.form.is_some());
     a.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
     assert!(a.form.is_none());
     assert!(a.effects.is_empty());
@@ -368,9 +371,11 @@ fn editing_preserves_unicode_at_the_cursor() {
 #[test]
 fn note_deletion_is_scoped_to_the_selected_slot() {
     let mut a = App::default();
+    a.view = View::Notes;
     a.notes = vec![
         SlotNotes {
             name: "one".into(),
+            readable: true,
             notes: vec![StoredNote {
                 text: "wrong".into(),
                 ..Default::default()
@@ -379,6 +384,7 @@ fn note_deletion_is_scoped_to_the_selected_slot() {
         },
         SlotNotes {
             name: "two".into(),
+            readable: true,
             notes: vec![StoredNote {
                 text: "right".into(),
                 ..Default::default()
@@ -392,6 +398,307 @@ fn note_deletion_is_scoped_to_the_selected_slot() {
     assert!(
         matches!(f.kind,FormKind::Confirm(Task::DeleteNote(slot,n)) if slot=="two"&&n.text=="right")
     );
+}
+
+fn deletable_notes() -> App {
+    let mut app = App::default();
+    app.view = View::Notes;
+    app.focus = 1;
+    app.notes = vec![SlotNotes {
+        name: "идеи".into(),
+        readable: true,
+        notes: ["first", "selected"]
+            .into_iter()
+            .map(|text| StoredNote {
+                text: text.into(),
+                raw: format!("- {text}"),
+                source: format!("{text}.md"),
+                ..Default::default()
+            })
+            .collect(),
+        ..Default::default()
+    }];
+    app.item = 1;
+    app
+}
+
+#[test]
+fn d_deletes_only_after_confirmation_and_preserves_captured_identity() {
+    for key in [KeyCode::Char('d'), KeyCode::Char('в'), KeyCode::Delete] {
+        let mut app = deletable_notes();
+        app.key(KeyEvent::new(key, KeyModifiers::NONE));
+        assert!(
+            matches!(&app.form.as_ref().unwrap().kind, FormKind::Confirm(Task::DeleteNote(slot,n)) if slot=="идеи" && n.source=="selected.md")
+        );
+        assert!(app.effects.is_empty());
+        app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert!(app.form.is_none() && app.effects.is_empty());
+        app.key(KeyEvent::new(key, KeyModifiers::NONE));
+        app.item = 0;
+        app.key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
+        assert!(
+            matches!(app.effects.first(), Some((_, Task::DeleteNote(slot,n))) if slot=="идеи" && n.raw=="- selected" && n.source=="selected.md")
+        );
+        app.key(KeyEvent::new(key, KeyModifiers::NONE));
+        assert!(app.form.is_none());
+        assert_eq!(
+            app.effects
+                .iter()
+                .filter(|(_, t)| matches!(t, Task::DeleteNote(..)))
+                .count(),
+            1
+        );
+    }
+}
+
+#[test]
+fn delete_is_contextual_and_d_remains_text_in_a_note_editor() {
+    let mut app = deletable_notes();
+    app.view = View::Archive;
+    app.key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
+    app.command(Action::DeleteNote);
+    assert!(app.form.is_none() && app.effects.is_empty());
+    app.view = View::Notes;
+    app.command(Action::NewNote);
+    app.key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
+    assert!(app
+        .form
+        .as_ref()
+        .unwrap()
+        .fields
+        .iter()
+        .any(|f| f.value.contains('d')));
+    assert!(!app
+        .effects
+        .iter()
+        .any(|(_, t)| matches!(t, Task::DeleteNote(..))));
+}
+
+#[test]
+fn empty_unreadable_and_stale_notes_report_a_reason_without_a_delete() {
+    for mode in ["empty", "readonly", "error", "stale"] {
+        let mut app = deletable_notes();
+        match mode {
+            "empty" => app.notes[0].notes.clear(),
+            "readonly" => app.notes[0].readable = false,
+            "error" => app.notes[0].error = Some("vault unavailable".into()),
+            _ => app.item = 99,
+        }
+        app.key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
+        assert!(app.form.is_none() && app.effects.is_empty(), "{mode}");
+        assert!(!app.status.is_empty(), "{mode}");
+    }
+}
+
+#[test]
+fn note_confirmation_bounds_the_preview_but_keeps_the_original_payload() {
+    let mut app = deletable_notes();
+    let full = "Длинная заметка\n".repeat(100_000);
+    app.notes[0].notes[1].text = full.clone();
+    app.notes[0].notes[1].raw = full.clone();
+    app.key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
+    let form = app.form.as_ref().unwrap();
+    assert!(form.title.chars().count() < 150 && !form.title.contains('\n'));
+    assert!(matches!(&form.kind,FormKind::Confirm(Task::DeleteNote(_,note)) if note.raw==full));
+}
+
+#[test]
+fn confirmed_note_deletion_clamps_selection_and_fences_even_newer_stale_reads() {
+    let mut app = deletable_notes();
+    let original = app.notes.clone();
+    let old_epoch = app.epoch;
+    app.key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
+    app.key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
+    app.apply(Response {
+        id: 5,
+        epoch: old_epoch,
+        resource: Resource::Action,
+        result: Ok(Data::Reply(Reply {
+            deleted: Some("- selected".into()),
+            ..Default::default()
+        })),
+    });
+    assert_eq!(app.notes[0].notes.len(), 1);
+    assert_eq!(app.notes[0].notes[0].source, "first.md");
+    assert_eq!(app.item, 0);
+    assert!(app.epoch > old_epoch);
+    assert!(app.status.contains("удалена"));
+    app.apply(Response {
+        id: 10,
+        epoch: old_epoch,
+        resource: Resource::Notes,
+        result: Ok(Data::Notes(original)),
+    });
+    assert_eq!(app.notes[0].notes.len(), 1);
+}
+
+#[test]
+fn rejected_or_unacknowledged_deletion_keeps_the_note_and_retry_context() {
+    for result in [
+        Err("HTTP 500: vault unavailable".into()),
+        Ok(Data::Reply(Reply::default())),
+    ] {
+        let mut app = deletable_notes();
+        app.key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
+        app.key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
+        app.apply(Response {
+            id: 1,
+            epoch: app.epoch,
+            resource: Resource::Action,
+            result,
+        });
+        assert_eq!(app.notes[0].notes.len(), 2);
+        assert!(
+            matches!(&app.form.as_ref().unwrap().kind,FormKind::Confirm(Task::DeleteNote(_,n)) if n.source=="selected.md")
+        );
+        assert!(app.console.text().contains("Удаление заметки"));
+    }
+}
+
+#[test]
+fn changing_note_slots_resets_the_note_cursor_before_d() {
+    let mut app = deletable_notes();
+    app.notes.push(SlotNotes {
+        name: "other".into(),
+        readable: true,
+        notes: vec![StoredNote {
+            text: "other note".into(),
+            raw: "other raw".into(),
+            source: "other.md".into(),
+            ..Default::default()
+        }],
+        ..Default::default()
+    });
+    app.key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+    assert_eq!((app.selected, app.item), (1, 0));
+    app.key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
+    assert!(
+        matches!(&app.form.as_ref().unwrap().kind,FormKind::Confirm(Task::DeleteNote(slot,n)) if slot=="other" && n.source=="other.md")
+    );
+}
+
+fn deletable_recordings() -> App {
+    let mut app = App::default();
+    app.focus = 1;
+    app.current = Some("opened".into());
+    app.sessions = vec![
+        Session {
+            name: "opened".into(),
+            title: Some("Opened title".into()),
+            ..Default::default()
+        },
+        Session {
+            name: "selected".into(),
+            title: Some("Selected title".into()),
+            ..Default::default()
+        },
+    ];
+    app.selected = 1;
+    app
+}
+
+#[test]
+fn d_and_palette_delete_the_selected_visible_record_not_the_open_document() {
+    for filtered in [false, true] {
+        let mut app = deletable_recordings();
+        if filtered {
+            app.archive_filter = "Selected".into();
+            app.selected = 0;
+        }
+        app.key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
+        assert!(
+            matches!(&app.form.as_ref().unwrap().kind,FormKind::Confirm(Task::DeleteSession(id)) if id=="selected")
+        );
+        assert!(app.form.as_ref().unwrap().title.contains("Selected title"));
+        assert_eq!(app.current.as_deref(), Some("opened"));
+        assert!(app.effects.is_empty());
+        app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        app.command(Action::DeleteSession);
+        assert!(
+            matches!(&app.form.as_ref().unwrap().kind,FormKind::Confirm(Task::DeleteSession(id)) if id=="selected")
+        );
+        app.selected = 0;
+        app.key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
+        assert!(matches!(app.effects.first(),Some((_,Task::DeleteSession(id))) if id=="selected"));
+    }
+    let mut app = deletable_recordings();
+    app.focus = 2;
+    app.key(KeyEvent::new(KeyCode::Delete, KeyModifiers::NONE));
+    assert!(
+        matches!(&app.form.as_ref().unwrap().kind,FormKind::Confirm(Task::DeleteSession(id)) if id=="opened")
+    );
+}
+
+#[test]
+fn d_is_text_while_the_archive_filter_is_being_edited() {
+    let mut app = deletable_recordings();
+    app.key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
+    app.key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
+    assert!(app.form.is_none());
+    assert_eq!(app.archive_filter, "d");
+    assert!(!app
+        .effects
+        .iter()
+        .any(|(_, task)| matches!(task, Task::DeleteSession(_))));
+}
+
+#[test]
+fn deleted_record_is_not_restored_by_a_later_stale_global_list_response() {
+    let mut app = deletable_recordings();
+    let before = app.sessions.clone();
+    let epoch = app.epoch;
+    app.key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
+    app.key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
+    app.apply(Response {
+        id: 5,
+        epoch,
+        resource: Resource::Action,
+        result: Ok(Data::Reply(Reply {
+            deleted: Some("selected".into()),
+            ..Default::default()
+        })),
+    });
+    assert_eq!(app.sessions.len(), 1);
+    assert_eq!(app.selected, 0);
+    assert_eq!(app.current.as_deref(), Some("opened"));
+    assert!(app.player_effects.is_empty());
+    app.apply(Response {
+        id: 10,
+        epoch,
+        resource: Resource::Sessions,
+        result: Ok(Data::Sessions(before)),
+    });
+    assert_eq!(app.sessions.len(), 1);
+    app.apply(Response {
+        id: 11,
+        epoch,
+        resource: Resource::Queue,
+        result: Ok(Data::Queue(vec![QueueItem {
+            session: "selected".into(),
+            state: "failed".into(),
+            last_error: Some("old failure".into()),
+            ..Default::default()
+        }])),
+    });
+    assert!(app.queue.is_empty());
+    assert!(app.console.entries.is_empty());
+    assert!(app.status.contains("удалена"));
+}
+
+#[test]
+fn missing_delete_record_acknowledgement_preserves_the_record_and_confirmation() {
+    let mut app = deletable_recordings();
+    app.key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
+    app.key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
+    app.apply(Response {
+        id: 1,
+        epoch: app.epoch,
+        resource: Resource::Action,
+        result: Ok(Data::Reply(Reply::default())),
+    });
+    assert_eq!(app.sessions.len(), 2);
+    assert!(app.form.is_some());
+    assert!(app.console.text().contains("не подтвердил"));
 }
 #[test]
 fn failed_poll_keeps_document_focus_and_draft() {

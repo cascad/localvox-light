@@ -61,6 +61,7 @@ impl App {
             Task::Retry(s) => ("Продолжение этапа", Some(s.clone())),
             Task::Cancel(s) => ("Отмена обработки", Some(s.clone())),
             Task::DeleteSession(s) => ("Удаление записи", Some(s.clone())),
+            Task::DeleteNote(..) => ("Удаление заметки", None),
             Task::Best(s, _) => ("Выбор версии", Some(s.clone())),
             Task::Lang(s, _) => ("Изменение языка", Some(s.clone())),
             Task::Speaker(s, ..) | Task::Source(s, ..) | Task::RenameParticipant(s, ..) => {

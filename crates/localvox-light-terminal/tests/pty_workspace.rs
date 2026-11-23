@@ -3,7 +3,7 @@ use localvox_light_terminal::app::{Action, COMMANDS};
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
-    Arc,
+    Arc, Mutex,
 };
 use std::{
     io::{Read, Write},
@@ -23,6 +23,8 @@ struct ApiFixture {
     recording: Arc<AtomicBool>,
     shutdowns: Arc<AtomicUsize>,
     settings_saves: Arc<AtomicUsize>,
+    deletion_mode: Arc<AtomicBool>,
+    deleted: Arc<Mutex<Vec<String>>>,
     thread: Option<std::thread::JoinHandle<()>>,
 }
 impl ApiFixture {
@@ -45,6 +47,10 @@ impl ApiFixture {
         let full_exits = shutdowns.clone();
         let settings_saves = Arc::new(AtomicUsize::new(0));
         let saved_settings = settings_saves.clone();
+        let deletion_mode = Arc::new(AtomicBool::new(false));
+        let deleting_fixture = deletion_mode.clone();
+        let deleted = Arc::new(Mutex::new(Vec::<String>::new()));
+        let removed = deleted.clone();
         let active = recording.clone();
         let preview = Arc::new(AtomicUsize::new(0));
         let progress = preview.clone();
@@ -102,7 +108,18 @@ impl ApiFixture {
                         );
                         continue;
                     }
-                    let body = if request.method().as_str() == "POST" {
+                    let body = if request.method().as_str() == "DELETE" {
+                        assert!(deleting_fixture.load(Ordering::Relaxed));
+                        let target = path.strip_prefix("/api/sessions/").unwrap();
+                        let mut body = String::new();
+                        request.as_reader().read_to_string(&mut body).unwrap();
+                        assert_eq!(
+                            serde_json::from_str::<serde_json::Value>(&body).unwrap(),
+                            serde_json::json!({"confirm":target})
+                        );
+                        removed.lock().unwrap().push(target.to_owned());
+                        serde_json::json!({"ok":true,"deleted":target})
+                    } else if request.method().as_str() == "POST" {
                         match path {
                             "/api/settings" => {
                                 let mut body = String::new();
@@ -151,6 +168,20 @@ impl ApiFixture {
                                         serde_json::json!((0..80).map(|n|serde_json::json!({"name":format!("page{n:02}"),"title":format!("Встреча {n:02}"),"cooked":true})).collect::<Vec<_>>())
                                     } else {
                                         let mut sessions = fixture["sessions"].clone();
+                                        if deleting_fixture.load(Ordering::Relaxed) {
+                                            let mut second = sessions[0].clone();
+                                            second["name"] = "second".into();
+                                            second["title"] = "Small recording".into();
+                                            second["recording"] = false.into();
+                                            sessions.as_array_mut().unwrap().push(second);
+                                        }
+                                        sessions.as_array_mut().unwrap().retain(|s| {
+                                            !removed
+                                                .lock()
+                                                .unwrap()
+                                                .iter()
+                                                .any(|id| Some(id.as_str()) == s["name"].as_str())
+                                        });
                                         if mode > 0 {
                                             sessions[0]["title"] = "Активная встреча".into();
                                             sessions[0]["job"] = match mode {
@@ -234,6 +265,8 @@ impl ApiFixture {
             recording,
             shutdowns,
             settings_saves,
+            deletion_mode,
+            deleted,
             thread: Some(thread),
         }
     }
@@ -322,6 +355,144 @@ fn wait_until(
 #[test]
 fn real_terminal_accepts_paste_resize_and_restores_screen_on_quit() {
     exercise_terminal(false, false);
+}
+
+#[test]
+fn record_deletion_from_list_confirms_the_pinned_target_and_stays_responsive() {
+    let api = ApiFixture::new();
+    api.deletion_mode.store(true, Ordering::Relaxed);
+    api.recording.store(false, Ordering::Relaxed);
+    let pair = native_pty_system()
+        .openpty(PtySize {
+            rows: 36,
+            cols: 120,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .unwrap();
+    let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_localvox-tui"));
+    command.args(["--address", &api.address, "--ascii", "--no-color"]);
+    command.env("LOCALVOX_API_TOKEN", "");
+    let mut child = OwnedChild(pair.slave.spawn_command(command).unwrap());
+    drop(pair.slave);
+    let mut reader = pair.master.try_clone_reader().unwrap();
+    let mut writer = pair.master.take_writer().unwrap();
+    let (tx, rx) = mpsc::sync_channel(32);
+    let output = std::thread::spawn(move || {
+        let mut bytes = [0; 8192];
+        while let Ok(n) = reader.read(&mut bytes) {
+            if n == 0 || tx.send(bytes[..n].to_vec()).is_err() {
+                break;
+            }
+        }
+    });
+    let mut all = vec![];
+    let mut screen = vt100::Parser::new(36, 120, 0);
+    let mut queries = 0;
+    let deadline = Instant::now() + Duration::from_secs(20);
+    wait_for(
+        "Архитектура и следующие шаги",
+        &mut all,
+        &mut screen,
+        &rx,
+        &mut writer,
+        &mut queries,
+        deadline,
+    );
+    writer.write_all(b"\tjd").unwrap();
+    writer.flush().unwrap();
+    wait_for(
+        "Удалить навсегда: Small recording",
+        &mut all,
+        &mut screen,
+        &rx,
+        &mut writer,
+        &mut queries,
+        deadline,
+    );
+    assert!(api.deleted.lock().unwrap().is_empty());
+    writer.write_all(b"\x1b").unwrap();
+    writer.flush().unwrap();
+    wait_until(
+        "cancelled deletion",
+        |_, s| !s.contents().contains("s подтвердить"),
+        &mut all,
+        &mut screen,
+        &rx,
+        &mut writer,
+        &mut queries,
+        deadline,
+    );
+    writer.write_all(b":").unwrap();
+    writer.flush().unwrap();
+    wait_for(
+        "Действия",
+        &mut all,
+        &mut screen,
+        &rx,
+        &mut writer,
+        &mut queries,
+        deadline,
+    );
+    let index = COMMANDS
+        .iter()
+        .position(|(action, _)| *action == Action::DeleteSession)
+        .unwrap();
+    writer.write_all("j".repeat(index).as_bytes()).unwrap();
+    writer.write_all(b"\r").unwrap();
+    writer.flush().unwrap();
+    wait_for(
+        "Удалить навсегда: Small recording",
+        &mut all,
+        &mut screen,
+        &rx,
+        &mut writer,
+        &mut queries,
+        deadline,
+    );
+    assert!(api.deleted.lock().unwrap().is_empty());
+    writer.write_all(b"ss").unwrap();
+    writer.flush().unwrap();
+    wait_for(
+        "Запись удалена",
+        &mut all,
+        &mut screen,
+        &rx,
+        &mut writer,
+        &mut queries,
+        deadline,
+    );
+    wait_until(
+        "selected recording removed",
+        |_, s| !s.contents().contains("Small recording"),
+        &mut all,
+        &mut screen,
+        &rx,
+        &mut writer,
+        &mut queries,
+        deadline,
+    );
+    assert_eq!(*api.deleted.lock().unwrap(), vec!["second"]);
+    assert!(screen
+        .screen()
+        .contents()
+        .contains("Архитектура и следующие шаги"));
+    writer.write_all(b"\x1b[21~").unwrap();
+    writer.flush().unwrap();
+    wait_for(
+        "\x1b[?1049l",
+        &mut all,
+        &mut screen,
+        &rx,
+        &mut writer,
+        &mut queries,
+        deadline,
+    );
+    assert!(child.0.wait().unwrap().success());
+    drop(writer);
+    drop(pair.master);
+    drop(rx);
+    output.join().unwrap();
 }
 
 #[test]

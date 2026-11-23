@@ -1,5 +1,17 @@
 # Покрытие требований и состояние реализации
 
+Контекстное удаление TUI, 2026-11-23:
+[ARCH-005 / NOTE-003 и новые ARCH-021 / NOTE-007 (delta)](../changes/fix-terminal-note-deletion/evidence/implementation.md).
+Выбор списка отделён от открытого документа; d/Delete → s, Esc отменяет,
+запоздалые чтения не восстанавливают удалённое. Windows TUI 238, I/O 3, ConPTY 10,
+HTTP workspace 24 и integrations 18 passed. Точное зависание при открытии удаления
+малой записи на Mac не воспроизведено; native Mac CI и приёмка владельца not-run.
+
+| Требование | Контракт и реализация | Проверка |
+|---|---|---|
+| ARCH-021 (delta) | [Спецификация](../changes/fix-terminal-note-deletion/specs/archive-playback/spec.md), [цель удаления](../../crates/localvox-light-terminal/src/app/commands.rs), [ответы](../../crates/localvox-light-terminal/src/app/responses.rs) | [State, delayed HTTP и настоящий ConPTY — test-run; Mac not-run](../changes/fix-terminal-note-deletion/evidence/implementation.md) |
+| NOTE-007 (delta) | [Спецификация](../changes/fix-terminal-note-deletion/specs/note-integrations/spec.md), [ввод](../../crates/localvox-light-terminal/src/app/input.rs), [ответы](../../crates/localvox-light-terminal/src/app/responses.rs) | [State и production HTTP с сохранением соседа — test-run](../changes/fix-terminal-note-deletion/evidence/implementation.md) |
+
 Mac модель / наблюдаемость / управление логами, 2026-11-23:
 [SETUP-002/008, PIPE-010/011, ARCH-020 (delta)](../changes/fix-recording-model-resolution-and-log-navigation/evidence/implementation.md).
 Координатор переведён на общий model resolver; queue DTO передаёт execution_id,

@@ -1,6 +1,15 @@
 //! Named user actions and the ordered palette. No I/O.
 use super::*;
 
+fn deletion_preview(value: &str, limit: usize) -> String {
+    let mut chars = value.chars();
+    let mut text: String = chars.by_ref().take(limit).collect();
+    if chars.next().is_some() {
+        text.push('…');
+    }
+    localvox_light_client::safe_label(&text)
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
     ImportUrl,
@@ -373,21 +382,71 @@ impl App {
                     .into(),
                 ))
             }
-            Action::DeleteSession if !s.is_empty() => self.confirm(
-                &format!("Удалить навсегда: {}", self.current_title()),
-                Task::DeleteSession(s),
-            ),
+            Action::DeleteSession => {
+                if self.view != View::Archive {
+                    self.status = "Откройте «Архив» и выберите запись".into();
+                    return;
+                }
+                if self.pending_actions.contains(&Resource::Action) {
+                    self.status = "Дождитесь завершения текущего действия".into();
+                    return;
+                }
+                let target = if self.focus == 1 {
+                    self.visible_sessions().get(self.selected).map(|session| {
+                        (
+                            session.name.clone(),
+                            session.title.as_deref().unwrap_or(&session.name).to_owned(),
+                        )
+                    })
+                } else {
+                    self.current
+                        .as_ref()
+                        .map(|name| (name.clone(), self.current_title()))
+                };
+                if let Some((target, title)) = target {
+                    self.confirm(
+                        &format!("Удалить навсегда: {}", deletion_preview(&title, 96)),
+                        Task::DeleteSession(target),
+                    );
+                } else {
+                    self.status = "Нет выбранной записи для удаления".into();
+                }
+            }
             Action::DeleteNote => {
+                if self.view != View::Notes {
+                    self.status = "Откройте раздел «Заметки» и выберите заметку".into();
+                    return;
+                }
+                if self.pending_actions.contains(&Resource::Action) {
+                    self.status = "Дождитесь завершения текущего действия".into();
+                    return;
+                }
+                if self
+                    .notes
+                    .get(self.selected)
+                    .is_some_and(|slot| !slot.readable || slot.error.is_some())
+                {
+                    self.status = "Слот недоступен для удаления заметок · ~ консоль".into();
+                    return;
+                }
                 let note = self.notes.get(self.selected).and_then(|slot| {
                     slot.notes
                         .get(self.item)
                         .map(|note| (slot.name.clone(), note.clone()))
                 });
                 if let Some((slot, n)) = note {
+                    self.focus = 2;
+                    self.follow_selection = true;
                     self.confirm(
-                        &format!("Удалить заметку: {}", safe_text(&n.text)),
+                        &format!(
+                            "Удалить заметку · {} · {}",
+                            deletion_preview(&slot, 32),
+                            deletion_preview(&n.text, 80)
+                        ),
                         Task::DeleteNote(slot, n),
                     );
+                } else {
+                    self.status = "Нет выбранной заметки для удаления".into();
                 }
             }
             Action::DeleteAsk => {
@@ -658,7 +717,6 @@ impl App {
             | Action::RecookText
             | Action::RecookAll
             | Action::ConfirmDocument
-            | Action::DeleteSession
             | Action::DiscardSettings => self.status = "Сначала выберите запись или элемент".into(),
         }
     }

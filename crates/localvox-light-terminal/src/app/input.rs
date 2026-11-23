@@ -339,8 +339,22 @@ impl App {
                 other => other,
             };
         }
+        let previous_notes_slot = (self.view == View::Notes).then_some(self.selected);
         match key.code {
             KeyCode::F(6) => self.focus = if self.focus == 3 { 2 } else { 3 },
+            KeyCode::Char('d') | KeyCode::Delete
+                if matches!(self.view, View::Archive | View::Notes)
+                    && matches!(self.focus, 1 | 2)
+                    && !key
+                        .modifiers
+                        .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+            {
+                self.command(if self.view == View::Archive {
+                    Action::DeleteSession
+                } else {
+                    Action::DeleteNote
+                })
+            }
             KeyCode::Left if self.focus == 3 => {
                 self.nudge(if key.modifiers.contains(KeyModifiers::ALT) {
                     -15.0
@@ -534,6 +548,12 @@ impl App {
             KeyCode::Enter => self.enter(),
             KeyCode::Esc => self.back(),
             _ => {}
+        }
+        if self.view == View::Notes && previous_notes_slot.is_some_and(|slot| slot != self.selected)
+        {
+            self.item = 0;
+            self.scroll = 0;
+            self.follow_selection = true;
         }
     }
 }

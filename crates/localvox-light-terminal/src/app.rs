@@ -192,6 +192,8 @@ pub struct App {
     pub peaks_loaded: bool,
     pub peaks_retry_at: u64,
     pub last_request: HashMap<Resource, u64>,
+    /// Global polls also need to reject reads begun before a committed mutation.
+    pub read_after_mutation: HashMap<Resource, u64>,
     pub effects: Vec<(Resource, Task)>,
 }
 impl Default for App {
@@ -283,6 +285,7 @@ impl Default for App {
             peaks_loaded: false,
             peaks_retry_at: 0,
             last_request: HashMap::new(),
+            read_after_mutation: HashMap::new(),
             effects: vec![],
         }
     }

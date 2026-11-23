@@ -1131,6 +1131,8 @@ fn context(f: &mut Frame, a: &App, area: Rect, t: Theme) {
     if a.view != View::Archive || a.tab != Tab::Progress || !a.metadata_open {
         let hints = if a.view == View::Settings {
             "Enter изменить\ns сохранить\nA основные / все\n/ найти настройку\n\n~ консоль ошибок"
+        } else if a.view == View::Notes {
+            "Enter открыть заметки\nj/k выбор\nd / Delete удалить\ns подтвердить\nn новая заметка\ny копировать заметку\nEsc назад\n\n~ консоль ошибок\n: все действия"
         } else if a.view == View::Archive && a.tab == Tab::Summary {
             "y копировать блок сводки\nCtrl+Y вся сводка\n3 весь текст\nI сведения о записи\nEsc назад к списку\n\nSpace play / pause\np слушать источник\ng перейти ко времени\nF6 стрелки плееру\n\n~ консоль ошибок\n: все действия"
         } else if a.view == View::Archive && a.tab == Tab::Transcript {

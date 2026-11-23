@@ -50,6 +50,13 @@ impl App {
         self.update_shutdown_status();
     }
     fn apply_response(&mut self, r: Response) {
+        if self
+            .read_after_mutation
+            .get(&r.resource)
+            .is_some_and(|epoch| r.epoch < *epoch)
+        {
+            return;
+        }
         let global = matches!(
             r.resource,
             Resource::Sessions
@@ -469,7 +476,58 @@ impl App {
                     self.status = "Слоты предложены; выберите назначение в форме".into();
                 }
             }
-            Data::Reply(r) => {
+            Data::Reply(mut r) => {
+                if let Some(Form {
+                    kind: FormKind::Confirm(Task::DeleteSession(target)),
+                    ..
+                }) = completed_form.as_ref()
+                {
+                    if r.deleted.as_ref() != Some(target) {
+                        let reason = "Сервер не подтвердил удаление выбранной записи";
+                        self.console.record(
+                            crate::diagnostics::Context {
+                                source: "API".into(),
+                                operation: "Удаление записи".into(),
+                                session: Some(target.clone()),
+                                ..Default::default()
+                            },
+                            reason,
+                            self.wall_ms,
+                        );
+                        self.status = format!("{reason} · ~ консоль");
+                        if let Some(form) = completed_form.clone() {
+                            self.pending_forms.insert(response_resource, form);
+                            self.restore_failed_form(response_resource);
+                        }
+                        self.refresh();
+                        return;
+                    }
+                }
+                if let Some(Form {
+                    kind: FormKind::Confirm(Task::DeleteNote(_, note)),
+                    ..
+                }) = completed_form.as_ref()
+                {
+                    if r.deleted.as_ref() != Some(&note.raw) {
+                        let reason = "Сервер не подтвердил удаление выбранной заметки";
+                        self.console.record(
+                            crate::diagnostics::Context {
+                                source: "API".into(),
+                                operation: "Удаление заметки".into(),
+                                ..Default::default()
+                            },
+                            reason,
+                            self.wall_ms,
+                        );
+                        self.status = format!("{reason} · ~ консоль");
+                        if let Some(form) = completed_form.clone() {
+                            self.pending_forms.insert(response_resource, form);
+                            self.restore_failed_form(response_resource);
+                        }
+                        self.refresh();
+                        return;
+                    }
+                }
                 if response_resource == Resource::Action
                     && self.pending_retry.take() == Some(self.epoch)
                     && action_context == Some(self.epoch)
@@ -495,7 +553,29 @@ impl App {
                     match task {
                         Task::DeleteSession(target) if r.deleted.as_ref() == Some(target) => {
                             self.last_request.insert(Resource::Sessions, response_id);
+                            let selected = self
+                                .visible_sessions()
+                                .get(self.selected)
+                                .map(|session| session.name.clone());
                             self.sessions.retain(|s| &s.name != target);
+                            self.epoch += 1;
+                            for resource in [Resource::Sessions, Resource::Queue, Resource::Jobs] {
+                                self.read_after_mutation.insert(resource, self.epoch);
+                            }
+                            self.queue.retain(|job| &job.session != target);
+                            if self.view == View::Archive {
+                                self.selected = selected
+                                    .as_ref()
+                                    .and_then(|name| {
+                                        self.visible_sessions()
+                                            .iter()
+                                            .position(|session| &session.name == name)
+                                    })
+                                    .unwrap_or_else(|| {
+                                        self.selected
+                                            .min(self.visible_sessions().len().saturating_sub(1))
+                                    });
+                            }
                             if self.current.as_ref() == Some(target) {
                                 self.current = None;
                                 self.summary = Summary::default();
@@ -507,15 +587,15 @@ impl App {
                                 self.progress = Progress::default();
                                 self.journal = crate::journal::Journal::new();
                                 self.peaks = Peaks::default();
-                                self.epoch += 1;
                                 self.player_effects
                                     .push(crate::player::PlaybackCommand::Stop);
                                 if self.view == View::Archive {
-                                    if let Some(next) = self.sessions.first() {
+                                    if let Some(next) = self.visible_sessions().get(self.selected) {
                                         self.select_session(next.name.clone());
                                     }
                                 }
                             }
+                            r.msg = Some("Запись удалена".into());
                         }
                         Task::DeleteAsk(target) if r.deleted.as_ref() == Some(target) => {
                             self.last_request.insert(Resource::Asks, response_id);
@@ -537,6 +617,13 @@ impl App {
                                     slot.notes.remove(index);
                                 }
                             }
+                            if self.view == View::Notes {
+                                self.item = self.item.min(self.selection_len().saturating_sub(1));
+                                self.follow_selection = true;
+                                self.epoch += 1;
+                                self.read_after_mutation.insert(Resource::Notes, self.epoch);
+                            }
+                            r.msg = Some("Заметка удалена".into());
                         }
                         _ => {}
                     }
