@@ -58,6 +58,10 @@ impl Preview {
     }
 
     fn terminal(scenario: &str, cols: u16, unicode: bool) -> Self {
+        Self::terminal_chunks(scenario, cols, unicode, 8192)
+    }
+
+    fn terminal_chunks(scenario: &str, cols: u16, unicode: bool, chunk_size: usize) -> Self {
         let sandbox = tempfile::tempdir().unwrap();
         // A broken private config must not be loaded by the visual simulator.
         std::fs::write(sandbox.path().join(".env"), b"PRIVATE_TOKEN='broken\n").unwrap();
@@ -102,8 +106,13 @@ impl Preview {
         std::thread::spawn(move || {
             let mut buffer = [0; 8192];
             while let Ok(n) = reader.read(&mut buffer) {
-                if n == 0 || tx.send(buffer[..n].to_vec()).is_err() {
+                if n == 0 {
                     break;
+                }
+                for bytes in buffer[..n].chunks(chunk_size) {
+                    if tx.send(bytes.to_vec()).is_err() {
+                        return;
+                    }
                 }
             }
         });
@@ -381,61 +390,61 @@ fn esc_ctrl_c_and_decline_restore_cursor_and_leave_no_changes() {
 
 #[test]
 fn review_back_preserves_custom_choices_across_profile_changes() {
-    let mut demo = Preview::new("fresh", 110);
-    demo.wait("Выбрать компоненты");
-    demo.send(DOWN);
-    demo.send(ENTER);
-    demo.wait("Дополнительно проверять имена");
-    // Remove Summary, then return all the way to Profile.
-    demo.send(DOWN);
-    demo.send(b" ");
-    demo.send(ENTER);
-    demo.active("Куда установить?");
-    demo.back();
-    demo.active("Компоненты");
-    demo.send(ENTER); // Keep the previously confirmed checkboxes.
-    demo.active("Куда установить?");
-    demo.send(ENTER);
-    demo.active("Показать демоустановку?");
-    assert!(!demo
-        .parser
-        .screen()
-        .contents()
-        .contains("✓ Готовить сводки"));
-    demo.send(DOWN);
-    demo.send(ENTER); // Explicit Back in Review.
-    demo.active("Куда установить?");
-    demo.back();
-    demo.active("Компоненты");
-    demo.back();
-    demo.active("Как установить LocalVox?");
-    // Switch to recommended, verify its full set, then return to custom.
-    demo.send(b"\x1b[A");
-    demo.send(ENTER);
-    demo.active("Показать демоустановку?");
-    assert!(demo
-        .parser
-        .screen()
-        .contents()
-        .contains("✓ Готовить сводки"));
-    demo.send(DOWN);
-    demo.send(ENTER);
-    demo.active("Как установить LocalVox?");
-    demo.send(DOWN);
-    demo.send(ENTER);
-    demo.active("Компоненты");
-    demo.send(ENTER);
-    demo.active("Куда установить?");
-    demo.send(ENTER);
-    demo.active("Показать демоустановку?");
-    assert!(!demo
-        .parser
-        .screen()
-        .contents()
-        .contains("✓ Готовить сводки"));
-    demo.capture("back-review");
-    demo.send(ENTER);
-    demo.finish("Демо завершено");
+    for chunk_size in [8192, 1] {
+        let mut demo = Preview::terminal_chunks("fresh", 110, true, chunk_size);
+        demo.wait("Выбрать компоненты");
+        demo.send(DOWN);
+        demo.send(ENTER);
+        demo.wait("Дополнительно проверять имена");
+        // Remove Summary, then return all the way to Profile.
+        demo.send(DOWN);
+        demo.send(b" ");
+        demo.send(ENTER);
+        demo.active("Куда установить?");
+        demo.back();
+        demo.active("Компоненты");
+        demo.send(ENTER); // Keep the previously confirmed checkboxes.
+        demo.active("Куда установить?");
+        demo.send(ENTER);
+        demo.active("Показать демоустановку?");
+        assert!(!demo
+            .parser
+            .screen()
+            .contents()
+            .contains("✓ Готовить сводки"));
+        demo.send(DOWN);
+        demo.send(ENTER); // Explicit Back in Review.
+        demo.active("Куда установить?");
+        demo.back();
+        demo.active("Компоненты");
+        demo.back();
+        demo.active("Как установить LocalVox?");
+        // Switch to recommended, verify its full set, then return to custom.
+        demo.send(b"\x1b[A");
+        demo.send(ENTER);
+        demo.active("Показать демоустановку?");
+        // A PTY transports bytes, not frames: the active heading may arrive before
+        // the review value. Keep the same bounded wait and fail with the final screen.
+        demo.wait("✓ Готовить сводки");
+        demo.send(DOWN);
+        demo.send(ENTER);
+        demo.active("Как установить LocalVox?");
+        demo.send(DOWN);
+        demo.send(ENTER);
+        demo.active("Компоненты");
+        demo.send(ENTER);
+        demo.active("Куда установить?");
+        demo.send(ENTER);
+        demo.active("Показать демоустановку?");
+        assert!(!demo
+            .parser
+            .screen()
+            .contents()
+            .contains("✓ Готовить сводки"));
+        demo.capture("back-review");
+        demo.send(ENTER);
+        demo.finish("Демо завершено");
+    }
 }
 
 #[test]
