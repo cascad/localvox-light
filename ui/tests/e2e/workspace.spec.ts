@@ -654,14 +654,16 @@ test("slow document refresh is serialized and coalesced without hiding the first
   expect(calls).toBe(2);
 });
 
-test("the final document refresh survives processing finishing during a slow read", async ({ page }) => {
+test("the final document refresh survives a slow read and keeps idle polling serialized", async ({ page }) => {
   await workspace(page);
-  let calls = 0; let release!: () => void;
+  let calls = 0; let release!: () => void; let releaseIdle!: () => void;
   const gate = new Promise<void>(resolve => { release = resolve; });
+  const idleGate = new Promise<void>(resolve => { releaseIdle = resolve; });
   await page.route("**/processed", async route => {
     const call = ++calls;
     if (call === 1) await gate;
-    await route.fulfill({ json: { ...fixture.readable, from_transcript: true, lines: [{ text: call === 1 ? "Первый снимок" : "Итоговый документ", who: "Голос", start_sec: 0, end_sec: 1 }] } });
+    if (call >= 3) await idleGate;
+    await route.fulfill({ json: { ...fixture.readable, from_transcript: true, lines: [{ text: call === 1 ? "Первый снимок" : call === 2 ? "Итоговый документ" : "Обновлённый итоговый документ", who: "Голос", start_sec: 0, end_sec: 1 }] } });
   });
   await page.getByRole("button", { name: "Текст", exact: true }).click();
   await expect.poll(() => calls).toBe(1);
@@ -671,8 +673,13 @@ test("the final document refresh survives processing finishing during a slow rea
   expect(calls).toBe(1);
   release();
   await expect(page.getByText("Итоговый документ", { exact: true })).toBeVisible();
+  await page.clock.runFor(3100);
+  await expect.poll(() => calls).toBe(3);
   await page.clock.runFor(6100);
-  expect(calls).toBe(2);
+  expect(calls).toBe(3); // An idle slow read also coalesces subsequent polling ticks.
+  await expect(page.getByText("Итоговый документ", { exact: true })).toBeVisible();
+  releaseIdle();
+  await expect(page.getByText("Обновлённый итоговый документ", { exact: true })).toBeVisible();
 });
 
 test("document errors recover on the next refresh without switching tabs", async ({ page }) => {
@@ -1049,6 +1056,46 @@ test("search modes encode the Unicode query and grounded chat opens its source",
   await page.getByRole("button", { name: /Источник решения/ }).click();
   await expect(page.getByRole("button", { name: "Реплики", exact: true })).toHaveAttribute("aria-selected", "true");
 });
+
+for (const rejected of [false, true]) {
+  test(`stop during a delayed ${rejected ? "rejected" : "accepted"} start waits for its write acknowledgement`, async ({ page }) => {
+    await workspace(page);
+    let releaseStart!: () => void;
+    const startGate = new Promise<void>(resolve => { releaseStart = resolve; });
+    let active = false;
+    const applied: string[] = [];
+    await page.evaluate(() => {
+      const sent: string[] = [];
+      Object.assign(window, { recordWrites: sent });
+      const fetch = window.fetch;
+      window.fetch = (input, init) => {
+        const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+        if (init?.method === "POST" && /\/api\/record\/(start|stop)$/.test(url)) sent.push(url.split("/").at(-1)!);
+        return fetch(input, init);
+      };
+    });
+    await page.route("**/api/record**", async route => {
+      if (route.request().method() === "POST") {
+        const command = new URL(route.request().url()).pathname.split("/").at(-1)!;
+        if (command === "start") await startGate;
+        if (command === "start" && rejected) return route.fulfill({ status: 503, json: { error: "start rejected by fixture" } });
+        active = command === "start";
+        applied.push(command);
+        return route.fulfill({ json: { msg: "Принято", session: "20261031_demo" } });
+      }
+      return route.fulfill({ json: { ...fixture.record, recording: active, session: active ? "20261031_demo" : null } });
+    });
+    await page.getByRole("button", { name: "Запись", exact: true }).click();
+    await expect(page.getByText("запись включается…", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Остановить", exact: true }).click();
+    try {
+      await expect(page.getByRole("button", { name: "останавливаю…", exact: true })).toBeDisabled();
+      expect(await page.evaluate(() => (window as unknown as { recordWrites: string[] }).recordWrites)).toEqual(["start"]);
+    } finally { releaseStart(); }
+    await expect.poll(() => applied).toEqual(rejected ? ["stop"] : ["start", "stop"]);
+    await expect(page.getByRole("button", { name: "Запись", exact: true })).toBeVisible();
+  });
+}
 
 test("recorder keeps stop available before confirmation and imports open their accepted session", async ({ page }) => {
   await workspace(page);

@@ -48,6 +48,15 @@ export function RecordBar({
   const [now, setNow] = useState(() => Date.now());
   const [pending, setPending] = useState<"start" | "stop" | null>(null);
   const command = useRef(0);
+  const writes = useRef<Promise<void>>(Promise.resolve());
+
+  // A stop may supersede confirmation of a start, but must reach the daemon after
+  // that start's write. Otherwise a delayed POST can turn capture back on after stop.
+  const write = <T,>(send: () => Promise<T>): Promise<T> => {
+    const next = writes.current.then(send);
+    writes.current = next.then(() => undefined, () => undefined);
+    return next;
+  };
 
   const recording = state?.recording ?? false;
 
@@ -82,13 +91,14 @@ export function RecordBar({
     const generation = ++command.current;
     setPending("start");
     try {
-      await api.startRecording(title.trim());
+      await write(() => api.startRecording(title.trim()));
     } catch (e) {
       if (generation !== command.current) return;
       setPending(null);
       say((e as Error).message);
       return;
     }
+    if (generation !== command.current) return;
     const ok = await confirm(true, generation);
     if (generation !== command.current) return;
     setPending(null);
@@ -105,7 +115,7 @@ export function RecordBar({
     setPending("stop");
     let name = "";
     try {
-      name = (await api.stopRecording()).session;
+      name = (await write(() => api.stopRecording())).session;
     } catch (e) {
       if (generation !== command.current) return;
       setPending(null);
