@@ -163,3 +163,44 @@ Development-only StrictMode не потерян: отдельный `npm run tes
 
 Локально: production **87 passed**, StrictMode dev **6 passed**, эталоны не
 менялись. В коде поставляемого приложения изменений нет; v0.2.11 не перемещается.
+
+## 2026-11-24 · проверка доставки до сборок
+
+Hosted `Build binaries` на 81ab88b: [45351118021](https://github.com/cascad/localvox-light/actions/runs/45351118021)
+success; `Interface contracts` [45351118334](https://github.com/cascad/localvox-light/actions/runs/45351118334)
+success. Вторая попытка tag-run v0.2.11
+[45345786423](https://github.com/cascad/localvox-light/actions/runs/45345786423)
+прошла все пять native сборок, model sources и release interface; publisher job
+138309000451 получил HTTP 403 при POST `/releases`. В начале его лога
+`GITHUB_TOKEN Contents: write` уже присутствует: отсутствие этой YAML-настройки
+не является причиной. Старый publisher передавал `--target 2090d806...`, тогда как
+main уже содержал изменение workflow. Ограничение workflow permission при создании
+релиза для такого commit описано в [GitHub REST](https://docs.github.com/en/rest/releases/releases#create-a-release).
+Это объяснение API-отказа проверяется новым hosted write-preflight, а не выдаётся
+за локально доказанное разрешение реального Actions token.
+
+[Publisher](../../../../scripts/publish-release.py) проверяет существующий remote
+tag/commit, создаёт скрытый draft без `target_commitish`, проверяет write при
+повторе, полный набор 14 assets и их local/remote SHA-256/размеры до публикации.
+Draft ищется через authenticated list: endpoint by-tag документирован для
+публичных релизов. Нельзя менять опубликованный релиз или чужой draft.
+Recovery проверяет завершённый исходный run того же commit, все native/interface
+gates и доступные артефакты; bootstrap scripts также берутся из commit сборки.
+
+Локально выполнено без Rust/model/browser нагрузок:
+
+- `test_publication_delivery.py`: **17 passed**, реальные HTTP запросы к локальному
+  серверу и CLI subprocess: 403 create/upload, неверный/отсутствующий/annotated tag,
+  скрытый draft и write повторного token, ошибочные/незавершённые gates и чужой
+  commit, expired artifacts, частичная загрузка, повреждённый local/remote digest,
+  чужие assets и запрет утечки token в другой upload host. Workflow regression
+  проверяет зависимости build/model/interface от раннего gate.
+- `test_release_delivery.py`: **23 tests, 10 skipped** (явные native fixtures
+  здесь не запускались); сборка release-assets исполнена в отдельном git fixture,
+  installer scripts берутся из зафиксированного commit, traces исключены.
+- `test_ci_delivery.py`: **5 tests, 1 skipped**; native archive здесь не задан.
+- Workflow прошёл `actionlint 1.7.12` (официальный Windows archive с проверенным
+  SHA-256), YAML parse и diff check. Веса/устройства/пользовательский архив не затронуты.
+
+Hosted запуск нового publisher и публичная доступность v0.2.11 на момент этой
+записи ещё не проверены; 3.3 остаётся открытой до фактического результата.

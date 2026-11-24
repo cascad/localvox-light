@@ -38,6 +38,18 @@ Incremental offer при Stop может promote Failed с обнулением 
 
 ## Risks / Trade-offs
 
+Доставка v0.2.11: успешные native/interface jobs не доказывают право GitHub Token
+создать Release. До сборок отдельный gate выполняет локальные HTTP контракты и
+реально создаёт скрытый draft для существующего remote tag, сверенного с commit.
+`target_commitish` не передаётся: tag уже существует, создавать/двигать его нельзя.
+Повтор проверяет принадлежность draft и делает PATCH, чтобы проверить write текущего
+токена. Публичный релиз не изменяется. После сборок publisher сверяет полный набор
+архивов/checksum/installers, загружает в draft и проверяет remote digest/size до
+публикации. При сбое draft остаётся скрытым. Ручной recovery принимает только
+завершённый Build binaries того же commit со всеми успешными native/interface gates
+и доступными артефактами; installer scripts также берутся из этого commit.
+Это исправление инструментов доставки, пользовательский контракт не меняется.
+
 Потеря работы при retry → production HTTP тесты сохранения предыдущих файлов.
 Перезапуск/Stop снимают предел → durable queue + coordinator fixture/reload tests.
 Фальшивый success → API/оба клиента проверяют skipped и reason, browser/PTY регресс.

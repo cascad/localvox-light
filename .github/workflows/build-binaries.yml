@@ -16,6 +16,11 @@ on:
         type: string
         required: false
         default: ""
+      artifact_run_id:
+        description: "Повторить только публикацию из проверенного запуска (ID; без пересборки)"
+        type: string
+        required: false
+        default: ""
   push:
     branches: ["**"]
     tags: ["v*"]
@@ -57,6 +62,8 @@ on:
       - "scripts/check-release-install.py"
       - "scripts/tests/test_ci_delivery.py"
       - "scripts/tests/test_release_delivery.py"
+      - "scripts/publish-release.py"
+      - "scripts/tests/test_publication_delivery.py"
       - "docs/release-installation.md"
       - "docs/terminal-workspace.md"
 
@@ -68,7 +75,44 @@ permissions:
   contents: read
 
 jobs:
+  release-preflight:
+    name: Release delivery preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      actions: read
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      sha: ${{ steps.release.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: Publication contracts (local HTTP; no builds)
+        run: python -m unittest discover -s scripts/tests -p test_publication_delivery.py -v
+      - name: Verify the tag and actual GitHub release write access before builds
+        id: release
+        if: ${{ startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.publish_release) }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED_TAG: ${{ inputs.release_tag }}
+          SOURCE_RUN: ${{ inputs.artifact_run_id }}
+        run: |
+          set -euo pipefail
+          tag="$REQUESTED_TAG"
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then tag="$GITHUB_REF_NAME"; fi
+          args=(--sha "$GITHUB_SHA")
+          if [ -n "$SOURCE_RUN" ]; then args=(--source-run "$SOURCE_RUN"); fi
+          python scripts/publish-release.py preflight --tag "$tag" "${args[@]}"
+      - name: Reject artifact reuse without publication
+        if: ${{ inputs.artifact_run_id != '' && !inputs.publish_release }}
+        run: exit 1
+
   model-sources:
+    needs: release-preflight
+    if: ${{ inputs.artifact_run_id == '' }}
     name: Public model download sources
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -85,7 +129,8 @@ jobs:
         run: python scripts/check-model-sources.py
 
   build:
-    needs: model-sources
+    needs: [release-preflight, model-sources]
+    if: ${{ inputs.artifact_run_id == '' }}
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
     strategy:
@@ -318,16 +363,18 @@ jobs:
 
   interface:
     name: Release interface checks
-    if: ${{ startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish_release == 'true' && github.event.inputs.release_tag != '') }}
+    needs: release-preflight
+    if: ${{ inputs.artifact_run_id == '' && (startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.publish_release && inputs.release_tag != '')) }}
     uses: ./.github/workflows/interface-tests.yml
 
   release:
     name: Publish GitHub Release
-    needs: [build, interface]
-    if: ${{ needs.build.result == 'success' && needs.interface.result == 'success' && (startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish_release == 'true' && github.event.inputs.release_tag != '')) }}
+    needs: [release-preflight, build, interface]
+    if: ${{ !cancelled() && needs.release-preflight.result == 'success' && ((needs.build.result == 'success' && needs.interface.result == 'success') || (inputs.publish_release && inputs.artifact_run_id != '' && needs.build.result == 'skipped' && needs.interface.result == 'skipped')) && (startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.publish_release && inputs.release_tag != '')) }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: read
     steps:
       - uses: actions/checkout@v6
         with:
@@ -338,43 +385,30 @@ jobs:
         with:
           pattern: localvox-*
           path: dist
+          run-id: ${{ inputs.artifact_run_id || github.run_id }}
+          github-token: ${{ github.token }}
 
       - name: Собрать вложения релиза
+        env:
+          RELEASE_SHA: ${{ needs.release-preflight.outputs.sha }}
         run: |
           set -euo pipefail
           mkdir -p release-assets
           find dist -type f \( -name 'localvox-*.zip' -o -name 'localvox-*.tar.gz' -o -name 'localvox-*.sha256' \) -exec cp {} release-assets/ \;
-          cp scripts/install.ps1 scripts/install.sh scripts/install-release.ps1 scripts/install-release.sh release-assets/
+          for script in install.ps1 install.sh install-release.ps1 install-release.sh; do
+            git show "$RELEASE_SHA:scripts/$script" > "release-assets/$script"
+          done
           ls -la release-assets/
           test "$(ls -1 release-assets | wc -l)" -gt 0
 
-      - name: Set release tag name
-        id: tag
+      - name: Verify assets and publish the staged release
         env:
-          REQUESTED_TAG: ${{ inputs.release_tag }}
-        run: |
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            echo "name=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
-          else
-            [[ "$REQUESTED_TAG" =~ ^v[0-9][A-Za-z0-9._-]*$ ]] || { echo "Invalid release tag" >&2; exit 1; }
-            echo "name=$REQUESTED_TAG" >> "$GITHUB_OUTPUT"
-          fi
-
-      # Вместо softprops/action-gh-release (в его action.yml всё ещё node20 — снова предупреждение в логе).
-      - name: Create GitHub Release (gh)
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ steps.tag.outputs.name }}
-          RELEASE_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.release-preflight.outputs.tag }}
+          RELEASE_SHA: ${{ needs.release-preflight.outputs.sha }}
+          SOURCE_RUN: ${{ inputs.artifact_run_id }}
         run: |
           set -euo pipefail
-          shopt -s nullglob
-          assets=(release-assets/*)
-          if [ ${#assets[@]} -eq 0 ]; then
-            echo "No files in release-assets/" >&2
-            exit 1
-          fi
-          if git rev-parse --verify "refs/tags/$TAG" >/dev/null 2>&1; then
-            test "$(git rev-list -n 1 "$TAG")" = "$RELEASE_SHA" || { echo "Tag does not match the built commit" >&2; exit 1; }
-          fi
-          gh release create "$TAG" "${assets[@]}" --target "$RELEASE_SHA" --title "$TAG" --generate-notes
+          args=(--sha "$RELEASE_SHA")
+          if [ -n "$SOURCE_RUN" ]; then args+=(--source-run "$SOURCE_RUN"); fi
+          python scripts/publish-release.py publish --tag "$TAG" --assets release-assets "${args[@]}"

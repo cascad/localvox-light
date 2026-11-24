@@ -43,7 +43,7 @@ class PackageContracts(unittest.TestCase):
     @unittest.skipUnless(BASH and Path(BASH).is_file(), 'Bash release assembly')
     def test_publication_keeps_browser_traces_out_of_product_assets(self):
         workflow = (ROOT / '.github/workflows/build-binaries.yml').read_text(encoding='utf-8')
-        block = re.search(r'      - name: Собрать вложения релиза\n        run: \|\n((?:          [^\n]*\n|\n)+)', workflow)
+        block = re.search(r'      - name: Собрать вложения релиза\n(?:        env:\n(?:          [^\n]*\n)+)?        run: \|\n((?:          [^\n]*\n|\n)+)', workflow)
         self.assertIsNotNone(block)
         expected = set()
         for target, extension in ((WINDOWS, '.zip'), ('x86_64-unknown-linux-gnu', '.tar.gz'),
@@ -62,8 +62,15 @@ class PackageContracts(unittest.TestCase):
         for name in ('install.ps1', 'install.sh', 'install-release.ps1', 'install-release.sh'):
             (self.root / 'scripts' / name).write_bytes((ROOT / 'scripts' / name).read_bytes())
             expected.add(name)
+        # Recovery must take installer scripts from the built tag commit,
+        # rather than silently mixing a new checkout into old native archives.
+        subprocess.run(['git', 'init', '-q'], cwd=self.root, check=True, capture_output=True)
+        subprocess.run(['git', 'add', 'scripts'], cwd=self.root, check=True, capture_output=True)
+        subprocess.run(['git', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+                        'commit', '-qm', 'release fixture'], cwd=self.root, check=True, capture_output=True)
+        environment = dict(os.environ, RELEASE_SHA='HEAD')
         result = subprocess.run([BASH, '-c', textwrap.dedent(block[1])], cwd=self.root,
-                                capture_output=True, timeout=30)
+                                env=environment, capture_output=True, timeout=30)
         self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
         self.assertEqual({p.name for p in (self.root / 'release-assets').iterdir()}, expected)
         self.assertTrue((traces / 'trace.zip').is_file(), 'diagnostics must remain available in Actions')
