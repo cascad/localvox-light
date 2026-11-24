@@ -34,6 +34,23 @@ pub enum Resource {
     Shutdown,
     Route,
 }
+impl Resource {
+    /// Global requests retain their generation for mutation fences, but changing
+    /// the selected document must not cancel these reads or committed commands.
+    pub fn is_global(self) -> bool {
+        matches!(
+            self,
+            Self::Sessions
+                | Self::Record
+                | Self::Jobs
+                | Self::Queue
+                | Self::Action
+                | Self::Control
+                | Self::Shutdown
+                | Self::Route
+        )
+    }
+}
 pub fn action_resource(task: &Task) -> Resource {
     match task {
         Task::Start(_) | Task::Stop => Resource::Control,
@@ -154,7 +171,10 @@ impl Io {
                 .name(format!("terminal-http-{index}"))
                 .spawn(move || {
                     while let Ok(w) = requests.recv() {
-                        let result = if w.epoch != 0 && w.epoch != epoch.load(Ordering::Relaxed) {
+                        let result = if !w.resource.is_global()
+                            && w.epoch != 0
+                            && w.epoch != epoch.load(Ordering::Relaxed)
+                        {
                             Err("Контекст запроса изменился".into())
                         } else {
                             perform(&client, w.task).map_err(|e| format!("{e:#}"))
@@ -187,12 +207,13 @@ impl Io {
     }
     pub fn submit(&mut self, epoch: u64, resource: Resource, task: Task) -> bool {
         if epoch != 0 {
-            if epoch < self.epoch.load(Ordering::Relaxed) {
+            if !resource.is_global() && epoch < self.epoch.load(Ordering::Relaxed) {
                 return false;
             }
             self.set_epoch(epoch);
         }
         if self.pending.contains(&(resource, epoch))
+            || (resource.is_global() && self.pending.iter().any(|(r, _)| *r == resource))
             || (!matches!(
                 resource,
                 Resource::Record | Resource::Control | Resource::Shutdown
@@ -241,8 +262,9 @@ impl Io {
     pub fn set_epoch(&mut self, epoch: u64) {
         if epoch > self.epoch.load(Ordering::Relaxed) {
             self.epoch.store(epoch, Ordering::Relaxed);
-            self.pending
-                .retain(|(_, generation)| *generation == 0 || *generation == epoch);
+            self.pending.retain(|(resource, generation)| {
+                resource.is_global() || *generation == 0 || *generation == epoch
+            });
         }
     }
 }
@@ -400,6 +422,81 @@ pub fn perform(c: &Client, task: Task) -> anyhow::Result<Data> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn global_reads_keep_their_generation_and_survive_document_changes_without_duplicate_polls() {
+        let server = tiny_http::Server::http("127.0.0.1:0").unwrap();
+        let client =
+            Client::new(&format!("http://{}", server.server_addr()), String::new()).unwrap();
+        let (entered, seen) = std::sync::mpsc::channel();
+        let (resume, waiting) = std::sync::mpsc::channel();
+        let handler = std::thread::spawn(move || {
+            for index in 0..3 {
+                let request = server
+                    .recv_timeout(std::time::Duration::from_secs(8))
+                    .unwrap()
+                    .unwrap();
+                if index == 0 {
+                    entered.send(()).unwrap();
+                    waiting
+                        .recv_timeout(std::time::Duration::from_secs(8))
+                        .unwrap();
+                }
+                let body = if request.url().starts_with("/api/queue") {
+                    "{\"queue\":[]}"
+                } else {
+                    "[]"
+                };
+                request
+                    .respond(tiny_http::Response::from_string(body))
+                    .unwrap();
+            }
+        });
+        let mut io = Io::new(client).unwrap();
+        assert!(io.submit(
+            4,
+            Resource::Sessions,
+            Task::Read(Resource::Sessions, String::new())
+        ));
+        seen.recv_timeout(std::time::Duration::from_secs(8))
+            .unwrap();
+        assert!(io.submit(
+            4,
+            Resource::Queue,
+            Task::Read(Resource::Queue, String::new())
+        ));
+        io.set_epoch(5);
+        assert!(!io.submit(
+            5,
+            Resource::Sessions,
+            Task::Read(Resource::Sessions, String::new())
+        ));
+        resume.send(()).unwrap();
+        for _ in 0..2 {
+            let response = io
+                .rx
+                .recv_timeout(std::time::Duration::from_secs(8))
+                .unwrap();
+            assert!(
+                response.result.is_ok(),
+                "global request failed: {:?}",
+                response.result
+            );
+            assert_eq!(response.epoch, 4);
+            io.finished(response.resource, response.epoch);
+        }
+        assert!(io.submit(
+            5,
+            Resource::Sessions,
+            Task::Read(Resource::Sessions, String::new())
+        ));
+        let response = io
+            .rx
+            .recv_timeout(std::time::Duration::from_secs(8))
+            .unwrap();
+        assert!(response.result.is_ok());
+        assert_eq!(response.epoch, 5);
+        handler.join().unwrap();
+    }
     #[test]
     fn full_queue_rejects_work_without_blocking_and_reserves_control() {
         let (tx, requests) = bounded(1);

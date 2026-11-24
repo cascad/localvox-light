@@ -1,5 +1,16 @@
 # Покрытие требований и состояние реализации
 
+Локальные поведенческие проверки Windows/macOS/Linux, 2026-11-24:
+[исправления, сценарии и фактические результаты](../changes/fix-platform-behavior-regressions/evidence/implementation.md).
+Общий runner готовит отчёт и предписание местному агенту; source/installed PTY
+различаются явно. Фактический Mac/Linux и аппаратный звук остаются not-run.
+
+| Требование | Код / delta | Проверка |
+|---|---|---|
+| ARCH-001/002/005; ARCH-024 (delta) | [UUID, список и клиент](../changes/fix-platform-behavior-regressions/specs/archive-playback/spec.md), [Io](../../crates/localvox-light-terminal/src/io.rs), [allocator](../../crates/localvox-light-core/src/chunks.rs) | [Windows state/HTTP/native PTY](../changes/fix-platform-behavior-regressions/evidence/implementation.md): delete/recreate title, stale responses, cleanup, mpv loading/EOF |
+| REC-002 (изменённая delta по поручению владельца) | [границы Start/Stop](../changes/fix-platform-behavior-regressions/specs/recording/spec.md), [ChunkLane](../../crates/localvox-light-core/src/pipeline.rs) | [Synthetic PCM обоих источников](../changes/fix-platform-behavior-regressions/evidence/implementation.md): 20 секунд, idle/legacy pre-roll, rotation/orphan; hardware not-run |
+| ARCH-025 (delta) | [управление](../changes/fix-platform-behavior-regressions/specs/archive-playback/spec.md), [ввод](../../crates/localvox-light-terminal/src/app/input.rs) | [State/render/PTY](../changes/fix-platform-behavior-regressions/evidence/implementation.md): s/ы, Enter, текстовые поля, n/p/RU/Ctrl |
+
 Ручное восстановление обработки и честные статусы, 2026-11-23:
 [проверки и границы](../changes/harden-processing-recovery-and-status/evidence/implementation.md).
 Три попытки фазы, затем сохранённый Failed; одна полная переварка по r с аудио,

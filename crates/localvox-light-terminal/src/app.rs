@@ -72,6 +72,23 @@ pub struct Form {
     pub session: Option<String>,
 }
 impl Form {
+    pub fn accepts_enter(&self) -> bool {
+        matches!(
+            self.kind,
+            FormKind::Import
+                | FormKind::Start
+                | FormKind::Lang
+                | FormKind::Best
+                | FormKind::Participant(_)
+                | FormKind::Source
+                | FormKind::Export(_)
+                | FormKind::Setting(_)
+                | FormKind::LlmServer
+                | FormKind::Connection
+                | FormKind::JournalFilter
+                | FormKind::SettingsFilter
+        )
+    }
     pub fn is_confirmation(&self) -> bool {
         matches!(
             self.kind,

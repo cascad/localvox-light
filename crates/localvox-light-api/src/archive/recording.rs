@@ -21,7 +21,8 @@ impl Archive {
             engine,
             recording: engine && session.is_some(),
             session: session.filter(|_| engine),
-            preroll_sec: env_f64("LOCALVOX_LIGHT_PREROLL_SEC", 300.0),
+            // Kept in the response schema for older clients; history is no longer archived.
+            preroll_sec: 0.0,
             // Gated on `engine` for the same reason as `session`: the marker is a file, and a
             // killed daemon does not clear it. Without the engine there is nobody listening, and
             // a screen saying otherwise is the one lie this system must never tell.
@@ -31,9 +32,7 @@ impl Archive {
         }
     }
 
-    /// Start recording. Nothing is written to disk until this is asked for — but the last
-    /// minutes are held in memory, and they go into the session, so a conversation that
-    /// began before the button is not lost.
+    /// Start recording. Only audio between the accepted Start and Stop is archived.
     pub fn start_recording(&self, title: &str) -> Result<String> {
         if let Some(name) = localvox_light_core::jobs::recording_session(&self.work_dir) {
             bail!("запись уже идёт: {name}");

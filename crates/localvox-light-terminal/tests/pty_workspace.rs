@@ -11,6 +11,24 @@ use std::{
     time::{Duration, Instant},
 };
 
+fn test_binary(name: &str) -> std::path::PathBuf {
+    if let Some(directory) = std::env::var_os("LOCALVOX_BEHAVIOR_BIN_DIR") {
+        let file = std::path::PathBuf::from(directory)
+            .join(format!("{name}{}", std::env::consts::EXE_SUFFIX));
+        assert!(
+            file.is_file(),
+            "selected installed test binary is missing: {}",
+            file.display()
+        );
+        return file;
+    }
+    match name {
+        "vox" => env!("CARGO_BIN_EXE_vox").into(),
+        "localvox-tui" => env!("CARGO_BIN_EXE_localvox-tui").into(),
+        _ => panic!("unknown terminal binary"),
+    }
+}
+
 struct ApiFixture {
     held: Arc<AtomicUsize>,
     entered: Arc<AtomicUsize>,
@@ -24,6 +42,7 @@ struct ApiFixture {
     shutdowns: Arc<AtomicUsize>,
     settings_saves: Arc<AtomicUsize>,
     deletion_mode: Arc<AtomicBool>,
+    recreated: Arc<AtomicBool>,
     deleted: Arc<Mutex<Vec<String>>>,
     recooked: Arc<Mutex<Vec<String>>>,
     thread: Option<std::thread::JoinHandle<()>>,
@@ -50,6 +69,8 @@ impl ApiFixture {
         let saved_settings = settings_saves.clone();
         let deletion_mode = Arc::new(AtomicBool::new(false));
         let deleting_fixture = deletion_mode.clone();
+        let recreated = Arc::new(AtomicBool::new(false));
+        let recreated_fixture = recreated.clone();
         let deleted = Arc::new(Mutex::new(Vec::<String>::new()));
         let removed = deleted.clone();
         let recooked = Arc::new(Mutex::new(Vec::<String>::new()));
@@ -189,6 +210,13 @@ impl ApiFixture {
                                                 .iter()
                                                 .any(|id| Some(id.as_str()) == s["name"].as_str())
                                         });
+                                        if recreated_fixture.load(Ordering::Relaxed) {
+                                            let mut fresh = fixture["sessions"][0].clone();
+                                            fresh["name"] = "new-id-same-title".into();
+                                            fresh["title"] = "Small recording".into();
+                                            fresh["recording"] = false.into();
+                                            sessions.as_array_mut().unwrap().push(fresh);
+                                        }
                                         if mode > 0 {
                                             sessions[0]["title"] = "Активная встреча".into();
                                             sessions[0]["job"] = match mode {
@@ -277,6 +305,7 @@ impl ApiFixture {
             shutdowns,
             settings_saves,
             deletion_mode,
+            recreated,
             deleted,
             recooked,
             thread: Some(thread),
@@ -382,7 +411,7 @@ fn record_deletion_from_list_confirms_the_pinned_target_and_stays_responsive() {
             pixel_height: 0,
         })
         .unwrap();
-    let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_localvox-tui"));
+    let mut command = CommandBuilder::new(test_binary("localvox-tui"));
     command.args(["--address", &api.address, "--ascii", "--no-color"]);
     command.env("LOCALVOX_API_TOKEN", "");
     let mut child = OwnedChild(pair.slave.spawn_command(command).unwrap());
@@ -523,6 +552,18 @@ fn record_deletion_from_list_confirms_the_pinned_target_and_stays_responsive() {
         deadline,
     );
     assert_eq!(*api.deleted.lock().unwrap(), vec!["second"]);
+    // A future global poll must still be accepted after deletion raised its
+    // generation fence. v0.2.11 sent every global response with epoch=0.
+    api.recreated.store(true, Ordering::Relaxed);
+    wait_for(
+        "Small recording",
+        &mut all,
+        &mut screen,
+        &rx,
+        &mut writer,
+        &mut queries,
+        deadline,
+    );
     assert!(screen
         .screen()
         .contents()
@@ -649,7 +690,7 @@ fn startup_navigation_works_before_health_during_loading_and_after_empty_or_read
                 pixel_height: 0,
             })
             .unwrap();
-        let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_vox"));
+        let mut command = CommandBuilder::new(test_binary("vox"));
         // An explicit private endpoint wins over portable presets; no developer daemon is used.
         command.args(["--address", &api.address, "--ascii", "--no-color"]);
         command.env("LOCALVOX_API_TOKEN", "");
@@ -785,7 +826,7 @@ fn exercise_terminal(vox: bool, full_exit: bool) {
         std::fs::create_dir(&install).unwrap();
         std::fs::create_dir(&caller).unwrap();
         let executable = install.join(if cfg!(windows) { "vox.exe" } else { "vox" });
-        std::fs::copy(env!("CARGO_BIN_EXE_vox"), &executable).unwrap();
+        std::fs::copy(test_binary("vox"), &executable).unwrap();
         std::fs::write(
             install.join(".env.defaults"),
             include_str!("../../../.env.defaults"),
@@ -805,7 +846,7 @@ fn exercise_terminal(vox: bool, full_exit: bool) {
         command.args(["--ascii", "--no-color"]);
         command
     } else {
-        let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_localvox-tui"));
+        let mut command = CommandBuilder::new(test_binary("localvox-tui"));
         command.args(["--address", &api.address, "--ascii", "--no-color"]);
         command
     };
@@ -1125,7 +1166,7 @@ fn exercise_terminal(vox: bool, full_exit: bool) {
         writer.write_all(b"\x1b[A\r").unwrap();
         writer.flush().unwrap();
         wait_for(
-            "Ctrl+S / Ctrl+Enter",
+            "s подтвердить",
             &mut all,
             &mut screen,
             &rx,
@@ -1188,7 +1229,7 @@ fn unauthorized_start_can_reconnect_through_the_masked_form_without_replaying_st
             pixel_height: 0,
         })
         .unwrap();
-    let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_localvox-tui"));
+    let mut command = CommandBuilder::new(test_binary("localvox-tui"));
     command.args(["--address", &api.address, "--ascii", "--no-color"]);
     command.arg("--keymap");
     command.arg(&keymap);
@@ -1292,7 +1333,7 @@ fn invalid_keymap_fails_before_entering_the_terminal_or_connecting() {
         if name == "invalid.json" {
             std::fs::write(&path, b"not JSON").unwrap();
         }
-        let result = std::process::Command::new(env!("CARGO_BIN_EXE_localvox-tui"))
+        let result = std::process::Command::new(test_binary("localvox-tui"))
             .args(["--address", "http://127.0.0.1:1", "--keymap"])
             .arg(path)
             .output()
@@ -1316,7 +1357,7 @@ fn real_terminal_reads_a_growing_partial_and_keeps_the_old_line_on_its_row() {
             pixel_height: 0,
         })
         .unwrap();
-    let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_localvox-tui"));
+    let mut command = CommandBuilder::new(test_binary("localvox-tui"));
     command.args(["--address", &api.address, "--ascii", "--no-color"]);
     command.env("LOCALVOX_API_TOKEN", "");
     let mut child = OwnedChild(pair.slave.spawn_command(command).unwrap());
@@ -1411,7 +1452,7 @@ fn real_terminal_animates_server_activity_filters_names_and_accepts_russian_comm
             pixel_height: 0,
         })
         .unwrap();
-    let mut command = CommandBuilder::new(env!("CARGO_BIN_EXE_localvox-tui"));
+    let mut command = CommandBuilder::new(test_binary("localvox-tui"));
     command.args(["--address", &api.address, "--ascii", "--no-color"]);
     command.env("LOCALVOX_API_TOKEN", "");
     let mut child = OwnedChild(pair.slave.spawn_command(command).unwrap());

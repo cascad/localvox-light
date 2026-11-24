@@ -20,16 +20,25 @@ use std::{
 fn shared_workspace() {
     let root = tempfile::tempdir().unwrap();
     let test = std::env::current_exe().unwrap();
-    let copied = root.path().join("api-fixture.exe");
+    let copied = root
+        .path()
+        .join(format!("api-fixture{}", std::env::consts::EXE_SUFFIX));
     fs::copy(&test, &copied).unwrap();
-    let tui = test
+    let built_tui = test
         .parent()
         .unwrap()
         .parent()
         .unwrap()
-        .join("localvox-tui.exe");
+        .join(format!("localvox-tui{}", std::env::consts::EXE_SUFFIX));
+    let tui = std::env::var_os("LOCALVOX_BEHAVIOR_BIN_DIR")
+        .map(|dir| PathBuf::from(dir).join(format!("localvox-tui{}", std::env::consts::EXE_SUFFIX)))
+        .unwrap_or(built_tui);
     assert!(tui.is_file(), "build the terminal bundle first");
-    let output = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/test-results/cross-real-api");
+    let output = std::env::var_os("LOCALVOX_CROSS_OUTPUT")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/test-results/cross-real-api")
+        });
     fs::create_dir_all(&output).unwrap();
     for name in [
         "browser-error.txt",

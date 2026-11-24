@@ -210,10 +210,7 @@ pub fn run_engine(
     if cli.no_session_chunks {
         info!("Session chunks are disabled (--no-session-chunks)");
     } else {
-        info!(
-            "Ready to record: the pre-roll ring holds {:.0} s; nothing is written until you start",
-            cli.preroll_sec
-        );
+        info!("Ready to record: only audio between Start and Stop is archived");
     }
 
     // The detection channel: call detection → the pipeline (the sole writer of the meta). It

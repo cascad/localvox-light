@@ -236,7 +236,6 @@ fn shutdown_confirmation_shows_target_warning_and_keys_at_normal_terminal_widths
             app.address.as_str(),
             "Запись закроется",
             "Очередь продолжится",
-            "Ctrl+S / Ctrl+Enter",
             "s подтвердить",
             "Esc отменить",
         ] {
@@ -246,5 +245,6 @@ fn shutdown_confirmation_shows_target_warning_and_keys_at_normal_terminal_widths
             );
         }
         assert!(!text.contains("Введите") && !text.contains("Tab поле"));
+        assert!(!text.contains("Ctrl+S") && !text.contains("Ctrl+Enter"));
     }
 }

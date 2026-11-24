@@ -69,9 +69,7 @@ pub struct PipelineConfig {
     pub chunk_flac: bool,
     pub ffmpeg: PathBuf,
 
-    /// The pre-roll ring: how many seconds of the PAST are kept in memory. Nothing here
-    /// touches the disk — but the moment a human presses "record", this is what enters the
-    /// session, so a conversation that began before the button is not lost.
+    /// Legacy input retained for compatibility. Archive recording ignores pre-roll.
     pub preroll_sec: f64,
     /// Silence on both tracks longer than this stops the recording (0 — never).
     pub autostop_sec: f64,
@@ -289,9 +287,6 @@ struct SessionSettings {
     chunk_sec: f64,
     flac: bool,
     ffmpeg: PathBuf,
-    /// How many seconds of the past the ring keeps — and therefore how much of the
-    /// conversation before the button lands in the session.
-    preroll_sec: f64,
     /// Silence on both tracks longer than this stops the recording (0 — never).
     autostop_sec: f64,
 }
@@ -310,10 +305,7 @@ struct Session {
 /// reaches the disk until a human says so. A recorder running all day through an office
 /// writes other people's conversations, and none of those people agreed to that.
 ///
-/// What makes the button safe is the pre-roll ring: the last `preroll_sec` of both tracks
-/// live in memory (five minutes ≈ 19 MB) and never touch the disk. Press "record" — and they
-/// go INTO the session, so a conversation that began before the button is not lost. This is
-/// loop recording, the same trick a dashcam has used for twenty years.
+/// Start and Stop delimit the archived audio; pre-start history is not retained.
 ///
 /// `settings == None` — chunks are off entirely, every call is a no-op.
 struct ChunkLane {
@@ -328,10 +320,6 @@ struct ChunkLane {
     recorders: [Option<ChunkRecorder>; 2],
     conversions: Arc<crate::chunks::codec::Conversions>,
     planners: crate::chunks::planning::Planners,
-    /// The last `preroll_cap` samples of each source. Filled always — this is the past we can
-    /// still save.
-    preroll: [std::collections::VecDeque<i16>; 2],
-    preroll_cap: usize,
     /// A call is being recorded into the running session right now (a mark, not a session).
     in_meeting: bool,
     /// The moment of the last sound (for the auto-stop on silence); whether anything was
@@ -359,13 +347,8 @@ impl ChunkLane {
             chunk_sec: cfg.chunk_sec,
             flac: cfg.chunk_flac,
             ffmpeg: cfg.ffmpeg.clone(),
-            preroll_sec: cfg.preroll_sec,
             autostop_sec: cfg.autostop_sec,
         });
-        let preroll_cap = settings
-            .as_ref()
-            .map(|s| (s.preroll_sec * 16_000.0) as usize)
-            .unwrap_or(0);
         let lane = Self {
             settings,
             integrity: Default::default(),
@@ -374,11 +357,6 @@ impl ChunkLane {
             recorders: [None, None],
             conversions: Arc::new(crate::chunks::codec::Conversions::default()),
             planners: crate::chunks::planning::Planners::default(),
-            preroll: [
-                std::collections::VecDeque::new(),
-                std::collections::VecDeque::new(),
-            ],
-            preroll_cap,
             in_meeting: false,
             last_voice: None,
             recorded_since_open: false,
@@ -414,18 +392,6 @@ impl ChunkLane {
         // The watchdog asks THE DEVICE, not our queue: a loss is when the sound did not
         // arrive, not when we did not manage to process it in time.
         self.integrity[sid].observe(source_id, crate::audio::captured(source_id), Instant::now());
-        // The pre-roll ring: the last preroll_cap samples of the source. Filled ALWAYS,
-        // recording or not — it is memory, not disk, and it is the only thing that can still
-        // save a conversation that began before the button.
-        if self.preroll_cap > 0 {
-            let ring = &mut self.preroll[sid];
-            for &s in samples {
-                if ring.len() == self.preroll_cap {
-                    ring.pop_front();
-                }
-                ring.push_back(s);
-            }
-        }
         // Activity for the auto-stop: any loud track (the microphone OR the system sound in
         // loopback — a webinar, a call) keeps the recording alive. True silence on both
         // sources is what moves the timer.
@@ -450,7 +416,7 @@ impl ChunkLane {
         let Some(session) = &self.current else {
             // No "home" (create_session_dir is temporarily failing): we accumulate into a
             // bounded buffer and will write it into the very first session that gets created.
-            let cap = self.preroll_cap.max(16_000 * 60); // ≥1 min, no unbounded growth
+            let cap = 16_000 * 60; // Post-Start orphan only; never retain idle audio.
             let buf = &mut self.orphan[sid];
             buf.extend_from_slice(samples);
             if buf.len() > cap {
@@ -511,16 +477,8 @@ impl ChunkLane {
 
         match crate::chunks::create_session_dir(&s.work_dir, label) {
             Ok((audio_dir, meta_path)) => {
-                // THE RECORDING BEGAN BEFORE THE BUTTON. The ring holds the last minutes, and
-                // they go into this session — so `started_at` is moved back by exactly as much
-                // audio as we are about to seed. Otherwise the archive's clock lies: the file
-                // would open with a conversation that, by its own timestamps, had not started
-                // yet.
-                let seeded = self.preroll_len_sec();
-                let began = chrono::Local::now()
-                    - chrono::Duration::milliseconds((seeded * 1000.0).round() as i64);
                 let meta = SessionMeta {
-                    started_at: began.to_rfc3339(),
+                    started_at: chrono::Local::now().to_rfc3339(),
                     sample_rate: 16_000,
                     chunks: Vec::new(),
                     capture_generation: Some(uuid::Uuid::now_v7().to_string()),
@@ -578,18 +536,10 @@ impl ChunkLane {
                 });
                 self.recorded_since_open = false;
                 self.sync_marker();
-                self.seed_preroll();
-                tracing::info!(preroll_sec = seeded, title = %title, "recording started");
+                tracing::info!(title = %title, "recording started");
             }
             Err(e) => tracing::error!("session was not created: {e}"),
         }
-    }
-
-    /// How many seconds of the past the ring is holding right now (the longer track: the two
-    /// are seeded together and the session must cover both).
-    fn preroll_len_sec(&self) -> f64 {
-        let longest = self.preroll.iter().map(|r| r.len()).max().unwrap_or(0);
-        longest as f64 / 16_000.0
     }
 
     /// A detection signal only MARKS a running recording — it starts nothing.
@@ -638,32 +588,6 @@ impl ChunkLane {
                 }
             }
             crate::chunks::save_meta_public(&session.params.meta_path, &m);
-        }
-    }
-
-    /// Seed the new session with the accumulated pre-roll ring (both sources).
-    fn seed_preroll(&mut self) {
-        for sid in 0..2usize {
-            if self.preroll[sid].is_empty() {
-                continue;
-            }
-            let ring: Vec<i16> = self.preroll[sid].iter().copied().collect();
-            let Some(session) = &self.current else { return };
-            let rec = self.recorders[sid].get_or_insert_with(|| {
-                ChunkRecorder::for_capture(
-                    sid as u8,
-                    session.params.clone(),
-                    session.meta.clone(),
-                    session.capture.clone(),
-                    self.conversions.clone(),
-                )
-            });
-            // Seed through normal capture frames: a long pre-roll must not become
-            // one oversized file that defeats the short rotation used by live STT.
-            for frame in ring.chunks(crate::audio::CHUNK_FRAMES) {
-                rec.feed(frame);
-            }
-            self.recorded_since_open = true;
         }
     }
 
@@ -1534,13 +1458,15 @@ mod tests {
     }
 
     #[test]
-    fn capture_manifest_covers_preroll_pause_both_sources_and_only_true_stop() {
+    fn capture_manifest_covers_explicit_start_pause_both_sources_and_only_true_stop() {
         let dir = tempfile::tempdir().unwrap();
         let c = sess_cfg(dir.path(), 1.0, 0.0);
         let mut lane = ChunkLane::new(&c);
         lane.feed(0, &vec![1; 16000]);
         lane.feed(1, &vec![2; 8000]);
         lane.start("capture proof".into());
+        lane.feed(0, &vec![1; 16000]);
+        lane.feed(1, &vec![2; 8000]);
         let session = lane
             .current
             .as_ref()
@@ -1847,7 +1773,7 @@ mod tests {
         assert!(h.check(t0 + Duration::from_secs(600), true).is_some());
     }
 
-    // ─── Recording on command, with a pre-roll ring (WP-C60) ───
+    // ─── Explicit recording boundaries ───
 
     fn sess_cfg(dir: &Path, preroll_sec: f64, autostop_sec: f64) -> PipelineConfig {
         let mut c = cfg(dir, false);
@@ -1913,10 +1839,9 @@ mod tests {
         assert!(!lane.armed);
     }
 
-    /// The button is late — the conversation is not. The ring holds the last minutes, and they
-    /// enter the session on the press.
+    /// An obsolete pre-roll setting must never prepend earlier audio.
     #[test]
-    fn start_seeds_the_recording_with_the_preroll_ring() {
+    fn start_excludes_audio_from_before_the_command_even_with_legacy_preroll() {
         let dir = tempfile::tempdir().unwrap();
         let c = sess_cfg(dir.path(), 1.0, 0.0); // the ring holds the last 1 s
         let mut lane = ChunkLane::new(&c);
@@ -1933,14 +1858,64 @@ mod tests {
             "the title is not in the name: {dirs:?}"
         );
         let meta = read_meta(&dir.path().join("sessions").join(&dirs[0]));
-        // pre-roll (1 s) + live (0.5 s) ≈ 1.5 s
         let src0 = recorded_sec(&meta, 0);
-        assert!(src0 >= 1.4, "the pre-roll was not seeded: {src0:.2} s");
+        assert!(
+            (src0 - 0.5).abs() < 0.001,
+            "pre-start audio entered the recording: {src0:.2} s"
+        );
         assert_eq!(meta.title.as_deref(), Some("Планёрка"));
     }
 
     #[test]
-    fn long_preroll_uses_short_live_rotation_without_losing_samples() {
+    fn twenty_seconds_between_commands_stays_twenty_seconds_on_both_tracks() {
+        let root = tempfile::tempdir().unwrap();
+        let mut lane = ChunkLane::new(&sess_cfg(root.path(), 300.0, 0.0));
+        for source in 0..2 {
+            lane.feed(source, &vec![111; 2 * 16000]);
+        }
+        lane.start("local 001".into());
+        let session = lane
+            .current
+            .as_ref()
+            .unwrap()
+            .params
+            .meta_path
+            .parent()
+            .unwrap()
+            .to_path_buf();
+        for source in 0..2 {
+            for frame in vec![222 + source as i16; 20 * 16000].chunks(crate::audio::CHUNK_FRAMES) {
+                lane.feed(source, frame);
+            }
+        }
+        lane.stop("user stop");
+        for source in 0..2 {
+            lane.feed(source, &vec![333; 16000]);
+        }
+        let meta = read_meta(&session);
+        for source in 0..2 {
+            assert!((recorded_sec(&meta, source) - 20.0).abs() < 0.0001);
+            let mut count = 0;
+            for chunk in meta.chunks.iter().filter(|c| c.source_id == source) {
+                let reader = hound::WavReader::open(
+                    session.join("audio").join(format!("{}.wav", chunk.file)),
+                )
+                .unwrap();
+                for sample in reader.into_samples::<i16>() {
+                    assert_eq!(
+                        sample.unwrap(),
+                        222 + source as i16,
+                        "audio outside Start/Stop entered the archive"
+                    );
+                    count += 1;
+                }
+            }
+            assert_eq!(count, 20 * 16000);
+        }
+    }
+
+    #[test]
+    fn short_live_rotation_preserves_only_audio_after_start() {
         let dir = tempfile::tempdir().unwrap();
         let mut cfg = sess_cfg(dir.path(), 90.0, 0.0);
         cfg.chunk_sec = crate::presets::number("LOCALVOX_LIGHT_CHUNK_SEC");
@@ -1949,6 +1924,11 @@ mod tests {
             lane.feed(source, &vec![5000i16; 90 * 16000]);
         }
         lane.start("Short batches".into());
+        for source in 0..2 {
+            for frame in vec![6000i16; 90 * 16000].chunks(crate::audio::CHUNK_FRAMES) {
+                lane.feed(source, frame);
+            }
+        }
         let sessions = session_dirs(dir.path());
         let session = dir.path().join("sessions").join(&sessions[0]);
         let input = crate::chunks::capture::read(&session).unwrap();
@@ -1963,11 +1943,9 @@ mod tests {
         }
     }
 
-    /// The recording began BEFORE the button, so `started_at` must be moved back by exactly as
-    /// much audio as we seeded. Otherwise the archive's clock lies: the file opens with a
-    /// conversation that, by its own timestamps, had not started yet.
+    /// Waiting before Start must not move the recorded start timestamp into the past.
     #[test]
-    fn started_at_is_shifted_back_by_the_seeded_preroll() {
+    fn started_at_is_not_shifted_by_legacy_preroll() {
         let dir = tempfile::tempdir().unwrap();
         let c = sess_cfg(dir.path(), 2.0, 0.0);
         let mut lane = ChunkLane::new(&c);
@@ -1980,8 +1958,8 @@ mod tests {
         let began = chrono::DateTime::parse_from_rfc3339(&meta.started_at).unwrap();
         let back = (pressed - began.with_timezone(&chrono::Local)).num_milliseconds();
         assert!(
-            (1500..=2500).contains(&back),
-            "started_at is not shifted by the pre-roll: {back} ms back"
+            (-1000..=0).contains(&back),
+            "started_at shifted before Start: {back} ms back"
         );
     }
 
@@ -2110,17 +2088,17 @@ mod tests {
         );
     }
 
-    /// The ring is BOUNDED. It runs for months without anyone touching it, and an unbounded
-    /// buffer of raw PCM eats the machine in an afternoon.
+    /// Idle audio is not retained, even when an old pre-roll value is supplied.
     #[test]
-    fn the_preroll_ring_is_bounded() {
+    fn audio_before_start_is_not_retained_in_an_archive_buffer() {
         let dir = tempfile::tempdir().unwrap();
         let c = sess_cfg(dir.path(), 0.5, 0.0); // 0.5 s = 8000 samples
         let mut lane = ChunkLane::new(&c);
         for _ in 0..50 {
             lane.feed(0, &vec![1i16; 16_000]); // 50 s of audio through a 0.5 s ring
         }
-        assert_eq!(lane.preroll[0].len(), 8_000, "the ring grew past its bound");
+        assert!(lane.orphan.iter().all(Vec::is_empty));
+        assert!(lane.recorders.iter().all(Option::is_none));
         assert!(session_dirs(dir.path()).is_empty());
     }
 }

@@ -168,7 +168,7 @@ mod tests {
         assert_eq!(baked("LOCALVOX_LIGHT_INCREMENTAL_TRANSCRIBE"), "on");
         assert_eq!(baked("LOCALVOX_LIGHT_LOOPBACK"), "on");
         assert_eq!(number::<u32>("LOCALVOX_LIGHT_CHUNK_SEC"), 30);
-        assert!(parse("LOCALVOX_LIGHT_PREROLL_SEC=oops").is_err());
+        assert!(parse("LOCALVOX_LIGHT_CHUNK_SEC=oops").is_err());
         assert!(parse("LOCALVOX_API_TOKEN=secret").is_err());
     }
     #[test]

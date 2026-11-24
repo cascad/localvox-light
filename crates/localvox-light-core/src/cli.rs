@@ -215,10 +215,13 @@ pub struct Cli {
     )]
     pub mic_silence_warn_sec: f64,
 
-    /// Pre-roll ring: seconds of the past kept IN MEMORY (never on disk). Pressing "record"
-    /// pulls them into the session — a conversation that began before the button is not lost.
-    /// Five minutes of two tracks ≈ 19 MB.
-    #[arg(long, default_value_t = crate::presets::number::<f64>("LOCALVOX_LIGHT_PREROLL_SEC"), env = "LOCALVOX_LIGHT_PREROLL_SEC")]
+    /// Legacy compatibility input; archive recordings always begin at Start.
+    #[arg(
+        long,
+        hide = true,
+        default_value_t = 0.0,
+        env = "LOCALVOX_LIGHT_PREROLL_SEC"
+    )]
     pub preroll_sec: f64,
 
     /// Auto-stop: silence on both tracks for longer than N sec closes the recording; 0 — never

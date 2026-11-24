@@ -28,11 +28,7 @@ impl App {
         let Some(form) = &mut self.form else {
             return false;
         };
-        if matches!(
-            form.kind,
-            FormKind::Import | FormKind::Setting(_) | FormKind::LlmServer
-        ) && key.code == KeyCode::Enter
-        {
+        if form.accepts_enter() && key.code == KeyCode::Enter {
             if let Err(error) = self.submit_form() {
                 if let Some(form) = &mut self.form {
                     form.error = Some(error);
@@ -306,6 +302,13 @@ impl App {
             return;
         }
         if self.palette {
+            if key.modifiers.is_empty() || key.modifiers == KeyModifiers::CONTROL {
+                key.code = match key.code {
+                    KeyCode::Char('n' | 'N') => KeyCode::Down,
+                    KeyCode::Char('p' | 'P') => KeyCode::Up,
+                    other => other,
+                };
+            }
             if key.modifiers.is_empty() {
                 key.code = match key.code {
                     KeyCode::Char('h') => KeyCode::Esc,

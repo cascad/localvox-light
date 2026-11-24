@@ -57,17 +57,7 @@ impl App {
         {
             return;
         }
-        let global = matches!(
-            r.resource,
-            Resource::Sessions
-                | Resource::Record
-                | Resource::Jobs
-                | Resource::Queue
-                | Resource::Action
-                | Resource::Control
-                | Resource::Shutdown
-                | Resource::Route
-        );
+        let global = r.resource.is_global();
         if !global && r.epoch != self.epoch {
             return;
         }

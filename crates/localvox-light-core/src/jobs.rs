@@ -1167,10 +1167,7 @@ pub const RECORDING_MARKER: &str = ".recording_session";
 /// The request «start recording».
 ///
 /// **Recording is not the default.** Capture runs always, but nothing reaches the disk
-/// until a human says so: a recorder left running all day through an office writes other
-/// people's conversations, and none of them agreed to that. The button is made safe by the
-/// pre-roll ring — the last minutes live in memory and enter the session at the press, so a
-/// conversation that began before it is not lost.
+/// until a human says so. Start/Stop delimit the archive; earlier audio is not retained.
 ///
 /// A file, not a channel: the request comes from the HTTP thread (the web UI), from the
 /// tray and from the voice command, while the session is owned by the recording pipeline.

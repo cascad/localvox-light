@@ -661,7 +661,7 @@ impl ChunkRecorder {
 
 // ─────────────────────── session / recovery / retention ───────────────────────
 
-/// `<work_dir>/sessions/<YYYYMMDD_HHMMSS>[_<label>]/audio` + an initial meta.json.
+/// `<work_dir>/sessions/<YYYYMMDD_HHMMSS>[_<label>]_<uuid>/audio` + initial meta.json.
 /// The label (for example, the file name on ingest) is cleaned down to [a-z0-9-].
 pub fn create_session_dir(
     work_dir: &Path,
@@ -672,25 +672,9 @@ pub fn create_session_dir(
         Some(s) if !s.is_empty() => format!("{stamp}_{s}"),
         _ => stamp.to_string(),
     };
-    // Uniqueness within one second: the ambient cut and the rotation on a call
-    // (WP-C6) create sessions faster than the one-second tick of the name — without a
-    // suffix the second one would overwrite the first.
     let sessions = work_dir.join("sessions");
     fs::create_dir_all(&sessions)?;
-    let mut n = 1;
-    let session = loop {
-        let name = if n == 1 {
-            base.clone()
-        } else {
-            format!("{base}-{n}")
-        };
-        let session = sessions.join(name);
-        match fs::create_dir(&session) {
-            Ok(()) => break session,
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => n += 1,
-            Err(e) => return Err(e),
-        }
-    };
+    let session = reserve_session_directory(&sessions, &base)?;
     let audio = session.join("audio");
     fs::create_dir_all(&audio)?;
     let meta_path = session.join("meta.json");
@@ -709,6 +693,14 @@ pub fn create_session_dir(
     };
     save_meta_checked(&meta_path, &meta).map_err(std::io::Error::other)?;
     Ok((audio, meta_path))
+}
+
+fn reserve_session_directory(sessions: &Path, base: &str) -> std::io::Result<PathBuf> {
+    // The ID is never recycled when a deleted title/timestamp becomes available.
+    // Atomic creation still rejects even an astronomically unlikely UUID clash.
+    let session = sessions.join(format!("{base}_{}", uuid::Uuid::now_v7().simple()));
+    fs::create_dir(&session)?;
+    Ok(session)
 }
 
 /// ffmpeg for decoding/recompression: env → next to the exe (portable distribution; under
@@ -1115,6 +1107,30 @@ fn find_files(root: &Path, ext: &str) -> Vec<PathBuf> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn a_deleted_session_id_is_never_reused_for_the_same_title_and_timestamp() {
+        let root = tempfile::tempdir().unwrap();
+        let first =
+            super::reserve_session_directory(root.path(), "20261124_142054_local-001").unwrap();
+        assert!(first
+            .canonicalize()
+            .unwrap()
+            .starts_with(root.path().canonicalize().unwrap()));
+        std::fs::remove_dir(&first).unwrap();
+        let second =
+            super::reserve_session_directory(root.path(), "20261124_142054_local-001").unwrap();
+        assert_ne!(first, second);
+        let id = second
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .rsplit('_')
+            .next()
+            .unwrap();
+        assert_eq!(uuid::Uuid::parse_str(id).unwrap().get_version_num(), 7);
+    }
 
     /// A meeting the human NAMED must be visible in the directory name too:
     /// the human looks at it in the file explorer and in the backup. Cyrillic used to be

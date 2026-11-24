@@ -99,13 +99,7 @@ fn wait_worker(player: &Player, condition: impl Fn(&PlaybackState) -> bool) -> P
 fn real_player_auth_range_pause_and_repeated_fragment() {
     let executable = std::env::var_os("LOCALVOX_MPV")
         .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/tools/mpv/mpv.exe")
-        });
-    assert!(
-        executable.is_file(),
-        "install the real backend before this acceptance test"
-    );
+        .unwrap_or_else(localvox_light_terminal::player::resolve_executable);
     let server = Server::http("127.0.0.1:0").unwrap();
     let address = format!("http://{}", server.server_addr());
     let stop = Arc::new(AtomicBool::new(false));
@@ -269,11 +263,9 @@ fn real_player_auth_range_pause_and_repeated_fragment() {
     assert!(worker.submit(PlaybackCommand::Load {
         session: "demo".into(),
         start: 100.0,
-        end: None
+        end: Some(105.0)
     }));
-    wait_worker(&worker, |s| {
-        s.session.as_deref() == Some("demo") && !s.idle && s.position >= 100.0
-    });
+    // Queue pause before file-loaded: no file-local property is accessible yet.
     assert!(worker.submit(PlaybackCommand::Toggle));
     wait_worker(&worker, |s| s.paused && !s.idle);
     assert!(worker.submit(PlaybackCommand::Seek {
@@ -283,6 +275,8 @@ fn real_player_auth_range_pause_and_repeated_fragment() {
     wait_worker(&worker, |s| {
         s.paused && s.position >= 149.9 && s.position < 150.1
     });
+    assert!(worker.submit(PlaybackCommand::Toggle));
+    wait_worker(&worker, |s| !s.idle && !s.paused && s.position >= 150.2);
     assert!(worker.submit(PlaybackCommand::Stop));
     assert!(worker.submit(PlaybackCommand::Load {
         session: "other".into(),
@@ -298,6 +292,15 @@ fn real_player_auth_range_pause_and_repeated_fragment() {
         "the fragment endpoint remains visible"
     );
     assert!(finished.duration.is_some());
+    // EOF has already unloaded the file. Toggle must resume without accessing
+    // file-local options and without killing the owned IPC process.
+    assert!(worker.submit(PlaybackCommand::Toggle));
+    wait_worker(&worker, |s| {
+        s.session.as_deref() == Some("other")
+            && !s.idle
+            && s.position >= 20.8
+            && s.fragment_end.is_none()
+    });
     assert!(worker.submit(PlaybackCommand::Stop));
     wait_worker(&worker, |s| s.session.is_none() && s.idle);
     assert!(worker.submit(PlaybackCommand::Load {

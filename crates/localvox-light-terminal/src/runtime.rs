@@ -130,25 +130,14 @@ pub fn run(mut client: Client, mut app: App) -> Result<()> {
                 }
                 network.set_epoch(app.epoch);
                 for (resource, task) in std::mem::take(&mut app.effects) {
-                    let global = matches!(
-                        resource,
-                        Resource::Sessions
-                            | Resource::Record
-                            | Resource::Jobs
-                            | Resource::Queue
-                            | Resource::Action
-                            | Resource::Control
-                            | Resource::Shutdown
-                            | Resource::Route
-                    );
-                    if !network.submit(if global { 0 } else { app.epoch }, resource, task) {
+                    if !network.submit(app.epoch, resource, task) {
                         app.submission_rejected(resource);
                     }
                 }
                 if app.shutdown_started.is_none() && last_record.elapsed() >= Duration::from_secs(1)
                 {
                     network.submit(
-                        0,
+                        app.epoch,
                         Resource::Record,
                         Task::Read(Resource::Record, String::new()),
                     );

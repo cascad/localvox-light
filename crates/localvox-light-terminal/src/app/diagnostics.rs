@@ -92,7 +92,13 @@ impl App {
         if state.session == self.current && state.snapshot != self.playback.snapshot {
             self.peaks_loaded = false;
         }
-        let context = self.diagnostic("Плеер", "Воспроизведение", state.session.clone());
+        // Playback is independent of the pipeline, including while ASR is running.
+        let context = Context {
+            source: "Плеер".into(),
+            operation: "Воспроизведение".into(),
+            session: state.session.clone(),
+            phase: None,
+        };
         if let Some(error) = &state.error {
             self.console.record(context, error, self.wall_ms);
         } else {

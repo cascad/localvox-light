@@ -1,6 +1,19 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page, type Locator } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+
+// Behavioral acceptance is portable across OS font rasterizers. It still
+// captures images and executes every behavior assertion; CI/default and --visual
+// retain the reviewed pixel comparisons and their sensitivity tests.
+async function captureVisual(locator: Locator, name: string, options: { timeout?: number } = {}) {
+  if (process.env.LOCALVOX_BEHAVIOR_PROFILE === "behavior") {
+    const path = test.info().outputPath(name);
+    await locator.screenshot({ path, animations: "disabled", ...options });
+    await test.info().attach(name, { path, contentType: "image/png" });
+  } else {
+    await expect(locator).toHaveScreenshot(name, options);
+  }
+}
 
 const fixture = JSON.parse(readFileSync(fileURLToPath(new URL("../../../tests/fixtures/workspace.json", import.meta.url)), "utf8"));
 const journalFixture = JSON.parse(readFileSync(fileURLToPath(new URL("../../../tests/fixtures/journal.json", import.meta.url)), "utf8"));
@@ -88,7 +101,7 @@ test("settings show editable presets and stage reusable LLM servers", async ({pa
   await page.getByRole("button",{name:"Добавить в список"}).click();
   await expect(page.getByRole("combobox",{name:"Адрес сервера"})).toHaveValue("https://models.example/v1");
   expect(sent).toEqual([]);
-  await expect(page.locator(".pane")).toHaveScreenshot("settings-presets-and-servers.png");
+  await captureVisual(page.locator(".pane"), "settings-presets-and-servers.png");
   await page.getByRole("button",{name:/^Сохранить/}).click();
   await expect.poll(()=>sent.length).toBe(1);
   expect(JSON.parse(sent[0].LOCALVOX_LLM_SERVER_URLS!)).toEqual(["http://localhost:11434/v1","https://models.example/v1"]);
@@ -159,7 +172,7 @@ test("queue cancellation waits for acknowledgement and full recook requires expl
   await expect(page.locator(".qrow")).toHaveClass(/cancelled/);
   await expect(page.getByText("Продолжение — только вручную", { exact: true })).toBeVisible();
   await page.setViewportSize({ width: 480, height: 850 }); await page.mouse.move(0, 0);
-  await expect(page.locator(".pane")).toHaveScreenshot("queue-cancelled-dark-480.png");
+  await captureVisual(page.locator(".pane"), "queue-cancelled-dark-480.png");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);
   await page.getByRole("button", { name: "♻ Переварить запись", exact: true }).click();
   await expect(page.locator(".qrow")).toHaveClass(/pending/);
@@ -361,7 +374,7 @@ test("journal folds exactly 35 lines and command arguments have separate styles"
   await expect(page.getByText("Диагностическая строка 1", { exact: true })).toBeVisible();
   await expect(page.locator(".journal-command")).toHaveCSS("color", "rgb(133, 180, 220)");
   await expect(page.locator(".journal-arg").first()).toHaveCSS("color", "rgb(194, 165, 216)");
-  await expect(page.locator(".journal")).toHaveScreenshot("journal-expanded-dark.png");
+  await captureVisual(page.locator(".journal"), "journal-expanded-dark.png");
 });
 
 test("early transcription defaults to on and can be saved off on or reset without restart", async ({page}) => {
@@ -455,7 +468,7 @@ test("raw Text is a single body and the copy shortcut includes offscreen text wi
   await expect(page.locator(".book")).not.toContainText(/Анна|Борис|00:00|—/);
   await page.keyboard.press("Control+Shift+C");
   await expect.poll(() => copied).toEqual(["Первая реплика. Вторая реплика."]);
-  await expect(page.locator(".doc")).toHaveScreenshot("raw-text.png");
+  await captureVisual(page.locator(".doc"), "raw-text.png");
   lines = Array.from({ length: 500 }, (_, i) => ({ who: "Голос", start_sec: i, end_sec: i + 1, text: `Фрагмент ${i}.` }));
   const full = lines.map(line => line.text).join(" ");
   await page.clock.runFor(3100);
@@ -774,7 +787,7 @@ test("pipeline keeps elapsed time, the next step and an explicit reason between 
   await expect(page.getByText(/Ожидание: 5 с/)).toBeVisible();
   await expect(page.locator(".journal-state").first()).toHaveText("завершение не зафиксировано");
   await expect(page.locator(".step.done").first()).toContainText("за 9 с");
-  await expect(page.locator(".doc")).toHaveScreenshot("pipeline-queued.png");
+  await captureVisual(page.locator(".doc"), "pipeline-queued.png");
   await page.clock.runFor(2100);
   await expect(page.getByText(/Ожидание: 7 с/)).toBeVisible();
   state = "running";
@@ -1494,7 +1507,7 @@ test("queue retry plan reports phase, blocked backoff, exhaustion and recovery w
   await expect(row).toContainText("Повтор не раньше: 31.10.2026, 11:00:00");
   await expect(page.locator(".qrow").nth(1)).not.toContainText("Повтор не раньше:");
   await expect(page.locator(".qrow").nth(1).getByRole("button", { name: "♻ Переварить запись", exact: true })).toBeVisible();
-  await expect(page.locator(".main .pane")).toHaveScreenshot("queue-retry-plan-dark.png");
+  await captureVisual(page.locator(".main .pane"), "queue-retry-plan-dark.png");
   state = "retry_wait"; await page.clock.runFor(3100);
   await expect(row.locator("[data-retry-state]")).toHaveAttribute("data-retry-state", "retry_wait");
   await expect(row).toContainText("ожидается повтор");
@@ -1615,7 +1628,7 @@ test("jobs read failures label last counters and recovery publishes fresh status
   await expect(badge).toContainText("очередь недоступна");
   await expect(badge).toContainText("последние данные: 1 в работе · 2 ждут · 0 ошибок");
   await expect(page.locator(".bar > .queue .qdot.busy")).toHaveCount(0);
-  await expect(page.locator(".bar")).toHaveScreenshot("queue-unavailable-dark.png");
+  await captureVisual(page.locator(".bar"), "queue-unavailable-dark.png");
   failed = false; await page.clock.runFor(10_100);
   await expect(page.locator(".bar > .queue")).toContainText("сорвалось: 2");
   await expect(page.locator(".nav .k.err")).toHaveCount(0);
@@ -1692,7 +1705,7 @@ for (const width of [1440, 800, 480]) {
     await expect(page.locator(".list .item").first()).toBeInViewport();
     await expect(page.locator(".doc-head").getByRole("button", { name: "♻ Переварить запись", exact: true })).toBeInViewport({ ratio: 1 });
     expect(await page.locator(".main").evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
-    await expect(page.locator(".app")).toHaveScreenshot(`workspace-recording-${width}.png`);
+    await captureVisual(page.locator(".app"), `workspace-recording-${width}.png`);
   });
 }
 
@@ -1710,7 +1723,7 @@ test("light theme and keyboard navigation keep stop and archive usable", async (
   await page.keyboard.press("Enter");
   await expect(page.getByRole("button", { name: "− свернуть", exact: true })).toHaveAttribute("aria-expanded", "true");
   await expect(page.getByRole("button", { name: "Остановить", exact: true })).toBeInViewport();
-  await expect(page.locator(".app")).toHaveScreenshot("workspace-light-keyboard-480.png");
+  await captureVisual(page.locator(".app"), "workspace-light-keyboard-480.png");
 });
 
 test("system theme follows OS and reduced motion disables activity animation", async ({ page }) => {
@@ -1719,7 +1732,7 @@ test("system theme follows OS and reduced motion disables activity animation", a
   await expect(page.locator("html")).not.toHaveAttribute("data-theme");
   await expect.poll(() => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--ground").trim())).toBe("#f3f2ee");
   await expect(page.locator(".dot").first()).toHaveCSS("animation-name", "none");
-  await expect(page.locator(".app")).toHaveScreenshot("workspace-system-light-1440.png");
+  await captureVisual(page.locator(".app"), "workspace-system-light-1440.png");
   await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
   await expect.poll(() => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--ground").trim())).toBe("#17191d");
 });
@@ -1727,7 +1740,7 @@ test("system theme follows OS and reduced motion disables activity animation", a
 // Expected failures prove that the stored visual contract catches these changes.
 // They compare to the reviewed normal baseline; they never update it.
 for (const mutation of ["symbol", "color", "geometry"] as const) {
-  test(`visual detector rejects changed ${mutation}`, async ({ page }, testInfo) => {
+  test(`visual detector rejects changed ${mutation}`, { tag: "@visual" }, async ({ page }, testInfo) => {
     test.skip(testInfo.config.updateSnapshots !== "none", "Never overwrite the normal baseline with an intentional mutation");
     await page.setViewportSize({ width: 1440, height: 900 });
     await workspace(page, { record: true });
@@ -1735,7 +1748,7 @@ for (const mutation of ["symbol", "color", "geometry"] as const) {
     if (mutation === "color") await page.addStyleTag({ content: ".app { --surface: #ff00ff; --ground: #ff00ff; --side: #ff00ff; }" });
     if (mutation === "geometry") await page.addStyleTag({ content: ".app { grid-template-columns: 360px minmax(0, 1fr) 200px; }" });
     test.fail(true, "The deliberately mutated rendering must differ from the reviewed baseline");
-    await expect(page.locator(".app")).toHaveScreenshot("workspace-recording-1440.png", { timeout: 1000 });
+    await captureVisual(page.locator(".app"), "workspace-recording-1440.png", { timeout: 1000 });
   });
 }
 
@@ -1784,7 +1797,7 @@ test("growing partial text preserves selection scroll and playing snapshot throu
   expect(await page.locator("audio").evaluate(el=>el.currentTime)).toBe(50);
   await expect(page.getByTitle("Пауза",{exact:true})).toBeVisible();
   await page.locator(".main").evaluate(el=>{el.scrollTop=0;});
-  await expect(page.locator(".main")).toHaveScreenshot("partial-growing-text.png");
+  await captureVisual(page.locator(".main"), "partial-growing-text.png");
   final=true;await page.clock.runFor(3100);
   await expect(page.locator(".doc")).not.toContainText("Готовая часть");
   await expect(page.locator("[data-plain-text] span")).toHaveCount(120);
@@ -1811,7 +1824,7 @@ test("skipped summary explains the missing file and an idle document updates its
   await expect(page.locator("[data-summary-status=skipped]")).toContainText("Модель не создала содержательной сводки");
   await expect(page.getByText("Сводка ещё не создана.", { exact: false })).toHaveCount(0);
   expect(posts).toEqual([]);
-  await expect(page.locator(".doc")).toHaveScreenshot("summary-skipped-dark.png");
+  await captureVisual(page.locator(".doc"), "summary-skipped-dark.png");
   page.once("dialog", dialog => dialog.dismiss());
   await page.keyboard.press("r");
   expect(posts).toEqual([]);

@@ -6,7 +6,7 @@ mod config;
 mod media;
 mod mutations;
 mod partial;
-use config::{env_f64, env_secs, llm_client_capped, llm_client_from_env_with};
+use config::{env_secs, llm_client_capped, llm_client_from_env_with};
 mod catalog;
 mod commands;
 mod documents;

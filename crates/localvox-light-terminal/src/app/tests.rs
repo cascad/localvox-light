@@ -1,6 +1,55 @@
 use super::*;
 
 #[test]
+fn playback_errors_keep_the_session_without_claiming_the_current_pipeline_phase() {
+    let mut app = App::default();
+    app.current = Some("recording".into());
+    app.progress.phase = Some("transcribe".into());
+    app.apply_playback(crate::player::PlaybackState {
+        session: app.current.clone(),
+        error: Some("mpv IPC: connection lost".into()),
+        ..Default::default()
+    });
+    let entry = app.console.entries.back().unwrap();
+    assert_eq!(entry.context.source, "Плеер");
+    assert_eq!(entry.context.session.as_deref(), Some("recording"));
+    assert_eq!(entry.context.phase, None);
+    assert_eq!(entry.text, "mpv IPC: connection lost");
+}
+
+#[test]
+fn palette_n_p_ctrl_n_p_and_russian_positions_navigate_without_dispatching() {
+    for modifiers in [KeyModifiers::NONE, KeyModifiers::CONTROL] {
+        for (next, previous) in [('n', 'p'), ('т', 'з'), ('N', 'P')] {
+            let mut app = App::default();
+            app.palette = true;
+            app.palette_index = 0;
+            app.key(KeyEvent::new(KeyCode::Char(next), modifiers));
+            assert_eq!(app.palette_index, 1);
+            app.key(KeyEvent::new(KeyCode::Char(previous), modifiers));
+            assert_eq!(app.palette_index, 0);
+            app.key(KeyEvent::new(KeyCode::Char(previous), modifiers));
+            assert_eq!(app.palette_index, COMMANDS.len() - 1);
+            assert!(app.effects.is_empty() && app.form.is_none());
+        }
+    }
+}
+
+#[test]
+fn start_name_keeps_s_and_n_p_as_text_and_submits_with_enter() {
+    let mut app = App::default();
+    app.record.engine = true;
+    app.command(Action::StartRecording);
+    for c in "snpы".chars() {
+        app.key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
+    }
+    assert!(app.effects.is_empty());
+    assert_eq!(app.form.as_ref().unwrap().fields[0].value, "snpы");
+    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(matches!(&app.effects[0].1, Task::Start(name) if name=="snpы"));
+}
+
+#[test]
 fn cancel_shortcut_uses_queue_selection_once_and_never_stops_recording() {
     let mut app = App::default();
     app.view = View::Queue;
@@ -685,6 +734,56 @@ fn deleted_record_is_not_restored_by_a_later_stale_global_list_response() {
     assert!(app.queue.is_empty());
     assert!(app.console.entries.is_empty());
     assert!(app.status.contains("удалена"));
+    let mut fresh = app.sessions[0].clone();
+    fresh.name = "new-id-same-title".into();
+    app.apply(Response {
+        id: 12,
+        epoch: app.epoch,
+        resource: Resource::Sessions,
+        result: Ok(Data::Sessions(vec![fresh])),
+    });
+    assert_eq!(app.sessions[0].name, "new-id-same-title");
+}
+
+#[test]
+fn deleting_the_last_record_and_recreating_its_title_does_not_inherit_the_old_document() {
+    let mut app = deletable_recordings();
+    app.sessions.retain(|s| s.name == "selected");
+    app.selected = 0;
+    app.current = Some("selected".into());
+    let mut fresh = app.sessions[0].clone();
+    fresh.name = "fresh-uuid".into();
+    let epoch = app.epoch;
+    app.key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
+    app.key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
+    app.apply(Response {
+        id: 20,
+        epoch,
+        resource: Resource::Action,
+        result: Ok(Data::Reply(Reply {
+            deleted: Some("selected".into()),
+            ..Default::default()
+        })),
+    });
+    assert!(app.current.is_none() && app.sessions.is_empty());
+    app.apply(Response {
+        id: 21,
+        epoch: app.epoch,
+        resource: Resource::Sessions,
+        result: Ok(Data::Sessions(vec![fresh])),
+    });
+    assert_eq!(app.current.as_deref(), Some("fresh-uuid"));
+    app.apply(Response {
+        id: 22,
+        epoch,
+        resource: Resource::Transcript,
+        result: Ok(Data::Transcript(vec![TranscriptLine {
+            text: "deleted text".into(),
+            ..Default::default()
+        }])),
+    });
+    assert!(app.transcript.is_empty());
+    assert!(app.sessions.iter().all(|s| s.name != "selected"));
 }
 
 #[test]

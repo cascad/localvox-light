@@ -201,17 +201,6 @@ pub const CATALOGUE: &[Setting] = &[
     },
     // ── Запись ───────────────────────────────────────────────────────────────
     Setting {
-        key: "LOCALVOX_LIGHT_PREROLL_SEC",
-        group: "Запись",
-        label: "Буфер прошлого, сек",
-        // The hint states the DEFAULT'S consequence, not the number alone: this buffer is the one
-        // setting here that costs RAM continuously, and it costs it whether or not anything is
-        // being recorded. A person raising it to an hour deserves to know that before, not after.
-        hint: "Буфер предыдущего звука; увеличение требует больше памяти",
-        kind: Kind::Number,
-        applies: Applies::Restart,
-    },
-    Setting {
         key: "LOCALVOX_LIGHT_CHUNK_SEC",
         group: "Запись",
         label: "Ротация файлов аудио, сек",

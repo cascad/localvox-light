@@ -533,6 +533,9 @@ mod terminal {
             source.join(bundle::executable("localvox-install")),
         )
         .unwrap();
+        let native_dir = std::env::var_os("LOCALVOX_BEHAVIOR_NATIVE_DIR")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vosk-lib"));
         #[cfg(windows)]
         for name in [
             "libvosk.dll",
@@ -540,13 +543,7 @@ mod terminal {
             "libstdc++-6.dll",
             "libwinpthread-1.dll",
         ] {
-            std::fs::copy(
-                Path::new(env!("CARGO_MANIFEST_DIR"))
-                    .join("../../vosk-lib")
-                    .join(name),
-                source.join(name),
-            )
-            .unwrap();
+            std::fs::copy(native_dir.join(name), source.join(name)).unwrap();
         }
         #[cfg(unix)]
         {
@@ -561,13 +558,7 @@ mod terminal {
             } else {
                 "libvosk.so"
             };
-            std::fs::copy(
-                Path::new(env!("CARGO_MANIFEST_DIR"))
-                    .join("../../vosk-lib")
-                    .join(name),
-                source.join(name),
-            )
-            .unwrap();
+            std::fs::copy(native_dir.join(name), source.join(name)).unwrap();
         }
         manifest(&source);
         let (vosk, gigaam) = ready_models(temp.path());
@@ -616,7 +607,14 @@ mod terminal {
         apply.send(b"\r");
         apply.wait("Начать установку?");
         apply.send(b"\r");
-        assert!(apply.finish().contains("LocalVox готов"));
+        // Process exit can precede the reader forwarding ConPTY's final output.
+        // Wait for the observable receipt, then check the exit and installed files.
+        apply.wait("LocalVox готов");
+        let installed_output = apply.finish();
+        assert!(
+            installed_output.contains("LocalVox готов"),
+            "{installed_output}"
+        );
         drop(apply);
         Bundle::read(&destination).unwrap();
         assert!(!destination.join("cache/installation.pending.json").exists());

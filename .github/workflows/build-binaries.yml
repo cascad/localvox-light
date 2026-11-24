@@ -64,6 +64,8 @@ on:
       - "scripts/tests/test_release_delivery.py"
       - "scripts/publish-release.py"
       - "scripts/tests/test_publication_delivery.py"
+      - "scripts/test-behavior.py"
+      - "scripts/tests/test_behavior_runner.py"
       - "docs/release-installation.md"
       - "docs/terminal-workspace.md"
 
@@ -92,6 +94,8 @@ jobs:
           python-version: "3.13"
       - name: Publication contracts (local HTTP; no builds)
         run: python -m unittest discover -s scripts/tests -p test_publication_delivery.py -v
+      - name: Local behavior runner contracts (isolated child processes)
+        run: python -m unittest discover -s scripts/tests -p test_behavior_runner.py -v
       - name: Verify the tag and actual GitHub release write access before builds
         id: release
         if: ${{ startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.publish_release) }}

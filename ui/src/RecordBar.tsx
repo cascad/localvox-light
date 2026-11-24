@@ -16,15 +16,8 @@ interface Props {
   say: (m: string) => void;
 }
 
-/** The record bar. Permanent, and with TWO honest states.
- *
- *  Recording is NOT the default: capture runs always, but nothing reaches the disk until a
- *  human says so. A recorder left running all day through an office writes other people's
- *  conversations, and none of them agreed to that.
- *
- *  What makes the button safe is the pre-roll ring — the last minutes live in memory and
- *  enter the session at the press. That is what the chip on the right is about: it is not a
- *  decoration, it is the answer to "I forgot to press it". */
+/** Capture can run while idle, but archive audio starts only when the engine accepts Start.
+ *  No audio from before Start is prepended to a recording. */
 /** The button asks; the ENGINE decides. Between the two there is a real gap: the request travels
  *  through a file, and the recording loop looks at it about once a second.
  *
@@ -105,7 +98,7 @@ export function RecordBar({
     onChanged();
     say(
       ok
-        ? `Пишу. Последние ${mmss(state?.preroll_sec ?? 0)} из буфера вошли в запись`
+        ? "Пишу с момента старта"
         : "Движок не подтвердил старт — проверьте, запущен ли он",
     );
   };
@@ -212,16 +205,7 @@ export function RecordBar({
           <div className="grow" />
           {dead ? (
             <span className="err">движок не запущен</span>
-          ) : (
-            state && (
-              <span
-                className="preroll"
-                title="Звук последних минут держится в памяти и не пишется на диск. Нажмёте «Запись» — он войдёт в неё: разговор, начавшийся до кнопки, не потерян."
-              >
-                ⟲ буфер <b>{mmss(state.preroll_sec)}</b>
-              </span>
-            )
-          )}
+          ) : null}
         </>
       )}
 

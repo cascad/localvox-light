@@ -54,7 +54,7 @@ struct Queued {
 }
 impl Player {
     pub fn new(client: Client) -> Result<Self> {
-        Self::with_backend(client, executable(), false)
+        Self::with_backend(client, resolve_executable(), false)
     }
     pub fn with_backend(client: Client, executable: PathBuf, null_audio: bool) -> Result<Self> {
         let (tx, commands) = bounded(8);
@@ -217,15 +217,46 @@ impl Backend {
                     .context("Не удалось открыть аудио")?;
             }
             PlaybackCommand::Toggle => {
-                player
-                    .command(json!(["set_property", "file-local-options/end", "none"]))
-                    .context("Не удалось снять границу фрагмента")?;
-                player.command(json!(["cycle", "pause"]))?;
+                player.wait_ready(cancelled)?;
+                if player.state()?.idle {
+                    let session = self
+                        .state
+                        .session
+                        .as_ref()
+                        .context("Нет выбранного аудио")?;
+                    let info = self.client.playback(session)?;
+                    let media = self
+                        .client
+                        .media_snapshot(session, info.snapshot.as_deref());
+                    let position = if self.state.idle {
+                        self.state.position
+                    } else {
+                        self.state
+                            .fragment_end
+                            .or(self.state.duration)
+                            .unwrap_or(self.state.position)
+                    };
+                    let start = if position < info.duration_sec - 0.05 {
+                        position
+                    } else {
+                        0.0
+                    };
+                    player.load(&media.url, &media.headers, start, None)?;
+                    self.state.position = start;
+                    self.state.snapshot = info.snapshot;
+                    self.state.duration = Some(info.duration_sec);
+                } else {
+                    player
+                        .command(json!(["set_property", "options/end", "none"]))
+                        .context("Не удалось снять границу фрагмента")?;
+                    player.command(json!(["cycle", "pause"]))?;
+                }
                 self.state.fragment_end = None;
             }
             PlaybackCommand::Seek { session, position } => {
+                player.wait_ready(cancelled)?;
                 if self.state.session.as_ref() == Some(&session)
-                    && !self.state.idle
+                    && !player.state()?.idle
                     && self.state.duration.is_none_or(|d| position < d)
                 {
                     player
@@ -309,7 +340,7 @@ impl Drop for Player {
     }
 }
 
-fn executable() -> PathBuf {
+pub fn resolve_executable() -> PathBuf {
     if let Some(path) = std::env::var_os("LOCALVOX_MPV") {
         return path.into();
     }
@@ -349,6 +380,7 @@ struct Connection {
     stream: BufReader<Box<dyn Transport>>,
     seq: u64,
     media_error: bool,
+    loading: bool,
 }
 impl Connection {
     async fn call(&mut self, command: Value) -> Result<Value> {
@@ -369,6 +401,11 @@ impl Connection {
                 "IPC frame limit or disconnect"
             );
             let reply: Value = serde_json::from_slice(&line).context("Invalid IPC JSON")?;
+            match reply["event"].as_str() {
+                Some("start-file") => self.loading = true,
+                Some("file-loaded" | "end-file") => self.loading = false,
+                _ => {}
+            }
             if reply["event"].as_str() == Some("end-file")
                 && reply["reason"].as_str() == Some("error")
             {
@@ -492,6 +529,7 @@ impl Mpv {
                             stream: BufReader::new(Box::new(stream)),
                             seq: 0,
                             media_error: false,
+                            loading: false,
                         });
                     }
                     anyhow::ensure!(!process.has_exited()?, "mpv exited during IPC startup");
@@ -520,6 +558,26 @@ impl Mpv {
     pub fn pid(&self) -> u32 {
         self.process.pid()
     }
+    fn wait_ready(&mut self, cancelled: &impl Fn() -> bool) -> Result<()> {
+        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        while self.connection.loading {
+            anyhow::ensure!(!cancelled(), "obsolete playback command");
+            anyhow::ensure!(
+                std::time::Instant::now() < deadline,
+                "mpv media loading timed out"
+            );
+            // A global property is valid during loading and drains file-loaded/end-file events.
+            self.command(json!(["get_property", "idle-active"]))?;
+            if self.connection.loading {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
+        anyhow::ensure!(
+            !self.connection.media_error,
+            "Аудио недоступно или не удалось декодировать источник"
+        );
+        Ok(())
+    }
     pub fn load(
         &mut self,
         url: &str,
@@ -540,6 +598,7 @@ impl Mpv {
         if let Some(end) = end {
             options["end"] = json!(end.to_string());
         }
+        self.connection.loading = true;
         self.command(json!(["loadfile", url, "replace", -1, options]))?;
         self.command(json!(["set_property", "pause", false]))?;
         Ok(())
@@ -548,10 +607,12 @@ impl Mpv {
         self.command(json!(["stop"]))?;
         self.command(json!(["set_property", "http-header-fields", []]))?;
         self.connection.media_error = false;
+        self.connection.loading = false;
         Ok(())
     }
     /// Absolute seek keeps mpv's pause state and clears the fragment boundary.
     pub fn seek(&mut self, position: f64) -> Result<()> {
+        self.wait_ready(&|| false)?;
         anyhow::ensure!(
             position.is_finite() && position >= 0.0,
             "Invalid seek position"
@@ -560,7 +621,7 @@ impl Mpv {
         let position = duration
             .filter(|v| v.is_finite() && *v > 0.0)
             .map_or(position, |d| position.min((d - 0.01).max(0.0)));
-        self.command(json!(["set_property", "file-local-options/end", "none"]))?;
+        self.command(json!(["set_property", "options/end", "none"]))?;
         self.command(json!(["seek", position, "absolute+exact"]))?;
         Ok(())
     }
@@ -730,6 +791,7 @@ mod tests {
                 stream: BufReader::new(Box::new(stream)),
                 seq: 0,
                 media_error: false,
+                loading: false,
             };
             let writer = tokio::spawn(async move {
                 peer.write_all(&vec![b'x'; 65536]).await.unwrap();

@@ -58,10 +58,3 @@ pub(super) fn env_secs(name: &str, default: u64) -> u64 {
         .and_then(|v| v.parse().ok())
         .unwrap_or(default)
 }
-
-pub(super) fn env_f64(name: &str, default: f64) -> f64 {
-    std::env::var(name)
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(default)
-}
