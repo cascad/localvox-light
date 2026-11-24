@@ -223,3 +223,30 @@ Contents: write создал draft без `target_commitish`. Все готов�
 Исправленный запрос выполнен локально на реальном GitHub до следующего push:
 draft 456642180 восстановлен с v0.2.11, затем production `draft()` выполнил повторный
 PATCH и сохранил тот же ID/tag/draft. Публичной версии на этом шаге ещё нет.
+
+### Итог доставки v0.2.11 · test-run
+
+На de3f618 recovery
+[45380855460](https://github.com/cascad/localvox-light/actions/runs/45380855460)
+**completed / success**: hosted preflight и publisher success, без пересборки.
+Исходные пять native сборок, model-source и interface gates проверены в
+45345786423 для точного commit 2090d806f18a4c18a96d6273b6a676cb50742d80.
+Их исходный HTTP 403 остаётся историческим неуспехом, не переименован в success.
+
+[v0.2.11](https://github.com/cascad/localvox-light/releases/tag/v0.2.11)
+опубликована **2026-11-24T11:06:08Z**, latest API возвращает этот tag, draft=false,
+14 assets uploaded с SHA-256. Publisher проверил полный набор local/remote digest
+и размер до публикации. После публикации с этой Windows машины без авторизации
+прошли HEAD всех 14 публичных asset URLs, загрузка обоих `latest/download/install.*`
+со сверкой SHA-256 и всех пяти checksum-файлов со сверкой digest архивов. Полные
+архивы/модели повторно локально не скачивались. Первый анонимный запрос именно
+REST metadata получил IP rate-limit 403; metadata взята через connector, публичные
+ссылки download затем проверены отдельно и успешно.
+
+Пустой untagged draft 456639239, созданный неудачным запуском, удалён после проверки
+его draft/tag/name/нашего commit marker/отсутствия assets. Опубликованный release
+456642180 и tag v0.2.11 не заменялись. Коммиты исправления инструментов: f1bb7f5,
+de3f618; версия поставляемого кода 0.2.11 и существующий tag не перемещались.
+Устаревшие push-runs f1bb7f5 остановлены после push исправления; повторные branch
+native/interface checks de3f618 на момент этой записи ещё выполняются. Доставка
+прошла по проверенным исходным сборкам, аппаратная приёмка Mac остаётся not-run.
