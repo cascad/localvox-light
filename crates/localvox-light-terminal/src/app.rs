@@ -603,7 +603,7 @@ impl App {
     }
     pub fn selection_len(&self) -> usize {
         match self.view {
-            View::Archive if self.tab == Tab::Progress => self.journal.visible_groups().len(),
+            View::Archive if self.tab == Tab::Progress => self.journal_groups().len(),
             View::Archive if self.tab == Tab::Speakers => self.speakers.len(),
             View::Archive if self.tab == Tab::Transcript => self.transcript.len(),
             View::Archive if self.tab == Tab::Readable && self.readable.from_transcript => {
@@ -638,6 +638,9 @@ impl App {
         }
         self.document_text().lines().count().max(1)
     }
+    pub fn journal_groups(&self) -> Vec<crate::journal::Group> {
+        self.journal.view(&self.progress)
+    }
     fn enter(&mut self) {
         if self.focus == 0 {
             self.selected = 0;
@@ -650,7 +653,10 @@ impl App {
                 self.scroll = self.effective_scroll();
                 self.journal.follow = false;
                 self.follow_selection = true;
-                self.journal.toggle(self.item)
+                if let Some(group) = self.journal_groups().get(self.item) {
+                    self.journal
+                        .set_open(&group.id, !self.journal.is_open(group));
+                }
             }
             View::Archive if self.focus == 1 => {
                 if let Some(s) = self.visible_sessions().get(self.selected) {

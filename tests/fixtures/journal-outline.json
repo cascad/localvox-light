@@ -1,0 +1,455 @@
+{
+  "events": [
+    {
+      "run": "early-run",
+      "scope": "recording",
+      "operation": "early-failed",
+      "parent": "stage:transcribe",
+      "stage": "transcribe",
+      "label": "Ранняя попытка",
+      "role": "worker",
+      "id": "early-failed-start",
+      "kind": "operation_start",
+      "at": "2026-11-24T21:23:00.000Z"
+    },
+    {
+      "run": "early-run",
+      "scope": "recording",
+      "operation": "early-failed",
+      "parent": "stage:transcribe",
+      "stage": "transcribe",
+      "label": "Ранняя попытка",
+      "role": "worker",
+      "id": "early-failed-end",
+      "kind": "operation_end",
+      "at": "2026-11-24T21:23:01.000Z",
+      "elapsed_sec": 1,
+      "status": "failed"
+    },
+    {
+      "run": "early-run",
+      "scope": "recording",
+      "operation": "early-worker",
+      "parent": "stage:transcribe",
+      "stage": "transcribe",
+      "label": "ASR · обработка порции",
+      "role": "worker",
+      "id": "early-worker-start",
+      "kind": "operation_start",
+      "at": "2026-11-24T21:23:02.000Z"
+    },
+    {
+      "run": "early-run",
+      "scope": "recording",
+      "operation": "early-prefix",
+      "parent": "early-worker",
+      "stage": "transcribe",
+      "label": "Готовая часть записи",
+      "id": "early-prefix-start",
+      "kind": "operation_start",
+      "at": "2026-11-24T21:23:03.000Z"
+    },
+    {
+      "run": "early-run",
+      "scope": "recording",
+      "operation": "early-punctuation",
+      "parent": "early-prefix",
+      "stage": "transcribe",
+      "label": "Пунктуация готовой части",
+      "id": "early-punctuation-start",
+      "kind": "operation_start",
+      "at": "2026-11-24T21:23:05.000Z"
+    },
+    {
+      "run": "early-run",
+      "scope": "recording",
+      "operation": "early-punctuation",
+      "parent": "early-prefix",
+      "stage": "transcribe",
+      "label": "Пунктуация готовой части",
+      "id": "early-punctuation-end",
+      "kind": "operation_end",
+      "at": "2026-11-24T21:23:29.000Z",
+      "elapsed_sec": 24
+    },
+    {
+      "run": "early-run",
+      "scope": "recording",
+      "operation": "early-prefix",
+      "parent": "early-worker",
+      "stage": "transcribe",
+      "label": "Готовая часть записи",
+      "id": "early-prefix-end",
+      "kind": "operation_end",
+      "at": "2026-11-24T21:23:31.000Z",
+      "elapsed_sec": 28
+    },
+    {
+      "run": "early-run",
+      "scope": "recording",
+      "operation": "early-worker",
+      "parent": "stage:transcribe",
+      "stage": "transcribe",
+      "label": "ASR · обработка порции",
+      "role": "worker",
+      "id": "early-worker-end",
+      "kind": "operation_end",
+      "at": "2026-11-24T21:23:32.000Z",
+      "elapsed_sec": 30
+    },
+    {
+      "id": "transcribe-stage-start",
+      "run": "final-run",
+      "scope": "final",
+      "stage": "transcribe",
+      "label": "transcribe",
+      "kind": "stage",
+      "status": "running",
+      "at": "2026-11-24T21:23:40.000Z"
+    },
+    {
+      "run": "final-run",
+      "scope": "final",
+      "operation": "transcribe-worker",
+      "parent": "stage:transcribe",
+      "stage": "transcribe",
+      "label": "localvox-process",
+      "role": "worker",
+      "id": "transcribe-worker-start",
+      "kind": "operation_start",
+      "at": "2026-11-24T21:23:40.000Z",
+      "command": {
+        "program": "localvox-process",
+        "args": [
+          {
+            "name": "--worker-phase",
+            "value": "transcribe"
+          },
+          {
+            "name": "--llm-model",
+            "value": "test-model"
+          }
+        ]
+      }
+    },
+    {
+      "run": "final-run",
+      "scope": "final",
+      "operation": "recognize",
+      "parent": "transcribe-worker",
+      "stage": "transcribe",
+      "label": "Распознавание речи · T-one",
+      "id": "recognize-start",
+      "kind": "operation_start",
+      "at": "2026-11-24T21:23:40.000Z"
+    },
+    {
+      "id": "transcribe-stage-end",
+      "run": "final-run",
+      "scope": "final",
+      "stage": "transcribe",
+      "label": "transcribe",
+      "kind": "stage",
+      "status": "done",
+      "at": "2026-11-24T21:23:43.000Z"
+    },
+    {
+      "run": "final-run",
+      "scope": "final",
+      "operation": "transcribe-worker",
+      "parent": "stage:transcribe",
+      "stage": "transcribe",
+      "label": "localvox-process",
+      "role": "worker",
+      "id": "transcribe-worker-end",
+      "kind": "operation_end",
+      "at": "2026-11-24T21:23:43.000Z",
+      "elapsed_sec": 3
+    },
+    {
+      "id": "punctuation-stage-start",
+      "run": "final-run",
+      "scope": "final",
+      "stage": "punctuation",
+      "label": "punctuation",
+      "kind": "stage",
+      "status": "running",
+      "at": "2026-11-24T21:23:43.000Z"
+    },
+    {
+      "run": "final-run",
+      "scope": "final",
+      "operation": "punctuation-worker",
+      "parent": "stage:punctuation",
+      "stage": "punctuation",
+      "label": "localvox-process",
+      "role": "worker",
+      "id": "punctuation-worker-start",
+      "kind": "operation_start",
+      "at": "2026-11-24T21:23:43.000Z",
+      "command": {
+        "program": "localvox-process",
+        "args": [
+          {
+            "name": "--worker-phase",
+            "value": "punctuation"
+          },
+          {
+            "name": "--llm-model",
+            "value": "test-model"
+          }
+        ]
+      }
+    },
+    {
+      "run": "final-run",
+      "scope": "final",
+      "operation": "recognize",
+      "parent": "transcribe-worker",
+      "stage": "transcribe",
+      "label": "Распознавание речи · T-one",
+      "id": "recognize-end",
+      "kind": "operation_end",
+      "at": "2026-11-24T21:23:43.000Z",
+      "elapsed_sec": 3
+    },
+    {
+      "run": "final-run",
+      "scope": "final",
+      "operation": "punctuate",
+      "parent": "punctuation-worker",
+      "stage": "punctuation",
+      "label": "Пунктуация и регистр · SbertPuncCase",
+      "id": "punctuate-start",
+      "kind": "operation_start",
+      "at": "2026-11-24T21:23:43.000Z"
+    },
+    {
+      "id": "punctuation-stage-end",
+      "run": "final-run",
+      "scope": "final",
+      "stage": "punctuation",
+      "label": "punctuation",
+      "kind": "stage",
+      "status": "done",
+      "at": "2026-11-24T21:24:05.000Z"
+    },
+    {
+      "run": "final-run",
+      "scope": "final",
+      "operation": "punctuation-worker",
+      "parent": "stage:punctuation",
+      "stage": "punctuation",
+      "label": "localvox-process",
+      "role": "worker",
+      "id": "punctuation-worker-end",
+      "kind": "operation_end",
+      "at": "2026-11-24T21:24:05.000Z",
+      "elapsed_sec": 22
+    },
+    {
+      "id": "summary-stage-start",
+      "run": "final-run",
+      "scope": "final",
+      "stage": "summary",
+      "label": "summary",
+      "kind": "stage",
+      "status": "running",
+      "at": "2026-11-24T21:24:05.000Z"
+    },
+    {
+      "run": "final-run",
+      "scope": "final",
+      "operation": "summary-worker",
+      "parent": "stage:summary",
+      "stage": "summary",
+      "label": "localvox-process",
+      "role": "worker",
+      "id": "summary-worker-start",
+      "kind": "operation_start",
+      "at": "2026-11-24T21:24:05.000Z",
+      "command": {
+        "program": "localvox-process",
+        "args": [
+          {
+            "name": "--worker-phase",
+            "value": "summary"
+          },
+          {
+            "name": "--llm-model",
+            "value": "test-model"
+          }
+        ]
+      }
+    },
+    {
+      "run": "final-run",
+      "scope": "final",
+      "operation": "punctuate",
+      "parent": "punctuation-worker",
+      "stage": "punctuation",
+      "label": "Пунктуация и регистр · SbertPuncCase",
+      "id": "punctuate-end",
+      "kind": "operation_end",
+      "at": "2026-11-24T21:24:05.000Z",
+      "elapsed_sec": 22
+    },
+    {
+      "run": "final-run",
+      "scope": "final",
+      "operation": "answer",
+      "parent": "summary-worker",
+      "stage": "summary",
+      "label": "Ответ модели",
+      "id": "answer-start",
+      "kind": "operation_start",
+      "at": "2026-11-24T21:24:05.000Z"
+    },
+    {
+      "id": "answer-log",
+      "run": "final-run",
+      "scope": "final",
+      "stage": "summary",
+      "operation": "answer",
+      "parent": "summary-worker",
+      "label": "Ответ модели",
+      "kind": "log",
+      "at": "2026-11-24T21:24:20.000Z",
+      "text": "Проверяемая диагностическая строка"
+    },
+    {
+      "run": "final-run",
+      "scope": "final",
+      "operation": "answer",
+      "parent": "summary-worker",
+      "stage": "summary",
+      "label": "Ответ модели",
+      "id": "answer-end",
+      "kind": "operation_end",
+      "at": "2026-11-24T21:24:59.000Z",
+      "elapsed_sec": 54
+    },
+    {
+      "run": "final-run",
+      "scope": "final",
+      "operation": "validate",
+      "parent": "summary-worker",
+      "stage": "summary",
+      "label": "Проверка имён и чисел",
+      "id": "validate-start",
+      "kind": "operation_start",
+      "at": "2026-11-24T21:24:59.000Z"
+    },
+    {
+      "run": "final-run",
+      "scope": "final",
+      "operation": "validate",
+      "parent": "summary-worker",
+      "stage": "summary",
+      "label": "Проверка имён и чисел",
+      "id": "validate-end",
+      "kind": "operation_end",
+      "at": "2026-11-24T21:24:59.500Z",
+      "elapsed_sec": 0.5
+    },
+    {
+      "run": "final-run",
+      "scope": "final",
+      "operation": "retry",
+      "parent": "summary-worker",
+      "stage": "summary",
+      "label": "Повтор после проверки",
+      "id": "retry-start",
+      "kind": "operation_start",
+      "at": "2026-11-24T21:24:59.500Z"
+    },
+    {
+      "run": "final-run",
+      "scope": "final",
+      "operation": "retry",
+      "parent": "summary-worker",
+      "stage": "summary",
+      "label": "Повтор после проверки",
+      "id": "retry-end",
+      "kind": "operation_end",
+      "at": "2026-11-24T21:25:00.500Z",
+      "elapsed_sec": 1.0
+    },
+    {
+      "id": "summary-stage-end",
+      "run": "final-run",
+      "scope": "final",
+      "stage": "summary",
+      "label": "summary",
+      "kind": "stage",
+      "status": "done",
+      "at": "2026-11-24T21:25:03.000Z"
+    },
+    {
+      "run": "final-run",
+      "scope": "final",
+      "operation": "summary-worker",
+      "parent": "stage:summary",
+      "stage": "summary",
+      "label": "localvox-process",
+      "role": "worker",
+      "id": "summary-worker-end",
+      "kind": "operation_end",
+      "at": "2026-11-24T21:25:03.000Z",
+      "elapsed_sec": 58
+    }
+  ],
+  "progress": {
+    "execution": {
+      "run": "final-run",
+      "operation": "summary-worker",
+      "state": "done",
+      "message": "Все запрошенные результаты готовы",
+      "next": []
+    },
+    "stages": [
+      {
+        "stage": "transcribe",
+        "state": "done",
+        "started_at": "2026-11-24T21:23:40.000Z",
+        "ended_at": "2026-11-24T21:23:43.000Z",
+        "updated_at": "2026-11-24T21:23:43.000Z",
+        "note": "Артефакт сохранён и проверен"
+      },
+      {
+        "stage": "punctuation",
+        "state": "done",
+        "started_at": "2026-11-24T21:23:43.000Z",
+        "ended_at": "2026-11-24T21:24:05.000Z",
+        "updated_at": "2026-11-24T21:24:05.000Z",
+        "note": "Артефакт сохранён и проверен"
+      },
+      {
+        "stage": "refine",
+        "state": "skipped",
+        "note": "Дополнительная очистка запускается вручную"
+      },
+      {
+        "stage": "cleanup",
+        "state": "skipped",
+        "note": "Дополнительная очистка запускается вручную"
+      },
+      {
+        "stage": "summary",
+        "state": "done",
+        "started_at": "2026-11-24T21:24:05.000Z",
+        "ended_at": "2026-11-24T21:25:03.000Z",
+        "updated_at": "2026-11-24T21:25:03.000Z",
+        "note": "Артефакт сохранён и проверен"
+      }
+    ],
+    "timing": {
+      "queue_sec": 0,
+      "processing_sec": 123,
+      "total_sec": 123,
+      "stages_sec": 114,
+      "between_sec": 9,
+      "overlap_sec": 0
+    }
+  }
+}

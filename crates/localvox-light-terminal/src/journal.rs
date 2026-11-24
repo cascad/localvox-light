@@ -1,6 +1,8 @@
 //! Bounded client history and pure projection into operation groups.
 use localvox_light_client::{safe_text, DisplayCommand, JournalEntry, JournalPage, StageStatus};
 use std::collections::{HashMap, HashSet};
+mod outline;
+pub use outline::{stage_name, NodeKind};
 
 const MAX_EVENTS: usize = 5000;
 const MAX_BYTES: usize = 4 * 1024 * 1024;
@@ -16,6 +18,7 @@ pub struct Journal {
     pub follow: bool,
     pub unseen: usize,
     pub expanded: HashSet<String>,
+    pub collapsed: HashSet<String>,
     pub tail_gap: bool,
     pub filter: String,
     pub reset_notice: bool,
@@ -23,6 +26,17 @@ pub struct Journal {
 }
 #[derive(Clone, Default)]
 pub struct Group {
+    pub source_parent: Option<String>,
+    pub scope: Option<String>,
+    pub role: Option<String>,
+    pub kind: NodeKind,
+    pub depth: usize,
+    pub default_open: bool,
+    pub children: usize,
+    pub issues: usize,
+    pub done: Option<u32>,
+    pub total: Option<u32>,
+    pub note: Option<String>,
     pub operation: Option<String>,
     pub parent: Option<String>,
     pub started_at: Option<String>,
@@ -36,6 +50,7 @@ pub struct Group {
     pub ended: bool,
     pub status: String,
     pub at: String,
+    pub first_at: String,
     pub details: Vec<JournalEntry>,
 }
 impl Journal {
@@ -52,6 +67,7 @@ impl Journal {
         if page.reset {
             self.entries.clear();
             self.expanded.clear();
+            self.collapsed.clear();
             self.before = None;
             self.received.clear();
             self.tail_gap = false;
@@ -139,12 +155,8 @@ impl Journal {
                 self.before = self.entries.first().map(|e| e.id.clone());
             }
         }
-        let active = self
-            .groups()
-            .into_iter()
-            .map(|g| g.id)
-            .collect::<HashSet<_>>();
-        self.expanded.retain(|id| active.contains(id));
+        // Fold state is pruned against the complete projection by the owner:
+        // planned stages can exist before their first journal event.
     }
     pub fn groups(&self) -> Vec<Group> {
         let mut indices = HashMap::new();
@@ -156,21 +168,33 @@ impl Journal {
                 e.operation
                     .as_deref()
                     .map(str::to_owned)
-                    .unwrap_or_else(|| format!("stage:{}", e.stage))
+                    .unwrap_or_else(|| format!(
+                        "{}stage:{}",
+                        e.scope
+                            .as_ref()
+                            .map(|s| format!("{s}/"))
+                            .unwrap_or_default(),
+                        e.stage
+                    ))
             );
             let index = *indices.entry(id.clone()).or_insert_with(|| {
                 groups.push(Group {
+                    scope: e.scope.clone(),
+                    role: e.role.clone(),
                     id,
                     operation: e.operation.clone(),
                     parent: e.parent.clone(),
                     run: e.run.clone(),
                     stage: safe_text(&e.stage),
                     label: safe_text(&e.label),
+                    first_at: e.at.clone(),
                     ..Default::default()
                 });
                 groups.len() - 1
             });
             let g = &mut groups[index];
+            g.done = e.done.or(g.done);
+            g.total = e.total.or(g.total);
             if e.parent.is_some() {
                 g.parent = e.parent.clone();
             }
@@ -198,37 +222,31 @@ impl Journal {
         groups
     }
     pub fn visible_groups(&self) -> Vec<Group> {
-        let filter = self.filter.to_lowercase();
-        self.groups()
-            .into_iter()
-            .filter(|g| {
-                filter.is_empty()
-                    || format!(
-                        "{} {} {}",
-                        g.label,
-                        g.stage,
-                        g.details
-                            .iter()
-                            .filter_map(|e| e.text.as_deref())
-                            .collect::<Vec<_>>()
-                            .join(" ")
-                    )
-                    .to_lowercase()
-                    .contains(&filter)
-            })
-            .collect()
+        self.view(&localvox_light_client::Progress::default())
     }
     pub fn toggle(&mut self, index: usize) {
         if let Some(g) = self.visible_groups().get(index) {
-            if !self.expanded.remove(&g.id) {
-                self.expanded.insert(g.id.clone());
-            }
+            self.set_open(&g.id, !self.is_open(g));
+        }
+    }
+    pub fn is_open(&self, group: &Group) -> bool {
+        self.expanded.contains(&group.id)
+            || group.default_open && !self.collapsed.contains(&group.id)
+    }
+    pub fn set_open(&mut self, id: &str, open: bool) {
+        if open {
+            self.collapsed.remove(id);
+            self.expanded.insert(id.into());
+        } else {
+            self.expanded.remove(id);
+            self.collapsed.insert(id.into());
         }
     }
 }
 impl Group {
     pub fn text(&self) -> String {
         let mut lines = vec![
+            format!("Идентификатор: {}", self.id),
             format!("Запуск {} · этап {}", self.run, self.stage),
             format!("{} · {} · {}", self.label, self.state(), self.at),
         ];
@@ -237,6 +255,15 @@ impl Group {
             .filter(|value| value.is_finite() && *value >= 0.0)
         {
             lines.push(format!("Длительность {seconds:.3} с"));
+        }
+        if let (Some(done), Some(total)) = (self.done, self.total) {
+            lines.push(format!("Обработано {done}/{total}"));
+        }
+        if let Some(parent) = self.source_parent.as_ref().or(self.parent.as_ref()) {
+            lines.push(format!("Родитель: {parent}"));
+        }
+        if let Some(note) = &self.note {
+            lines.push(note.clone());
         }
         if let Some(command) = &self.command {
             let mut line = command.program.clone();
@@ -454,9 +481,15 @@ mod tests {
             })
             .collect();
         assert_eq!(j.groups()[0].hidden_lines(), 35);
-        j.toggle(0);
+        j.toggle(1); // open the stage before selecting its operation
+        let index = j
+            .visible_groups()
+            .iter()
+            .position(|g| g.id == "r/o")
+            .unwrap();
+        j.toggle(index);
         assert!(j.expanded.contains("r/o"));
-        j.toggle(0);
+        j.toggle(index);
         assert!(!j.expanded.contains("r/o"));
     }
     #[test]

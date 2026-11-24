@@ -249,14 +249,13 @@ impl App {
                     .collect::<Vec<_>>()
                     .join("\n\n"),
                 Tab::Progress => self
-                    .journal
-                    .visible_groups()
+                    .journal_groups()
                     .get(self.item)
                     .map(|group| {
                         format!(
                             "Сессия {}\n{}",
                             self.current.as_deref().unwrap_or("—"),
-                            group.text()
+                            self.journal.copy_group(&group.id, &self.progress)
                         )
                     })
                     .unwrap_or_default(),

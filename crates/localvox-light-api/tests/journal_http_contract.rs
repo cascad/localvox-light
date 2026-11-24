@@ -16,6 +16,8 @@ fn client_reads_journal_and_existing_endpoints_through_http() {
     journal::append(
         &session,
         Entry {
+            scope: Some("recording".into()),
+            role: Some("worker".into()),
             kind: "operation_start".into(),
             label: "summary".into(),
             stage: "summary".into(),
@@ -65,6 +67,8 @@ fn client_reads_journal_and_existing_endpoints_through_http() {
     assert!(!client.record().unwrap().engine);
     let page = client.journal("demo", None, None).unwrap();
     assert_eq!(page.events[0].label, "summary");
+    assert_eq!(page.events[0].scope.as_deref(), Some("recording"));
+    assert_eq!(page.events[0].role.as_deref(), Some("worker"));
     assert!(client
         .journal("demo", Some(&page.next_cursor), None)
         .unwrap()

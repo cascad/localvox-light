@@ -75,6 +75,16 @@ body { font-family: var(--mono); font-size: 12px; }
 .journal-stage { color: var(--dim); font-size: 10px; margin: 4px 0 5px 5px; }
 .journal-stage span { color: var(--line); margin-right: 8px; }
 .journal-operation { margin: 0 0 12px; }
+.journal-operation.step { display: block; }
+.journal-context { color: var(--ink); }
+.journal-fold { width: 16px; flex: none; border: 0; padding: 0; background: transparent; color: var(--dim); font: inherit; cursor: pointer; }
+.journal-fold:hover, .journal-fold:focus-visible { color: var(--accent); background: var(--raise); }
+.journal-duration { color: var(--dim); font-size: 10px; font-variant-numeric: tabular-nums; }
+.journal-issues { font-size: 10px; }
+.journal-technical { margin: 4px 0 4px 24px; }
+.journal p.journal-detail { margin: 3px 0 3px 24px; color: var(--dim); font-size: 10px; }
+.journal p.journal-detail.err { color: var(--rec); }
+.processing-account { margin: 10px 0; }
 .journal-row { display: flex; align-items: baseline; flex-wrap: wrap; gap: 7px; min-width: 0; }
 .journal-branch { color: var(--line); font-size: 16px; flex: none; }
 .journal-indicator { width: 10px; font-size: 10px; flex: none; }

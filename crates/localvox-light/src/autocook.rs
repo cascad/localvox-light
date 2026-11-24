@@ -544,6 +544,7 @@ fn run_step_with_worker(
     {
         progress::new_run(&session);
     }
+    localvox_light_core::journal::set_scope(&session, execution::journal_scope(job, &session));
     if job.kind != jobs::JobKind::Incremental
         && (!job.force || job.phase != JobPhase::Transcribe)
         && jobs::verify_phase(&session, job).is_ok()

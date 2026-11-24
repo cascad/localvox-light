@@ -1,5 +1,12 @@
 # Покрытие требований и состояние реализации
 
+Иерархия журнала UI/TUI, 2026-11-24 (PIPE-022 в delta, main ещё не sync):
+
+| Требование | Код / delta | Проверка |
+|---|---|---|
+| PIPE-022 | [delta](../changes/clarify-processing-journal/specs/processing-pipeline/spec.md), [события](../../crates/localvox-light-core/src/journal.rs), [TUI](../../crates/localvox-light-terminal/src/journal/outline.rs), [UI](../../ui/src/journal-outline.ts) | [Windows: общий fixture, HTTP/child-process, state/snapshots, ConPTY и browser/visual](../changes/clarify-processing-journal/evidence/implementation.md); native Mac/Linux not-run |
+| PIPE-011 | [union фоновых интервалов](../../crates/localvox-light-core/src/workflow.rs), [чтение часов](../../crates/localvox-light-core/src/progress.rs) | [Вложенность/пересечение, неизвестные границы, отсутствие двойного учёта](../changes/clarify-processing-journal/evidence/implementation.md); время ветки ограничено загруженным окном |
+
 Перемотка TUI и Enter полного выхода, 2026-11-24 (delta, main ещё не sync):
 
 | Требование | Код / delta | Проверка |

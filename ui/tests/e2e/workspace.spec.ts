@@ -18,6 +18,50 @@ async function captureVisual(locator: Locator, name: string, options: { timeout?
 const fixture = JSON.parse(readFileSync(fileURLToPath(new URL("../../../tests/fixtures/workspace.json", import.meta.url)), "utf8"));
 const journalFixture = JSON.parse(readFileSync(fileURLToPath(new URL("../../../tests/fixtures/journal.json", import.meta.url)), "utf8"));
 
+async function openJournalStage(page: Page, run = "r1", stage = "summary") {
+  const row = page.locator(`[data-journal-id="${run}/stage:${stage}"]`);
+  await expect(row).toBeVisible();
+  const fold = row.locator(".journal-fold");
+  if (await fold.getAttribute("aria-expanded") === "false") await fold.click();
+  const technical = page.locator(`[data-journal-id="${run}/stage:${stage}/details"] .journal-fold`);
+  if (await technical.count() && await technical.getAttribute("aria-expanded") === "false") await technical.click();
+}
+
+const outlineFixture = JSON.parse(readFileSync(fileURLToPath(new URL("../../../tests/fixtures/journal-outline.json", import.meta.url)), "utf8"));
+
+test("processing journal separates recording work and final stages without losing nested clocks", async ({ page }) => {
+  await workspace(page);
+  await page.route("**/progress", route => route.fulfill({ json: outlineFixture.progress }));
+  await page.route("**/journal**", route => route.fulfill({ json: { ...journalFixture, events: outlineFixture.events } }));
+  await page.getByRole("button", { name: "Ход", exact: true }).click();
+  const early = page.locator('[data-journal-id="context:early-run/recording"]');
+  await expect(early).toContainText("Во время записи");
+  await expect(early).toContainText("ошибки в истории");
+  await expect(page.locator('[data-kind="stage"]')).toHaveCount(3);
+  const summary = page.locator('[data-journal-id="final-run/final/stage:summary"]');
+  await expect(summary).toContainText("0:58");
+  await expect(page.locator(".journal-technical")).toHaveCount(0);
+  await captureVisual(page.locator(".doc"), "journal-outline-collapsed.png");
+  await summary.getByRole("button", { name: "Раскрыть: Сводка", exact: true }).click();
+  await expect(page.locator('[data-journal-id="final-run/answer"]')).toContainText("0:54");
+  await expect(page.locator('[data-journal-id="final-run/validate"]')).toContainText("<1 с");
+  await expect(page.locator('[data-journal-id="final-run/retry"]')).toContainText("0:01");
+  await expect(page.locator(".journal-technical")).toHaveCount(0);
+  await captureVisual(page.locator(".doc"), "journal-outline-expanded.png");
+  await page.locator('[data-journal-id="final-run/final/stage:summary/details"]').getByRole("button", { name: "Раскрыть: Логи и команда", exact: true }).click();
+  await page.locator('[data-journal-id="final-run/summary-worker"]').getByRole("button", { name: "Раскрыть: localvox-process", exact: true }).click();
+  await expect(page.locator(".journal-technical")).toContainText("--worker-phase");
+  await early.getByRole("button", { name: "Раскрыть: Во время записи", exact: true }).click();
+  await page.locator('[data-journal-id="early-run/recording/stage:transcribe"]').getByRole("button", { name: "Раскрыть: Расшифровка", exact: true }).click();
+  await page.locator('[data-journal-id="early-run/early-prefix"]').getByRole("button", { name: "Раскрыть: Готовая часть записи", exact: true }).click();
+  await expect(page.locator('[data-journal-id="early-run/early-punctuation"]')).toContainText("0:24");
+  await page.locator(".journal-toolbar input").fill("Проверяемая диагностическая");
+  await expect(page.locator('[data-journal-id="final-run/answer"]')).toContainText("Проверяемая диагностическая строка");
+  await expect(page.locator('[data-kind="context"]')).toHaveCount(1);
+  await page.locator(".journal-toolbar input").fill("");
+  await expect(page.locator('[data-journal-id="early-run/early-punctuation"]')).toBeVisible();
+});
+
 test("missing speech models have quiet contextual hints and the voice toggle starts disabled", async ({ page }) => {
   await workspace(page);
   const notices = [
@@ -51,6 +95,7 @@ test("expanding journal details preserves both scroll positions until explicit f
   await page.route("**/journal**", route => route.fulfill({json:{...journalFixture,events:append ? [...journalFixture.events,extra] : journalFixture.events}}));
   await page.addStyleTag({content:".journal-scroll {max-height:180px} .main {height:360px;padding-bottom:300px}"});
   await page.getByRole("button",{name:"Ход",exact:true}).click();
+  await openJournalStage(page, "r1");
   const toggle=page.getByRole("button",{name:"+ 35 lines",exact:true});
   await expect(toggle).toBeVisible();
   await page.clock.runFor(50);
@@ -231,7 +276,7 @@ test("document cancellation preserves readable text and shows the unfinished sum
   await page.getByRole("button", { name: "Ход", exact: true }).click();
   await expect(page.locator(".step.cancelled")).toContainText("Сводка");
   await expect(page.locator(".step.cancelled .st")).toHaveClass(/mute/);
-  await expect(page.locator(".step.done").filter({ hasText: "Распознавание" })).toBeVisible();
+  await expect(page.locator(".step.done").filter({ hasText: "Расшифровка" })).toBeVisible();
   await page.getByRole("button", { name: "♻ Переварить запись", exact: true }).click();
   await expect(page.getByRole("button", { name: "♻ Переварить запись", exact: true })).toBeVisible();
   expect(posts).toEqual(["/api/sessions/20261031_demo/cancel", "/api/sessions/20261031_demo/recook"]);
@@ -294,26 +339,27 @@ async function watchReadAborts(page: Page, resources = ["summary", "processed", 
 
 test("completed stage tail uses its own phase clock and preserves a fast child operation", async ({page}) => {
   await workspace(page);
-  let run="r1";
+  let run="r1"; let firstPage = true;
   const end="2026-10-31T06:56:19Z";
   await page.route("**/progress",route=>route.fulfill({json:{running:false,
     stages:[{stage:"summary",state:"done",started_at:"2026-10-31T06:50:00Z",ended_at:end}],
     execution:{run,state:"done",current:null,operation:null,next:[],message:"Готово"}
   }}));
-  await page.route("**/journal**",route=>route.fulfill({json:{...journalFixture,reset:true,events:[
+  await page.route("**/journal**",route=> { const reset = firstPage; firstPage = false; return route.fulfill({json:{...journalFixture,reset,events:[
     {id:"child",run:"r1",stage:"summary",operation:"check",kind:"operation_end",at:"2026-10-31T06:53:31Z",label:"Часть 8/23: проверка",elapsed_sec:0.9353011},
     {id:"stage",run:"r1",stage:"summary",kind:"stage",status:"done",at:end,label:"summary"}
-  ]}}));
+  ]}}); });
   await page.getByRole("button",{name:"Ход",exact:true}).click();
-  const phase=page.locator(".journal-row").filter({hasText:"summary"});
+  await openJournalStage(page);
+  const phase=page.locator('[data-journal-id="r1/stage:summary"] .journal-row').first();
   const child=page.locator(".journal-row").filter({hasText:"Часть 8/23"});
-  await expect(phase.getByLabel("Длительность операции")).toHaveText("6:19");
+  await expect(phase.getByLabel("Длительность этапа")).toHaveText("за 6:19");
   await expect(child.getByLabel("Длительность операции")).toHaveText("<1 с");
   await page.clock.runFor(3100);
-  await expect(phase.getByLabel("Длительность операции")).toHaveText("6:19");
+  await expect(phase.getByLabel("Длительность этапа")).toHaveText("за 6:19");
   run="another-attempt";
   await page.clock.runFor(3100);
-  await expect(phase.getByLabel("Длительность операции")).toHaveText("время неизвестно");
+  await expect(phase.getByLabel("Длительность этапа")).toHaveText("время неизвестно");
   await expect(child.getByLabel("Длительность операции")).toHaveText("<1 с");
 });
 
@@ -326,14 +372,15 @@ test("processing wall clock shows stages plus transitions without double countin
     execution:{run:"r1",state:"done",current:null,operation:null,next:[],message:"Готово"}
   }}));
   await page.getByRole("button",{name:"Ход",exact:true}).click();
+  await page.locator(".processing-account summary").click();
   const balance=page.getByTestId("timing-balance");
-  await expect(balance).toHaveText("Этапы (без пересечений): 0:14.1 + запуск / ожидание / переходы: 0:04.9 = после старта: 0:19.0");
+  await expect(balance).toHaveText("Измеренная работа: 0:14.1 + вне измеренных этапов: 0:04.9 = после старта: 0:19.0");
   await page.clock.runFor(5100);
   await expect(balance).toContainText("0:19.0");
   await expect(page.getByText("Ожидание старта: 0:01.0 · После старта: 0:19.0 · Всего: 0:20.0")).toBeVisible();
   timing={queue_sec:2.804,processing_sec:18.671,total_sec:21.475,stages_sec:17.446,between_sec:1.225,overlap_sec:0};
   await page.clock.runFor(5100);
-  await expect(balance).toHaveText("Этапы: 0:17.4 + запуск / ожидание / переходы: 0:01.3 = после старта: 0:18.7");
+  await expect(balance).toHaveText("Измеренная работа: 0:17.4 + вне измеренных этапов: 0:01.3 = после старта: 0:18.7");
   await expect(page.getByText("Ожидание старта: 0:02.8 · После старта: 0:18.7 · Всего: 0:21.5")).toBeVisible();
 });
 
@@ -349,9 +396,10 @@ test("voice grouping stays active after all audio was read and retains its measu
   }}));
   await page.route("**/journal**", route => route.fulfill({json:{...journalFixture,
     events:ended ? [start,{...start,id:"group-end",kind:"operation_end",at:"2026-10-31T07:00:23Z",elapsed_sec:3.5}] : [start],
-    next_cursor:ended ? "group-ended" : "group-running",previous_cursor:"",has_more:false,reset:true
+    next_cursor:ended ? "group-ended" : "group-running",previous_cursor:"",has_more:false,reset:false
   }}));
   await page.getByRole("button",{name:"Ход",exact:true}).click();
+  await openJournalStage(page, "r1", "transcribe");
   const row=page.locator(".journal-row").filter({hasText:"Группировка голосов"});
   await expect(row.locator(".journal-state").first()).toHaveText("идёт");
   await expect(row).toContainText("0:05");
@@ -360,19 +408,20 @@ test("voice grouping stays active after all audio was read and retains its measu
   await expect(row).toContainText("0:07");
   ended=true;
   await page.clock.runFor(3100);
-  await expect(row.locator(".journal-state").first()).toHaveText("операция завершилась");
+  await expect(row.locator(".journal-state").first()).toHaveText("завершено");
   await expect(row).toContainText("0:03");
 });
 
 test("journal folds exactly 35 lines and command arguments have separate styles", async ({ page }) => {
   await workspace(page);
   await page.getByRole("button", { name: "Ход", exact: true }).click();
+  await openJournalStage(page, "r1");
   const toggle = page.getByRole("button", { name: "+ 35 lines", exact: true });
   await expect(toggle).toBeVisible();
   await expect(page.getByText("Диагностическая строка 1", { exact: true })).not.toBeVisible();
   await toggle.click();
   await expect(page.getByText("Диагностическая строка 1", { exact: true })).toBeVisible();
-  await expect(page.locator(".journal-command")).toHaveCSS("color", "rgb(133, 180, 220)");
+  await expect(page.locator(".journal-technical .journal-command")).toHaveCSS("color", "rgb(133, 180, 220)");
   await expect(page.locator(".journal-arg").first()).toHaveCSS("color", "rgb(194, 165, 216)");
   await captureVisual(page.locator(".journal"), "journal-expanded-dark.png");
 });
@@ -785,8 +834,10 @@ test("pipeline keeps elapsed time, the next step and an explicit reason between 
   await page.getByRole("button", { name: "Ход", exact: true }).click();
   await expect(page.getByText("Ожидает свободного обработчика", { exact: true })).toBeVisible();
   await expect(page.getByText(/Ожидание: 5 с/)).toBeVisible();
-  await expect(page.locator(".journal-state").first()).toHaveText("завершение не зафиксировано");
-  await expect(page.locator(".step.done").first()).toContainText("за 9 с");
+  await openJournalStage(page);
+  const workerState = page.locator('[data-journal-id="r1/op1"] .journal-state');
+  await expect(workerState).toHaveText("завершение не зафиксировано");
+  await expect(page.locator(".step.done").first()).toContainText("за 0:09");
   await captureVisual(page.locator(".doc"), "pipeline-queued.png");
   await page.clock.runFor(2100);
   await expect(page.getByText(/Ожидание: 7 с/)).toBeVisible();
@@ -794,14 +845,14 @@ test("pipeline keeps elapsed time, the next step and an explicit reason between 
   await page.clock.runFor(3100);
   await expect(page.getByText("Этап выполняется", { exact: true })).toBeVisible();
   await expect(page.locator(".step.running")).toHaveCount(1);
-  await expect(page.locator(".journal-state").first()).toHaveText("идёт");
+  await expect(workerState).toHaveText("идёт");
   offline = true;
   await page.clock.runFor(3100);
   await expect(page.getByText(/Текущее выполнение не подтверждено/)).toBeVisible();
-  const frozen = await page.locator(".step.running .t .hint").innerText();
+  const frozen = await page.locator('[data-kind="stage"][data-state="running"] [aria-label="Длительность этапа"]').innerText();
   await page.clock.runFor(10_000);
-  await expect(page.locator(".step.running .t .hint")).toHaveText(frozen);
-  await expect(page.locator(".journal-state").first()).toHaveText("завершение не зафиксировано");
+  await expect(page.locator('[data-kind="stage"][data-state="running"] [aria-label="Длительность этапа"]')).toHaveText(frozen);
+  await expect(workerState).toHaveText("завершение не зафиксировано");
   offline = false;
   state = "retry_wait";
   // An outage backs polling off up to 30 seconds; let that delay expire explicitly.
@@ -813,13 +864,13 @@ test("pipeline keeps elapsed time, the next step and an explicit reason between 
   await page.clock.fastForward(3_600_000);
   await page.clock.runFor(3100);
   await expect(page.locator(".step.running")).toHaveCount(1);
-  await expect(page.locator(".journal-state").first()).toHaveText("завершение не зафиксировано"); // old op1 is not retry op2
+  await expect(workerState).toHaveText("завершение не зафиксировано"); // old op1 is not retry op2
   state = "done";
   await page.clock.runFor(7100);
   await expect(page.getByText("Все запрошенные результаты готовы", { exact: true })).toBeVisible();
-  await expect(page.locator(".step.done").last()).toContainText("за 10 с");
+  await expect(page.locator(".step.done").last()).toContainText("за 0:10");
   await page.clock.runFor(60_000);
-  await expect(page.locator(".step.done").last()).toContainText("за 10 с");
+  await expect(page.locator(".step.done").last()).toContainText("за 0:10");
 });
 
 
@@ -1410,6 +1461,7 @@ test("arrivals, filtering and network recovery preserve expanded history and rea
   const events = Array.from({ length: 35 }, (_, i) => ({ id: `log-${i}`, run: "run", operation: "operation", stage: "summary", kind: "log", at: "2026-10-31T07:00:20Z", label: "worker", text: `Строка ${i + 1}` }));
   await page.route("**/journal**", (route) => fail ? route.fulfill({ status: 503, json: { error: "temporary failure" } }) : route.fulfill({ json: { ...fixture.journal, events } }));
   await page.getByRole("button", { name: "Ход", exact: true }).click();
+  await openJournalStage(page, "run");
   await page.getByRole("button", { name: "+ 35 lines", exact: true }).click();
   const scroll = page.locator(".journal-scroll");
   await scroll.evaluate((element) => { element.scrollTop = 90; element.dispatchEvent(new Event("scroll")); });
@@ -1438,6 +1490,7 @@ test("previous journal page preserves the current anchor and hostile HTML stays 
   const entries = (from: number, to: number) => Array.from({ length: to - from }, (_, i) => ({ id: `event-${from+i}`, run: "run", operation: `op-${from+i}`, stage: "summary", kind: "log", at: "2026-10-31T07:00:20Z", label: `operation ${from+i}`, text: "<img src=x onerror=alert(1)>" }));
   await page.route("**/journal**", (route) => { const before = new URL(route.request().url()).searchParams.has("before"); return route.fulfill({ json: { ...fixture.journal, events: before ? entries(0, 10) : entries(10, 30), truncated: !before, previous_cursor: "previous" } }); });
   await page.getByRole("button", { name: "Ход", exact: true }).click();
+  await openJournalStage(page, "run");
   const previous = page.getByRole("button", { name: "↑ Предыдущие события", exact: true });
   await previous.scrollIntoViewIfNeeded();
   const anchor = page.locator('[data-journal-id="run/op-10"]');
@@ -1445,7 +1498,7 @@ test("previous journal page preserves the current anchor and hostile HTML stays 
   const row = anchor.locator(".journal-row");
   const before = (await row.boundingBox())!.y;
   await previous.click();
-  await expect(page.locator(".journal-operation")).toHaveCount(30);
+  await expect(page.locator('[data-kind="operation"]')).toHaveCount(30);
   await expect.poll(async () => Math.abs((await row.boundingBox())!.y - before)).toBeLessThan(3);
   await anchor.getByRole("button", { name: "+ 1 lines", exact: true }).click();
   await expect(anchor.getByText("<img src=x onerror=alert(1)>", { exact: true })).toBeVisible();
@@ -1457,6 +1510,7 @@ test("phase states, queue time and heartbeats keep their server meaning", async 
   const stages = ["download", "extract", "transcribe", "refine", "cleanup", "summary"].map((stage, i) => ({ stage, state: ["queued", "blocked", "done", "skipped", "invalid", "running"][i], started_at: "2026-10-31T07:00:10Z", updated_at: "2026-10-31T07:00:20Z", done: i === 5 ? 4 : null, total: i === 5 ? 10 : null }));
   await page.route("**/progress", (route) => route.fulfill({ json: { ...fixture.progress, stages, timing: { queue_sec: 4, processing_sec: null, total_sec: null } } }));
   await page.getByRole("button", { name: "Ход", exact: true }).click();
+  await page.getByRole("button", { name: /^Раскрыть: Не запускались/ }).click();
   for (const label of ["в очереди", "ждёт предыдущий этап", "готово", "пропущено", "результат не подтверждён", "идёт"]) await expect(page.locator(".chain .st").getByText(label, { exact: true })).toBeVisible();
   await expect(page.locator(".chain").getByText("40%", { exact: true })).toBeVisible();
   await expect(page.getByText(/Ожидание старта: 4 с · После старта: — · Всего: —/)).toBeVisible();
@@ -1675,6 +1729,7 @@ test("current activity opens the real queue order and its selected session journ
   await expect(page.getByText("остановлено", { exact: true })).toBeVisible();
   await expect(page.getByText("Нет модели", { exact: true })).toBeVisible();
   await page.locator(".qrow .qname").nth(1).click();
+  await openJournalStage(page);
   await expect(page.getByRole("button", { name: "+ 35 lines", exact: true })).toBeVisible();
   // A session without a reported stage must show waiting, rather than ready.
   await page.route("**/progress", (route) => route.fulfill({ json: { stages: [], running: false } }));
@@ -1710,13 +1765,20 @@ for (const late of ["previous", "tail"] as const) {
     await previous.click();
     if (late === "previous") { await expect.poll(() => pending).toBe(true); await page.clock.runFor(2600); }
     await expect(page.getByText("Файл истории сменился. Показаны события нового журнала.")).toBeVisible();
+    await openJournalStage(page, "new-file");
     await expect(page.locator('[data-journal-id="new-file/op"]')).toHaveCount(1);
     release(); await expect.poll(() => completed).toBe(true);
     await page.clock.runFor(2700);
     await expect.poll(() => newCursorRead).toBe(true);
-    await expect(page.locator(".journal-operation")).toHaveCount(1);
+    await expect(page.locator('[data-kind="operation"]')).toHaveCount(1);
     await expect(page.locator('[data-journal-id="stale-page/op"]')).toHaveCount(0);
     await expect(previous).toHaveCount(0);
+    for (const stale of ["old-file", "stale-page"]) {
+      await page.getByRole("textbox", { name: "Фильтр журнала" }).fill(stale);
+      await expect(page.locator('[data-kind="operation"]')).toHaveCount(0);
+    }
+    await page.getByRole("textbox", { name: "Фильтр журнала" }).fill("");
+    await expect(page.locator('[data-journal-id="new-file/op"]')).toHaveCount(1);
   });
 }
 
@@ -1740,6 +1802,7 @@ test("light theme and keyboard navigation keep stop and archive usable", async (
   await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
   await page.getByRole("button", { name: "Ход", exact: true }).focus();
   await page.keyboard.press("Enter");
+  await openJournalStage(page);
   await expect(page.getByRole("button", { name: "+ 35 lines", exact: true })).toBeVisible();
   // Flush the initial follow-to-tail frame while the journal is still folded.
   await page.clock.runFor(50);

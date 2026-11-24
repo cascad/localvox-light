@@ -1562,6 +1562,14 @@ fn opening_a_journal_block_pauses_tail_following_for_reading() {
         text: Some("detail".into()),
         ..Default::default()
     }];
+    a.journal
+        .expanded
+        .extend(["context:r/unknown".into(), "r/stage:".into()]);
+    a.item = a
+        .journal_groups()
+        .iter()
+        .position(|g| g.id == "r/o")
+        .unwrap();
     a.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     assert!(!a.journal.follow);
     assert!(a.journal.expanded.contains("r/o"));
@@ -2080,9 +2088,18 @@ fn journal_vim_keys_copy_the_selected_group_and_leave_filter_input_alone() {
                 ..Default::default()
             });
     }
+    app.journal
+        .expanded
+        .extend(["context:run/unknown".into(), "run/stage:transcribe".into()]);
+    let first = app
+        .journal_groups()
+        .iter()
+        .position(|g| g.id == "run/first")
+        .unwrap();
+    app.item = first;
     app.key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
-    assert_eq!(app.item, 1);
-    let id = app.journal.visible_groups()[1].id.clone();
+    assert_eq!(app.item, first + 1);
+    let id = app.journal_groups()[app.item].id.clone();
     for _ in 0..2 {
         app.key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE));
     }
@@ -2096,7 +2113,7 @@ fn journal_vim_keys_copy_the_selected_group_and_leave_filter_input_alone() {
     }
     assert!(!app.journal.expanded.contains(&id));
     app.key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE));
-    assert_eq!(app.item, 0);
+    assert_eq!(app.item, first);
     app.command(Action::FilterJournal);
     let before = app.effects.len();
     for ch in "jkhly".chars() {
@@ -2106,5 +2123,5 @@ fn journal_vim_keys_copy_the_selected_group_and_leave_filter_input_alone() {
         .value
         .ends_with("jkhly"));
     assert_eq!(app.effects.len(), before);
-    assert_eq!(app.item, 0);
+    assert_eq!(app.item, first);
 }

@@ -161,9 +161,12 @@ fn append(session_dir: &Path, event: StageEvent) {
         event: StageEvent,
         #[serde(skip_serializing_if = "Option::is_none")]
         run: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        scope: Option<String>,
     }
     let (run, _) = crate::journal::execution_identity(session_dir, None);
-    let Ok(mut line) = serde_json::to_string(&Record { event, run }) else {
+    let scope = crate::journal::execution_scope(session_dir);
+    let Ok(mut line) = serde_json::to_string(&Record { event, run, scope }) else {
         return;
     };
     line.push('\n');
@@ -281,6 +284,8 @@ pub fn read(session_dir: &Path) -> Vec<StageEvent> {
 pub struct Run {
     pub started_at: Option<String>,
     pub events: Vec<StageEvent>,
+    pub background: Vec<(String, Option<String>)>,
+    pub background_incomplete: bool,
 }
 
 /// The marker and events come from the same pass. Journal payloads are skipped
@@ -289,11 +294,17 @@ pub fn read_run(session_dir: &Path) -> Run {
     #[derive(Deserialize)]
     struct Kind {
         journal: Option<serde::de::IgnoredAny>,
+        scope: Option<String>,
+        role: Option<String>,
+        operation: Option<String>,
+        kind: Option<String>,
+        at: Option<String>,
     }
     let Ok(file) = std::fs::File::open(session_dir.join(FILE)) else {
         return Run::default();
     };
     let mut current = Run::default();
+    let mut background = std::collections::HashMap::new();
     let mut reader = std::io::BufReader::new(file);
     let mut line = Vec::new();
     loop {
@@ -302,8 +313,32 @@ pub fn read_run(session_dir: &Path) -> Run {
             Ok(0) | Err(_) => break,
             Ok(_) => {}
         }
-        if serde_json::from_slice::<Kind>(&line).is_ok_and(|kind| kind.journal.is_some()) {
-            continue;
+        if let Ok(kind) = serde_json::from_slice::<Kind>(&line) {
+            if kind.journal.is_some() {
+                if kind.scope.as_deref() == Some("recording")
+                    && kind.role.as_deref() == Some("worker")
+                {
+                    if let (Some(id), Some(at)) = (kind.operation, kind.at) {
+                        match kind.kind.as_deref() {
+                            Some("operation_start")
+                                if background.len() + current.background.len() < 5000 =>
+                            {
+                                background.insert(id, at);
+                            }
+                            Some("operation_end") => {
+                                if let Some(start) = background.remove(&id) {
+                                    current.background.push((start, Some(at)));
+                                } else {
+                                    current.background_incomplete = true;
+                                }
+                            }
+                            Some("operation_start") => current.background_incomplete = true,
+                            _ => {}
+                        }
+                    }
+                }
+                continue;
+            }
         }
         if let Ok(mark) = serde_json::from_slice::<RunMark>(&line) {
             current.started_at = Some(mark.run);
@@ -312,6 +347,9 @@ pub fn read_run(session_dir: &Path) -> Run {
             current.events.push(event);
         }
     }
+    current
+        .background
+        .extend(background.into_values().map(|start| (start, None)));
     current
 }
 

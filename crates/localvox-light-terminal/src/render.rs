@@ -532,7 +532,6 @@ fn journal_projection(a: &App, t: Theme) -> JournalProjection {
         a.wall_ms
     };
     let mut markers = Vec::new();
-    let branch = if a.preferences.ascii { "+" } else { "├" };
     let end = if a.preferences.ascii { "+" } else { "└" };
     let mut lines = vec![Line::from(Span::styled(
         format!(
@@ -564,10 +563,7 @@ fn journal_projection(a: &App, t: Theme) -> JournalProjection {
         }
     }
     lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled(
-        "Этапы / проверенные результаты",
-        t.heading_style(),
-    )));
+    lines.push(Line::from(Span::styled("Обработка", t.heading_style())));
     if a.progress.queue_error.is_some() {
         lines.push(Line::from(Span::styled(
             "Очередь недоступна · ~ консоль",
@@ -617,27 +613,6 @@ fn journal_projection(a: &App, t: Theme) -> JournalProjection {
             ),
             Style::default().fg(t.dim),
         )));
-        if let (Some(stages), Some(_), Some(processing)) =
-            (timing.stages_sec, timing.between_sec, timing.processing_sec)
-        {
-            lines.push(Line::from(Span::styled(
-                format!(
-                    "Этапы{}: {} + запуск/ожидание/переходы: {} = после старта: {}",
-                    if timing.overlap_sec.is_some_and(|s| s > 0.0) {
-                        " (без пересечений)"
-                    } else {
-                        ""
-                    },
-                    processing_duration(stages),
-                    processing_duration(processing_remainder(processing, stages)),
-                    timing
-                        .processing_sec
-                        .map(processing_duration)
-                        .unwrap_or_else(|| "—".into())
-                ),
-                Style::default().fg(t.dim),
-            )));
-        }
     }
     if let Some(execution) = &a.progress.execution {
         let elapsed = execution
@@ -655,7 +630,15 @@ fn journal_projection(a: &App, t: Theme) -> JournalProjection {
                 } else if a.progress.queue_error.is_some() {
                     "Статус очереди недоступен · ~ консоль".into()
                 } else {
-                    safe_label(&execution.message)
+                    format!(
+                        "{}{}",
+                        safe_label(&execution.message),
+                        execution
+                            .current
+                            .as_deref()
+                            .map(|stage| format!(" · {}", crate::journal::stage_name(stage)))
+                            .unwrap_or_default()
+                    )
                 },
                 if ["running", "queued", "retry_wait", "blocked", "stalled"]
                     .contains(&execution.state.as_str())
@@ -689,7 +672,12 @@ fn journal_projection(a: &App, t: Theme) -> JournalProjection {
                         "следующих этапов нет".into()
                     }
                 } else {
-                    execution.next.join(" → ")
+                    execution
+                        .next
+                        .iter()
+                        .map(|stage| crate::journal::stage_name(stage))
+                        .collect::<Vec<_>>()
+                        .join(" → ")
                 }
             ),
             Style::default().fg(t.dim),
@@ -699,136 +687,6 @@ fn journal_projection(a: &App, t: Theme) -> JournalProjection {
                 format!("Повтор не раньше: {}", safe_label(at)),
                 Style::default().fg(t.dim),
             )));
-        }
-    }
-    let mut stages = [
-        "download",
-        "extract",
-        "transcribe",
-        "punctuation",
-        "refine",
-        "cleanup",
-        "summary",
-    ]
-    .iter()
-    .filter(|name| {
-        (**name != "punctuation" || a.progress.stages.iter().any(|s| s.stage == **name))
-            && (a.progress.source.is_some()
-                || !matches!(**name, "download" | "extract")
-                || a.progress.stages.iter().any(|s| s.stage == **name))
-    })
-    .map(|name| {
-        a.progress
-            .stages
-            .iter()
-            .find(|s| s.stage == *name)
-            .cloned()
-            .unwrap_or_else(|| localvox_light_client::StageStatus {
-                stage: (*name).into(),
-                state: "waiting".into(),
-                ..Default::default()
-            })
-    })
-    .collect::<Vec<_>>();
-    stages.extend(
-        a.progress
-            .stages
-            .iter()
-            .filter(|s| {
-                ![
-                    "download",
-                    "extract",
-                    "transcribe",
-                    "punctuation",
-                    "refine",
-                    "cleanup",
-                    "summary",
-                ]
-                .contains(&s.stage.as_str())
-            })
-            .cloned(),
-    );
-    for stage in &stages {
-        let color = match stage.state.as_str() {
-            "failed" | "invalid" => t.error,
-            "done" => t.ok,
-            "running" => t.busy,
-            _ => t.dim,
-        };
-        let counter = match (stage.done, stage.total) {
-            (Some(d), Some(total)) => format!("  {d}/{total}"),
-            _ => String::new(),
-        };
-        let elapsed = match (stage.started_at.as_deref(), stage.ended_at.as_deref()) {
-            (Some(start), end) => chrono::DateTime::parse_from_rfc3339(start)
-                .ok()
-                .map(|start| {
-                    let end = end
-                        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-                        .map(|e| e.timestamp_millis())
-                        .or_else(|| (stage.state == "running" && clock_ms > 0).then_some(clock_ms));
-                    end.filter(|end| *end >= start.timestamp_millis())
-                        .map(|end| timecode(((end - start.timestamp_millis()) as f64) / 1000.0))
-                        .unwrap_or_else(|| "—".into())
-                })
-                .unwrap_or_else(|| "—".into()),
-            _ => {
-                if ["done", "failed", "invalid"].contains(&stage.state.as_str()) {
-                    "длительность неизвестна".into()
-                } else {
-                    "—".into()
-                }
-            }
-        };
-        lines.push(Line::from(vec![
-            Span::styled(
-                format!(
-                    "{branch} {} ",
-                    state_symbol(&stage.state, a.preferences.ascii)
-                ),
-                Style::default().fg(color),
-            ),
-            Span::styled(safe_label(&stage.stage), Style::default().fg(t.command)),
-            Span::styled(
-                format!("  {}{counter}  {elapsed}", safe_label(&stage.state)),
-                Style::default().fg(color),
-            ),
-        ]));
-        if let Some(note) = &stage.note {
-            lines.push(Line::from(Span::styled(
-                format!(
-                    "    {}",
-                    if matches!(stage.state.as_str(), "failed" | "invalid")
-                        || note.starts_with("Повтор после ошибки:")
-                    {
-                        "Причина отказа · ~ консоль".into()
-                    } else {
-                        safe_label(note)
-                    }
-                ),
-                Style::default().fg(if matches!(stage.state.as_str(), "failed" | "invalid") {
-                    t.error
-                } else {
-                    t.dim
-                }),
-            )));
-        }
-        if stage.state == "running" {
-            if let Some(at) = stage
-                .updated_at
-                .as_deref()
-                .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-            {
-                if clock_ms >= at.timestamp_millis() {
-                    lines.push(Line::from(Span::styled(
-                        format!(
-                            "    Последний сигнал: {} назад · heartbeat не означает прогресс",
-                            timecode((clock_ms - at.timestamp_millis()) as f64 / 1000.0)
-                        ),
-                        Style::default().fg(t.dim),
-                    )));
-                }
-            }
         }
     }
     lines.push(Line::from(""));
@@ -871,52 +729,51 @@ fn journal_projection(a: &App, t: Theme) -> JournalProjection {
             Style::default().fg(t.busy),
         )));
     }
-    let groups = a.journal.visible_groups();
-    let mut run = None;
-    let mut stage = None;
+    let groups = a.journal_groups();
     for (index, g) in groups.iter().enumerate() {
-        if run.as_ref() != Some(&g.run) {
-            lines.push(Line::from(Span::styled(
-                format!(
-                    "run {}",
-                    if g.run.is_empty() {
-                        "исторический · запуск неизвестен".to_owned()
-                    } else {
-                        safe_label(&g.run)
-                    }
-                ),
-                Style::default().fg(t.dim),
-            )));
-            run = Some(g.run.clone());
-            stage = None;
-        }
-        if stage.as_ref() != Some(&g.stage) {
-            lines.push(Line::from(Span::styled(
-                format!("{branch} {}", safe_label(&g.stage)),
-                Style::default().fg(t.dim),
-            )));
-            stage = Some(g.stage.clone());
-        }
+        let snapshot_stage = (g.kind == crate::journal::NodeKind::Stage
+            && g.run
+                == a.progress
+                    .execution
+                    .as_ref()
+                    .and_then(|e| e.run.as_deref())
+                    .unwrap_or("@planned"))
+        .then(|| a.progress.stages.iter().find(|s| s.stage == g.stage))
+        .flatten();
         let stage_timing = g.stage_timing(
             a.progress.execution.as_ref().and_then(|e| e.run.as_deref()),
             &a.progress.stages,
         );
         let active = !uncertain
-            && a.progress.execution.as_ref().is_some_and(|execution| {
-                execution.state == "running"
-                    && execution
-                        .run
-                        .as_ref()
-                        .zip(execution.operation.as_ref())
-                        .is_some_and(|(run, op)| {
-                            g.run == *run
-                                && (g.id == format!("{run}/{op}")
-                                    || g.parent.as_ref() == Some(op)
-                                        && execution.current.as_deref() == Some(g.stage.as_str())
-                                    || stage_timing.is_some_and(|s| s.state == "running")
-                                        && execution.current.as_deref() == Some(g.stage.as_str()))
-                        })
-            });
+            && (snapshot_stage.is_some_and(|s| s.state == "running")
+                && a.progress
+                    .execution
+                    .as_ref()
+                    .is_none_or(|e| e.state == "running")
+                || a.progress.execution.as_ref().is_some_and(|execution| {
+                    execution.state == "running"
+                        && execution
+                            .run
+                            .as_ref()
+                            .zip(execution.operation.as_ref())
+                            .is_some_and(|(run, op)| {
+                                g.run == *run
+                                    && (g.id == format!("{run}/{op}")
+                                        || g.parent.as_ref() == Some(op)
+                                            && execution.current.as_deref()
+                                                == Some(g.stage.as_str())
+                                        || g.parent.as_deref()
+                                            == Some(format!("{run}/{op}").as_str())
+                                            && execution.current.as_deref()
+                                                == Some(g.stage.as_str())
+                                        || g.source_parent.as_ref() == Some(op)
+                                            && execution.current.as_deref()
+                                                == Some(g.stage.as_str())
+                                        || stage_timing.is_some_and(|s| s.state == "running")
+                                            && execution.current.as_deref()
+                                                == Some(g.stage.as_str()))
+                            })
+                }));
         let state = if g.state() == "running" && !active {
             "unconfirmed"
         } else {
@@ -924,6 +781,7 @@ fn journal_projection(a: &App, t: Theme) -> JournalProjection {
         };
         let seconds = g
             .elapsed_sec
+            .filter(|seconds| seconds.is_finite() && *seconds >= 0.0)
             .or_else(|| {
                 let start = chrono::DateTime::parse_from_rfc3339(
                     g.started_at
@@ -949,84 +807,205 @@ fn journal_projection(a: &App, t: Theme) -> JournalProjection {
             "done" => t.ok,
             _ => t.dim,
         };
-        let mut spans = vec![Span::styled(
-            format!("  {end} {} ", state_symbol(state, a.preferences.ascii)),
-            Style::default().fg(color),
-        )];
-        if let Some(command) = &g.command {
-            spans.push(Span::styled(
-                safe_label(&command.program),
-                Style::default().fg(t.command),
-            ));
-            for arg in &command.args {
-                spans.push(Span::styled(
-                    format!(" {}", safe_label(&arg.name)),
-                    Style::default().fg(t.argument),
-                ));
-                if let Some(value) = &arg.value {
-                    spans.push(Span::styled(
-                        format!(" {}", safe_label(value)),
-                        Style::default().fg(t.value),
-                    ));
-                }
+        let open = a.journal.is_open(g)
+            || !a.journal.filter.is_empty()
+                && g.text()
+                    .to_lowercase()
+                    .contains(&a.journal.filter.to_lowercase());
+        let container =
+            g.children > 0 || !g.details.is_empty() || g.note.is_some() || g.command.is_some();
+        let indent = "  ".repeat(g.depth);
+        let fold = if container {
+            if open {
+                "▾"
+            } else {
+                "▸"
             }
         } else {
+            end
+        };
+        let fold = if a.preferences.ascii && container {
+            if open {
+                "-"
+            } else {
+                "+"
+            }
+        } else {
+            fold
+        };
+        let mut spans = vec![Span::styled(
+            format!("{indent}{fold} "),
+            Style::default().fg(t.dim),
+        )];
+        if matches!(
+            g.kind,
+            crate::journal::NodeKind::Context
+                | crate::journal::NodeKind::Skipped
+                | crate::journal::NodeKind::Timing
+                | crate::journal::NodeKind::Details
+        ) {
+            spans.push(Span::styled(safe_label(&g.label), t.heading_style()));
+            if g.kind == crate::journal::NodeKind::Context && g.elapsed_sec.is_some() {
+                spans.push(Span::styled(
+                    format!(" · измерено {duration}"),
+                    Style::default().fg(t.dim),
+                ));
+            }
+            if let (Some(first), Some(last)) = (g.first_at.get(11..19), g.at.get(11..19)) {
+                spans.push(Span::styled(
+                    format!(" · события {first}–{last}"),
+                    Style::default().fg(t.dim),
+                ));
+            }
+        } else {
+            spans.push(Span::styled(
+                format!("{} ", state_symbol(state, a.preferences.ascii)),
+                Style::default().fg(color),
+            ));
             spans.push(Span::styled(
                 safe_label(&g.label),
                 Style::default().fg(t.command),
             ));
+            let label = match state {
+                "done" => "готово",
+                "running" => "идёт",
+                "failed" => "ошибка",
+                "invalid" => "результат не подтверждён",
+                "waiting" => "не начиналось",
+                "queued" => "в очереди",
+                "blocked" => "ждёт предыдущий этап",
+                "skipped" => "пропущено",
+                "cancelled" => "отменено",
+                "ended" => "завершено",
+                "events" => "операции",
+                "unconfirmed" => "завершение не зафиксировано",
+                _ => "события",
+            };
+            spans.push(Span::styled(
+                format!(" · {label}"),
+                Style::default().fg(color),
+            ));
+            if seconds.is_some()
+                || matches!(
+                    state,
+                    "done" | "failed" | "invalid" | "running" | "ended" | "unconfirmed"
+                )
+            {
+                spans.push(Span::styled(
+                    format!(" · {duration}"),
+                    Style::default().fg(color),
+                ));
+            }
+            if g.state() == "running" {
+                if let (Some(done), Some(total)) = (g.done, g.total) {
+                    spans.push(Span::styled(
+                        format!(" · {done}/{total}"),
+                        Style::default().fg(t.dim),
+                    ));
+                }
+            }
         }
-        spans.push(Span::styled(
-            format!(
-                " · {} · {} {}",
-                if state == "failed" {
-                    "ошибка"
-                } else if g.ended {
-                    "операция завершилась"
-                } else {
-                    if state == "unconfirmed" {
-                        "завершение не зафиксировано"
-                    } else {
-                        state
-                    }
-                },
-                duration,
-                g.at.get(11..19).unwrap_or("")
-            ),
-            Style::default().fg(color),
-        ));
+        if g.issues > 0 {
+            spans.push(Span::styled(
+                " · ошибки в истории",
+                Style::default().fg(t.error),
+            ));
+        }
+        if g.kind == crate::journal::NodeKind::Operation && !g.at.is_empty() {
+            spans.push(Span::styled(
+                format!(" {}", g.at.get(11..19).unwrap_or("")),
+                Style::default().fg(t.dim),
+            ));
+        }
         let mut line = Line::from(spans);
         if a.focus == 2 && index == a.item {
             line = line.style(selection_style(t));
         }
         markers.push((g.id.clone(), lines.len()));
         lines.push(line);
+        if let Some(note) = &g.note {
+            if open
+                || matches!(
+                    state,
+                    "running" | "failed" | "invalid" | "blocked" | "cancelled" | "skipped"
+                )
+            {
+                lines.push(Line::from(Span::styled(
+                    format!(
+                        "{indent}  {}",
+                        if matches!(state, "failed" | "invalid") {
+                            "Причина отказа · ~ консоль".into()
+                        } else {
+                            safe_label(note)
+                        }
+                    ),
+                    Style::default().fg(if matches!(state, "failed" | "invalid") {
+                        t.error
+                    } else {
+                        t.dim
+                    }),
+                )));
+            }
+        }
+        if state == "running" {
+            if let Some(at) = snapshot_stage
+                .and_then(|s| s.updated_at.as_deref())
+                .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+                .filter(|at| clock_ms >= at.timestamp_millis())
+            {
+                lines.push(Line::from(Span::styled(
+                    format!(
+                        "{indent}  Последний сигнал: {} назад · heartbeat не означает прогресс",
+                        timecode((clock_ms - at.timestamp_millis()) as f64 / 1000.0)
+                    ),
+                    Style::default().fg(t.dim),
+                )));
+            }
+        }
         for e in &g.details {
             if matches!(e.status.as_deref(), Some("failed" | "invalid")) {
                 lines.push(Line::from(Span::styled(
-                    "      ! Причина отказа · ~ консоль",
+                    format!("{indent}  ! Причина отказа · ~ консоль"),
                     Style::default().fg(t.error),
                 )));
             }
         }
-        let open = a.journal.expanded.contains(&g.id);
         let count = g.hidden_lines();
         if count > 0 {
             lines.push(Line::from(Span::styled(
                 if open {
-                    "      − свернуть".into()
+                    format!("{indent}  − свернуть")
                 } else {
-                    format!("      + {count} lines")
+                    format!("{indent}  + {count} lines")
                 },
                 Style::default().fg(t.dim),
             )));
         }
         if open {
+            if let Some(command) = &g.command {
+                let mut spans = vec![Span::styled(
+                    format!("{indent}  {}", safe_label(&command.program)),
+                    Style::default().fg(t.command),
+                )];
+                for argument in &command.args {
+                    spans.push(Span::styled(
+                        format!(" {}", safe_label(&argument.name)),
+                        Style::default().fg(t.argument),
+                    ));
+                    if let Some(value) = &argument.value {
+                        spans.push(Span::styled(
+                            format!(" {}", safe_label(value)),
+                            Style::default().fg(t.value),
+                        ));
+                    }
+                }
+                lines.push(Line::from(spans));
+            }
             for e in &g.details {
                 if !matches!(e.status.as_deref(), Some("failed" | "invalid")) {
                     for text in safe_text(e.text.as_deref().unwrap_or("")).split('\n') {
                         lines.push(Line::from(Span::styled(
-                            format!("      {} {text}", e.at.get(11..19).unwrap_or("")),
+                            format!("{indent}  {} {text}", e.at.get(11..19).unwrap_or("")),
                             Style::default().fg(t.dim),
                         )));
                     }
@@ -1435,7 +1414,7 @@ mod tests {
                 .join("\n")
         };
         assert!(text(&app).contains("Ожидает свободного обработчика · 00:05"));
-        assert!(text(&app).contains("Далее: summary"));
+        assert!(text(&app).contains("Далее: Сводка"));
         app.wall_ms += 2000;
         assert!(text(&app).contains("00:07"));
         let mut terminal = Terminal::new(TestBackend::new(120, 36)).unwrap();
@@ -1455,6 +1434,11 @@ mod tests {
         );
         app.progress.execution.as_mut().unwrap().run = Some("r1".into());
         app.progress.execution.as_mut().unwrap().operation = Some("op1".into());
+        app.journal.expanded.extend([
+            "context:r1/unknown".into(),
+            "r1/stage:summary".into(),
+            "r1/stage:summary/details".into(),
+        ]);
         assert!(!text(&app).contains("завершение не зафиксировано"));
         app.progress.execution.as_mut().unwrap().operation = Some("retry-op2".into());
         assert!(text(&app).contains("завершение не зафиксировано"));
@@ -1476,7 +1460,7 @@ mod tests {
         app.progress.stages[3].state = "done".into();
         app.progress.stages[3].ended_at = Some("2026-10-31T07:00:30Z".into());
         let finished = text(&app);
-        assert!(finished.contains("summary  done  00:05"));
+        assert!(finished.contains("Сводка · готово · 00:05"));
         app.wall_ms += 60_000;
         assert_eq!(
             text(&app),
@@ -1717,6 +1701,13 @@ mod tests {
                 label: "Группировка голосов".into(),
                 ..Default::default()
             });
+        for node in app.journal.outline(&app.progress) {
+            if node.kind == crate::journal::NodeKind::Context
+                || node.kind == crate::journal::NodeKind::Stage
+            {
+                app.journal.set_open(&node.id, true);
+            }
+        }
         let text = |app: &App| {
             journal_lines(app, Theme::for_app(app))
                 .iter()
@@ -1775,6 +1766,7 @@ mod tests {
             overlap_sec: Some(1.0),
             ..Default::default()
         });
+        app.journal.expanded.insert("processing-clock".into());
         let mut terminal = Terminal::new(TestBackend::new(180, 40)).unwrap();
         terminal.draw(|frame| draw(frame, &app)).unwrap();
         let buffer = terminal.backend().buffer();
@@ -1786,7 +1778,12 @@ mod tests {
             })
             .collect::<Vec<_>>()
             .join("\n");
-        assert!(text.contains("Этапы (без пересечений): 0:14.1 + запуск/ожидание/переходы: 0:04.9 = после старта: 0:19.0"), "{text}");
+        assert!(
+            text.contains(
+                "Измеренная работа: 0:14.1 + вне измеренных этапов: 0:04.9 = после старта: 0:19.0"
+            ),
+            "{text}"
+        );
         assert_eq!(processing_duration(59.96), "1:00.0");
     }
 
@@ -1835,6 +1832,13 @@ mod tests {
                 ..Default::default()
             },
         ];
+        for node in app.journal.outline(&app.progress) {
+            if node.kind == crate::journal::NodeKind::Context
+                || node.kind == crate::journal::NodeKind::Stage
+            {
+                app.journal.set_open(&node.id, true);
+            }
+        }
         let text = |app: &App| {
             journal_lines(app, Theme::for_app(app))
                 .iter()
@@ -1848,7 +1852,7 @@ mod tests {
                 .join("\n")
         };
         let initial = text(&app);
-        assert!(initial.contains("summary · done · 06:19"), "{initial}");
+        assert!(initial.contains("Сводка · готово · 06:19"), "{initial}");
         assert!(initial.contains("<1 с"), "{initial}");
         app.wall_ms += 3_600_000;
         assert_eq!(
@@ -1871,10 +1875,10 @@ mod tests {
         );
         insta::assert_debug_snapshot!("journal_stage_duration_tail", terminal.backend().buffer());
         app.progress.execution.as_mut().unwrap().run = Some("another-run".into());
-        assert!(text(&app).contains("summary · done · время неизвестно"));
+        assert!(text(&app).contains("Сводка · готово · время неизвестно"));
         app.progress.execution.as_mut().unwrap().run = Some("r".into());
         app.progress.stages[0].started_at = None;
-        assert!(text(&app).contains("summary · done · время неизвестно"));
+        assert!(text(&app).contains("Сводка · готово · время неизвестно"));
         app.progress.stages[0].started_at = Some("2026-11-10T22:20:00+03:00".into());
         app.progress.stages[0].ended_at = None;
         app.progress.stages[0].state = "running".into();
@@ -1888,11 +1892,11 @@ mod tests {
         app.wall_ms = chrono::DateTime::parse_from_rfc3339("2026-11-10T22:25:16+03:00")
             .unwrap()
             .timestamp_millis();
-        assert!(text(&app).contains("summary · running · 05:16"));
+        assert!(text(&app).contains("Сводка · идёт · 05:16"));
         app.wall_ms += 1000;
-        assert!(text(&app).contains("summary · running · 05:17"));
+        assert!(text(&app).contains("Сводка · идёт · 05:17"));
         app.errors.insert(Resource::Progress, "offline".into());
-        assert!(text(&app).contains("summary · завершение не зафиксировано · время неизвестно"));
+        assert!(text(&app).contains("Сводка · завершение не зафиксировано · время неизвестно"));
     }
     #[test]
     fn snapshot_wide_light() {
@@ -1950,7 +1954,12 @@ mod tests {
         app.journal.follow = false;
         app.follow_selection = false;
         if open {
-            app.journal.expanded.insert("r1/op1".into());
+            app.journal.expanded.extend([
+                "context:r1/unknown".into(),
+                "r1/stage:summary".into(),
+                "r1/stage:summary/details".into(),
+                "r1/op1".into(),
+            ]);
             let projection = journal_projection(&app, Theme::for_app(&app));
             app.scroll = wrapped_offsets(&projection.lines, width.saturating_sub(1))
                 [projection.markers[0].1] as u16;
@@ -2002,18 +2011,46 @@ mod tests {
         let lines = journal_lines(&app, Theme::for_app(&app));
         let transcript = lines
             .iter()
-            .find(|line| line.to_string().contains("transcribe"))
+            .find(|line| line.to_string().contains("Расшифровка"))
             .unwrap();
-        assert!(transcript.to_string().contains("done"));
+        assert!(transcript.to_string().contains("готово"));
         let summary = lines
             .iter()
-            .find(|line| line.to_string().contains("summary"))
+            .find(|line| line.to_string().contains("Сводка"))
             .unwrap();
-        assert!(summary.to_string().contains("cancelled") && summary.to_string().contains("00:15"));
+        assert!(summary.to_string().contains("отменено") && summary.to_string().contains("00:15"));
         assert_eq!(summary.spans[0].style.fg, Some(Theme::for_app(&app).dim));
         let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
         terminal.draw(|f| draw(f, &app)).unwrap();
         insta::assert_debug_snapshot!("journal_cancelled_80_24", terminal.backend().buffer());
+    }
+
+    #[test]
+    fn mixed_outline_has_readable_collapsed_and_expanded_screens() {
+        let value: serde_json::Value =
+            serde_json::from_str(include_str!("../../../tests/fixtures/journal-outline.json"))
+                .unwrap();
+        for (light, open) in [(false, false), (false, true), (true, false)] {
+            let mut app = App {
+                current: Some("fixture".into()),
+                tab: Tab::Progress,
+                focus: 2,
+                viewport: (160, 48),
+                ..Default::default()
+            };
+            app.progress = serde_json::from_value(value["progress"].clone()).unwrap();
+            app.journal.entries = serde_json::from_value(value["events"].clone()).unwrap();
+            app.preferences.light = light;
+            if open {
+                app.journal.set_open("final-run/final/stage:summary", true);
+            }
+            let mut terminal = Terminal::new(TestBackend::new(160, 48)).unwrap();
+            terminal.draw(|frame| draw(frame, &app)).unwrap();
+            insta::assert_debug_snapshot!(
+                format!("mixed_outline_light{light}_open{open}"),
+                terminal.backend().buffer()
+            );
+        }
     }
 
     #[test]
@@ -2087,11 +2124,23 @@ mod tests {
                 kind: "operation_start".into(),
                 ..Default::default()
             });
+        app.journal
+            .expanded
+            .extend(["context:run/unknown".into(), "run/stage:summary".into()]);
         app.journal.expanded.insert("run/A".into());
         app.journal.follow = false;
-        app.item = 1;
+        app.item = app
+            .journal_groups()
+            .iter()
+            .position(|g| g.id == "run/B")
+            .unwrap();
         let projection = journal_projection(&app, Theme::for_app(&app));
-        let row = wrapped_offsets(&projection.lines, 79)[projection.markers[1].1];
+        let row = wrapped_offsets(&projection.lines, 79)[projection
+            .markers
+            .iter()
+            .find(|(id, _)| id == "run/B")
+            .unwrap()
+            .1];
         app.scroll = row.saturating_sub(3) as u16;
         app.scroll = journal_metrics(&app).1;
         let anchor = journal_anchor(&app);
@@ -2113,9 +2162,14 @@ mod tests {
         );
         restore_journal_anchor(&mut app, anchor);
         let projection = journal_projection(&app, Theme::for_app(&app));
-        let new_row = wrapped_offsets(&projection.lines, 79)[projection.markers[1].1];
+        let new_row = wrapped_offsets(&projection.lines, 79)[projection
+            .markers
+            .iter()
+            .find(|(id, _)| id == "run/B")
+            .unwrap()
+            .1];
         assert_eq!(new_row - app.scroll as usize, row - previous as usize);
-        assert_eq!(app.item, 1);
+        assert_eq!(app.journal_groups()[app.item].id, "run/B");
     }
     #[test]
     fn resizing_the_list_keeps_the_manual_journal_anchor_across_wrapped_operations() {
@@ -2142,11 +2196,24 @@ mod tests {
                 ..Default::default()
             })
             .collect();
+        app.journal
+            .expanded
+            .extend(["context:run/unknown".into(), "run/stage:transcribe".into()]);
+        app.item = app
+            .journal_groups()
+            .iter()
+            .position(|g| g.id == "run/op14")
+            .unwrap();
         app.journal.follow = false;
         let projection = journal_projection(&app, Theme::for_app(&app));
         let width = journal_dimensions(&app).0;
-        app.scroll =
-            (wrapped_offsets(&projection.lines, width)[projection.markers[14].1] + 1) as u16;
+        app.scroll = (wrapped_offsets(&projection.lines, width)[projection
+            .markers
+            .iter()
+            .find(|(id, _)| id == "run/op14")
+            .unwrap()
+            .1]
+            + 1) as u16;
         let before = journal_anchor(&app).unwrap();
         let previous_scroll = app.scroll;
         for _ in 0..3 {
@@ -2155,7 +2222,7 @@ mod tests {
         let after = journal_anchor(&app).unwrap();
         assert_eq!(after.group, before.group);
         assert_eq!(after.relative, before.relative);
-        assert_eq!(app.item, 14);
+        assert_eq!(app.journal_groups()[app.item].id, "run/op14");
         assert_ne!(
             app.scroll, previous_scroll,
             "wrapped rows changed but the anchor stays fixed"

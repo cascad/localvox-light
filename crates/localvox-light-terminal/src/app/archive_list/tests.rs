@@ -105,6 +105,14 @@ fn vim_horizontal_keys_match_document_arrows_and_remain_literal_in_input() {
             stage: "summary".into(),
             ..Default::default()
         }];
+        a.journal
+            .expanded
+            .extend(["context:run/unknown".into(), "run/stage:summary".into()]);
+        a.item = a
+            .journal_groups()
+            .iter()
+            .position(|g| g.id == "run/op")
+            .unwrap();
         key(&mut a, right);
         assert!(a.expanded && a.journal.expanded.contains("run/op"));
         key(&mut a, left);

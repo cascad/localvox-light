@@ -1,36 +1,13 @@
 import { useEffect, useState } from "react";
 import { Journal } from "./Journal";
+import { stageName } from "./journal-outline";
 import { processingDuration, processingRemainder } from "./journal-model";
 import { api, type Session, type Stage, type StageState } from "./api";
 import { usePolling } from "./usePolling";
 
-const NAME: Record<Stage, string> = {
-  download: "Скачали источник",
-  extract: "Извлекли дорожку",
-  transcribe: "Распознавание речи",
-  punctuation: "Пунктуация · SbertPuncCase",
-  refine: "Исправление реплик · refine",
-  cleanup: "Читаемый текст · cleanup",
-  summary: "Сводка · summary",
-};
-
 /** `waiting` and `interrupted` are ours, not the daemon's. `waiting`: a stage that has not started
  *  yet is a real state and must be drawn, not omitted. */
 type Shown = StageState | "waiting";
-
-const STATE: Record<Shown, { cls: string; label: string }> = {
-  running: { cls: "busy", label: "идёт" },
-  done: { cls: "done", label: "готово" },
-  failed: { cls: "err", label: "сорвалось" },
-  cancelled: { cls: "mute", label: "отменено" },
-  // Deliberately not done. This is an ANSWER, not a gap: a stage silently missing reads as
-  // "still coming", and a person waits for something that will never happen.
-  skipped: { cls: "mute", label: "пропущено" },
-  waiting: { cls: "mute", label: "не начиналось" },
-  queued: { cls: "mute", label: "в очереди" },
-  blocked: { cls: "mute", label: "ждёт предыдущий этап" },
-  invalid: { cls: "err", label: "результат не подтверждён" },
-};
 
 /** A ticking clock «M:SS» (or «N с» under a minute), for the per-stage timer: how long a step has
  *  been going, and how long a finished one took. */
@@ -140,7 +117,7 @@ export function ProgressChain({ session }: { session: Session }) {
         {" · "}финализация и summary — после Stop и полного STT
       </p>}
       <p className="hint">
-        {prog.running ? <b>Задание ещё не завершено.</b> : <b>Текущее состояние результатов.</b>}
+        {prog.running ? <b>Обработка продолжается.</b> : <b>Ход обработки.</b>}
         {" "}«Готово» означает, что файл результата проверен. Время ролика не входит в расчёт.
       </p>
       {prog.timing && <p className="hint">
@@ -148,69 +125,28 @@ export function ProgressChain({ session }: { session: Session }) {
         {" · "}После старта: <b>{showTime(prog.timing.processing_sec)}</b>
         {" · "}Всего: <b>{showTime(prog.timing.total_sec)}</b>
       </p>}
-      {prog.timing?.stages_sec != null && prog.timing.between_sec != null && <p className="hint" data-testid="timing-balance">
-        Этапы{(prog.timing.overlap_sec ?? 0) > 0 ? " (без пересечений)" : ""}: <b>{processingDuration(prog.timing.stages_sec)}</b>
-        {" + запуск / ожидание / переходы: "}<b>{processingDuration(processingRemainder(prog.timing.processing_sec, prog.timing.stages_sec))}</b>
-        {" = после старта: "}<b>{processingDuration(prog.timing.processing_sec)}</b>
-      </p>}
+      {prog.timing && <details className="processing-account hint"><summary>Учёт времени</summary>
+        {prog.timing.stages_sec != null && prog.timing.between_sec != null ? <p data-testid="timing-balance">
+          Измеренная работа: <b>{processingDuration(prog.timing.stages_sec)}</b>
+          {" + вне измеренных этапов: "}<b>{processingDuration(processingRemainder(prog.timing.processing_sec, prog.timing.stages_sec))}</b>
+          {" = после старта: "}<b>{processingDuration(prog.timing.processing_sec)}</b>
+        </p> : <p>Точный баланс неизвестен: не все границы работы измерены.</p>}
+        <p>Вложенные операции входят во время родителя; пересечения учитываются один раз. Время ветки относится к загруженным событиям. Время материала — отдельно от обработки.</p>
+      </details>}
       {prog.execution && <div className={["blocked", "failed", "stalled", "attention", "unavailable"].includes(prog.execution.state) ? "note err" : "note"} data-state={prog.execution.state} data-nocopy aria-live="polite">
         <span>
           <b>{error ? "Текущее выполнение не подтверждено; показан последний полученный статус" : prog.execution.message}</b>
-          {prog.execution.current && <> · {NAME[prog.execution.current]}</>}
+          {prog.execution.current && <> · {stageName(prog.execution.current)}</>}
           {["running", "queued", "retry_wait", "blocked", "stalled", "cancelling"].includes(prog.execution.state) && <>
             {" · "}{prog.execution.state === "running" ? "После запуска" : "Ожидание"}: {prog.execution.since ? hms(Math.max(0, elapsed(prog.execution.since, clockNow))) : "время неизвестно"}
           </>}
           <br />
-          Далее: {prog.execution.next.length ? prog.execution.next.map(s => NAME[s]).join(" → ") : prog.execution.state === "untracked" ? "следующие шаги не определены" : "этапов нет"}.
+          Далее: {prog.execution.next.length ? prog.execution.next.map(stageName).join(" → ") : prog.execution.state === "untracked" ? "следующие шаги не определены" : "этапов нет"}.
           {prog.execution.retry_at && <><br />Повтор не раньше: {new Date(prog.execution.retry_at).toLocaleString("ru-RU")}.</>}
         </span>
       </div>}
 
-      <div className="chain">
-        {rows.map((s) => {
-          const st = STATE[s.state];
-          return (
-            <div className={`step ${s.state}`} key={s.stage}>
-              <span className="track" aria-hidden="true">
-                <i />
-              </span>
-              <span className="body">
-                <span className="t">
-                  <b>{NAME[s.stage]}</b>
-                  <span className={`st ${st.cls}`}>{st.label}</span>
-                  {s.state === "running" && s.total ? (
-                    <span className="hint">
-                      {Math.round(((s.done ?? 0) / Math.max(s.total, 1)) * 100)}%
-                    </span>
-                  ) : null}
-                  {/* Time is ALWAYS shown: a running stage TICKS (how long it has gone), a finished
-                      one shows how long it took — so a slow step never reads as a hang. */}
-                  {s.state === "running" && s.duration != null ? (
-                    <span className="hint">⏱ {hms(s.duration)}</span>
-                  ) : s.duration != null ? (
-                    <span className="hint">
-                      {["done", "failed", "invalid", "cancelled"].includes(s.state) ? "за" : "ранее"} {hms(s.duration)}
-                    </span>
-                  ) : ["done", "failed", "invalid", "cancelled"].includes(s.state) ? <span className="hint">длительность неизвестна</span> : s.state === "running" ? <span className="hint">начало не записано</span> : null}
-                </span>
-                {s.state === "running" && s.updated_at && <span className="hint">
-                  Последний сигнал: {hms(Math.max(0, elapsed(s.updated_at, clockNow)))} назад
-                </span>}
-                {s.note && <span className={s.state === "failed" || s.state === "invalid" ? "err" : "hint"}>{s.note}</span>}
-                {!!s.files?.length && <details className="hint">
-                  <summary>Результат: {s.files.join(", ")}</summary>
-                  {s.artifact?.source != null && <div>Версия текста: v{s.artifact.source}</div>}
-                  {s.artifact && !s.artifact.recorded_checksums && <div>Старая запись: проверены файл и версия; историческая контрольная сумма не сохранялась.</div>}
-                  {s.artifact?.receipt?.outputs.map(f => <div key={f.path}>
-                    <code>{f.path}</code> · {f.bytes} байт · {f.transcript ? "SHA-256 текста и таймкодов" : "SHA-256"}: <code>{f.sha256.slice(0, 16)}…</code>
-                  </div>)}
-                </details>}
-              </span>
-            </div>
-          );
-        })}
-      </div>
-      <Journal session={session.name} execution={prog.execution} stages={prog.stages} uncertain={!!error} now={clockNow} />
+      <Journal session={session.name} execution={prog.execution} stages={rows} uncertain={!!error} now={clockNow} />
     </>
   );
 }

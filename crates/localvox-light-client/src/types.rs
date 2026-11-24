@@ -460,6 +460,8 @@ pub struct DisplayCommand {
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(default)]
 pub struct JournalEntry {
+    pub scope: Option<String>,
+    pub role: Option<String>,
     pub elapsed_sec: Option<f64>,
     pub id: String,
     pub run: String,

@@ -98,6 +98,10 @@ impl DisplayCommand {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Entry {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub elapsed_sec: Option<f64>,
     pub journal: u8,
@@ -118,6 +122,7 @@ pub struct Entry {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
 struct Metadata {
+    scope: Option<String>,
     run: String,
     verbose_bytes: u64,
     dropped: u64,
@@ -180,6 +185,23 @@ pub fn execution_identity(
         None
     };
     ((!meta.run.is_empty()).then_some(meta.run), operation)
+}
+pub(crate) fn execution_scope(session: &Path) -> Option<String> {
+    metadata(session).scope
+}
+pub fn set_scope(session: &Path, scope: &str) {
+    let save = || -> io::Result<()> {
+        let _lock = locked_file(session)?;
+        let mut meta = metadata(session);
+        if meta.scope.as_deref() != Some(scope) {
+            meta.scope = Some(scope.into());
+            save_metadata(session, &meta)?;
+        }
+        Ok(())
+    };
+    if let Err(error) = save() {
+        tracing::debug!("journal context: {error}");
+    }
 }
 fn save_metadata(session: &Path, m: &Metadata) -> io::Result<()> {
     let mut temp = tempfile::NamedTempFile::new_in(session)?;
@@ -256,6 +278,8 @@ pub struct Operation<'a> {
     label: String,
     started: std::time::Instant,
     outcome: Option<&'static str>,
+    scope: Option<String>,
+    role: Option<String>,
 }
 impl<'a> Operation<'a> {
     pub fn start(
@@ -263,6 +287,25 @@ impl<'a> Operation<'a> {
         stage: &str,
         label: &str,
         command: Option<DisplayCommand>,
+    ) -> Self {
+        Self::start_inner(session, stage, label, command, None)
+    }
+    /// The coordinator supplies context; nested workers inherit it from metadata.
+    pub fn start_worker(
+        session: &'a Path,
+        stage: &str,
+        label: &str,
+        command: Option<DisplayCommand>,
+        scope: &str,
+    ) -> Self {
+        Self::start_inner(session, stage, label, command, Some(scope))
+    }
+    fn start_inner(
+        session: &'a Path,
+        stage: &str,
+        label: &str,
+        command: Option<DisplayCommand>,
+        scope: Option<&str>,
     ) -> Self {
         let meta = metadata(session);
         let op = Self {
@@ -276,12 +319,16 @@ impl<'a> Operation<'a> {
             label: label.into(),
             started: std::time::Instant::now(),
             outcome: None,
+            scope: scope.map(str::to_owned).or(meta.scope),
+            role: scope.map(|_| "worker".into()),
         };
         op.emit("operation_start", command, None);
         op
     }
     fn emit(&self, kind: &str, command: Option<DisplayCommand>, text: Option<String>) {
         let e = Entry {
+            scope: self.scope.clone(),
+            role: self.role.clone(),
             elapsed_sec: (kind == "operation_end").then(|| self.started.elapsed().as_secs_f64()),
             status: if kind == "operation_end" || self.outcome == Some("failed") {
                 self.outcome.map(str::to_owned)
@@ -319,6 +366,7 @@ impl<'a> Operation<'a> {
         let mut meta = metadata(self.session);
         meta.execution = Some(execution.into());
         meta.active_operation = Some(self.id.clone());
+        meta.scope = self.scope.clone();
         save_metadata(self.session, &meta)
     }
 }
@@ -490,6 +538,10 @@ pub fn read(session: &Path, query: &Query) -> Result<Page> {
                         .parent
                         .map(|s| safe_text(&s).chars().take(128).collect());
                     entry.stage = safe_text(&entry.stage).chars().take(64).collect();
+                    entry.scope = entry
+                        .scope
+                        .map(|s| safe_text(&s).chars().take(32).collect());
+                    entry.role = entry.role.map(|s| safe_text(&s).chars().take(32).collect());
                     entry.kind = safe_text(&entry.kind).chars().take(64).collect();
                     entry.status = entry
                         .status
@@ -538,6 +590,10 @@ pub fn read(session: &Path, query: &Query) -> Result<Page> {
                     offset,
                     next,
                     Entry {
+                        scope: value
+                            .get("scope")
+                            .and_then(|s| s.as_str())
+                            .map(|s| safe_text(s).chars().take(32).collect()),
                         id: cursor(&generation, offset, false),
                         run: explicit_run
                             .map(|r| safe_text(r).chars().take(128).collect())
@@ -608,6 +664,92 @@ pub fn read(session: &Path, query: &Query) -> Result<Page> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn worker_context_round_trips_to_children_stage_facts_and_background_clocks() {
+        let dir = tempfile::tempdir().unwrap();
+        begin_run(dir.path(), "early");
+        {
+            let worker =
+                Operation::start_worker(dir.path(), "transcribe", "worker", None, "recording");
+            worker.bind_execution("attempt").unwrap();
+            let mut child = std::process::Command::new(std::env::current_exe().unwrap());
+            child
+                .args([
+                    "--ignored",
+                    "--exact",
+                    "journal::tests::context_child_fixture",
+                    "--test-threads=1",
+                ])
+                .env("LOCALVOX_JOURNAL_CONTEXT_FIXTURE", dir.path());
+            let output = localvox_light_process::run(
+                child,
+                None,
+                localvox_light_process::Limits::new(std::time::Duration::from_secs(5)),
+                &|| false,
+                |_, _| {},
+            )
+            .unwrap();
+            assert!(
+                output.termination.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        crate::progress::new_run(dir.path());
+        let page = read(
+            dir.path(),
+            &Query {
+                limit: 100,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(!page.events.is_empty());
+        assert!(page
+            .events
+            .iter()
+            .all(|entry| entry.scope.as_deref() == Some("recording")));
+        let worker = page
+            .events
+            .iter()
+            .find(|entry| entry.role.as_deref() == Some("worker"))
+            .unwrap();
+        let child = page
+            .events
+            .iter()
+            .find(|entry| entry.label == "child")
+            .unwrap();
+        assert_eq!(child.parent, worker.operation);
+        assert!(child.role.is_none());
+        let run = crate::progress::read_run(dir.path());
+        assert_eq!(
+            run.background.len(),
+            1,
+            "work remains accounted across a final run marker"
+        );
+        assert!(run.background[0].1.is_some() && !run.background_incomplete);
+        assert!(
+            execution_scope(dir.path()).is_none(),
+            "new run does not inherit the early context"
+        );
+    }
+
+    #[test]
+    #[ignore = "bounded child fixture; invoked by the cross-process context test"]
+    fn context_child_fixture() {
+        let session = std::env::var_os("LOCALVOX_JOURNAL_CONTEXT_FIXTURE").unwrap();
+        let session = std::path::Path::new(&session);
+        let child = Operation::start(session, "transcribe", "child", None);
+        assert_eq!(child.scope.as_deref(), Some("recording"));
+        child.log("detail");
+        crate::progress::mark(
+            session,
+            crate::progress::Stage::Transcribe,
+            crate::progress::StageState::Running,
+            None,
+        );
+    }
+
     #[test]
     fn self_contained_stages_survive_a_marker_outside_the_scan_budget() {
         use crate::progress::{self, Stage, StageState};

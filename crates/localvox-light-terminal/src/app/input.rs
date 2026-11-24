@@ -550,9 +550,11 @@ impl App {
                 }
                 if self.is_journal() && self.journal.tail_gap {
                     let expanded = std::mem::take(&mut self.journal.expanded);
+                    let collapsed = std::mem::take(&mut self.journal.collapsed);
                     let filter = std::mem::take(&mut self.journal.filter);
                     self.journal = crate::journal::Journal::new();
                     self.journal.expanded = expanded;
+                    self.journal.collapsed = collapsed;
                     self.journal.filter = filter;
                     self.refresh_view();
                 }
@@ -563,8 +565,8 @@ impl App {
                     self.scroll = self.effective_scroll();
                     self.journal.follow = false;
                     self.follow_selection = true;
-                    if let Some(g) = self.journal.visible_groups().get(self.item) {
-                        self.journal.expanded.remove(&g.id);
+                    if let Some(g) = self.journal_groups().get(self.item) {
+                        self.journal.set_open(&g.id, false);
                     }
                 }
             }
@@ -574,8 +576,8 @@ impl App {
                     self.scroll = self.effective_scroll();
                     self.journal.follow = false;
                     self.follow_selection = true;
-                    if let Some(g) = self.journal.visible_groups().get(self.item) {
-                        self.journal.expanded.insert(g.id.clone());
+                    if let Some(g) = self.journal_groups().get(self.item) {
+                        self.journal.set_open(&g.id, true);
                     }
                 }
             }

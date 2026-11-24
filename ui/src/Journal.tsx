@@ -1,13 +1,20 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api, type Progress } from "./api";
-import { groupJournal, journalActive, journalSeconds, journalDuration, journalState, mergeJournal, type JournalEntry, type JournalStageClock } from "./journal-model";
+import { outlineJournal, visibleOutline, outlineOpen, outlineState, outlineAncestors, journalCopy, type OutlineGroup, type OutlineStage } from "./journal-outline";
+import { StageArtifact } from "./StageArtifact";
+import { groupJournal, journalActive, journalSeconds, journalDuration, journalState, mergeJournal, type JournalEntry } from "./journal-model";
 
 function readingAnchor(box: HTMLDivElement | null) {
   if (!box) return null;
   const viewport = box.getBoundingClientRect();
-  const node = [...box.querySelectorAll<HTMLElement>("[data-journal-entry], .journal-row")].find((node) => {
+  const visible = (node: HTMLElement) => {
     const bounds = node.getBoundingClientRect(); return bounds.bottom > viewport.top && bounds.top < viewport.bottom;
-  });
+  };
+  // Branch headers can stay fixed while older operations are inserted beneath
+  // them. Anchor the content being read, falling back to headers only if empty.
+  const node = [...box.querySelectorAll<HTMLElement>("[data-journal-entry]")].find(visible)
+    ?? [...box.querySelectorAll<HTMLElement>('[data-kind="operation"] > .journal-row')].find(visible)
+    ?? [...box.querySelectorAll<HTMLElement>(".journal-row")].find(visible);
   if (!node) return null;
   return { entry: node.dataset.journalEntry, group: node.closest<HTMLElement>("[data-journal-id]")?.dataset.journalId, top: node.getBoundingClientRect().top };
 }
@@ -20,10 +27,21 @@ function restoreReadingAnchor(box: HTMLDivElement | null, anchor: ReturnType<typ
 }
 
 /** A separate history view. The artifact/phase result remains the ProgressChain's responsibility. */
-export function Journal({ session, execution, stages = [], uncertain, now = Date.now() }: { session: string; execution?: Progress["execution"]; stages?: JournalStageClock[]; uncertain?: boolean; now?: number }) {
+export function Journal({ session, execution, stages = [], uncertain, now = Date.now() }: { session: string; execution?: Progress["execution"]; stages?: OutlineStage[]; uncertain?: boolean; now?: number }) {
   const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
+  const currentOutline = useRef({ execution, stages });
+  currentOutline.current = { execution, stages };
+  const preserveReadingBranch = (entries: JournalEntry[], id?: string) => {
+    const { execution, stages } = currentOutline.current;
+    const all = outlineJournal(groupJournal(entries), execution, stages);
+    const active = new Set(all.map(g => g.id));
+    const parents = id ? outlineAncestors(all, id) : new Set<string>();
+    setExpanded(old => new Set([...old].filter(id => active.has(id)).concat([...parents])));
+    setCollapsed(old => new Set([...old].filter(id => active.has(id) && !parents.has(id))));
+  };
   const [filter, setFilter] = useState("");
   const [unseen, setUnseen] = useState(0);
   const [limited, setLimited] = useState(false);
@@ -37,15 +55,18 @@ export function Journal({ session, execution, stages = [], uncertain, now = Date
       point.node.scrollTop = point.top; point.node.scrollLeft = point.left;
     }
     savedViewport.current = null;
-  }, [expanded]);
-  const toggle = (id: string) => {
+  }, [expanded, collapsed]);
+  const toggle = (group: OutlineGroup) => {
+    const id = group.id;
+    const open = !outlineOpen(group, expanded, collapsed);
     manualReading.current = true; follow.current = false; viewportRevision.current++;
     const positions = [];
     for (let node: Element | null = box.current; node; node = node.parentElement) {
       positions.push({ node, top: node.scrollTop, left: node.scrollLeft });
     }
     savedViewport.current = positions;
-    setExpanded((old) => { const next = new Set(old); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+    setExpanded((old) => { const next = new Set(old); if (open) next.add(id); else next.delete(id); return next; });
+    setCollapsed((old) => { const next = new Set(old); if (open) next.delete(id); else next.add(id); return next; });
   };
   const generation = useRef(0);
   const historyGeneration = useRef(0);
@@ -73,7 +94,7 @@ export function Journal({ session, execution, stages = [], uncertain, now = Date
     entriesRef.current = []; cursorRef.current = undefined;
     tailGap.current = false; reloadTail.current = false; setDetached(false);
     setDroppedVerbose(0);
-    setEntries([]); setError(null); setExpanded(new Set()); setUnseen(0); setLimited(false); setOlder(null);
+    setEntries([]); setError(null); setExpanded(new Set()); setCollapsed(new Set()); setUnseen(0); setLimited(false); setOlder(null);
     follow.current = true;
     manualReading.current = false; viewportRevision.current++;
     const load = async () => {
@@ -91,7 +112,7 @@ export function Journal({ session, execution, stages = [], uncertain, now = Date
         const revision = viewportRevision.current;
         if (page.reset || replace) {
           historyGeneration.current++; received.current.clear();
-          setExpanded(new Set()); setUnseen(0);
+          setExpanded(new Set()); setCollapsed(new Set()); setUnseen(0);
           if (page.reset) setResetNotice(true);
         }
         let added = 0;
@@ -107,8 +128,8 @@ export function Journal({ session, execution, stages = [], uncertain, now = Date
         if (!follow.current && merged.evictedHead) { tailGap.current = true; setDetached(true); }
         if (!tailGap.current) {
           entriesRef.current = merged.entries; setEntries(merged.entries);
-          const ids = new Set(groupJournal(merged.entries).map((group) => group.id));
-          setExpanded((old) => new Set([...old].filter((id) => ids.has(id))));
+          preserveReadingBranch(merged.entries, anchor?.group);
+
           if (merged.evictedHead) setOlder(merged.entries[0]?.id ?? null);
         }
         if (!cursor || page.reset) setOlder(page.truncated ? page.previous_cursor : null);
@@ -133,7 +154,9 @@ export function Journal({ session, execution, stages = [], uncertain, now = Date
   }, [session]);
 
   const groups = useMemo(() => groupJournal(entries), [entries]);
-  const visible = groups.filter((g) => `${g.label} ${g.stage} ${g.details.map((d) => d.text).join(" ")}`.toLocaleLowerCase().includes(filter.toLocaleLowerCase()));
+  const outline = useMemo(() => outlineJournal(groups, execution, stages), [groups, execution, stages]);
+  const visible = visibleOutline(outline, expanded, collapsed, filter);
+
   const loadOlder = async () => {
     if (!older || olderBusy.current) return;
     olderBusy.current = true;
@@ -149,7 +172,7 @@ export function Journal({ session, execution, stages = [], uncertain, now = Date
         historyGeneration.current++; received.current.clear();
         cursorRef.current = page.next_cursor || undefined;
         tailGap.current = false; reloadTail.current = false;
-        setDetached(false); setExpanded(new Set()); setUnseen(0); setResetNotice(true);
+        setDetached(false); setExpanded(new Set()); setCollapsed(new Set()); setUnseen(0); setResetNotice(true);
         setLimited(!!(page.truncated || page.discarded || page.dropped_verbose));
       }
       for (const entry of page.events) received.current.add(entry.id);
@@ -157,8 +180,8 @@ export function Journal({ session, execution, stages = [], uncertain, now = Date
       // Earlier pages are explicitly requested; preserve the reader's current viewport.
       const merged = mergeJournal(entriesRef.current, page, true);
       entriesRef.current = merged.entries; setEntries(merged.entries);
-      const ids = new Set(groupJournal(merged.entries).map((group) => group.id));
-      setExpanded((old) => new Set([...old].filter((id) => ids.has(id))));
+      preserveReadingBranch(merged.entries, anchor?.group);
+
       if (merged.evictedTail) { tailGap.current = true; setDetached(true); setLimited(true); }
       setDroppedVerbose(page.dropped_verbose ?? 0);
       setOlder(page.truncated ? page.previous_cursor : null);
@@ -179,31 +202,40 @@ export function Journal({ session, execution, stages = [], uncertain, now = Date
     {limited && <p className="journal-notice">Показана часть истории. Ограничение загрузки отличается от свёрнутых строк.</p>}
     {droppedVerbose > 0 && <p className="journal-notice">Пропущено подробностей по лимиту запуска: {droppedVerbose}. Переходы и ошибки сохраняются.</p>}
     {detached && <p className="journal-notice">Сохранено окно чтения. Переход к хвосту загрузит последние события.</p>}
-    <div ref={box} className="journal-scroll" onScroll={(e) => { const el = e.currentTarget; follow.current = !manualReading.current && !filter && !tailGap.current && el.scrollHeight - el.clientHeight - el.scrollTop < 24; if (follow.current) setUnseen(0); }}>
+    <div ref={box} className="journal-scroll chain" onScroll={(e) => { const el = e.currentTarget; follow.current = !manualReading.current && !filter && !tailGap.current && el.scrollHeight - el.clientHeight - el.scrollTop < 24; if (follow.current) setUnseen(0); }}>
       {older && <button className="tool journal-older" disabled={loadingOlder} onClick={() => void loadOlder()}>{loadingOlder ? "Загрузка предыдущих…" : "↑ Предыдущие события"}</button>}
       {!groups.length && !error && <p className="hint">Подробные события ещё не поступили. Состояние этапов показано выше.</p>}
-      {visible.map((group, index) => {
-        const active = !uncertain && journalActive(group, execution, stages);
+      {visible.map((group) => {
+        const active = !uncertain && (group.kind === "stage" ? group.state === "running" && (execution == null || execution.state === "running") : journalActive({ ...group, parent: group.sourceParent }, execution, stages));
         const state = journalState(group, active);
-        const duration = journalDuration(journalSeconds(group, execution?.run, stages, active, now));
-        const open = expanded.has(group.id);
+        const seconds = journalSeconds(group, execution?.run, stages, active, now);
+        const duration = journalDuration(seconds);
+        const open = outlineOpen(group, expanded, collapsed) || !!filter && journalCopy(group).toLocaleLowerCase().includes(filter.toLocaleLowerCase());
+        const container = group.children > 0 || group.details.length > 0 || group.command != null || group.note != null;
+        const logical = group.kind === "context" || group.kind === "skipped" || group.kind === "details";
+        const stage = group.kind === "stage" ? stages.find(s => s.stage === group.stage && (group.run === execution?.run || group.run === "@planned")) : undefined;
         const hidden = group.details.filter((d) => d.status !== "failed" && d.status !== "invalid");
         const hiddenLines = hidden.reduce((n, d) => n + (d.text?.split("\n").length ?? 0), 0);
         const errors = group.details.filter((d) => d.status === "failed" || d.status === "invalid");
-        return <div className="journal-operation" key={group.id} data-journal-id={group.id} data-state={group.state ?? (group.ended ? "ended" : "active")}>
-          {(index === 0 || visible[index - 1].run !== group.run) && <div className="journal-run">run <span>{group.run || "исторические события · запуск неизвестен"}</span></div>}
-          {(index === 0 || visible[index - 1].run !== group.run || visible[index - 1].stage !== group.stage) && <div className="journal-stage"><span aria-hidden="true">├</span> {group.stage}</div>}
-          <div className="journal-row">
-            <span className="journal-branch" aria-hidden="true">└</span>
-            <span className={`journal-indicator ${state.cls}`} aria-hidden="true">{state.symbol}</span>
-            <span className="journal-command">{group.command?.program ?? group.label}</span>
-            {group.command?.args.map((arg, i) => <span key={`${arg.name}/${i}`} className="journal-arg">{arg.name}{arg.value != null && <span className="journal-value"> {arg.value}</span>}</span>)}
-            <span className={`journal-state ${state.cls}`}>{state.label}</span>
-            <span className="journal-state mute" aria-label="Длительность операции">{duration}</span>
-            {group.lastAt && <time className="journal-time" dateTime={group.lastAt}>{group.lastAt.slice(11, 19)}</time>}
+        return <div className={`journal-operation ${group.kind === "stage" ? `step ${group.state ?? "waiting"}` : ""}`} key={group.id} data-journal-id={group.id} data-kind={group.kind} data-state={group.state ?? (group.ended ? "ended" : "active")} style={{ paddingInlineStart: group.depth * 16 }}>
+          <div className="journal-row t">
+            {container ? <button className="journal-fold" aria-expanded={open} aria-label={`${open ? "Свернуть" : "Раскрыть"}: ${group.label}`} onClick={() => toggle(group)}>{open ? "▾" : "▸"}</button> : <span className="journal-branch" aria-hidden="true">└</span>}
+            {!logical && <span className={`journal-indicator ${state.cls}`} aria-hidden="true">{state.symbol}</span>}
+            <span className={`journal-command ${logical ? "journal-context" : ""}`}>{group.label}</span>
+            {group.kind === "context" && group.elapsed != null && <span className="journal-duration" title="Объединение измеренных интервалов процессов в загруженной истории">измерено {journalDuration(group.elapsed)}</span>}
+            {group.kind === "context" && group.firstAt && group.lastAt && <time className="journal-time" title="Границы событий в загруженной истории">события {group.firstAt.slice(11, 19)}–{group.lastAt.slice(11, 19)}</time>}
+            {!logical && <span className={`journal-state st ${state.cls}`}>{outlineState(group, active)}</span>}
+            {!logical && ((Number.isFinite(seconds) && seconds >= 0) || ["done", "failed", "invalid", "running"].includes(group.state ?? "") || group.ended) && <span className="journal-duration hint" aria-label={group.kind === "stage" ? "Длительность этапа" : "Длительность операции"}>{group.state === "done" && (Number.isFinite(seconds) && seconds >= 0) ? "за " : ""}{duration}</span>}
+            {group.kind === "stage" && group.state === "running" && !!group.total && <span className="hint">{Math.round((group.done ?? 0) / Math.max(1, group.total) * 100)}%</span>}
+            {group.issues > 0 && <span className="err journal-issues">ошибки в истории</span>}
+            {group.kind === "operation" && group.lastAt && <time className="journal-time" dateTime={group.lastAt}>{group.lastAt.slice(11, 19)}</time>}
           </div>
-          {errors.map((entry) => <p key={entry.id} data-journal-entry={entry.id} className="journal-detail err">{entry.text}</p>)}
-          {hidden.length > 0 && <button className="journal-toggle" aria-expanded={open} onClick={() => toggle(group.id)}>{open ? "− свернуть" : `+ ${hiddenLines} lines`}</button>}
+          {group.note && (open || ["running", "failed", "invalid", "blocked", "cancelled", "skipped"].includes(group.state ?? "")) && <p className={group.state === "failed" || group.state === "invalid" ? "journal-detail err" : "journal-detail"}>{group.note}</p>}
+          {group.kind === "stage" && group.state === "running" && stage?.updated_at && <p className="journal-detail">Последний сигнал: {journalDuration(Math.max(0, (now - Date.parse(stage.updated_at)) / 1000))} назад · heartbeat не означает прогресс</p>}
+          {open && group.command && <div className="journal-row journal-technical" data-journal-entry={`${group.id}/command`}><span className="journal-command">{group.command.program}</span>{group.command.args.map((arg, i) => <span key={i} className="journal-arg">{arg.name}{arg.value != null && <span className="journal-value"> {arg.value}</span>}</span>)}</div>}
+          {open && stage && <><StageArtifact stage={stage} />{stage.done != null && stage.total != null && <p className="journal-detail">Обработано {stage.done}/{stage.total}</p>}</>}
+          {open && errors.map((entry) => <p key={entry.id} data-journal-entry={entry.id} className="journal-detail err">{entry.text}</p>)}
+          {hidden.length > 0 && <button className="journal-toggle" aria-expanded={open} onClick={() => toggle(group)}>{open ? "− свернуть" : `+ ${hiddenLines} lines`}</button>}
           {open && <div className="journal-details">{hidden.map((entry) => <div key={entry.id} data-journal-entry={entry.id} className="journal-detail"><time>{entry.at.slice(11, 19)}</time><span>{entry.text}</span></div>)}</div>}
         </div>;
       })}

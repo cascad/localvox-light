@@ -333,20 +333,13 @@ impl App {
                         );
                     }
                 }
-                let selected = self
-                    .journal
-                    .visible_groups()
-                    .get(self.item)
-                    .map(|g| g.id.clone());
+                let selected = self.journal_groups().get(self.item).map(|g| g.id.clone());
                 let anchor = crate::render::journal_anchor(self);
                 self.journal.merge(page, prepend);
+                self.journal.prune_folds(&self.progress);
                 if let Some(id) = selected {
-                    if let Some(index) = self
-                        .journal
-                        .visible_groups()
-                        .iter()
-                        .position(|g| g.id == id)
-                    {
+                    self.journal.reveal(&id, &self.progress);
+                    if let Some(index) = self.journal_groups().iter().position(|g| g.id == id) {
                         self.item = index;
                     }
                 }

@@ -257,6 +257,20 @@ impl ApiFixture {
                             "/api/settings" => {
                                 serde_json::json!({"settings":[{"key":"LOCALVOX_LIGHT_LOOPBACK","group":"Устройства","label":"Записывать системный звук","kind":"bool","default_value":"on","value":if saved_settings.load(Ordering::Relaxed)>0 {Some("off")} else {None},"applies":"capture","hint":"Микрофон и системный звук"}],"extra":[]})
                             }
+                            p if mode == 9 && p.ends_with("/journal") => {
+                                let outline: serde_json::Value = serde_json::from_str(
+                                    include_str!("../../../tests/fixtures/journal-outline.json"),
+                                )
+                                .unwrap();
+                                serde_json::json!({"events":outline["events"],"next_cursor":"mixed-tail","previous_cursor":"mixed-head","has_more":false,"truncated":false,"reset":false,"discarded":0,"read_bytes":1000})
+                            }
+                            p if mode == 9 && p.ends_with("/progress") => {
+                                let outline: serde_json::Value = serde_json::from_str(
+                                    include_str!("../../../tests/fixtures/journal-outline.json"),
+                                )
+                                .unwrap();
+                                outline["progress"].clone()
+                            }
                             p if p.ends_with("/journal") => serde_json::from_str(include_str!(
                                 "../../../tests/fixtures/journal.json"
                             ))
@@ -799,6 +813,105 @@ fn terminal_regions_keep_unwritten_blank_cells_at_their_columns() {
 }
 
 #[test]
+fn mixed_journal_uses_real_vim_keys_to_open_the_selected_stage_and_keep_nested_clocks() {
+    let api = ApiFixture::new();
+    api.activity.store(9, Ordering::Relaxed);
+    let pair = native_pty_system()
+        .openpty(PtySize {
+            rows: 48,
+            cols: 160,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .unwrap();
+    let mut command = CommandBuilder::new(test_binary("localvox-tui"));
+    command.args(["--address", &api.address, "--ascii", "--no-color"]);
+    command.env("LOCALVOX_API_TOKEN", "");
+    let mut child = OwnedChild(pair.slave.spawn_command(command).unwrap());
+    drop(pair.slave);
+    let mut reader = pair.master.try_clone_reader().unwrap();
+    let mut writer = pair.master.take_writer().unwrap();
+    let (tx, rx) = mpsc::sync_channel(32);
+    let output = std::thread::spawn(move || {
+        let mut bytes = [0u8; 8192];
+        while let Ok(n) = reader.read(&mut bytes) {
+            if n == 0 || tx.send(bytes[..n].to_vec()).is_err() {
+                break;
+            }
+        }
+    });
+    let mut all = Vec::new();
+    let mut screen = vt100::Parser::new(48, 160, 0);
+    let mut queries = 0;
+    let deadline = Instant::now() + Duration::from_secs(15);
+    wait_for(
+        "Архитектура и следующие шаги",
+        &mut all,
+        &mut screen,
+        &rx,
+        &mut writer,
+        &mut queries,
+        deadline,
+    );
+    writer.write_all(b"\t\r5").unwrap();
+    writer.flush().unwrap();
+    wait_for(
+        "После остановки",
+        &mut all,
+        &mut screen,
+        &rx,
+        &mut writer,
+        &mut queries,
+        deadline,
+    );
+    assert!(screen.screen().contents().contains("Во время записи"));
+    assert!(!screen.screen().contents().contains("Ответ модели"));
+    writer.write_all(b"\x1b[Hjjjjl").unwrap();
+    writer.flush().unwrap();
+    wait_for(
+        "Ответ модели",
+        &mut all,
+        &mut screen,
+        &rx,
+        &mut writer,
+        &mut queries,
+        deadline,
+    );
+    let text = screen.screen().contents();
+    for clock in ["00:58", "00:54", "<1 с", "00:01"] {
+        assert!(text.contains(clock), "{clock}: {text}");
+    }
+    writer.write_all(b"h").unwrap();
+    writer.flush().unwrap();
+    wait_until(
+        "collapsed summary children",
+        |_, s| !s.contents().contains("Ответ модели"),
+        &mut all,
+        &mut screen,
+        &rx,
+        &mut writer,
+        &mut queries,
+        deadline,
+    );
+    writer.write_all(b"\x1b[21~").unwrap();
+    writer.flush().unwrap();
+    wait_for(
+        "\x1b[?1049l",
+        &mut all,
+        &mut screen,
+        &rx,
+        &mut writer,
+        &mut queries,
+        deadline,
+    );
+    assert!(child.0.wait().unwrap().success());
+    drop(writer);
+    drop(pair.master);
+    drop(rx);
+    output.join().unwrap();
+}
+
+#[test]
 fn vox_uses_portable_settings_from_another_directory_and_reuses_the_running_api() {
     exercise_terminal(true, false, b"s");
 }
@@ -1003,6 +1116,17 @@ fn exercise_terminal(vox: bool, full_exit: bool, confirm_key: &[u8]) {
     );
     assert_eq!(api.stops.load(Ordering::Relaxed), 0);
     writer.write_all(b"\t\r5").unwrap();
+    writer.flush().unwrap();
+    wait_for(
+        "Проход 1",
+        &mut all,
+        &mut screen,
+        &rx,
+        &mut writer,
+        &mut queries,
+        deadline,
+    );
+    writer.write_all(b"\x1b[Hjljlj").unwrap();
     writer.flush().unwrap();
     wait_for(
         "+ 35 lines",

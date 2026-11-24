@@ -1,5 +1,6 @@
 export interface DisplayArgument { name: string; value?: string | null }
 export interface JournalEntry {
+  scope?: string | null; role?: string | null;
   elapsed_sec?: number | null;
   id: string; run: string; operation?: string | null; parent?: string | null;
   stage: string; kind: string; at: string; label: string; status?: string | null;
@@ -11,6 +12,8 @@ export interface JournalPage {
   reset: boolean; truncated: boolean; discarded: number; read_bytes: number; dropped_verbose?: number;
 }
 export interface JournalGroup {
+  firstAt?: string;
+  scope?: string | null; role?: string | null;
   operation?: string | null;
   startedAt?: string; endedAt?: string; elapsed?: number | null;
   id: string; run: string; stage: string; label: string; parent?: string | null;
@@ -49,11 +52,11 @@ export function mergeJournal(old: JournalEntry[], page: JournalPage, prepend = f
 export function groupJournal(events: JournalEntry[]): JournalGroup[] {
   const groups = new Map<string, JournalGroup>();
   for (const entry of events) {
-    const id = `${entry.run}/${entry.operation ?? `stage:${entry.stage}`}`;
+    const id = `${entry.run}/${entry.operation ?? `${entry.scope != null ? `${entry.scope}/` : ""}stage:${entry.stage}`}`;
     let group = groups.get(id);
     if (!group) {
-      group = { id, operation: entry.operation, run: entry.run, stage: entry.stage, label: entry.label || entry.stage, parent: entry.parent,
-        ended: false, details: [], lastAt: entry.at };
+      group = { id, scope: entry.scope ?? null, role: entry.role ?? null, operation: entry.operation, run: entry.run, stage: entry.stage, label: entry.label || entry.stage, parent: entry.parent,
+        ended: false, details: [], firstAt: entry.at, lastAt: entry.at };
       groups.set(id, group);
     }
     if (entry.command) group.command = entry.command;

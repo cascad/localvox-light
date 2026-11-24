@@ -22,6 +22,46 @@ pub(super) struct Attempt<'a> {
     pub(super) outcome: Outcome,
     _operation: Option<localvox_light_core::journal::Operation<'a>>,
 }
+pub(super) fn journal_scope(job: &Job, session: &Path) -> &'static str {
+    if job.kind == jobs::JobKind::Incremental {
+        return "recording";
+    }
+    let Some(meta) = std::fs::read(session.join("meta.json"))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+        .filter(|value| value.is_object())
+    else {
+        return "unknown";
+    };
+    match meta.get("source") {
+        Some(serde_json::Value::Object(_)) => "import",
+        None | Some(serde_json::Value::Null) => "final",
+        _ => "unknown",
+    }
+}
+
+#[cfg(test)]
+mod scope_tests {
+    use super::*;
+    #[test]
+    fn context_uses_explicit_source_metadata_and_does_not_require_new_session_fields() {
+        let root = tempfile::tempdir().unwrap();
+        let mut queue = jobs::JobQueue::load(root.path());
+        queue.enqueue_cook("opaque", false, false, false);
+        let job = queue.jobs()[0].clone();
+        assert_eq!(journal_scope(&job, root.path()), "unknown");
+        for (text, expected) in [
+            ("{\"source\":{\"url\":\"https://example.org\"}}", "import"),
+            ("{}", "final"),
+            ("{\"source\":null}", "final"),
+            ("{broken", "unknown"),
+            ("{\"source\":false}", "unknown"),
+        ] {
+            std::fs::write(root.path().join("meta.json"), text).unwrap();
+            assert_eq!(journal_scope(&job, root.path()), expected);
+        }
+    }
+}
 
 pub(super) fn run<'a>(
     cfg: &Config,
@@ -32,6 +72,8 @@ pub(super) fn run<'a>(
     owner: Option<&jobs::control::ManagedExecution>,
     warm: Option<&mut warm::Lane>,
 ) -> Attempt<'a> {
+    let scope = journal_scope(job, session);
+    localvox_light_core::journal::set_scope(session, scope);
     let initial_stage = match job.phase {
         JobPhase::Prepare => progress::Stage::Download,
         JobPhase::Transcribe => progress::Stage::Transcribe,
@@ -99,7 +141,7 @@ pub(super) fn run<'a>(
     }
     let resident_request =
         job.phase == JobPhase::Transcribe && !cfg.asr_keep_alive.is_zero() && warm.is_some();
-    let mut _journal_operation = localvox_light_core::journal::Operation::start(
+    let mut _journal_operation = localvox_light_core::journal::Operation::start_worker(
         &session,
         job.phase.as_str(),
         if resident_request {
@@ -117,6 +159,7 @@ pub(super) fn run<'a>(
                     .collect::<Vec<_>>(),
             ))
         },
+        scope,
     );
     if let Some(execution) = &job.execution_id {
         if let Err(error) = _journal_operation.bind_execution(execution) {

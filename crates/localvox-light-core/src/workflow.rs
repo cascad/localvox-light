@@ -62,7 +62,21 @@ pub fn timing(
 
 /// A wall-clock partition, not a sum of nested operation timers. Unknown stage
 /// boundaries leave the partition unknown rather than attributing lost work to gaps.
+#[cfg(test)]
 fn account_timing(value: &mut Timing, events: &[progress::StageEvent], live: bool, now: &str) {
+    account_timing_with_background(value, events, &[], false, live, now)
+}
+fn account_timing_with_background(
+    value: &mut Timing,
+    events: &[progress::StageEvent],
+    background: &[(String, Option<String>)],
+    incomplete: bool,
+    live: bool,
+    now: &str,
+) {
+    if incomplete {
+        return;
+    }
     let Some((from, to)) = value.started_at.as_deref().and_then(timestamp).zip(
         value
             .ended_at
@@ -112,6 +126,23 @@ fn account_timing(value: &mut Timing, events: &[progress::StageEvent], live: boo
             }
             intervals.push((begin, to));
         }
+    }
+    for (start, end) in background {
+        let Some(start) = timestamp(start) else {
+            return;
+        };
+        let end = end.as_deref().and_then(timestamp).or(live.then_some(to));
+        // Completed historical work outside this processing interval is irrelevant.
+        if end.is_some_and(|end| end <= from) || start >= to {
+            continue;
+        }
+        let Some(end) = end else {
+            return;
+        };
+        if end < start {
+            return;
+        }
+        intervals.push((start.max(from), end.min(to)));
     }
     intervals.sort_by(|a, b| a.0.total_cmp(&b.0));
     let raw = intervals
@@ -645,7 +676,14 @@ pub fn view(session: &Path, job: Option<&Job>, from_link: bool, now: &str) -> Vi
     (execution.run, execution.operation) =
         crate::journal::execution_identity(session, job.and_then(|j| j.execution_id.as_deref()));
     let mut clocks = timing(queued, started, ended, live, now);
-    account_timing(&mut clocks, &events, live, now);
+    account_timing_with_background(
+        &mut clocks,
+        &events,
+        &run.background,
+        run.background_incomplete,
+        live,
+        now,
+    );
     View {
         at: now.into(),
         stages,
@@ -708,6 +746,44 @@ mod tests {
             clocks.queue_sec.unwrap() + clocks.processing_sec.unwrap(),
             clocks.total_sec.unwrap()
         );
+    }
+
+    #[test]
+    fn background_work_is_not_a_gap_and_overlaps_are_not_added_twice() {
+        let at = |s| format!("2026-11-21T00:00:{s:02}Z");
+        let events = vec![
+            clock_event(Stage::Summary, StageState::Running, "20"),
+            clock_event(Stage::Summary, StageState::Done, "40"),
+        ];
+        let background = vec![(at(1), Some(at(31))), (at(5), Some(at(29)))];
+        let mut clocks = timing(Some(at(0)), Some(at(0)), Some(at(50)), false, "unused");
+        account_timing_with_background(&mut clocks, &events, &background, false, false, "unused");
+        assert_eq!(clocks.stages_sec, Some(39.0));
+        assert_eq!(clocks.between_sec, Some(11.0));
+        assert_eq!(
+            clocks.stages_sec.unwrap() + clocks.between_sec.unwrap(),
+            50.0
+        );
+        let mut incomplete = timing(Some(at(0)), Some(at(0)), Some(at(50)), false, "unused");
+        account_timing_with_background(
+            &mut incomplete,
+            &events,
+            &background,
+            true,
+            false,
+            "unused",
+        );
+        assert!(incomplete.stages_sec.is_none() && incomplete.between_sec.is_none());
+        let mut interrupted = timing(Some(at(0)), Some(at(0)), Some(at(50)), false, "unused");
+        account_timing_with_background(
+            &mut interrupted,
+            &events,
+            &[(at(1), None)],
+            false,
+            false,
+            "unused",
+        );
+        assert!(interrupted.stages_sec.is_none());
     }
 
     #[test]
