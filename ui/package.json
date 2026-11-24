@@ -8,7 +8,9 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "test": "node --test tests/unit/*.test.ts",
+    "pretest:e2e": "npm run build",
     "test:e2e": "playwright test",
+    "test:e2e:dev": "playwright test --config playwright.dev.config.ts",
     "test:integration": "cargo test --locked -p localvox-light-api --lib -- --ignored --exact http::tests::cross_clients::shared_workspace --nocapture",
     "setup:mpv": "node ../scripts/setup-mpv.mjs",
     "preview": "vite preview"
