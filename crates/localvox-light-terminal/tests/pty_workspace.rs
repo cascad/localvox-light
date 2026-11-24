@@ -395,7 +395,7 @@ fn wait_until(
 
 #[test]
 fn real_terminal_accepts_paste_resize_and_restores_screen_on_quit() {
-    exercise_terminal(false, false);
+    exercise_terminal(false, false, b"s");
 }
 
 #[test]
@@ -800,15 +800,20 @@ fn terminal_regions_keep_unwritten_blank_cells_at_their_columns() {
 
 #[test]
 fn vox_uses_portable_settings_from_another_directory_and_reuses_the_running_api() {
-    exercise_terminal(true, false);
+    exercise_terminal(true, false, b"s");
 }
 
 #[test]
 fn vox_full_exit_requires_confirmation_and_waits_for_shutdown_ack() {
-    exercise_terminal(true, true);
+    exercise_terminal(true, true, b"s");
 }
 
-fn exercise_terminal(vox: bool, full_exit: bool) {
+#[test]
+fn vox_full_exit_also_accepts_a_separate_enter() {
+    exercise_terminal(true, true, b"\r");
+}
+
+fn exercise_terminal(vox: bool, full_exit: bool, confirm_key: &[u8]) {
     let api = ApiFixture::new();
     let pty = native_pty_system();
     let pair = pty
@@ -1155,7 +1160,7 @@ fn exercise_terminal(vox: bool, full_exit: bool) {
         writer.write_all(b":").unwrap();
         writer.flush().unwrap();
         wait_for(
-            "Действия",
+            "Действия · Enter / Esc",
             &mut all,
             &mut screen,
             &rx,
@@ -1176,7 +1181,7 @@ fn exercise_terminal(vox: bool, full_exit: bool) {
         );
         assert_eq!(api.shutdowns.load(Ordering::Relaxed), 0);
         assert!(screen.screen().contents().contains("Запись закроется"));
-        writer.write_all(b"s").unwrap();
+        writer.write_all(confirm_key).unwrap();
     } else {
         writer.write_all(b"\x1b[21~").unwrap(); // F10, including an open form
     }

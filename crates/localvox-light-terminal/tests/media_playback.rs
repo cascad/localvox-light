@@ -84,17 +84,23 @@ fn wait(player: &mut Mpv, condition: impl Fn(&PlaybackState) -> bool) -> Playbac
 // Paused time-pos includes the null audio output buffer. The same 250 ms clock
 // bound applies to every seek; command target and pause behavior stay exact.
 const SEEK_CLOCK_TOLERANCE: f64 = 0.25;
+#[track_caller]
 fn wait_worker(player: &Player, condition: impl Fn(&PlaybackState) -> bool) -> PlaybackState {
+    let caller = std::panic::Location::caller();
     let deadline = Instant::now() + Duration::from_secs(10);
+    let mut last = None;
     loop {
         let state = player
             .rx
             .recv_timeout(deadline.saturating_duration_since(Instant::now()))
-            .unwrap();
+            .unwrap_or_else(|error| {
+                panic!("player condition at {caller} failed: {error}; last state: {last:?}")
+            });
         assert!(state.error.is_none(), "{state:?}");
         if condition(&state) {
             return state;
         }
+        last = Some(state);
     }
 }
 
@@ -338,6 +344,88 @@ fn real_player_auth_range_pause_and_repeated_fragment() {
     wait_worker(&worker, |state| {
         state.session.as_deref() == Some("demo") && !state.idle && state.error.is_none()
     });
+    assert!(worker.submit(PlaybackCommand::Stop));
+    wait_worker(&worker, |s| s.session.is_none() && s.idle);
+    // Drive the actual hotkeys while intentionally withholding telemetry from
+    // the App: several key events can arrive before the player's next report.
+    assert!(worker.submit(PlaybackCommand::Load {
+        session: "demo".into(),
+        start: 0.0,
+        end: None,
+    }));
+    assert!(worker.submit(PlaybackCommand::Toggle));
+    let initial = wait_worker(&worker, |s| {
+        s.session.as_deref() == Some("demo") && s.paused && !s.idle && s.position < 0.25
+    });
+    let mut app = localvox_light_terminal::app::App::default();
+    app.current = Some("demo".into());
+    app.playback = initial;
+    let burst = |app: &mut localvox_light_terminal::app::App,
+                 keys: &[crossterm::event::KeyCode]| {
+        for &code in keys {
+            app.key(crossterm::event::KeyEvent::new(
+                code,
+                crossterm::event::KeyModifiers::ALT,
+            ));
+            for command in std::mem::take(&mut app.player_effects) {
+                assert!(worker.submit(command));
+            }
+        }
+    };
+    use crossterm::event::KeyCode::{Left, Right};
+    burst(&mut app, &[Right, Right, Right]);
+    assert!(
+        wait_worker(&worker, |s| (s.position - 45.0).abs()
+            < SEEK_CLOCK_TOLERANCE)
+        .paused
+    );
+    burst(&mut app, &[Left, Left, Left]);
+    assert!(wait_worker(&worker, |s| s.position < SEEK_CLOCK_TOLERANCE).paused);
+    burst(&mut app, &[Right, Right, Left]);
+    assert!(
+        wait_worker(&worker, |s| (s.position - 15.0).abs()
+            < SEEK_CLOCK_TOLERANCE)
+        .paused
+    );
+    // Playback must also advance without telemetry making a future key return
+    // to an obsolete absolute position. Pause only after the queued burst.
+    assert!(worker.submit(PlaybackCommand::Toggle));
+    wait_worker(&worker, |s| !s.paused && s.position >= 15.0);
+    burst(&mut app, &[Right, Right]);
+    assert!(worker.submit(PlaybackCommand::Toggle));
+    wait_worker(&worker, |s| {
+        s.paused && (s.position - 45.0).abs() < SEEK_CLOCK_TOLERANCE
+    });
+    assert!(worker.submit(PlaybackCommand::Toggle));
+    wait_worker(&worker, |s| !s.paused && s.position >= 45.0);
+    burst(&mut app, &[Left, Left]);
+    assert!(worker.submit(PlaybackCommand::Toggle));
+    wait_worker(&worker, |s| {
+        s.paused && (s.position - 15.0).abs() < SEEK_CLOCK_TOLERANCE
+    });
+
+    // A new selection starts from its own audio, never the previous session's
+    // accepted target. Both bounds are checked through the same worker path.
+    assert!(worker.submit(PlaybackCommand::SeekRelative {
+        session: "other".into(),
+        delta: 15.0,
+    }));
+    wait_worker(&worker, |s| {
+        s.session.as_deref() == Some("other")
+            && s.paused
+            && (s.position - 15.0).abs() < SEEK_CLOCK_TOLERANCE
+    });
+    assert!(worker.submit(PlaybackCommand::SeekRelative {
+        session: "other".into(),
+        delta: -60.0,
+    }));
+    wait_worker(&worker, |s| s.paused && s.position < SEEK_CLOCK_TOLERANCE);
+    assert!(worker.submit(PlaybackCommand::SeekRelative {
+        session: "other".into(),
+        delta: 7200.0,
+    }));
+    let end = wait_worker(&worker, |s| s.paused && s.position > 3599.0);
+    assert!(end.position <= end.duration.unwrap());
     drop(worker);
     drop(server_guard);
     assert!(

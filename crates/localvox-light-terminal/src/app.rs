@@ -95,6 +95,12 @@ impl Form {
             FormKind::Confirm(_) | FormKind::Shutdown | FormKind::DiscardSettings
         )
     }
+    pub fn enter_confirms_shutdown(&self) -> bool {
+        matches!(
+            self.kind,
+            FormKind::Shutdown | FormKind::Confirm(Task::Shutdown)
+        )
+    }
 }
 #[derive(Clone)]
 pub enum FormKind {
@@ -561,12 +567,10 @@ impl App {
         }
     }
     fn nudge(&mut self, delta: f64) {
-        let position = if self.playback.session == self.current {
-            self.playback.position
-        } else {
-            0.0
-        };
-        self.seek_to(position + delta);
+        if let Some(session) = self.current.clone() {
+            self.player_effects
+                .push(crate::player::PlaybackCommand::SeekRelative { session, delta });
+        }
     }
     pub(crate) fn media_duration(&self) -> Option<f64> {
         let duration = if self.playback.session == self.current {

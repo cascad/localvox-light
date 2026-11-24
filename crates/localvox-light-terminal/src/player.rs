@@ -38,6 +38,10 @@ pub enum PlaybackCommand {
         session: String,
         position: f64,
     },
+    SeekRelative {
+        session: String,
+        delta: f64,
+    },
     Stop,
     Shutdown,
 }
@@ -69,6 +73,7 @@ impl Player {
             .spawn(move || {
                 let mut backend = Backend {
                     mpv: None,
+                    seek_target: None,
                     state: PlaybackState {
                         paused: true,
                         idle: true,
@@ -139,13 +144,27 @@ impl Player {
 }
 struct Backend {
     mpv: Option<Mpv>,
+    // Accepted seek intent stays with the owner until playback catches up.
+    // Never substitute it for the actual position reported to the UI.
+    seek_target: Option<f64>,
     state: PlaybackState,
     client: Client,
     executable: PathBuf,
     null_audio: bool,
 }
+#[derive(Clone, Copy)]
+enum SeekTarget {
+    Absolute(f64),
+    Relative(f64),
+}
 impl Backend {
     fn apply(&mut self, command: PlaybackCommand, cancelled: &impl Fn() -> bool) -> Result<()> {
+        if matches!(
+            command,
+            PlaybackCommand::Load { .. } | PlaybackCommand::Stop | PlaybackCommand::Toggle
+        ) {
+            self.seek_target = None;
+        }
         match &command {
             PlaybackCommand::Stop => {
                 self.state = PlaybackState {
@@ -254,39 +273,79 @@ impl Backend {
                 self.state.fragment_end = None;
             }
             PlaybackCommand::Seek { session, position } => {
-                player.wait_ready(cancelled)?;
-                if self.state.session.as_ref() == Some(&session)
-                    && !player.state()?.idle
-                    && self.state.duration.is_none_or(|d| position < d)
-                {
-                    player
-                        .seek(position)
-                        .context("Не удалось перемотать аудио")?;
-                } else {
-                    let info = self.client.playback(&session)?;
-                    anyhow::ensure!(
-                        position < info.duration_sec,
-                        "готовое аудио доступно до {:.1} с",
-                        info.duration_sec
-                    );
-                    let media = self
-                        .client
-                        .media_snapshot(&session, info.snapshot.as_deref());
-                    self.state.snapshot = info.snapshot;
-                    self.state.duration = Some(info.duration_sec);
-                    player
-                        .load(&media.url, &media.headers, position, None)
-                        .context("Не удалось открыть аудио для перехода")?;
-                    player.command(json!(["set_property", "pause", true]))?;
-                    self.state.session = Some(session);
-                }
-                self.state.fragment_end = None;
+                self.seek(session, SeekTarget::Absolute(position), cancelled)?;
+            }
+            PlaybackCommand::SeekRelative { session, delta } => {
+                self.seek(session, SeekTarget::Relative(delta), cancelled)?;
             }
             _ => {}
         }
         Ok(())
     }
+    fn seek(
+        &mut self,
+        session: String,
+        target: SeekTarget,
+        cancelled: &impl Fn() -> bool,
+    ) -> Result<()> {
+        let player = self.mpv.as_mut().context("плеер не запущен")?;
+        player.wait_ready(cancelled)?;
+        let same = self.state.session.as_ref() == Some(&session);
+        let observed = player.state()?;
+        let loaded = same && !observed.idle;
+        let position = match target {
+            SeekTarget::Absolute(position) => position,
+            SeekTarget::Relative(delta) => {
+                anyhow::ensure!(delta.is_finite(), "Invalid seek delta");
+                let base = if loaded {
+                    self.seek_target.unwrap_or(observed.position)
+                } else if same {
+                    self.state.position
+                } else {
+                    0.0
+                };
+                (base + delta).max(0.0)
+            }
+        };
+        anyhow::ensure!(
+            position.is_finite() && position >= 0.0,
+            "Invalid seek position"
+        );
+        let position = if loaded && self.state.duration.is_none_or(|d| position < d) {
+            let position = observed
+                .duration
+                .or(self.state.duration)
+                .filter(|d| d.is_finite() && *d > 0.0)
+                .map_or(position, |d| position.min((d - 0.01).max(0.0)));
+            player
+                .seek(position)
+                .context("Не удалось перемотать аудио")?;
+            position
+        } else {
+            let info = self.client.playback(&session)?;
+            anyhow::ensure!(
+                info.duration_sec.is_finite() && info.duration_sec > 0.0,
+                "готового аудио пока нет"
+            );
+            let position = position.clamp(0.0, (info.duration_sec - 0.01).max(0.0));
+            let media = self
+                .client
+                .media_snapshot(&session, info.snapshot.as_deref());
+            self.state.snapshot = info.snapshot;
+            self.state.duration = Some(info.duration_sec);
+            player
+                .load(&media.url, &media.headers, position, None)
+                .context("Не удалось открыть аудио для перехода")?;
+            player.command(json!(["set_property", "pause", true]))?;
+            self.state.session = Some(session);
+            position
+        };
+        self.seek_target = Some(position);
+        self.state.fragment_end = None;
+        Ok(())
+    }
     fn fail(&mut self, message: &str) {
+        self.seek_target = None;
         self.state.error = Some(message.into());
         self.state.paused = true;
         self.state.idle = true;
@@ -303,6 +362,14 @@ impl Backend {
         }
     }
     fn update_state(&mut self, mut next: PlaybackState) {
+        if !next.idle
+            && !next.paused
+            && self
+                .seek_target
+                .is_some_and(|target| next.position >= target)
+        {
+            self.seek_target = None;
+        }
         // IPC properties are separate reads: EOF can make duration unavailable
         // after idle-active already returned false. Load/Stop reset the session
         // metadata; an incomplete telemetry sample must not erase known duration.
@@ -680,6 +747,7 @@ mod tests {
     fn eof_between_ipc_properties_retains_duration_and_new_load_clears_it() {
         let mut backend = Backend {
             mpv: None,
+            seek_target: Some(20.0),
             client: Client::new("http://127.0.0.1:1", "synthetic-token".into()).unwrap(),
             executable: "must-not-start-mpv".into(),
             null_audio: true,
@@ -727,6 +795,7 @@ mod tests {
             )
             .is_err());
         assert_eq!(backend.state.session.as_deref(), Some("second"));
+        assert!(backend.seek_target.is_none());
         assert!(backend.state.duration.is_none() && backend.state.snapshot.is_none());
         backend.update_state(PlaybackState {
             idle: false,

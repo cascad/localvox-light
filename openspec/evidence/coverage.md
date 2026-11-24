@@ -1,5 +1,12 @@
 # Покрытие требований и состояние реализации
 
+Перемотка TUI и Enter полного выхода, 2026-11-24 (delta, main ещё не sync):
+
+| Требование | Код / delta | Проверка |
+|---|---|---|
+| ARCH-002 | [delta](../changes/fix-terminal-relative-seek/specs/archive-playback/spec.md), [плеер](../../crates/localvox-light-terminal/src/player.rs) | [Windows native mpv: последовательные шаги, pause/play, смена записи, границы](../changes/fix-terminal-relative-seek/evidence/implementation.md); Mac/Linux not-run |
+| RUN-006/007 | [delta](../changes/fix-terminal-relative-seek/specs/runtime-settings/spec.md), [ввод](../../crates/localvox-light-terminal/src/app/input.rs) | [Windows state/render/ConPTY: Enter и s, Repeat/Paste/Esc, один shutdown](../changes/fix-terminal-relative-seek/evidence/implementation.md); Mac/Linux not-run |
+
 Выбираемый ASR и независимая пунктуация, 2026-11-24 (новые требования delta, main ещё не sync):
 
 | Требование | Код / delta | Проверка |

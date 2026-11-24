@@ -23,6 +23,7 @@ fn empty_confirmation_accepts_submit_keys_once_and_ignores_text_navigation_and_p
         (KeyCode::Char('s'), KeyModifiers::NONE),
         (KeyCode::Char('ы'), KeyModifiers::NONE),
         (KeyCode::Char('ω'), KeyModifiers::NONE),
+        (KeyCode::Enter, KeyModifiers::NONE),
         (KeyCode::Char('s'), KeyModifiers::CONTROL),
         (KeyCode::Enter, KeyModifiers::CONTROL),
     ] {
@@ -34,7 +35,6 @@ fn empty_confirmation_accepts_submit_keys_once_and_ignores_text_navigation_and_p
         for key in [
             KeyCode::Tab,
             KeyCode::BackTab,
-            KeyCode::Enter,
             KeyCode::Up,
             KeyCode::Char('д'),
             KeyCode::Char('q'),
@@ -100,6 +100,41 @@ fn every_confirmation_is_empty_and_s_submits_the_pinned_task_once() {
             assert_eq!(target, "original");
         }
     }
+}
+
+#[test]
+fn enter_opening_shutdown_does_not_confirm_until_a_new_press() {
+    let mut app = App::default();
+    app.palette = true;
+    app.palette_index = COMMANDS
+        .iter()
+        .position(|(action, _)| *action == Action::Shutdown)
+        .unwrap();
+    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(app.form.as_ref().unwrap().enter_confirms_shutdown());
+    assert!(app.effects.is_empty());
+    for kind in [
+        crossterm::event::KeyEventKind::Repeat,
+        crossterm::event::KeyEventKind::Release,
+    ] {
+        let mut key = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+        key.kind = kind;
+        app.key(key);
+    }
+    app.paste("\n\rs");
+    assert!(app.effects.is_empty());
+    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(matches!(
+        &app.effects[..],
+        [(Resource::Shutdown, Task::Shutdown)]
+    ));
+    assert!(!app.quit, "wait for the daemon acknowledgement");
+
+    let mut app = App::default();
+    app.command(Action::Shutdown);
+    app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    assert!(app.form.is_none() && app.effects.is_empty());
 }
 
 #[test]
@@ -236,7 +271,7 @@ fn shutdown_confirmation_shows_target_warning_and_keys_at_normal_terminal_widths
             app.address.as_str(),
             "Запись закроется",
             "Очередь продолжится",
-            "s подтвердить",
+            "Enter / s подтвердить",
             "Esc отменить",
         ] {
             assert!(

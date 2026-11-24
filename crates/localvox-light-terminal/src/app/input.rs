@@ -262,8 +262,14 @@ impl App {
             let confirmation = self.form.as_ref().is_some_and(Form::is_confirmation);
             let submit = key.modifiers.contains(KeyModifiers::CONTROL)
                 && matches!(shortcut.code, KeyCode::Enter | KeyCode::Char('s' | 'S'));
-            let plain_confirm =
-                confirmation && key.modifiers.is_empty() && shortcut.code == KeyCode::Char('s');
+            let plain_confirm = confirmation
+                && key.modifiers.is_empty()
+                && (shortcut.code == KeyCode::Char('s')
+                    || shortcut.code == KeyCode::Enter
+                        && self
+                            .form
+                            .as_ref()
+                            .is_some_and(Form::enter_confirms_shutdown));
             if submit || plain_confirm {
                 if confirmation && key.kind != crossterm::event::KeyEventKind::Press {
                     return;

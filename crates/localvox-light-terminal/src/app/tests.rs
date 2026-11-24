@@ -220,9 +220,16 @@ fn player_focus_seeks_with_boundaries_and_forms_keep_playback_keys_as_text() {
     };
     a.key(KeyEvent::new(KeyCode::F(6), KeyModifiers::NONE));
     assert_eq!(a.focus, 3);
+    for (key, modifiers, delta) in [
+        (KeyCode::Right, KeyModifiers::NONE, 5.0),
+        (KeyCode::Left, KeyModifiers::ALT, -15.0),
+    ] {
+        a.key(KeyEvent::new(key, modifiers));
+        assert!(
+            matches!(a.player_effects.last(), Some(crate::player::PlaybackCommand::SeekRelative { session, delta: actual }) if session == "demo" && *actual == delta)
+        );
+    }
     for (key, modifiers, expected) in [
-        (KeyCode::Right, KeyModifiers::NONE, 15.0),
-        (KeyCode::Left, KeyModifiers::ALT, 0.0),
         (KeyCode::Home, KeyModifiers::NONE, 0.0),
         (KeyCode::End, KeyModifiers::NONE, 119.99),
     ] {
