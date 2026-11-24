@@ -132,7 +132,14 @@ fn produce(root: &Path, name: &str) {
     // The fixture has no refined version: do not claim an unproduced artifact.
     for stage in progress::Stage::CHAIN
         .into_iter()
-        .filter(|stage| *stage != progress::Stage::Refine)
+        // This fixture does not select optional punctuation or LLM refine.
+        // Emitting fake Done events for them contradicts the selected plan.
+        .filter(|stage| {
+            !matches!(
+                stage,
+                progress::Stage::Refine | progress::Stage::Punctuation
+            )
+        })
     {
         progress::mark(
             &dir,

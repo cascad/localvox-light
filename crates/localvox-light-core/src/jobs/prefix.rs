@@ -108,6 +108,13 @@ impl JobQueue {
                 flags,
                 true,
             );
+            let session = self
+                .path
+                .parent()
+                .unwrap_or(Path::new("."))
+                .join("sessions")
+                .join(&observation.session);
+            job.punctuation = crate::transcription::Choice::for_session(&session)?.punctuation;
             job.prefix = Some(Intent {
                 requested: input.clone(),
                 accepted_work: None,

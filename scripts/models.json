@@ -46,7 +46,7 @@
       "env": "LOCALVOX_ASR_MODEL_DIR",
       "directory": "models/gigaam-v3-e2e-ctc",
       "title": "GigaAM v3 e2e CTC — расшифровка архива",
-      "why": "Работает в поваре (localvox-process), offline и начисто: ставит знаки препинания и нормализует числа, чего Vosk не умеет. Без него записи не расшифровываются.",
+      "why": "Работает в поваре (localvox-process), offline и начисто: ставит знаки препинания и нормализует числа, чего Vosk не умеет. Стандартный движок; вместо него можно явно выбрать T-one.",
       "required": true,
       "approx": "215 МБ",
       "items": [
@@ -138,6 +138,76 @@
           "url": "https://huggingface.co/onnx-community/gliner_multi-v2.1/resolve/main/gliner_config.json",
           "dest": "models/ner-gliner/gliner_config.json",
           "sha256": "1ef59c57fe6816a155697a5670ca8d0faf0babe13f199a2c2b5b65113399ed72"
+        }
+      ]
+    },
+    {
+      "id": "tone",
+      "env": "LOCALVOX_TONE_MODEL_DIR",
+      "directory": "models/t-one",
+      "title": "T-one · greedy — альтернативная транскрибация",
+      "why": "Необязательный локальный ASR. Скачивание не переключает движок; выбор задаётся отдельно.",
+      "required": false,
+      "approx": "145 МБ",
+      "items": [
+        {
+          "kind": "file",
+          "url": "https://huggingface.co/t-tech/T-one/resolve/106f3b0b32a9e107eb613312e4ebc61ff3d53926/model.onnx",
+          "dest": "models/t-one/model.onnx",
+          "size": 144193371,
+          "sha256": "707e4a282d5036304a0b8603ad83945840c3075f53c49911ef88c19bcc5a7d52",
+          "sha256_note": "Официальный upstream, закреплённая revision; байты проверены 2026-11-24."
+        },
+        {
+          "kind": "file",
+          "url": "https://huggingface.co/t-tech/T-one/resolve/106f3b0b32a9e107eb613312e4ebc61ff3d53926/config.json",
+          "dest": "models/t-one/config.json",
+          "size": 1821,
+          "sha256": "8a6272e21a05301afac2686f6066554151f9cd85bd0d817297339e8c3dc778a6",
+          "sha256_note": "Официальный upstream, закреплённая revision; байты проверены 2026-11-24."
+        },
+        {
+          "kind": "file",
+          "url": "https://huggingface.co/t-tech/T-one/resolve/106f3b0b32a9e107eb613312e4ebc61ff3d53926/vocab.json",
+          "dest": "models/t-one/vocab.json",
+          "size": 415,
+          "sha256": "9b5c1255eb3d2e2bcd3021fd9edb606fef735c3a3fc9841e56f3014829ea25a6",
+          "sha256_note": "Официальный upstream, закреплённая revision; байты проверены 2026-11-24."
+        }
+      ]
+    },
+    {
+      "id": "sbert",
+      "env": "LOCALVOX_SBERT_MODEL_DIR",
+      "directory": "models/sbert-punc-case-ru",
+      "title": "SbertPuncCase — пунктуация и регистр",
+      "why": "Необязательный процессор после любого ASR. Включается отдельно, исходный текст сохраняется.",
+      "required": false,
+      "approx": "855 МБ",
+      "items": [
+        {
+          "kind": "file",
+          "url": "https://huggingface.co/kontur-ai/sbert_punc_case_ru/resolve/f778dc6c63bb0ec235a220488862509810e54583/model.safetensors",
+          "dest": "models/sbert-punc-case-ru/model.safetensors",
+          "size": 851791402,
+          "sha256": "06173fe7aed01a3a58385f6e724502f634909bee0818f6a8514b9eb6eb869be8",
+          "sha256_note": "Официальный upstream, закреплённая revision; байты проверены 2026-11-24."
+        },
+        {
+          "kind": "file",
+          "url": "https://huggingface.co/kontur-ai/sbert_punc_case_ru/resolve/f778dc6c63bb0ec235a220488862509810e54583/config.json",
+          "dest": "models/sbert-punc-case-ru/config.json",
+          "size": 1558,
+          "sha256": "558fa8afa50c7e400d52d78fd7197daead41a0ddf2d4e08c093c2bf91d978a67",
+          "sha256_note": "Официальный upstream, закреплённая revision; байты проверены 2026-11-24."
+        },
+        {
+          "kind": "file",
+          "url": "https://huggingface.co/kontur-ai/sbert_punc_case_ru/resolve/f778dc6c63bb0ec235a220488862509810e54583/tokenizer.json",
+          "dest": "models/sbert-punc-case-ru/tokenizer.json",
+          "size": 3714603,
+          "sha256": "3f4935f69ec3015a91a948e8e54e59aa61842dd2391be0714a6dfa673c7fb2fc",
+          "sha256_note": "Официальный upstream, закреплённая revision; байты проверены 2026-11-24."
         }
       ]
     }

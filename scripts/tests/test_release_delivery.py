@@ -306,7 +306,7 @@ class UnixInstallerContracts(unittest.TestCase):
         folder.mkdir(exist_ok=True)
         for name, content in {
             'localvox-light': '#!/usr/bin/env bash\nexit 0\n',
-            'localvox-process': '#!/usr/bin/env bash\necho localvox-worker/3\n',
+            'localvox-process': '#!/usr/bin/env bash\necho localvox-worker/4\n',
             'localvox-tui': '#!/usr/bin/env bash\necho localvox-tui\n',
             'vox': '#!/usr/bin/env bash\nif [[ "$1" = --install-command ]]; then\n printf called > "${0%/*}/registration-called"\n echo "fixture registration status ' + str(registration_status) + '"\n exit ' + str(registration_status) + '\nfi\nexit 0\n',
             'libvosk.dylib': 'native fixture', '.env.defaults': 'LOCALVOX_LIGHT_INCREMENTAL_TRANSCRIBE=on\n',

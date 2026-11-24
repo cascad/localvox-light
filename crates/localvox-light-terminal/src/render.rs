@@ -705,15 +705,17 @@ fn journal_projection(a: &App, t: Theme) -> JournalProjection {
         "download",
         "extract",
         "transcribe",
+        "punctuation",
         "refine",
         "cleanup",
         "summary",
     ]
     .iter()
     .filter(|name| {
-        a.progress.source.is_some()
-            || !matches!(**name, "download" | "extract")
-            || a.progress.stages.iter().any(|s| s.stage == **name)
+        (**name != "punctuation" || a.progress.stages.iter().any(|s| s.stage == **name))
+            && (a.progress.source.is_some()
+                || !matches!(**name, "download" | "extract")
+                || a.progress.stages.iter().any(|s| s.stage == **name))
     })
     .map(|name| {
         a.progress
@@ -737,6 +739,7 @@ fn journal_projection(a: &App, t: Theme) -> JournalProjection {
                     "download",
                     "extract",
                     "transcribe",
+                    "punctuation",
                     "refine",
                     "cleanup",
                     "summary",

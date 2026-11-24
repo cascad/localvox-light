@@ -140,6 +140,22 @@ pub fn apply_live(changes: &[(String, Option<String>)]) -> Vec<String> {
 /// The curated catalogue. Order is the order on screen.
 pub const CATALOGUE: &[Setting] = &[
     Setting {
+        key: "LOCALVOX_ASR_BACKEND",
+        group: "Распознавание",
+        label: "Движок транскрибации",
+        hint: "GigaAM или T-one (greedy, русский). Для новых записей; старую можно переварить через r.",
+        kind: Kind::Text,
+        applies: Applies::Restart,
+    },
+    Setting {
+        key: "LOCALVOX_ASR_PUNCTUATION",
+        group: "Распознавание",
+        label: "Пунктуация · SbertPuncCase",
+        hint: "Отдельная модель пунктуации и регистра. Исходная расшифровка сохраняется. Для новых записей.",
+        kind: Kind::Bool,
+        applies: Applies::Restart,
+    },
+    Setting {
         key: "LOCALVOX_LIGHT_LIVE_ASR",
         group: "Голосовое управление",
         label: "Голосовые команды и мгновенный черновик",

@@ -35,6 +35,7 @@ pub(super) fn run<'a>(
     let initial_stage = match job.phase {
         JobPhase::Prepare => progress::Stage::Download,
         JobPhase::Transcribe => progress::Stage::Transcribe,
+        JobPhase::Punctuation => progress::Stage::Punctuation,
         JobPhase::Text if job.refine => progress::Stage::Refine,
         JobPhase::Text => progress::Stage::Cleanup,
         JobPhase::Summary => progress::Stage::Summary,

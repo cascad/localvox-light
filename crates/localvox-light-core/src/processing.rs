@@ -50,6 +50,7 @@ pub const TRANSCRIPT: &str = "transcript";
 pub const SUMMARY: &str = "summary";
 pub const PROCESSED: &str = "processed";
 pub const REFINED: &str = "refined";
+pub const PUNCTUATED: &str = "punctuated";
 
 /// The revision of the prompts. Bumped when the TEMPLATES or the validation rules change
 /// — otherwise an improvement of the prompt never reaches the already processed archive.
@@ -203,6 +204,9 @@ pub fn record(
         )?)
     };
     let mut log = load_strict(session_dir)?;
+    if artifact == TRANSCRIPT && log.artifacts.get(TRANSCRIPT).and_then(|r| r.source) != source {
+        log.artifacts.remove(PUNCTUATED);
+    }
     log.artifacts.insert(
         artifact.to_string(),
         Record {

@@ -21,6 +21,25 @@ BASH = os.getenv('LOCALVOX_TEST_BASH') or (r'C:\Program Files\Git\bin\bash.exe' 
 
 
 class ModelStorageDelivery(unittest.TestCase):
+    def test_optional_asr_and_punctuation_use_the_same_verified_resumable_downloads(self):
+        for shell in self.shells():
+            for component_id in ('tone', 'sbert'):
+                with self.subTest(shell=shell, component=component_id):
+                    self.requests.clear()
+                    destination = self.root / ('optional-' + component_id + '-' + shell)
+                    options = (['-Root', str(destination), '-Only', component_id] if shell == 'ps' else
+                               ['--root', self.unix(destination), '--only', component_id])
+                    self.run_fetch(shell, *options)
+                    component = next(c for c in self.manifest['components'] if c['id'] == component_id)
+                    self.assertFalse(component['required'])
+                    for item in component['items']:
+                        path = destination / item['dest']
+                        self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(), item['sha256'])
+                    self.assertEqual(set(self.requests), {f'/{component_id}-{n}' for n in range(3)})
+                    self.requests.clear()
+                    self.run_fetch(shell, *options)
+                    self.assertEqual(self.requests, [], 'ready models must not download twice')
+
     def test_native_helper_uses_the_same_pinned_fallback_and_keeps_download_staging_on_model_volume(self):
         target = Path(os.getenv('CARGO_TARGET_DIR', ROOT / 'target/native-ci-build'))
         platform = 'x86_64-pc-windows-msvc' if os.name == 'nt' else os.getenv('CARGO_BUILD_TARGET', '')

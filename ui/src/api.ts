@@ -136,7 +136,7 @@ export interface QueueItem {
   /** Place in the line; null for what is already cooking. */
   position?: number | null;
   attempts: number;
-  phase?: "prepare" | "transcribe" | "text" | "summary" | null;
+  phase?: "prepare" | "transcribe" | "punctuation" | "text" | "summary" | null;
   retry?: { state: string; message: string; retry_at: string | null } | null;
   last_error?: string | null;
   /** Out of retries — it will not move again without a human pressing "переварить". */
@@ -321,7 +321,7 @@ export interface RecordState {
 /** The chain a session goes through. Stages nobody has said anything about are ABSENT from
  *  the list — a microphone recording has no download, and drawing it as "pending" would
  *  promise a step that will never come. */
-export type Stage = "download" | "extract" | "transcribe" | "refine" | "cleanup" | "summary";
+export type Stage = "download" | "extract" | "transcribe" | "punctuation" | "refine" | "cleanup" | "summary";
 export type StageState = "waiting" | "queued" | "blocked" | "running" | "done" | "failed" | "skipped" | "invalid" | "cancelled";
 
 export interface StageStatus {
@@ -353,7 +353,7 @@ export interface Progress {
     state: string;
     message: string;
     current?: Stage | null;
-    phase?: "prepare" | "transcribe" | "text" | "summary" | null;
+    phase?: "prepare" | "transcribe" | "punctuation" | "text" | "summary" | null;
     since?: string | null;
     next: Stage[];
     retry_at?: string | null;
@@ -368,7 +368,7 @@ export interface Progress {
   running?: boolean;
   /** How long the whole run took, once finished (seconds). Absent while running. */
   elapsed_sec?: number | null;
-  phase?: "prepare" | "transcribe" | "text" | "summary" | null;
+  phase?: "prepare" | "transcribe" | "punctuation" | "text" | "summary" | null;
   timing?: {
     queued_at?: string | null;
     started_at?: string | null;

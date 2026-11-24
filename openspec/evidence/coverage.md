@@ -1,5 +1,14 @@
 # Покрытие требований и состояние реализации
 
+Выбираемый ASR и независимая пунктуация, 2026-11-24 (новые требования delta, main ещё не sync):
+
+| Требование | Код / delta | Проверка |
+|---|---|---|
+| PIPE-020 | [delta](../changes/add-tone-sbert-asr/specs/processing-pipeline/spec.md), [T-one](../../crates/localvox-light-core/src/asr/tone.rs), [model selection](../../crates/localvox-light-core/src/cook/model.rs) | [Native parity](../changes/add-tone-sbert-asr/evidence/native-models.md), [Windows worker/cache](../changes/add-tone-sbert-asr/evidence/implementation.md); Mac/Linux и WER not-run |
+| PIPE-021 | [delta](../changes/add-tone-sbert-asr/specs/processing-pipeline/spec.md), [processor](../../crates/localvox-light-core/src/text_processing/sbert.rs), [pipeline](../../crates/localvox-light-core/src/text_processing/pipeline.rs) | [Native parity](../changes/add-tone-sbert-asr/evidence/native-models.md), [original/grid/cache/failure](../changes/add-tone-sbert-asr/evidence/implementation.md) |
+| CFG-007 | [delta](../changes/add-tone-sbert-asr/specs/runtime-settings/spec.md), [choice](../../crates/localvox-light-core/src/transcription.rs), [catalogue](../../crates/localvox-light-core/src/settings.rs) | [API/TUI/browser и явная переварка](../changes/add-tone-sbert-asr/evidence/implementation.md) |
+| SETUP-011 | [delta](../changes/add-tone-sbert-asr/specs/installation-models/spec.md), [setup](../../crates/localvox-light/src/setup/install.rs), [manifest](../../scripts/models.json) | [Windows wizard/download/reconcile](../changes/add-tone-sbert-asr/evidence/implementation.md); native Mac/Linux и публичный релиз not-run |
+
 Локальные поведенческие проверки Windows/macOS/Linux, 2026-11-24:
 [исправления, сценарии и фактические результаты](../changes/fix-platform-behavior-regressions/evidence/implementation.md).
 Общий runner готовит отчёт и предписание местному агенту; source/installed PTY

@@ -4,6 +4,8 @@ use std::collections::BTreeMap;
 
 #[derive(Default, serde::Serialize)]
 pub struct PrefixTimings {
+    #[serde(default)]
+    pub punctuation_sec: f64,
     pub setup_sec: f64,
     pub model_sec: f64,
     pub recognize_sec: f64,
@@ -104,6 +106,8 @@ fn prefix_impl(
     runtime: &mut AsrRuntime,
 ) -> Result<PrefixReport> {
     let started = Instant::now();
+    let bound = params.for_session(session)?;
+    let params = &bound;
     let horizon = match input {
         Some(input) => input.horizon(session)?,
         None => Horizon::read(session)?,
@@ -159,7 +163,7 @@ fn prefix_impl(
     let mut operation = crate::journal::Operation::start(
         session,
         "transcribe",
-        "Распознавание готовой части записи",
+        "Обработка готовой части записи",
         None,
     );
     let audio_started = Instant::now();
@@ -248,9 +252,15 @@ fn prefix_impl(
     timings.audio_journal_sec = (audio_started.elapsed().as_secs_f64() - cache_total).max(0.0);
     let commit_started = Instant::now();
     let checkpoint = transaction
-        .finish(session, &accepted)
+        .finish_with_projection(session, &accepted, |snapshot| {
+            let started = Instant::now();
+            let result = runtime.punctuation.partial(session, snapshot);
+            timings.punctuation_sec += started.elapsed().as_secs_f64();
+            result
+        })
         .inspect_err(|_| operation.failed())?;
-    timings.commit_sec = commit_started.elapsed().as_secs_f64();
+    timings.commit_sec =
+        (commit_started.elapsed().as_secs_f64() - timings.punctuation_sec).max(0.0);
     timings.result_journal = cache.journal_stats()?;
     selection.crash_if_fixture("after_checkpoint");
     operation.log(&format!(

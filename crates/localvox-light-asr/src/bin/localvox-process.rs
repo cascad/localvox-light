@@ -395,6 +395,13 @@ fn main() -> Result<()> {
                 cli.cleanup = false;
                 cli.summary = false;
             }
+            JobPhase::Punctuation => {
+                localvox_light_core::cli::init_tracing_tool("info");
+                let version =
+                    localvox_light_core::text_processing::pipeline::process_session(session)?;
+                println!("Пунктуация сохранена · версия {version:?}");
+                return Ok(());
+            }
             JobPhase::Text => {
                 cli.post_only = true;
                 cli.force = false;
@@ -634,6 +641,18 @@ fn main() -> Result<()> {
         // actually is. From outside, all of this is a single "⚙ cooking" — and when it breaks,
         // the reason lives in a daemon log nobody opens.
         use localvox_light_core::progress::{mark, Stage, StageState};
+        if cli.force && !cli.post_only && cli.worker_phase.is_none() {
+            let current = localvox_light_core::transcription::Choice::configured()?;
+            if current != localvox_light_core::transcription::Choice::for_session(session)? {
+                let name = session.file_name().and_then(|n| n.to_str());
+                anyhow::ensure!(
+                    name != localvox_light_core::jobs::recording_session(&cli.work_dir).as_deref(),
+                    "сейчас идёт запись; остановите её перед сменой ASR"
+                );
+                current.validate_for(session, &params.model_dir)?;
+                current.save(session)?;
+            }
+        }
         let cooked = if cli.post_only {
             localvox_light_core::artifacts::source_transcript(session)?;
             true
@@ -729,6 +748,17 @@ fn main() -> Result<()> {
         // 5 seconds later it all starts over. Discovery decided by the transcript, and we by the
         // audio; that divergence IS the loop.
         let proceed = cooked || has_transcript_lines(session);
+        if cli.worker_phase.is_none()
+            && localvox_light_core::transcription::Choice::for_session(session)?.punctuation
+        {
+            if let Err(error) =
+                localvox_light_core::text_processing::pipeline::process_session(session)
+            {
+                failed_post += 1;
+                eprintln!("  punctuation error: {error:#}");
+                continue;
+            }
+        }
         if !proceed {
             continue;
         }

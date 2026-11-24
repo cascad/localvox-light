@@ -45,6 +45,7 @@ def manifest(jobs=1, output=None, visual=False):
         rust('core-lifecycle-storage-settings', 'recording', ['-p', 'localvox-light-core', '--features', 'onnx', '--lib'], True),
         rust('incremental-real-worker', 'recording', ['-p', 'localvox-light-asr', '--features', 'asr-fixtures', '--test', 'incremental_fixture'], True),
         rust('archive-api', 'api', ['-p', 'localvox-light-api', '--lib', 'archive::'], True),
+        rust('asr-settings-http', 'api', ['-p', 'localvox-light-api', '--lib', 'http::tests::settings::settings_http_masks_unknown_values_and_reports_snapshot_restart_before_and_after_save'], True, exact=True),
         rust('journal-http', 'api', ['-p', 'localvox-light-api', '--test', 'journal_http_contract'], True),
         rust('setup-commands', 'setup', ['-p', 'localvox-light', '--lib', '--bins', '--test', 'setup', '--test', 'install'], True),
         rust('setup-terminal-wizard', 'setup', ['-p', 'localvox-setup-ui']),

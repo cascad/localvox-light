@@ -41,6 +41,42 @@ pub enum Feature {
     Player,
     Names,
     Voice,
+    ExtraAsr,
+    Punctuation,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AsrBackend {
+    #[default]
+    Gigaam,
+    Tone,
+}
+impl AsrBackend {
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Gigaam => "gigaam",
+            Self::Tone => "tone",
+        }
+    }
+    pub fn title(self) -> &'static str {
+        match self {
+            Self::Gigaam => "GigaAM",
+            Self::Tone => "T-one · greedy",
+        }
+    }
+    pub fn model(self) -> ModelKind {
+        match self {
+            Self::Gigaam => ModelKind::Gigaam,
+            Self::Tone => ModelKind::Tone,
+        }
+    }
+    pub fn other(self) -> Self {
+        match self {
+            Self::Gigaam => Self::Tone,
+            Self::Tone => Self::Gigaam,
+        }
+    }
 }
 
 #[derive(
@@ -52,6 +88,8 @@ pub enum ModelKind {
     Gigaam,
     Diarize,
     Ner,
+    Tone,
+    Sbert,
 }
 impl ModelKind {
     pub fn title(self) -> &'static str {
@@ -60,6 +98,8 @@ impl ModelKind {
             Self::Gigaam => "GigaAM",
             Self::Diarize => "Диаризация",
             Self::Ner => "GLiNER",
+            Self::Tone => "T-one",
+            Self::Sbert => "SbertPuncCase",
         }
     }
 }
@@ -72,15 +112,19 @@ impl Feature {
             Self::Player => "player",
             Self::Names => "names",
             Self::Voice => "voice",
+            Self::ExtraAsr => "extra_asr",
+            Self::Punctuation => "punctuation",
         }
     }
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 8] = [
         Self::Speakers,
         Self::Summary,
         Self::Links,
         Self::Player,
         Self::Names,
         Self::Voice,
+        Self::ExtraAsr,
+        Self::Punctuation,
     ];
     pub fn title(self) -> &'static str {
         match self {
@@ -90,6 +134,8 @@ impl Feature {
             Self::Player => "Слушать записи в терминале",
             Self::Names => "Дополнительно проверять имена",
             Self::Voice => "Голосовые команды и мгновенный черновик",
+            Self::ExtraAsr => "Скачать второй движок распознавания",
+            Self::Punctuation => "Пунктуация и регистр · SbertPuncCase",
         }
     }
     fn hint(self) -> &'static str {
@@ -100,6 +146,10 @@ impl Feature {
             Self::Player => "mpv · прослушивание и перемотка в TUI",
             Self::Names => "GLiNER ≈580 МБ · необязательно",
             Self::Voice => "Vosk ≈1,9 ГБ · для записи и расшифровки не требуется",
+            Self::ExtraAsr => "Для последующего переключения в настройках · необязательно",
+            Self::Punctuation => {
+                "≈855 МБ · отдельный шаг после любого распознавания · необязательно"
+            }
         }
     }
 }
@@ -128,12 +178,33 @@ pub enum SummarySource {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Selection {
     pub custom: bool,
+    #[serde(default)]
+    pub asr_backend: AsrBackend,
     pub features: Vec<Feature>,
     pub program_dir: String,
     pub models_dir: String,
     pub summary: SummarySource,
     #[serde(default)]
     pub model_paths: BTreeMap<ModelKind, String>,
+}
+
+impl Selection {
+    /// One list drives both the path questions and the actual installation plan.
+    pub fn models(&self) -> Vec<ModelKind> {
+        let mut models = vec![self.asr_backend.model()];
+        for (feature, kind) in [
+            (Feature::ExtraAsr, self.asr_backend.other().model()),
+            (Feature::Voice, ModelKind::Vosk),
+            (Feature::Speakers, ModelKind::Diarize),
+            (Feature::Names, ModelKind::Ner),
+            (Feature::Punctuation, ModelKind::Sbert),
+        ] {
+            if self.features.contains(&feature) {
+                models.push(kind);
+            }
+        }
+        models
+    }
 }
 
 pub fn recommended(data: &ViewData) -> Selection {
@@ -144,6 +215,7 @@ pub fn recommended(data: &ViewData) -> Selection {
     }
     Selection {
         custom: false,
+        asr_backend: AsrBackend::default(),
         features: vec![
             Feature::Speakers,
             Feature::Summary,
@@ -181,12 +253,26 @@ pub fn choose_with<P>(
 }
 
 pub fn review(data: &ViewData, selected: &Selection) -> String {
+    let ready = data
+        .available_model_paths
+        .contains_key(&selected.asr_backend.model())
+        || (data.core_ready
+            && data
+                .initial
+                .as_ref()
+                .map(|s| s.asr_backend)
+                .unwrap_or_default()
+                == selected.asr_backend);
     let mut lines = vec![format!(
-        "✓ Запись и расшифровка — {}",
-        if data.core_ready {
+        "✓ Запись и расшифровка — {} · {}",
+        selected.asr_backend.title(),
+        if ready {
             "уже готовы"
         } else {
-            "GigaAM, ≈215 МБ"
+            match selected.asr_backend {
+                AsrBackend::Gigaam => "≈215 МБ",
+                AsrBackend::Tone => "≈145 МБ",
+            }
         }
     )];
     for feature in Feature::ALL {

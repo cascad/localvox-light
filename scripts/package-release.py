@@ -127,7 +127,7 @@ def smoke(folder, target, release_tag=None):
                                 capture_output=True, text=True, timeout=30)
         if result.returncode:
             raise RuntimeError(f'Packaged {name} failed ({result.returncode}): {result.stderr}')
-        if name == 'localvox-process' and 'localvox-worker/3' not in result.stdout:
+        if name == 'localvox-process' and 'localvox-worker/4' not in result.stdout:
             raise RuntimeError('Incompatible packaged worker')
     if release_tag is not None:
         result = subprocess.run([str(folder / ('localvox-install' + suffix)), '--bundle-check',

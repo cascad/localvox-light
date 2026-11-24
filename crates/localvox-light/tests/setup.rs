@@ -43,6 +43,9 @@ if (-not (Test-Path (Join-Path $PSScriptRoot 'out/probe.ps1'))) { throw 'ZIP rou
 fn layout(root: &Path) -> Layout {
     Layout {
         live_asr: true,
+        tone: None,
+        sbert: None,
+        asr: Ok(Default::default()),
         vosk_model: root.join("external/vosk"),
         gigaam: Some(root.join("external/gigaam")),
         diarize: None,

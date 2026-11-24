@@ -247,6 +247,9 @@ fn execution(
                         JobPhase::Transcribe => {
                             "Транскрибация: запуск обработчика или проверка результата"
                         }
+                        JobPhase::Punctuation => {
+                            "Пунктуация: запуск обработчика или проверка результата"
+                        }
                         JobPhase::Text => {
                             "Ручная очистка: запуск обработчика или проверка результата"
                         }
@@ -366,6 +369,7 @@ fn stage_phase(stage: Stage) -> JobPhase {
     match stage {
         Stage::Download | Stage::Extract => JobPhase::Prepare,
         Stage::Transcribe => JobPhase::Transcribe,
+        Stage::Punctuation => JobPhase::Punctuation,
         Stage::Refine | Stage::Cleanup => JobPhase::Text,
         Stage::Summary => JobPhase::Summary,
     }
@@ -375,6 +379,10 @@ fn remaining_phase(stage: JobPhase, current: JobPhase) -> bool {
     match current {
         JobPhase::Prepare => true,
         JobPhase::Transcribe => stage != JobPhase::Prepare,
+        JobPhase::Punctuation => matches!(
+            stage,
+            JobPhase::Punctuation | JobPhase::Text | JobPhase::Summary
+        ),
         JobPhase::Text => matches!(stage, JobPhase::Text | JobPhase::Summary),
         JobPhase::Summary => stage == JobPhase::Summary,
     }
@@ -382,6 +390,7 @@ fn remaining_phase(stage: JobPhase, current: JobPhase) -> bool {
 
 fn requested(stage: Stage, job: &Job) -> bool {
     match stage {
+        Stage::Punctuation => job.punctuation,
         Stage::Refine => job.refine,
         Stage::Cleanup => job.cleanup,
         Stage::Summary => job.summary,
@@ -390,6 +399,9 @@ fn requested(stage: Stage, job: &Job) -> bool {
 }
 
 pub fn view(session: &Path, job: Option<&Job>, from_link: bool, now: &str) -> View {
+    let punctuation_requested = job.map(|job| job.punctuation).unwrap_or_else(|| {
+        crate::transcription::Choice::for_session(session).is_ok_and(|choice| choice.punctuation)
+    });
     let coordinator = crate::jobs::coordinator_status();
     let executor_available = coordinator
         .as_ref()
@@ -470,6 +482,7 @@ pub fn view(session: &Path, job: Option<&Job>, from_link: bool, now: &str) -> Vi
         }
         let artifact = match stage {
             Stage::Transcribe => Some(processing::TRANSCRIPT),
+            Stage::Punctuation => Some(processing::PUNCTUATED),
             Stage::Refine => Some(processing::REFINED),
             Stage::Cleanup => Some(processing::PROCESSED),
             Stage::Summary => Some(processing::SUMMARY),
@@ -537,13 +550,23 @@ pub fn view(session: &Path, job: Option<&Job>, from_link: bool, now: &str) -> Vi
                 row.state = StageState::Skipped;
             }
         }
+        if stage == Stage::Punctuation
+            && !punctuation_requested
+            && !executing
+            && !matches!(row.state, StageState::Done | StageState::Invalid)
+        {
+            row.state = StageState::Skipped;
+            row.note = Some("Пунктуация выключена для этой записи · без загрузки модели".into());
+        }
         if !executing
             && job.is_some_and(|j| !requested(stage, j))
             && !matches!(row.state, StageState::Done | StageState::Invalid)
         {
             row.state = StageState::Skipped;
             row.note = Some(
-                if job.is_some_and(|j| j.follow_settings)
+                if stage == Stage::Punctuation {
+                    "Пунктуация выключена для этой записи · без загрузки модели"
+                } else if job.is_some_and(|j| j.follow_settings)
                     && matches!(stage, Stage::Refine | Stage::Cleanup)
                 {
                     "Дополнительная очистка запускается вручную"
@@ -566,7 +589,10 @@ pub fn view(session: &Path, job: Option<&Job>, from_link: bool, now: &str) -> Vi
                     row.state = StageState::Skipped;
                     row.note = Some("Не запрошено в задании · без вызова LLM".into());
                 } else if transcription.state == ArtifactState::Empty
-                    && matches!(stage, Stage::Refine | Stage::Cleanup | Stage::Summary)
+                    && matches!(
+                        stage,
+                        Stage::Punctuation | Stage::Refine | Stage::Cleanup | Stage::Summary
+                    )
                 {
                     row.state = StageState::Skipped;
                     row.note = Some("Нет речи: подтверждено результатом распознавания".into());
@@ -1139,6 +1165,8 @@ mod tests {
                 .unwrap()
                 .contains(if row.stage == Stage::Summary {
                     "Отключено в настройках"
+                } else if row.stage == Stage::Punctuation {
+                    "Пунктуация выключена"
                 } else {
                     "запускается вручную"
                 }));

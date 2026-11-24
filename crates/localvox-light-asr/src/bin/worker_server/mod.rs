@@ -69,6 +69,9 @@ fn execute(
     };
     #[cfg(not(feature = "asr-fixtures"))]
     let result = cook::cook_session_asr_warm(&session, &params, runtime);
+    // Final raw STT is materialized; punctuation has its own following phase/cache.
+    // Do not keep the large BERT weights resident beside the summary model.
+    runtime.release_text_processor();
     let value = match result? {
         CookOutcome::Done {
             version_id,

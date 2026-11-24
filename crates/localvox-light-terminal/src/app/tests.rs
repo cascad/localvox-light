@@ -975,6 +975,80 @@ fn settings_are_staged_and_failure_does_not_lose_changed_keys() {
     assert!(a.status.contains("ONE"));
     assert!(a.status.contains("перезапуск"));
 }
+
+#[test]
+fn asr_backend_and_punctuation_use_the_shared_choice_controls_and_save_together() {
+    use localvox_light_client::DeviceChoice;
+    let mut app = App {
+        view: View::Settings,
+        focus: 1,
+        ..Default::default()
+    };
+    app.settings.settings = vec![
+        Setting {
+            key: "LOCALVOX_ASR_BACKEND".into(),
+            kind: "text".into(),
+            default_value: Some("gigaam".into()),
+            applies: "restart".into(),
+            options: Some(vec![
+                DeviceChoice {
+                    value: "gigaam".into(),
+                    label: "GigaAM".into(),
+                    ..Default::default()
+                },
+                DeviceChoice {
+                    value: "tone".into(),
+                    label: "T-one · greedy".into(),
+                    ..Default::default()
+                },
+            ]),
+            ..Default::default()
+        },
+        Setting {
+            key: "LOCALVOX_ASR_PUNCTUATION".into(),
+            kind: "bool".into(),
+            default_value: Some("off".into()),
+            applies: "restart".into(),
+            ..Default::default()
+        },
+        Setting {
+            key: "LOCALVOX_LLM_MODEL".into(),
+            kind: "text".into(),
+            ..Default::default()
+        },
+    ];
+    assert_eq!(
+        app.visible_settings().len(),
+        3,
+        "ASR controls belong in basic settings alongside existing controls"
+    );
+    for (index, value) in [(0, "tone"), (1, "on")] {
+        app.selected = index;
+        app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        let FormKind::SettingChoice {
+            options, selected, ..
+        } = &mut app.form.as_mut().unwrap().kind
+        else {
+            panic!("typed choice required")
+        };
+        *selected = options
+            .iter()
+            .position(|(_, v)| v.as_deref() == Some(value))
+            .unwrap();
+        app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    }
+    assert!(app.effects.is_empty());
+    app.key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
+    assert!(matches!(
+        app.form.as_ref().unwrap().kind,
+        FormKind::Confirm(_)
+    ));
+    app.key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
+    assert!(
+        matches!(&app.effects.last().unwrap().1, Task::SaveSettings(set)
+        if set.len() == 2 && set["LOCALVOX_ASR_BACKEND"].as_deref() == Some("tone") && set["LOCALVOX_ASR_PUNCTUATION"].as_deref() == Some("on"))
+    );
+}
 #[test]
 fn empty_search_and_invalid_number_do_not_send_requests() {
     let mut a = App::default();

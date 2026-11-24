@@ -26,10 +26,9 @@ impl Selection {
         params: &CookParams,
         cancelled: impl Fn() -> bool,
     ) -> Result<Self> {
+        let params = params.for_session(session)?;
         let language = lang::asr(session);
-        let model = lang::asr_model(&language, &params.model_dir)
-            .with_context(|| format!("session language «{language}»"))?;
-        let package = ModelPackage::resolve(model)?;
+        let package = package_for(session, &params)?;
         let files = package.dependencies(&cancelled)?;
         let engine = package.engine;
         let name = package.name.clone();
@@ -70,6 +69,7 @@ impl Selection {
     }
     #[cfg(feature = "asr-fixtures")]
     pub fn fixture(session: &Path, params: &CookParams, path: &Path) -> Result<Self> {
+        let params = params.for_session(session)?;
         let path = path.canonicalize()?;
         let files: BTreeMap<_, _> = [("fixture-spec".into(), path.clone())].into();
         let language = lang::asr(session);
@@ -99,9 +99,27 @@ impl Selection {
 }
 
 pub(super) fn legacy(session: &Path, params: &CookParams) -> Result<(Box<dyn AsrEngine>, String)> {
-    let language = lang::asr(session);
-    let model = lang::asr_model(&language, &params.model_dir)?;
-    let package = ModelPackage::resolve(model)?;
+    let package = package_for(session, params)?;
     let name = package.name.clone();
     Ok((package.load()?, name))
+}
+
+fn package_for(session: &Path, params: &CookParams) -> Result<ModelPackage> {
+    let language = lang::asr(session);
+    let choice = crate::transcription::Choice::for_session(session)?;
+    let model = match choice.backend {
+        crate::transcription::Backend::Gigaam => lang::asr_model(&language, &params.model_dir)
+            .with_context(|| format!("session language «{language}»"))?,
+        crate::transcription::Backend::Tone => {
+            ensure!(
+                language == "ru",
+                "T-one поддерживает русский язык; язык записи «{language}»"
+            );
+            lang::AsrModel {
+                engine: lang::Engine::Tone,
+                dir: choice.tone_directory()?,
+            }
+        }
+    };
+    ModelPackage::resolve(model)
 }

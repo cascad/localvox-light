@@ -11,6 +11,42 @@ use std::{
 const DOWN: &[u8] = b"\x1b[B";
 const ENTER: &[u8] = b"\r";
 
+#[test]
+fn tone_and_independent_punctuation_are_selectable_with_real_terminal_keys() {
+    let mut demo = Preview::new("fresh", 110);
+    demo.wait("Выбрать компоненты");
+    demo.send(DOWN);
+    demo.send(ENTER);
+    demo.active("Чем распознавать новые записи?");
+    demo.send(DOWN);
+    demo.send(ENTER);
+    demo.active("Компоненты");
+    demo.wait("Скачать GigaAM дополнительно");
+    // Keep only the main T-one backend and its independent text processor.
+    for _ in 0..4 {
+        demo.send(b" ");
+        demo.send(DOWN);
+    }
+    for _ in 0..3 {
+        demo.send(DOWN);
+    }
+    demo.send(b" ");
+    demo.send(ENTER);
+    demo.active("Куда установить?");
+    demo.send(ENTER);
+    demo.active("Показать демоустановку?");
+    let screen = demo.parser.screen().contents();
+    assert!(screen.contains("T-one · greedy"), "{screen}");
+    assert!(
+        screen.contains("✓ Пунктуация и регистр · SbertPuncCase"),
+        "{screen}"
+    );
+    assert!(!screen.contains("✓ Скачать второй движок"), "{screen}");
+    demo.capture("tone-punctuation-review");
+    demo.send(ENTER);
+    demo.finish("Демо завершено");
+}
+
 struct Child(Box<dyn portable_pty::Child + Send + Sync>);
 impl Drop for Child {
     fn drop(&mut self) {
@@ -291,6 +327,8 @@ fn space_toggles_components_and_skips_disabled_summary_at_80_columns() {
     demo.wait("Выбрать компоненты");
     demo.send(DOWN);
     demo.send(ENTER);
+    demo.active("Чем распознавать новые записи?");
+    demo.send(ENTER);
     demo.wait("Дополнительно проверять имена");
     demo.capture("custom-components");
     // Leave only the optional name checker; GigaAM recognition remains mandatory.
@@ -318,6 +356,8 @@ fn custom_model_and_paths_reach_the_review_without_writing_them() {
     let mut demo = Preview::new("fresh", 110);
     demo.wait("Выбрать компоненты");
     demo.send(DOWN);
+    demo.send(ENTER);
+    demo.active("Чем распознавать новые записи?");
     demo.send(ENTER);
     demo.wait("Дополнительно проверять имена");
     demo.capture("components-wide");
@@ -371,6 +411,8 @@ fn esc_ctrl_c_and_decline_restore_cursor_and_leave_no_changes() {
         if stage == 1 {
             demo.send(DOWN);
             demo.send(ENTER);
+            demo.active("Чем распознавать новые записи?");
+            demo.send(ENTER);
             demo.wait("Дополнительно проверять имена");
         } else if stage == 2 {
             demo.send(ENTER);
@@ -395,6 +437,8 @@ fn review_back_preserves_custom_choices_across_profile_changes() {
         demo.wait("Выбрать компоненты");
         demo.send(DOWN);
         demo.send(ENTER);
+        demo.active("Чем распознавать новые записи?");
+        demo.send(ENTER);
         demo.wait("Дополнительно проверять имена");
         // Remove Summary, then return all the way to Profile.
         demo.send(DOWN);
@@ -418,6 +462,8 @@ fn review_back_preserves_custom_choices_across_profile_changes() {
         demo.back();
         demo.active("Компоненты");
         demo.back();
+        demo.active("Чем распознавать новые записи?");
+        demo.back();
         demo.active("Как установить LocalVox?");
         // Switch to recommended, verify its full set, then return to custom.
         demo.send(b"\x1b[A");
@@ -430,6 +476,8 @@ fn review_back_preserves_custom_choices_across_profile_changes() {
         demo.send(ENTER);
         demo.active("Как установить LocalVox?");
         demo.send(DOWN);
+        demo.send(ENTER);
+        demo.active("Чем распознавать новые записи?");
         demo.send(ENTER);
         demo.active("Компоненты");
         demo.send(ENTER);
@@ -452,6 +500,8 @@ fn back_from_source_can_disable_summary_without_visiting_stale_model_questions()
     let mut demo = Preview::new("fresh", 110);
     demo.wait("Выбрать компоненты");
     demo.send(DOWN);
+    demo.send(ENTER);
+    demo.active("Чем распознавать новые записи?");
     demo.send(ENTER);
     demo.wait("Дополнительно проверять имена");
     demo.send(ENTER);
@@ -481,6 +531,8 @@ fn back_from_review_keeps_typed_paths_and_allows_correction() {
     let mut demo = Preview::new("fresh", 110);
     demo.wait("Выбрать компоненты");
     demo.send(DOWN);
+    demo.send(ENTER);
+    demo.active("Чем распознавать новые записи?");
     demo.send(ENTER);
     demo.wait("Дополнительно проверять имена");
     demo.send(ENTER);
@@ -534,6 +586,8 @@ fn navigation_can_resume_the_current_step_or_cancel_explicitly() {
     demo.wait("Выбрать компоненты");
     demo.send(DOWN);
     demo.send(ENTER);
+    demo.active("Чем распознавать новые записи?");
+    demo.send(ENTER);
     demo.wait("Дополнительно проверять имена");
     demo.send(b"\x1b");
     demo.active("Вернуться или отменить?");
@@ -555,6 +609,8 @@ fn custom_server_and_gguf_are_presented_without_probing_or_importing() {
         let mut demo = Preview::new("fresh", 110);
         demo.wait("Выбрать компоненты");
         demo.send(DOWN);
+        demo.send(ENTER);
+        demo.active("Чем распознавать новые записи?");
         demo.send(ENTER);
         demo.wait("Дополнительно проверять имена");
         demo.send(ENTER);
@@ -608,6 +664,8 @@ fn separate_ready_model_directories_keep_program_and_download_folder_choices() {
     demo.wait("Выбрать компоненты");
     demo.send(DOWN);
     demo.send(ENTER);
+    demo.active("Чем распознавать новые записи?");
+    demo.send(ENTER);
     demo.wait("Дополнительно проверять имена");
     demo.send(b" ");
     demo.send(DOWN);
@@ -630,11 +688,11 @@ fn separate_ready_model_directories_keep_program_and_download_folder_choices() {
     demo.wait("Папка моделей");
     demo.send(b"F:/Future models");
     demo.send(ENTER);
-    demo.wait("Vosk · готовая папка");
-    demo.send(b"F:/ready vosk");
-    demo.send(ENTER);
     demo.wait("GigaAM · готовая папка");
     demo.send(b"F:/ready gigaam");
+    demo.send(ENTER);
+    demo.wait("Vosk · готовая папка");
+    demo.send(b"F:/ready vosk");
     demo.send(ENTER);
     demo.wait("Показать демоустановку?");
     let screen = demo.parser.screen().contents();

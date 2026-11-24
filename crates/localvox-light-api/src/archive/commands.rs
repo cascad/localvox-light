@@ -81,6 +81,18 @@ impl Archive {
         // Preconditions first, destruction after.
         self.ensure_not_recording(session)?;
 
+        let next_asr = if matches!(scope, RecookScope::All) {
+            let next = localvox_light_core::transcription::Choice::configured()?;
+            if next != localvox_light_core::transcription::Choice::for_session(&dir)? {
+                let gigaam = localvox_light_core::lang::default_model_dir()
+                    .unwrap_or_else(|| localvox_light_core::model_paths::default_dir("gigaam"));
+                next.validate_for(&dir, &gigaam)?;
+            }
+            Some(next)
+        } else {
+            None
+        };
+
         let readable = localvox_light_core::readable::FILE;
         // Stale is a filesystem read on `&self` — do it BEFORE the lock so the critical section stays
         // short. Everything that TOUCHES the queue then happens in ONE locked, fresh-loaded section,
@@ -112,6 +124,12 @@ impl Archive {
                 {
                     queue.reclaim_session(session);
                 }
+                let previous_meta = next_asr
+                    .map(|_| fs::read(dir.join("meta.json")))
+                    .transpose()?;
+                if let Some(choice) = next_asr {
+                    choice.save(&dir)?;
+                }
                 let (files, forget, queued): (Vec<&str>, Vec<&str>, bool) = match scope {
                     RecookScope::Summary => (
                         vec!["summary.md", "summary.unverified.md"],
@@ -141,12 +159,24 @@ impl Archive {
                                 "summary.unverified.md",
                                 "processed.unverified.md",
                             ],
-                            vec![proc::SUMMARY, proc::PROCESSED, proc::TRANSCRIPT],
+                            vec![
+                                proc::SUMMARY,
+                                proc::PROCESSED,
+                                proc::TRANSCRIPT,
+                                proc::PUNCTUATED,
+                            ],
                             queue.enqueue_recook(session, summary, cleanup, refine),
                         )
                     }
                 };
                 if !queued {
+                    if let Some(bytes) = previous_meta {
+                        localvox_light_core::artifacts::atomic_write(
+                            &dir.join("meta.json"),
+                            &bytes,
+                        )
+                        .context("очередь отказала; не удалось восстановить прежний выбор ASR")?;
+                    }
                     anyhow::bail!("сессия уже обрабатывается или очередь не удалось сохранить");
                 }
                 // Keep the queue lock through invalidation: workers must not reuse the old files

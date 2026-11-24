@@ -823,6 +823,30 @@ test("pipeline keeps elapsed time, the next step and an explicit reason between 
 });
 
 
+test("ASR backend and independent punctuation are explicit choices with restart scope", async ({ page }) => {
+  await workspace(page);
+  const fields = [
+    { key: "LOCALVOX_ASR_BACKEND", label: "Распознавание", kind: "text", default_value: "gigaam", options: [{value:"gigaam",label:"GigaAM"},{value:"tone",label:"T-one · greedy"}] },
+    { key: "LOCALVOX_ASR_PUNCTUATION", label: "Пунктуация и регистр", kind: "bool", default_value: "off" },
+  ].map(s => ({...s, group:"Распознавание", value:null, set:false, applies:"restart", hint:"Новые записи; старые — по команде переварки"}));
+  let sent: unknown;
+  await page.route("**/api/settings", route => {
+    if (route.request().method() === "GET") return route.fulfill({json:{path:"synthetic/.env",exists:true,settings:fields,extra:[]}});
+    sent = route.request().postDataJSON().set;
+    return route.fulfill({json:{msg:"Сохранено",need_restart:["Распознавание","Пунктуация и регистр"]}});
+  });
+  await page.getByRole("button", {name:/⚙ Настройки/}).click();
+  const backend = page.locator(".set-row").filter({has:page.getByText("LOCALVOX_ASR_BACKEND", {exact:true})});
+  const punctuation = page.locator(".set-row").filter({has:page.getByText("LOCALVOX_ASR_PUNCTUATION", {exact:true})});
+  await expect(backend.locator("select")).toHaveValue("gigaam");
+  await expect(punctuation.locator("select")).toHaveValue("off");
+  await backend.locator("select").selectOption("tone");
+  await punctuation.locator("select").selectOption("on");
+  await page.getByRole("button", {name:"Сохранить (2)",exact:true}).click();
+  await expect(page.getByText(/Применится после перезапуска демона: Распознавание, Пунктуация и регистр/)).toBeVisible();
+  expect(sent).toEqual({LOCALVOX_ASR_BACKEND:"tone",LOCALVOX_ASR_PUNCTUATION:"on"});
+});
+
 test("settings keep edits after failure, save only changed keys and show restart", async ({ page }) => {
   await workspace(page);
   const fields = [

@@ -51,6 +51,121 @@ fn fixture_bundle(root: &Path) {
     manifest(root);
 }
 
+#[test]
+fn selected_asr_and_optional_punctuation_download_only_missing_selected_models() {
+    use localvox_setup_ui::{AsrBackend, ModelKind};
+    let temp = tempfile::tempdir().unwrap();
+    let source = temp.path().join("source");
+    let destination = temp.path().join("install");
+    fixture_bundle(&source);
+    put(
+        &source.join("scripts/models.json"),
+        include_bytes!("../../../scripts/models.json"),
+    );
+    manifest(&source);
+    let config = Default::default();
+    let layout = install::layout(&config, &source, &destination);
+    let mut selected = Selection {
+        custom: true,
+        asr_backend: AsrBackend::Tone,
+        features: vec![Feature::Punctuation],
+        program_dir: destination.display().to_string(),
+        models_dir: temp.path().join("models").display().to_string(),
+        model_paths: Default::default(),
+        summary: SummarySource::Ollama("unused".into()),
+    };
+    let planned = install::prepare(&source, &selected, &layout).unwrap();
+    let downloads: Vec<_> = planned
+        .plan
+        .actions
+        .iter()
+        .filter_map(|action| match action {
+            Action::Download { component, .. } => Some(*component),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(downloads, [Component::Tone, Component::Sbert]);
+    assert!(planned
+        .plan
+        .changes
+        .contains(&("LOCALVOX_ASR_BACKEND".into(), Some("tone".into()))));
+    assert!(planned
+        .plan
+        .changes
+        .contains(&("LOCALVOX_ASR_PUNCTUATION".into(), Some("on".into()))));
+    assert!(planned.describe().contains("SbertPuncCase: включена"));
+    selected.features.push(Feature::ExtraAsr);
+    let both = install::prepare(&source, &selected, &layout).unwrap();
+    assert!(both.plan.actions.iter().any(|action| matches!(
+        action,
+        Action::Download {
+            component: Component::Gigaam,
+            ..
+        }
+    )));
+    selected
+        .features
+        .retain(|feature| *feature != Feature::ExtraAsr);
+    // Existing paths are used directly and never copied, even outside the download folder.
+    for (kind, id, files) in [
+        (
+            ModelKind::Tone,
+            "tone",
+            ["model.onnx", "config.json", "vocab.json"],
+        ),
+        (
+            ModelKind::Sbert,
+            "sbert",
+            ["model.safetensors", "config.json", "tokenizer.json"],
+        ),
+    ] {
+        let path = temp.path().join(format!("ready {id}"));
+        for file in files {
+            put(&path.join(file), b"synthetic model, never loaded");
+        }
+        selected
+            .model_paths
+            .insert(kind, path.display().to_string());
+    }
+    let mut ready = install::prepare(&source, &selected, &layout).unwrap();
+    assert!(ready.plan.actions.is_empty());
+    ready.register_path = false;
+    ready
+        .apply(&Bundle::read(&source).unwrap(), &source)
+        .unwrap();
+    let (config, _, _) = install::configuration(&destination).unwrap();
+    let layout = install::layout(&config, &destination, &destination);
+    assert!(layout.asr.as_ref().unwrap().punctuation);
+    let view = install::view(&config, &layout, &destination, true).unwrap();
+    let initial = view.initial.unwrap();
+    assert_eq!(initial.asr_backend, AsrBackend::Tone);
+    assert!(initial.features.contains(&Feature::Punctuation));
+    let reconciled = install::prepare(&destination, &initial, &layout).unwrap();
+    assert!(reconciled.plan.actions.is_empty());
+    assert!(
+        reconciled.plan.changes.is_empty(),
+        "{:?}",
+        reconciled.plan.changes
+    );
+    // Sbert is independently selectable with GigaAM; no extra T-one download.
+    selected.asr_backend = AsrBackend::Gigaam;
+    let gigaam = install::prepare(&source, &selected, &layout).unwrap();
+    assert!(gigaam.plan.actions.iter().any(|a| matches!(
+        a,
+        Action::Download {
+            component: Component::Gigaam,
+            ..
+        }
+    )));
+    assert!(!gigaam.plan.actions.iter().any(|a| matches!(
+        a,
+        Action::Download {
+            component: Component::Tone | Component::Sbert,
+            ..
+        }
+    )));
+}
+
 fn manifest(root: &Path) {
     let mut files = vec![];
     fn scan(root: &Path, dir: &Path, files: &mut Vec<serde_json::Value>) {
@@ -271,6 +386,7 @@ fn separate_ready_model_paths_are_validated_and_noop_reconciliation_preserves_fi
     let (config, _, _) = install::configuration(&destination).unwrap();
     let discovered = install::layout(&config, &source, &destination);
     let selected = Selection {
+        asr_backend: Default::default(),
         custom: true,
         features: vec![Feature::Voice],
         program_dir: destination.display().to_string(),
@@ -345,6 +461,7 @@ fn interrupted_intent_is_recoverable_and_never_becomes_active_settings() {
     let temp = tempfile::tempdir().unwrap();
     let install = temp.path().join("installed");
     let selected = Selection {
+        asr_backend: Default::default(),
         custom: true,
         features: vec![],
         program_dir: install.display().to_string(),
@@ -382,6 +499,7 @@ fn configuration_mode_needs_no_bundle_and_preserves_the_active_env_location() {
     let (config, _, _) = install::configuration_at(&active).unwrap();
     let layout = install::layout(&config, &source, &source);
     let selected = Selection {
+        asr_backend: Default::default(),
         custom: true,
         features: vec![],
         program_dir: source.display().to_string(),
@@ -713,6 +831,7 @@ fn selected_download_folder_is_exact_and_disabled_summary_never_schedules_llm() 
     let layout = install::layout(&config, &source, &destination);
     let model_dir = temp.path().join("Custom weights");
     let selected = Selection {
+        asr_backend: Default::default(),
         custom: true,
         features: vec![],
         program_dir: destination.display().to_string(),

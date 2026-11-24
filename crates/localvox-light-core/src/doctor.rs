@@ -81,6 +81,9 @@ pub struct Layout {
     pub live_asr: bool,
     pub vosk_model: PathBuf,
     pub gigaam: Option<PathBuf>,
+    pub tone: Option<PathBuf>,
+    pub sbert: Option<PathBuf>,
+    pub asr: Result<crate::transcription::Choice, String>,
     pub diarize: Option<PathBuf>,
     pub ner: Option<PathBuf>,
     /// Повар рядом с нами. `None` — автоварка выключится, архив не расшифруется никогда.
@@ -118,6 +121,13 @@ impl Layout {
         // daemon does not build, and a doctor spelling the directory on its own would report on
         // a place nothing looks at.
         Layout {
+            tone: crate::model_paths::Context::capture()
+                .resolve(crate::model_paths::component("tone"), None)
+                .path,
+            sbert: crate::model_paths::Context::capture()
+                .resolve(crate::model_paths::component("sbert"), None)
+                .path,
+            asr: crate::transcription::Choice::configured().map_err(|e| e.to_string()),
             live_asr: crate::presets::bool_value(
                 &std::env::var("LOCALVOX_LIGHT_LIVE_ASR")
                     .unwrap_or_else(|_| crate::presets::baked("LOCALVOX_LIGHT_LIVE_ASR").into()),
@@ -168,13 +178,13 @@ pub fn model_notices(layout: &Layout) -> Vec<ModelNotice> {
             text: text.into(),
         });
     }
-    if inspect(layout)
-        .iter()
-        .any(|finding| finding.id == "gigaam" && finding.state != State::Ok)
-    {
+    for finding in inspect(layout).into_iter().filter(|f| {
+        matches!(f.id.as_str(), "gigaam" | "tone" | "sbert" | "asr_config")
+            && f.state == State::Fail
+    }) {
         notices.push(ModelNotice {
-            component: "gigaam".into(),
-            text: "Модель GigaAM не найдена или неполна. Для новой расшифровки требуется модель; готовые тексты доступны. Доустановка: завершите LocalVox и запустите vox setup.".into(),
+            component: finding.id,
+            text: format!("{}: {}. Готовые тексты доступны. Доустановка: завершите LocalVox и запустите vox setup.", finding.what, finding.detail),
         });
     }
     notices
@@ -183,6 +193,24 @@ pub fn model_notices(layout: &Layout) -> Vec<ModelNotice> {
 /// Полный разбор — чистая функция от разложенных путей.
 pub fn inspect(l: &Layout) -> Vec<Finding> {
     let mut out = Vec::new();
+    if let Err(error) = &l.asr {
+        out.push(Finding::bad(
+            "asr_config",
+            "Выбор распознавания",
+            State::Fail,
+            error,
+            "Исправьте LOCALVOX_ASR_BACKEND и LOCALVOX_ASR_PUNCTUATION в настройках",
+        ));
+    }
+    let gigaam_required = l
+        .asr
+        .as_ref()
+        .is_ok_and(|choice| choice.backend == crate::transcription::Backend::Gigaam);
+    let missing_asr = if gigaam_required {
+        State::Fail
+    } else {
+        State::Warn
+    };
 
     // Disabled features do not require weights; explicit opt-in must be healthy.
     out.push(if !l.live_asr {
@@ -227,7 +255,7 @@ pub fn inspect(l: &Layout) -> Vec<Finding> {
             Some(f) => Finding::bad(
                 "gigaam",
                 "GigaAM (расшифровка архива)",
-                State::Fail,
+                missing_asr,
                 format!("в {} нет {f}", d.display()),
                 "scripts/fetch-models.sh --only gigaam",
             ),
@@ -235,11 +263,37 @@ pub fn inspect(l: &Layout) -> Vec<Finding> {
         None => Finding::bad(
             "gigaam",
             "GigaAM (расшифровка архива)",
-            State::Fail,
+            missing_asr,
             "каталог модели не найден",
             "scripts/fetch-models.sh --only gigaam; путь задаётся LOCALVOX_ASR_MODEL_DIR",
         ),
     });
+
+    for (id, title, path, required) in [
+        (
+            "tone",
+            "T-one · распознавание",
+            &l.tone,
+            l.asr
+                .as_ref()
+                .is_ok_and(|c| c.backend == crate::transcription::Backend::Tone),
+        ),
+        (
+            "sbert",
+            "SbertPuncCase · пунктуация",
+            &l.sbert,
+            l.asr.as_ref().is_ok_and(|c| c.punctuation),
+        ),
+    ] {
+        let model = crate::model_paths::component(id);
+        out.push(if path.as_deref().is_some_and(|p| model.ready(p)) {
+            Finding::ok(id, title, path.as_ref().unwrap().display().to_string())
+        } else {
+            Finding::bad(id, title, if required { State::Fail } else { State::Warn },
+                format!("{} · {}", if required { "Выбрано, но модель не готова" } else { "Не выбрано · модель не установлена" }, path.as_deref().unwrap_or(Path::new("—")).display()),
+                "Завершите LocalVox и запустите vox setup: выберите скачивание или готовую папку модели")
+        });
+    }
 
     // ── Повар. Его отсутствие — самая тихая из поломок: демон пишет звук, автоварка молча
     //    выключается, и человек узнаёт об этом по пустому архиву через неделю.
@@ -393,6 +447,9 @@ mod tests {
     fn layout(root: &Path) -> Layout {
         Layout {
             live_asr: true,
+            tone: None,
+            sbert: None,
+            asr: Ok(crate::transcription::Choice::default()),
             vosk_model: root.join("vosk"),
             gigaam: None,
             diarize: None,
@@ -479,6 +536,44 @@ mod tests {
                 assert!(f.fix.is_some(), "без назначения: {} — {}", f.what, f.detail);
             }
         }
+    }
+
+    #[test]
+    fn selected_backend_and_independent_punctuation_define_required_models() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut l = layout(dir.path());
+        l.live_asr = false;
+        l.asr = Ok(crate::transcription::Choice {
+            backend: crate::transcription::Backend::Tone,
+            punctuation: false,
+        });
+        l.tone = Some(dir.path().join("tone"));
+        let state = |layout: &Layout, id: &str| {
+            inspect(layout)
+                .into_iter()
+                .find(|f| f.id == id)
+                .unwrap()
+                .state
+        };
+        assert_eq!(state(&l, "tone"), State::Fail);
+        assert_eq!(state(&l, "gigaam"), State::Warn);
+        assert_eq!(state(&l, "sbert"), State::Warn);
+        for file in ["model.onnx", "config.json", "vocab.json"] {
+            touch(&l.tone.as_ref().unwrap().join(file));
+        }
+        assert_eq!(state(&l, "tone"), State::Ok);
+        for backend in crate::transcription::Backend::ALL {
+            l.asr = Ok(crate::transcription::Choice {
+                backend,
+                punctuation: true,
+            });
+            assert_eq!(state(&l, "sbert"), State::Fail);
+        }
+        l.asr = Err("bad backend".into());
+        assert_eq!(state(&l, "asr_config"), State::Fail);
+        assert!(model_notices(&l)
+            .iter()
+            .any(|notice| notice.component == "asr_config"));
     }
 
     /// Неполный комплект ловится так же, как отсутствующий: каталог есть, а модель в нём

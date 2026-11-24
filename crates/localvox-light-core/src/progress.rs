@@ -30,6 +30,8 @@ pub enum Stage {
     Extract,
     /// ASR: audio → transcript.
     Transcribe,
+    /// Optional neural punctuation/casing; independent of the ASR provider.
+    Punctuation,
     /// LLM cleaned the transcript up into a new best version.
     Refine,
     /// Readable wording, after recognition corrections.
@@ -40,10 +42,11 @@ pub enum Stage {
 
 impl Stage {
     /// The canonical order of the chain.
-    pub const CHAIN: [Stage; 6] = [
+    pub const CHAIN: [Stage; 7] = [
         Stage::Download,
         Stage::Extract,
         Stage::Transcribe,
+        Stage::Punctuation,
         Stage::Refine,
         Stage::Cleanup,
         Stage::Summary,

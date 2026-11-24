@@ -642,6 +642,114 @@ mod tests {
     }
 
     #[test]
+    fn explicit_backend_change_checks_models_before_invalidating_and_pins_the_new_choice() {
+        // Configuration is process-owned; exercise both failures and success without
+        // changing the parallel test process environment or the developer's models.
+        const CHILD: &str = "LOCALVOX_TEST_ASR_RECOOK";
+        if std::env::var_os(CHILD).is_none() {
+            let root = tempfile::tempdir().unwrap();
+            let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+            command.args(["--exact", "archive::tests::explicit_backend_change_checks_models_before_invalidating_and_pins_the_new_choice", "--test-threads=1"])
+                .env(CHILD, root.path()).env("LOCALVOX_ASR_BACKEND", "tone")
+                .env("LOCALVOX_ASR_PUNCTUATION", "on")
+                .env("LOCALVOX_TONE_MODEL_DIR", root.path().join("tone"))
+                .env("LOCALVOX_SBERT_MODEL_DIR", root.path().join("sbert"));
+            let result = localvox_light_process::run(
+                command,
+                None,
+                localvox_light_process::Limits::new(std::time::Duration::from_secs(20)),
+                || false,
+                |_, _| {},
+            )
+            .unwrap();
+            assert!(
+                result.termination.success(),
+                "{}\n{}",
+                String::from_utf8_lossy(&result.stdout),
+                String::from_utf8_lossy(&result.stderr)
+            );
+            return;
+        }
+        let root = PathBuf::from(std::env::var_os(CHILD).unwrap());
+        let source = retained_transcript(&root);
+        let session = root.join("sessions/retained");
+        fs::create_dir(session.join("audio")).unwrap();
+        let meta = br#"{"started_at":"2026-11-24T00:00:00Z","sample_rate":16000,"lang":"ru","chunks":[{"file":"src0_chunk0001","source_id":0,"start_offset_sec":0,"duration_sec":0.001}]}"#;
+        fs::write(session.join("meta.json"), meta).unwrap();
+        fs::write(
+            session.join("audio/src0_chunk0001.wav"),
+            wav_16k_mono(&[0; 32]),
+        )
+        .unwrap();
+        let archive = Archive::new(root.clone());
+        let original = fs::read(&source).unwrap();
+        for missing in ["tone", "sbert"] {
+            let error = format!(
+                "{:#}",
+                archive.recook("retained", RecookScope::All).unwrap_err()
+            );
+            assert!(
+                error.contains(if missing == "tone" {
+                    "T-one"
+                } else {
+                    "SbertPuncCase"
+                }),
+                "{error}"
+            );
+            assert_eq!(fs::read(session.join("meta.json")).unwrap(), meta);
+            assert_eq!(fs::read(&source).unwrap(), original);
+            assert_eq!(
+                fs::read_to_string(session.join("summary.md")).unwrap(),
+                "previous summary"
+            );
+            assert!(!root.join("jobs.json").exists());
+            let model = root.join(missing);
+            fs::create_dir(&model).unwrap();
+            for file in if missing == "tone" {
+                ["model.onnx", "vocab.json", "config.json"]
+            } else {
+                ["model.safetensors", "tokenizer.json", "config.json"]
+            } {
+                fs::write(model.join(file), b"fixture, readiness only").unwrap();
+            }
+        }
+        fs::create_dir(root.join("jobs.json")).unwrap(); // deterministic queue refusal
+        assert!(archive.recook("retained", RecookScope::All).is_err());
+        assert_eq!(fs::read(session.join("meta.json")).unwrap(), meta);
+        assert_eq!(fs::read(&source).unwrap(), original);
+        assert_eq!(
+            fs::read_to_string(session.join("summary.md")).unwrap(),
+            "previous summary"
+        );
+        fs::remove_dir(root.join("jobs.json")).unwrap();
+        let mut previous = localvox_light_core::jobs::JobQueue::load(&root);
+        assert!(previous.enqueue_cook("retained", false, false, false));
+        previous.mark_done(0);
+        assert!(!previous.jobs()[0].punctuation);
+        drop(previous);
+        archive.recook("retained", RecookScope::All).unwrap();
+        let choice = localvox_light_core::transcription::Choice::for_session(&session).unwrap();
+        assert_eq!(
+            choice.backend,
+            localvox_light_core::transcription::Backend::Tone
+        );
+        assert!(choice.punctuation);
+        let queue = localvox_light_core::jobs::JobQueue::load(&root);
+        assert_eq!(queue.jobs().len(), 1);
+        assert!(queue.jobs()[0].punctuation && queue.jobs()[0].force);
+        assert_eq!(
+            queue.jobs()[0].phase,
+            localvox_light_core::jobs::JobPhase::Prepare
+        );
+        assert_eq!(
+            fs::read(source).unwrap(),
+            original,
+            "raw versions remain available"
+        );
+        assert!(!session.join("summary.md").exists());
+    }
+
+    #[test]
     fn naming_a_short_voice_is_local_and_does_not_enroll_a_shared_profile() {
         use localvox_light_core::diarize::{profiles, roster};
         let dir = tempfile::tempdir().unwrap();
@@ -1030,10 +1138,19 @@ mod tests {
 
         let p = a.progress("20260716_g").unwrap();
         // Events without output files cannot prove completion; future stages stay blocked.
-        assert_eq!(p["stages"][0]["state"], "invalid");
-        assert_eq!(p["stages"][1]["state"], "invalid");
-        assert_eq!(p["stages"][2]["state"], "skipped"); // automatic cleanup is no longer requested
-        assert_eq!(p["stages"][3]["state"], "blocked");
+        let state = |name: &str| {
+            &p["stages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|row| row["stage"] == name)
+                .unwrap()["state"]
+        };
+        assert_eq!(state("transcribe"), "invalid");
+        assert_eq!(state("punctuation"), "skipped");
+        assert_eq!(state("refine"), "invalid");
+        assert_eq!(state("cleanup"), "skipped"); // automatic cleanup is no longer requested
+        assert_eq!(state("summary"), "blocked");
         assert_eq!(
             p["running"], true,
             "the chain says the cook is over while the job is still running — the owner's bug"

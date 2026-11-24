@@ -140,5 +140,5 @@ fn manifest_placement_is_complete_unique_and_cannot_escape_a_component() {
                 .all(|p| matches!(p, std::path::Component::Normal(_))));
         }
     }
-    assert_eq!(ids.len(), 4);
+    assert_eq!(ids.len(), 6);
 }

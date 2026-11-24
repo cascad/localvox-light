@@ -80,6 +80,10 @@ fn wait(player: &mut Mpv, condition: impl Fn(&PlaybackState) -> bool) -> Playbac
         std::thread::sleep(Duration::from_millis(30));
     }
 }
+
+// Paused time-pos includes the null audio output buffer. The same 250 ms clock
+// bound applies to every seek; command target and pause behavior stay exact.
+const SEEK_CLOCK_TOLERANCE: f64 = 0.25;
 fn wait_worker(player: &Player, condition: impl Fn(&PlaybackState) -> bool) -> PlaybackState {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
@@ -207,7 +211,9 @@ fn real_player_auth_range_pause_and_repeated_fragment() {
     std::thread::sleep(Duration::from_millis(100));
     assert!((player.state().unwrap().position - paused.position).abs() < 0.1);
     player.seek(1850.0).unwrap();
-    let sought = wait(&mut player, |s| s.position >= 1849.9 && s.position < 1850.1);
+    let sought = wait(&mut player, |s| {
+        (s.position - 1850.0).abs() < SEEK_CLOCK_TOLERANCE
+    });
     assert!(sought.paused, "seek must preserve pause");
     assert_eq!(
         player
@@ -225,7 +231,11 @@ fn real_player_auth_range_pause_and_repeated_fragment() {
     player.seek(20.0).unwrap();
     // mpv's paused audio clock includes its output buffer (under 250 ms for
     // this null-audio fixture); this checks the interval and retained pause.
-    assert!(wait(&mut player, |s| (s.position - 20.0).abs() < 0.25).paused);
+    assert!(
+        wait(&mut player, |s| (s.position - 20.0).abs()
+            < SEEK_CLOCK_TOLERANCE)
+        .paused
+    );
     player
         .command(serde_json::json!(["set_property", "pause", false]))
         .unwrap();
@@ -273,7 +283,7 @@ fn real_player_auth_range_pause_and_repeated_fragment() {
         position: 150.0
     }));
     wait_worker(&worker, |s| {
-        s.paused && s.position >= 149.9 && s.position < 150.1
+        s.paused && (s.position - 150.0).abs() < SEEK_CLOCK_TOLERANCE
     });
     assert!(worker.submit(PlaybackCommand::Toggle));
     wait_worker(&worker, |s| !s.idle && !s.paused && s.position >= 150.2);

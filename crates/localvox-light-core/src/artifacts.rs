@@ -9,7 +9,7 @@ use anyhow::{bail, ensure, Context, Result};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::processing::{Outcome, Record, PROCESSED, REFINED, SUMMARY, TRANSCRIPT};
+use crate::processing::{Outcome, Record, PROCESSED, PUNCTUATED, REFINED, SUMMARY, TRANSCRIPT};
 use crate::versions::{TranscriptLine, VersionEntry, VersionsManifest};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -135,7 +135,7 @@ pub fn source_transcript(session: &Path) -> Result<(VersionEntry, Vec<Transcript
     let (entry, _, lines, _) = version(session, id)?;
     let log = crate::processing::load_strict(session)?;
     let mut confirmed_empty = false;
-    for artifact in [TRANSCRIPT, REFINED] {
+    for artifact in [TRANSCRIPT, REFINED, PUNCTUATED] {
         if let Some(record) = log.artifacts.get(artifact).filter(|r| r.source == Some(id)) {
             verify(session, artifact, record)?;
             confirmed_empty |= record.outcome == Outcome::Nothing;
@@ -168,7 +168,7 @@ pub fn capture(
         );
     }
     let source_version = source.map(|id| version(session, id)).transpose()?;
-    if empty && source_version.is_none() && artifact == TRANSCRIPT {
+    if empty && source_version.is_none() && matches!(artifact, TRANSCRIPT | PUNCTUATED) {
         let bytes = fs::read(session.join("meta.json"))?;
         let meta: crate::chunks::SessionMeta = serde_json::from_slice(&bytes)?;
         ensure!(
@@ -220,6 +220,29 @@ pub fn capture(
             Ok(Receipt {
                 outputs: vec![input],
                 input: Some(version(session, *parent)?.1),
+            })
+        }
+        PUNCTUATED => {
+            if empty {
+                ensure!(
+                    lines.iter().all(|l| l.text.trim().is_empty()),
+                    "пустая пунктуация содержит текст"
+                );
+                return Ok(Receipt {
+                    outputs: vec![],
+                    input: Some(input),
+                });
+            }
+            ensure!(entry.label == PUNCTUATED, "неверный тип версии пунктуации");
+            let parent = entry
+                .parents
+                .first()
+                .context("пунктуация не указывает оригинал")?;
+            let (_, original, raw, _) = version(session, *parent)?;
+            crate::text_processing::validate_lines(&raw, &lines)?;
+            Ok(Receipt {
+                outputs: vec![input],
+                input: Some(original),
             })
         }
         PROCESSED | SUMMARY => {
@@ -468,6 +491,13 @@ fn audio_files(session: &Path) -> Result<Vec<String>> {
 
 /// Publish on the same filesystem; failure leaves the previous artifact intact.
 pub fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
+    // tempfile's native Windows rename does not perform std::fs's extended-path
+    // conversion. Keep both names in the same canonical, verbatim directory.
+    #[cfg(windows)]
+    let absolute = fs::canonicalize(path.parent().context("у артефакта нет каталога")?)?
+        .join(path.file_name().context("у артефакта нет имени")?);
+    #[cfg(windows)]
+    let path = absolute.as_path();
     let parent = path.parent().context("у артефакта нет каталога")?;
     let mut temp = tempfile::NamedTempFile::new_in(parent)?;
     temp.write_all(bytes)?;
@@ -683,6 +713,30 @@ pub(crate) mod tests {
         )
         .unwrap();
         path
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn atomic_publication_supports_long_session_and_content_addressed_cache_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir
+            .path()
+            .join("sessions")
+            .join("recording-".repeat(10))
+            .join("punctuation/cache")
+            .join("a".repeat(64));
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join(format!("{}.json", "b".repeat(64)));
+        assert!(path.as_os_str().len() > 260);
+        atomic_write(&path, b"first verified result").unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"first verified result");
+        atomic_write(&path, b"second verified result").unwrap();
+        assert_eq!(fs::read(path).unwrap(), b"second verified result");
+        assert_eq!(
+            fs::read_dir(root).unwrap().count(),
+            1,
+            "no abandoned temporary file"
+        );
     }
 
     #[test]

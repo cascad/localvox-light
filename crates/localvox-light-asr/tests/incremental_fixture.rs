@@ -49,7 +49,7 @@ fn failed_prefix_has_failed_operation_and_no_checkpoint_or_final_success() {
         .lines()
         .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
         .any(|event| event["kind"] == "operation_end"
-            && event["label"] == "Распознавание готовой части записи"
+            && event["label"] == "Обработка готовой части записи"
             && event["status"] == "failed"));
 }
 
@@ -96,7 +96,7 @@ fn resident_reuses_one_engine_across_new_horizons_final_and_releases_each_sessio
         .iter()
         .any(|event| event.done.is_some_and(|done| done > 0) && event.total.is_some()));
     let journal = fs::read_to_string(r.session().join("progress.jsonl")).unwrap();
-    assert!(journal.contains("Распознавание готовой части записи"));
+    assert!(journal.contains("Обработка готовой части записи"));
     assert!(
         !journal.contains("ASR source "),
         "window detail belongs in debug diagnostics"
@@ -159,6 +159,13 @@ fn resident_reuses_one_engine_across_new_horizons_final_and_releases_each_sessio
 }
 impl Recording {
     fn new(answer: &str, digest: bool) -> Self {
+        Self::with_choice(answer, digest, None)
+    }
+    fn with_choice(
+        answer: &str,
+        digest: bool,
+        choice: Option<localvox_light_core::transcription::Choice>,
+    ) -> Self {
         let root = tempfile::tempdir().unwrap();
         let session = root.path().join("sessions/recorded");
         fs::create_dir_all(session.join("audio")).unwrap();
@@ -167,6 +174,7 @@ impl Recording {
             capture_generation: Some(generation.clone()),
             sample_rate: 16000,
             lang: Some("ru".into()),
+            asr: choice,
             ..Default::default()
         }));
         chunks::save_meta_checked(&session.join("meta.json"), &meta.lock().unwrap()).unwrap();
@@ -256,7 +264,7 @@ impl Recording {
         self.owner.take();
         drop(std::mem::take(&mut self.planners));
     }
-    fn run(&self, prefix: bool, crash: Option<&str>, extra: &[&str]) -> serde_json::Value {
+    fn command(&self) -> std::process::Command {
         let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_localvox-process"));
         command
             .arg(self.session())
@@ -267,8 +275,12 @@ impl Recording {
             .current_dir(self.root.path())
             .env("LOCALVOX_DIARIZE", "off")
             .env("LOCALVOX_LANG", "ru")
-            .env_remove("LOCALVOX_ASR_FIXTURE_CRASH_POINT")
-            .args(extra);
+            .env_remove("LOCALVOX_ASR_FIXTURE_CRASH_POINT");
+        command
+    }
+    fn run(&self, prefix: bool, crash: Option<&str>, extra: &[&str]) -> serde_json::Value {
+        let mut command = self.command();
+        command.args(extra);
         if prefix {
             command.arg("--worker-prefix");
         }
@@ -350,6 +362,121 @@ impl Recording {
         artifacts::verify(&self.session(), processing::TRANSCRIPT, record).unwrap();
         assert!(!self.session().join("summary.md").exists());
     }
+}
+
+#[test]
+fn pinned_tone_choice_uses_the_same_early_and_final_recipe_without_global_switches() {
+    use localvox_light_core::transcription::{Backend, Choice};
+    let choice = Choice {
+        backend: Backend::Tone,
+        punctuation: false,
+    };
+    let mut r = Recording::with_choice("fixture words 123", false, Some(choice));
+    let early = r.run(true, None, &[]);
+    assert!(early["asr_calls"].as_u64().unwrap() > 0);
+    let initial = localvox_light_core::incremental::Published::current(&r.session())
+        .unwrap()
+        .unwrap()
+        .read(&r.session())
+        .unwrap();
+    assert!(
+        initial.text_identity.is_none(),
+        "disabled processor must not load or project"
+    );
+    assert!(r.run(true, None, &[])["asr_calls"] == 0);
+    let prefix_calls = r.calls();
+    r.stop();
+    r.run(false, None, &[]);
+    r.assert_final(false);
+    assert_eq!(Choice::for_session(&r.session()).unwrap(), choice);
+    let store = VersionStore::open(r.session()).unwrap();
+    assert_eq!(store.best().unwrap().label, "tone-greedy-ru");
+    // Stop can close a withheld tail, but every already accepted window is reused.
+    let calls = r.calls();
+    let unique: BTreeSet<_> = calls.iter().collect();
+    assert_eq!(
+        unique.len(),
+        calls.len(),
+        "repeated acoustic windows: {calls:?}"
+    );
+    assert!(prefix_calls.iter().all(|call| calls.contains(call)));
+    // CLI --force accepts the current configured choice too, but an unavailable
+    // replacement must fail before rewriting metadata or any saved transcript.
+    let raw_path = store.resolve(store.best().unwrap().id).unwrap();
+    let raw_bytes = fs::read(&raw_path).unwrap();
+    let mut command = r.command();
+    command
+        .arg("--force")
+        .arg("--model-dir")
+        .arg(r.root.path().join("missing-gigaam"))
+        .env("LOCALVOX_ASR_BACKEND", "gigaam")
+        .env("LOCALVOX_ASR_PUNCTUATION", "off");
+    let refused = localvox_light_process::run(
+        command,
+        None,
+        localvox_light_process::Limits::new(Duration::from_secs(20)),
+        || false,
+        |_, _| {},
+    )
+    .unwrap();
+    assert!(!refused.termination.success());
+    assert_eq!(Choice::for_session(&r.session()).unwrap(), choice);
+    assert_eq!(fs::read(raw_path).unwrap(), raw_bytes);
+    assert_eq!(r.calls(), calls);
+}
+
+#[test]
+fn missing_text_model_publishes_raw_prefix_and_retry_and_stop_reuse_acoustic_results() {
+    let mut r = Recording::with_choice(
+        "fixture words 123",
+        false,
+        Some(localvox_light_core::transcription::Choice {
+            punctuation: true,
+            ..Default::default()
+        }),
+    );
+    let mut first_calls = Vec::new();
+    for attempt in 0..2 {
+        let mut command = r.command();
+        command.arg("--worker-prefix").env(
+            "LOCALVOX_SBERT_MODEL_DIR",
+            r.root.path().join("missing-sbert"),
+        );
+        let result = localvox_light_process::run(
+            command,
+            None,
+            localvox_light_process::Limits::new(Duration::from_secs(20)),
+            || false,
+            |_, _| {},
+        )
+        .unwrap();
+        assert!(!result.termination.success());
+        assert!(String::from_utf8_lossy(&result.stderr).contains("SbertPuncCase"));
+        let snapshot = localvox_light_core::incremental::Published::current(&r.session())
+            .unwrap()
+            .unwrap()
+            .read(&r.session())
+            .unwrap();
+        assert!(!snapshot.lines.is_empty());
+        assert!(snapshot
+            .lines
+            .iter()
+            .all(|line| line.text == "fixture words 123"));
+        assert!(snapshot.original_lines.is_none() && snapshot.text_identity.is_none());
+        r.assert_no_final();
+        if attempt == 0 {
+            first_calls = r.calls();
+        } else {
+            assert_eq!(r.calls(), first_calls);
+        }
+    }
+    r.stop();
+    r.run(false, None, &["--worker-phase", "transcribe"]);
+    r.assert_final(false);
+    let calls = r.calls();
+    assert_eq!(calls.iter().collect::<BTreeSet<_>>().len(), calls.len());
+    assert!(first_calls.iter().all(|call| calls.contains(call)));
+    assert!(!processing::is_done(&r.session(), processing::PUNCTUATED));
 }
 
 #[test]

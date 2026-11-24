@@ -50,6 +50,7 @@ pub use prefix::transcribe_warm_fixture;
 pub use prefix::{transcribe_input, transcribe_prefix, PrefixReport};
 pub use runtime::AsrRuntime;
 
+#[derive(Clone)]
 pub struct CookParams {
     /// Model directory of the DEFAULT LANGUAGE (the caller knows its path: next to
     /// the exe in a built application). A model of another language is looked up by
@@ -89,6 +90,15 @@ impl Default for CookParams {
 }
 
 impl CookParams {
+    /// Bind the recipe to the durable session choice before checking any cache.
+    pub fn for_session(&self, session: &Path) -> Result<Self> {
+        let mut params = self.clone();
+        let choice = crate::transcription::Choice::for_session(session)?;
+        if params.label.is_none() && choice.backend != crate::transcription::Backend::Gigaam {
+            params.label = Some(choice.label(&lang::asr(session)));
+        }
+        Ok(params)
+    }
     /// Version label for the session language.
     pub fn label_for(&self, lang: &str) -> String {
         self.label.clone().unwrap_or_else(|| lang::label(lang))
@@ -176,6 +186,8 @@ fn cook_session_impl(
     override_model: Option<model::Selection>,
     mut runtime: Option<&mut AsrRuntime>,
 ) -> Result<CookOutcome> {
+    let bound = p.for_session(session_dir)?;
+    let p = &bound;
     ensure!(
         crate::chunks::capture::is_finalized(session_dir)?,
         "запись или подтверждение сохранённого аудио ещё не завершены"

@@ -9,15 +9,26 @@ pub enum Component {
     Gigaam,
     Diarize,
     Ner,
+    Tone,
+    Sbert,
 }
 impl Component {
-    pub const ALL: [Self; 4] = [Self::Vosk, Self::Gigaam, Self::Diarize, Self::Ner];
+    pub const ALL: [Self; 6] = [
+        Self::Vosk,
+        Self::Gigaam,
+        Self::Diarize,
+        Self::Ner,
+        Self::Tone,
+        Self::Sbert,
+    ];
     pub fn id(self) -> &'static str {
         match self {
             Self::Vosk => "vosk",
             Self::Gigaam => "gigaam",
             Self::Diarize => "diarize",
             Self::Ner => "ner",
+            Self::Tone => "tone",
+            Self::Sbert => "sbert",
         }
     }
     pub fn key(self) -> &'static str {
@@ -29,6 +40,8 @@ impl Component {
             Self::Gigaam => l.gigaam.as_deref(),
             Self::Diarize => l.diarize.as_deref(),
             Self::Ner => l.ner.as_deref(),
+            Self::Tone => l.tone.as_deref(),
+            Self::Sbert => l.sbert.as_deref(),
         }
     }
     pub fn set(self, l: &mut Layout, path: PathBuf) {
@@ -37,6 +50,8 @@ impl Component {
             Self::Gigaam => l.gigaam = Some(path),
             Self::Diarize => l.diarize = Some(path),
             Self::Ner => l.ner = Some(path),
+            Self::Tone => l.tone = Some(path),
+            Self::Sbert => l.sbert = Some(path),
         }
     }
     pub fn valid(self, l: &Layout) -> bool {

@@ -695,7 +695,9 @@ impl App {
 fn basic_setting(key: &str) -> bool {
     matches!(
         key,
-        "LOCALVOX_LIGHT_MIC"
+        "LOCALVOX_ASR_BACKEND"
+            | "LOCALVOX_ASR_PUNCTUATION"
+            | "LOCALVOX_LIGHT_MIC"
             | "LOCALVOX_LIGHT_LOOPBACK"
             | "LOCALVOX_LIGHT_LOOPBACK_DEVICE"
             | "LOCALVOX_LIGHT_AUTOCOOK_SUMMARY"

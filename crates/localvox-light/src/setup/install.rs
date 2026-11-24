@@ -9,9 +9,9 @@ use super::{
 use anyhow::{Context, Result};
 use localvox_light_core::{
     doctor::{self, Layout, State},
-    env_file, model_paths, presets,
+    env_file, model_paths, presets, transcription,
 };
-use localvox_setup_ui::{Feature, ModelKind, Selection, SummarySource, ViewData};
+use localvox_setup_ui::{AsrBackend, Feature, ModelKind, Selection, SummarySource, ViewData};
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
@@ -40,6 +40,19 @@ fn model_kind(component: Component) -> ModelKind {
         Component::Gigaam => ModelKind::Gigaam,
         Component::Diarize => ModelKind::Diarize,
         Component::Ner => ModelKind::Ner,
+        Component::Tone => ModelKind::Tone,
+        Component::Sbert => ModelKind::Sbert,
+    }
+}
+
+fn component(kind: ModelKind) -> Component {
+    match kind {
+        ModelKind::Vosk => Component::Vosk,
+        ModelKind::Gigaam => Component::Gigaam,
+        ModelKind::Diarize => Component::Diarize,
+        ModelKind::Ner => Component::Ner,
+        ModelKind::Tone => Component::Tone,
+        ModelKind::Sbert => Component::Sbert,
     }
 }
 
@@ -102,6 +115,13 @@ pub fn layout(config: &BTreeMap<String, String>, source: &Path, destination: &Pa
         live_asr: enabled(config, "LOCALVOX_LIGHT_LIVE_ASR"),
         vosk_model: dir("vosk").unwrap_or_default(),
         gigaam: dir("gigaam"),
+        tone: dir("tone"),
+        sbert: dir("sbert"),
+        asr: transcription::Choice::parse(
+            &value(config, transcription::BACKEND_KEY),
+            &value(config, transcription::PUNCTUATION_KEY),
+        )
+        .map_err(|e| e.to_string()),
         diarize: dir("diarize"),
         ner: dir("ner"),
         cook: Some(source.join(doctor::cook_exe_name())),
@@ -124,6 +144,11 @@ pub fn view(
     destination: &Path,
     existing: bool,
 ) -> Result<ViewData> {
+    let asr = layout.asr.as_ref().map_err(|e| anyhow::anyhow!("{e}"))?;
+    let asr_backend = match asr.backend {
+        transcription::Backend::Gigaam => AsrBackend::Gigaam,
+        transcription::Backend::Tone => AsrBackend::Tone,
+    };
     let found = probe::tags(&layout.llm_base_url).ok();
     let mut installed = vec![];
     if Component::Vosk.valid(layout) {
@@ -134,6 +159,9 @@ pub fn view(
     }
     if Component::Ner.valid(layout) {
         installed.push(Feature::Names);
+    }
+    if Component::Sbert.valid(layout) {
+        installed.push(Feature::Punctuation);
     }
     if found
         .as_ref()
@@ -181,9 +209,12 @@ pub fn view(
             .collect::<Result<_>>()?;
     }
     // Runtime settings are authoritative even when the installer selection is older.
-    features.retain(|feature| *feature != Feature::Voice);
+    features.retain(|feature| !matches!(feature, Feature::Voice | Feature::Punctuation));
     if layout.live_asr {
         features.push(Feature::Voice);
+    }
+    if asr.punctuation {
+        features.push(Feature::Punctuation);
     }
     let summary = if found.is_some()
         || layout.llm_base_url.trim_end_matches('/') == "http://localhost:11434/v1"
@@ -199,12 +230,13 @@ pub fn view(
         program_dir: destination.display().to_string(),
         models_dir: models.display().to_string(),
         summary_model: layout.llm_model.clone(),
-        core_ready: Component::Gigaam.valid(layout),
+        core_ready: component(asr_backend.model()).valid(layout),
         ollama_ready: probe::cli().is_some() || found.is_some(),
         installed,
         preview: false,
         initial: existing.then(|| Selection {
             custom: false,
+            asr_backend,
             features,
             program_dir: destination.display().to_string(),
             models_dir: models.display().to_string(),
@@ -271,17 +303,15 @@ fn prepare_at(
         None => configuration(&destination)?,
     };
     let mut target = layout(&config, source, &destination);
-    let components = [Component::Gigaam].into_iter().chain(
-        [
-            (Feature::Voice, Component::Vosk),
-            (Feature::Speakers, Component::Diarize),
-            (Feature::Names, Component::Ner),
-        ]
-        .into_iter()
-        .filter_map(|(feature, component)| {
-            selected.features.contains(&feature).then_some(component)
-        }),
-    );
+    target.asr = Ok(transcription::Choice::parse(
+        selected.asr_backend.id(),
+        if selected.features.contains(&Feature::Punctuation) {
+            "on"
+        } else {
+            "off"
+        },
+    )?);
+    let components = selected.models().into_iter().map(component);
     let mut choices = vec![];
     for component in components {
         if let Some(path) = selected
@@ -356,6 +386,21 @@ fn prepare_at(
         }
     };
     let mut plan = plan::build(&target, &choices, llm, &tags)?;
+    for (key, selected_value) in [
+        (transcription::BACKEND_KEY, selected.asr_backend.id()),
+        (
+            transcription::PUNCTUATION_KEY,
+            if selected.features.contains(&Feature::Punctuation) {
+                "on"
+            } else {
+                "off"
+            },
+        ),
+    ] {
+        if value(&config, key) != selected_value {
+            plan.changes.push((key.into(), Some(selected_value.into())));
+        }
+    }
     let live_asr = selected.features.contains(&Feature::Voice);
     let mode = if live_asr { "on" } else { "off" };
     if config.get("LOCALVOX_LIGHT_LIVE_ASR").map(String::as_str) != Some(mode) {
@@ -481,6 +526,15 @@ impl Installation {
         let mut lines = vec![
             format!("Программа: {}", self.destination.display()),
             format!("Архив: {}", self.layout.work_dir.display()),
+            format!("Распознавание: {}", self.selected.asr_backend.title()),
+            format!(
+                "Пунктуация SbertPuncCase: {}",
+                if self.selected.features.contains(&Feature::Punctuation) {
+                    "включена"
+                } else {
+                    "выключена"
+                }
+            ),
         ];
         lines.push(if self.layout.summary_enabled {
             format!(

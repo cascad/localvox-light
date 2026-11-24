@@ -158,10 +158,17 @@ impl Config {
     fn lanes(&self) -> Vec<Vec<JobPhase>> {
         let mut lanes = vec![vec![JobPhase::Prepare], vec![JobPhase::Transcribe]];
         if self.summary_provider.trim().eq_ignore_ascii_case("claude") {
-            lanes.extend([vec![JobPhase::Text], vec![JobPhase::Summary]]);
+            lanes.extend([
+                vec![JobPhase::Punctuation, JobPhase::Text],
+                vec![JobPhase::Summary],
+            ]);
         } else {
             // Local summary and cleanup share Ollama/VRAM and must not thrash its models.
-            lanes.push(vec![JobPhase::Text, JobPhase::Summary]);
+            lanes.push(vec![
+                JobPhase::Punctuation,
+                JobPhase::Text,
+                JobPhase::Summary,
+            ]);
         }
         lanes
     }
@@ -170,7 +177,7 @@ impl Config {
         self.timeouts[match phase {
             JobPhase::Prepare => 0,
             JobPhase::Transcribe => 1,
-            JobPhase::Text => 2,
+            JobPhase::Punctuation | JobPhase::Text => 2,
             JobPhase::Summary => 3,
         }]
     }
@@ -765,6 +772,7 @@ fn fail_phase_observed(
     let stages: &[Stage] = match job.phase {
         JobPhase::Prepare => &[Stage::Download, Stage::Extract],
         JobPhase::Transcribe => &[Stage::Transcribe],
+        JobPhase::Punctuation => &[Stage::Punctuation],
         JobPhase::Text => &[Stage::Refine, Stage::Cleanup],
         JobPhase::Summary => &[Stage::Summary],
     };

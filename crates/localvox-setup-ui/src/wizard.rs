@@ -1,11 +1,14 @@
 //! Explicit navigation over completed answers; terminal input stays with cliclack.
-use crate::{recommended, Feature, InstallerTheme, ModelKind, Selection, SummarySource, ViewData};
+use crate::{
+    recommended, AsrBackend, Feature, InstallerTheme, ModelKind, Selection, SummarySource, ViewData,
+};
 use std::collections::BTreeMap;
 use std::io;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Step {
     Profile,
+    Backend,
     Components,
     Source,
     OllamaModel,
@@ -45,6 +48,7 @@ enum Directories {
 
 struct Draft {
     custom: bool,
+    asr_backend: AsrBackend,
     features: Vec<Feature>,
     source: Provider,
     ollama_model: String,
@@ -63,6 +67,7 @@ impl Draft {
         let initial = recommended(data);
         let mut draft = Self {
             custom: false,
+            asr_backend: initial.asr_backend,
             features: initial.features,
             source: Provider::Ollama,
             ollama_model: data.summary_model.clone(),
@@ -109,6 +114,7 @@ impl Draft {
         }
         Selection {
             custom: true,
+            asr_backend: self.asr_backend,
             features: self.features.clone(),
             program_dir: if self.directories != Directories::Recommended {
                 &self.program_dir
@@ -271,15 +277,31 @@ fn ask(step: Step, draft: &mut Draft, data: &ViewData, details: Option<&str>) ->
                 .initial_value(draft.custom)
                 .interact()?;
             if draft.custom {
-                Components
+                Backend
             } else {
                 Review
             }
         }
+        Backend => {
+            draft.asr_backend = cliclack::select("Чем распознавать новые записи?")
+                .item(
+                    AsrBackend::Gigaam,
+                    "GigaAM",
+                    "Рекомендуется · ≈215 МБ · пунктуация уже есть",
+                )
+                .item(
+                    AsrBackend::Tone,
+                    "T-one · greedy",
+                    "Русская речь · ≈145 МБ · без языковой модели KenLM",
+                )
+                .initial_value(draft.asr_backend)
+                .interact()?;
+            Components
+        }
         Components => {
             cliclack::note(
                 "Всегда включено",
-                "✓ Запись и расшифровка · GigaAM ≈215 МБ\n  Входит в любую установку. Vosk нужен только для голосовых команд и мгновенного черновика.",
+                format!("✓ Запись и расшифровка · {}\n  Vosk нужен только для голосовых команд и мгновенного черновика.", draft.asr_backend.title()),
             )?;
             let mut checklist =
                 cliclack::multiselect("Компоненты · ↑/↓ · Пробел — галочка · Enter — дальше")
@@ -288,8 +310,20 @@ fn ask(step: Step, draft: &mut Draft, data: &ViewData, details: Option<&str>) ->
             for feature in Feature::ALL {
                 checklist = checklist.item(
                     feature,
-                    feature.title(),
-                    if data.installed.contains(&feature) {
+                    if feature == Feature::ExtraAsr {
+                        format!(
+                            "Скачать {} дополнительно",
+                            draft.asr_backend.other().title()
+                        )
+                    } else {
+                        feature.title().into()
+                    },
+                    if (feature == Feature::ExtraAsr
+                        && data
+                            .available_model_paths
+                            .contains_key(&draft.asr_backend.other().model()))
+                        || (feature != Feature::ExtraAsr && data.installed.contains(&feature))
+                    {
                         "Уже установлено · повторное скачивание не нужно"
                     } else {
                         feature.hint()
@@ -390,11 +424,7 @@ fn ask(step: Step, draft: &mut Draft, data: &ViewData, details: Option<&str>) ->
         ModelsDir => {
             draft.models_dir = text("Папка моделей", &draft.models_dir)?;
             if draft.directories == self::Directories::ExistingModels {
-                if draft.features.contains(&Feature::Voice) {
-                    ModelPath(ModelKind::Vosk)
-                } else {
-                    ModelPath(ModelKind::Gigaam)
-                }
+                ModelPath(draft.selected(data).models()[0])
             } else {
                 Review
             }
@@ -421,18 +451,14 @@ fn ask(step: Step, draft: &mut Draft, data: &ViewData, details: Option<&str>) ->
             })
             .interact()?;
             draft.model_paths.insert(kind, value);
-            match kind {
-                ModelKind::Vosk => ModelPath(ModelKind::Gigaam),
-                ModelKind::Gigaam if draft.features.contains(&Feature::Speakers) => {
-                    ModelPath(ModelKind::Diarize)
-                }
-                ModelKind::Gigaam | ModelKind::Diarize
-                    if draft.features.contains(&Feature::Names) =>
-                {
-                    ModelPath(ModelKind::Ner)
-                }
-                _ => Review,
-            }
+            let models = draft.selected(data).models();
+            models
+                .iter()
+                .position(|model| *model == kind)
+                .and_then(|index| models.get(index + 1))
+                .copied()
+                .map(ModelPath)
+                .unwrap_or(Review)
         }
         Review => {
             cliclack::note(

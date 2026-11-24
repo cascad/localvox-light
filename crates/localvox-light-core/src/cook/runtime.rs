@@ -6,14 +6,19 @@ pub struct AsrRuntime {
     identity: Option<crate::incremental::Identity>,
     engine: Option<Box<dyn AsrEngine>>,
     loads: u64,
+    pub(super) punctuation: crate::text_processing::pipeline::Runtime,
 }
 impl AsrRuntime {
     pub fn loads(&self) -> u64 {
         self.loads
     }
     pub fn clear(&mut self) {
+        self.punctuation.clear();
         self.engine = None;
         self.identity = None;
+    }
+    pub fn release_text_processor(&mut self) {
+        self.punctuation.clear();
     }
     pub(super) fn engine_for(
         &mut self,
@@ -27,7 +32,7 @@ impl AsrRuntime {
             let mut load = crate::journal::Operation::start(
                 session,
                 "transcribe",
-                "Загрузка ASR-модели и адаптера",
+                &format!("Загрузка ASR · {}", selection.name),
                 None,
             );
             let engine = selection.load().inspect_err(|_| load.failed())?;

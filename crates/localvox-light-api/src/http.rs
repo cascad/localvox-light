@@ -905,6 +905,9 @@ pub fn respond(
                         // be misspelled, and the recording then silently opens a different
                         // microphone — or none. Enumerated live: devices come and go.
                         let options: Option<Value> = match s.key {
+                            localvox_light_core::transcription::BACKEND_KEY => Some(json!(
+                                localvox_light_core::transcription::Backend::ALL.iter()
+                                    .map(|backend| json!({"value":backend.id(),"label":backend.title()})).collect::<Vec<_>>())),
                             "LOCALVOX_LLM_BASE_URL" => Some(json!(servers.iter().map(|url| json!({"value":url,"label":url})).collect::<Vec<_>>())),
                             "LOCALVOX_LIGHT_MIC" => {
                                 Some(json!(localvox_light_core::audio::input_device_choices()))
@@ -988,6 +991,15 @@ pub fn respond(
                         Value::Number(n) => Some(n.to_string()),
                         other => anyhow::bail!("значение «{k}» должно быть строкой: {other}"),
                     };
+                    if let Some(raw) = &value {
+                        if k == localvox_light_core::transcription::BACKEND_KEY {
+                            value = Some(
+                                localvox_light_core::transcription::Backend::parse(raw)?
+                                    .id()
+                                    .into(),
+                            );
+                        }
+                    }
                     if let Some(raw) = &value {
                         if k == localvox_light_core::presets::LLM_SERVERS {
                             value = Some(serde_json::to_string(

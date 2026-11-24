@@ -7,7 +7,8 @@ import { usePolling } from "./usePolling";
 const NAME: Record<Stage, string> = {
   download: "Скачали источник",
   extract: "Извлекли дорожку",
-  transcribe: "Распознавание · GigaAM",
+  transcribe: "Распознавание речи",
+  punctuation: "Пунктуация · SbertPuncCase",
   refine: "Исправление реплик · refine",
   cleanup: "Читаемый текст · cleanup",
   summary: "Сводка · summary",
@@ -44,7 +45,7 @@ const hms = (sec: number) => {
 const elapsed = (from: string | null | undefined, nowMs: number) =>
   from ? (nowMs - new Date(from).getTime()) / 1000 : NaN;
 
-const CHAIN: Stage[] = ["download", "extract", "transcribe", "refine", "cleanup", "summary"];
+const CHAIN: Stage[] = ["download", "extract", "transcribe", "punctuation", "refine", "cleanup", "summary"];
 
 /** Which stages this session will ever have.
  *
@@ -55,7 +56,7 @@ const CHAIN: Stage[] = ["download", "extract", "transcribe", "refine", "cleanup"
 const chainFor = (fromLink: boolean, reported: Stage[]): Stage[] =>
   CHAIN.filter(
     (s) =>
-      reported.includes(s) || (fromLink ? true : s !== "download" && s !== "extract"),
+      reported.includes(s) || (s !== "punctuation" && (fromLink ? true : s !== "download" && s !== "extract")),
   );
 
 /** What is happening with the session, stage by stage.

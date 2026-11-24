@@ -130,6 +130,7 @@ fn phase(value: &str) -> String {
     match value {
         "prepare" => "подготовка".into(),
         "transcribe" => "STT".into(),
+        "punctuation" => "пунктуация".into(),
         "text" => "текст".into(),
         "summary" => "сводка".into(),
         "index" => "индекс".into(),

@@ -64,7 +64,7 @@ impl Horizon {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PartialLine {
     pub id: String,
@@ -82,6 +82,10 @@ pub struct Snapshot {
     pub captured: capture::Snapshot,
     pub plan: planning::Snapshot,
     pub lines: Vec<PartialLine>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub original_lines: Option<Vec<PartialLine>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text_identity: Option<String>,
     pub audio_end: u64,
     pub publication_end: u64,
 }
@@ -128,6 +132,14 @@ impl Published {
             capture::read(session)?.generation == self.input.generation,
             "stale recording generation"
         );
+        match (&value.original_lines, &value.text_identity) {
+            (None, None) => {}
+            (Some(raw), Some(identity)) => {
+                ensure!(is_hash(identity), "invalid text processor identity");
+                crate::text_processing::validate_partial(raw, &value.lines)?;
+            }
+            _ => anyhow::bail!("incomplete text processor provenance"),
+        }
         Ok(value)
     }
     pub fn for_input(session: &Path, input: &FrozenInput) -> Result<Self> {
@@ -182,7 +194,17 @@ impl Cache {
         session: &Path,
         horizon: &Horizon,
         checkpoint: Checkpoint,
+        records: Vec<Accepted>,
+    ) -> Result<Published> {
+        self.publish_records_with(session, horizon, checkpoint, records, |_| Ok(()))
+    }
+    fn publish_records_with(
+        &self,
+        session: &Path,
+        horizon: &Horizon,
+        checkpoint: Checkpoint,
         mut records: Vec<Accepted>,
+        project: impl FnOnce(&mut Snapshot) -> Result<()>,
     ) -> Result<Published> {
         records.retain(|r| r.descriptor().start_sample < checkpoint.publication_end);
         records.sort_by_key(|r| (r.descriptor().start_sample, r.descriptor().source));
@@ -215,16 +237,41 @@ impl Cache {
                 })
             })
             .collect();
-        let value = Snapshot {
+        let mut value = Snapshot {
             version: 1,
             input: input.clone(),
             checkpoint,
             captured: horizon.input.clone(),
             plan: horizon.plan.clone(),
             lines,
+            original_lines: None,
+            text_identity: None,
             audio_end,
             publication_end,
         };
+        let raw = value.clone();
+        let projection_error = project(&mut value)
+            .and_then(|()| {
+                match (&value.original_lines, &value.text_identity) {
+                    (None, None) => ensure!(
+                        value.lines == raw.lines,
+                        "changed text without processor provenance"
+                    ),
+                    (Some(original), Some(identity)) => {
+                        ensure!(
+                            *original == raw.lines && is_hash(identity),
+                            "invalid original text or processor identity"
+                        );
+                        crate::text_processing::validate_partial(&raw.lines, &value.lines)?;
+                    }
+                    _ => anyhow::bail!("incomplete text processor provenance"),
+                }
+                Ok(())
+            })
+            .err();
+        if projection_error.is_some() {
+            value = raw;
+        }
         let bytes = serde_json::to_vec(&value)?;
         ensure!(
             bytes.len() <= 16 * 1024 * 1024,
@@ -248,6 +295,11 @@ impl Cache {
         )?;
         published.read(session)?;
         crate::artifacts::atomic_write(&session.join("incremental/current.json"), &receipt)?;
+        if let Some(error) = projection_error {
+            return Err(error.context(
+                "исходная готовая часть сохранена; обработчик текста завершился ошибкой",
+            ));
+        }
         Ok(published)
     }
 }
@@ -256,9 +308,17 @@ impl Transaction<'_> {
     /// Consume exactly the previously verified request snapshot; new records are
     /// revalidated at commit. Recovery and the next request start with disk reads.
     pub fn finish(self, session: &Path, new: &[Accepted]) -> Result<Checkpoint> {
+        self.finish_with_projection(session, new, |_| Ok(()))
+    }
+    pub fn finish_with_projection(
+        self,
+        session: &Path,
+        new: &[Accepted],
+        project: impl FnOnce(&mut Snapshot) -> Result<()>,
+    ) -> Result<Checkpoint> {
         let (state, records) = self.cache.commit_records(self.horizon, self.records, new)?;
         self.cache
-            .publish_records(session, self.horizon, state.clone(), records)?;
+            .publish_records_with(session, self.horizon, state.clone(), records, project)?;
         Ok(state)
     }
 }
@@ -267,6 +327,88 @@ impl Transaction<'_> {
 mod tests {
     use super::*;
     use crate::incremental::test_support::Fixture;
+
+    #[test]
+    fn optional_projection_survives_reopen_and_never_poisons_the_acoustic_cache() {
+        let f = Fixture::new([&[600, 1200], &[800, 1200]], false);
+        let cache = Cache::open(&f.session, &f.identity).unwrap();
+        let records: Vec<_> = (0..2)
+            .flat_map(|source| (0..2).map(move |n| (source, n)))
+            .map(|(source, n)| {
+                cache
+                    .resolve(f.window(source, n), |_| Ok("fixture words 123".into()))
+                    .unwrap()
+                    .0
+            })
+            .collect();
+        let state = cache.checkpoint(&f.horizon, &records).unwrap();
+        let (_, accepted) = cache.read_checkpoint(&f.horizon).unwrap();
+        let receipt = cache
+            .publish_records_with(&f.session, &f.horizon, state, accepted, |snapshot| {
+                snapshot.original_lines = Some(snapshot.lines.clone());
+                snapshot.text_identity = Some(hash(b"processor"));
+                for line in &mut snapshot.lines {
+                    line.text = "Fixture words 123.".into();
+                }
+                Ok(())
+            })
+            .unwrap();
+        let styled = receipt.read(&f.session).unwrap();
+        assert_eq!(styled.lines.len(), 2);
+        assert_eq!(
+            styled.original_lines.as_ref().unwrap()[0].text,
+            "fixture words 123"
+        );
+        drop(cache);
+        let cache = Cache::open(&f.session, &f.identity).unwrap();
+        let (state, accepted) = cache.read_checkpoint(&f.horizon).unwrap();
+        assert!(accepted
+            .iter()
+            .filter_map(|record| record.text())
+            .all(|text| text == "fixture words 123"));
+        // Both an explicit error and an invalid processor output publish readable raw text.
+        for corrupt in [false, true] {
+            let result = cache.publish_records_with(
+                &f.session,
+                &f.horizon,
+                state.clone(),
+                accepted.clone(),
+                |snapshot| {
+                    snapshot.original_lines = Some(snapshot.lines.clone());
+                    snapshot.text_identity = Some(hash(b"processor"));
+                    snapshot.lines[0].text = "wrong words 999".into();
+                    if corrupt {
+                        Ok(())
+                    } else {
+                        anyhow::bail!("fixture processor failed")
+                    }
+                },
+            );
+            assert!(result.is_err());
+            let current = Published::current(&f.session)
+                .unwrap()
+                .unwrap()
+                .read(&f.session)
+                .unwrap();
+            assert!(current.original_lines.is_none());
+            assert!(current
+                .lines
+                .iter()
+                .all(|line| line.text == "fixture words 123"));
+            assert_eq!(current.checkpoint, styled.checkpoint);
+            assert_eq!(
+                receipt.read(&f.session).unwrap().lines[0].text,
+                "Fixture words 123."
+            );
+            for source in [0, 1] {
+                for n in 0..2 {
+                    cache
+                        .resolve(f.window(source, n), |_| anyhow::bail!("ASR must not rerun"))
+                        .unwrap();
+                }
+            }
+        }
+    }
     #[test]
     fn frozen_input_and_published_audio_text_remain_one_revision_when_current_plan_changes() {
         let f = Fixture::new([&[600, 1200], &[800, 1200]], false);

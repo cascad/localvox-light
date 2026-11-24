@@ -8,6 +8,8 @@ pub mod vosk;
 pub mod onnx;
 #[cfg(feature = "onnx")]
 pub mod package;
+#[cfg(feature = "onnx")]
+pub mod tone;
 
 use anyhow::Result;
 use webrtc_vad::{SampleRate, Vad, VadMode};

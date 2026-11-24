@@ -105,6 +105,72 @@ fn settings_http_masks_unknown_values_and_reports_snapshot_restart_before_and_af
         json!({"key":"LOCALVOX_NEW_CREDENTIAL","set":true})
     );
     let doc = client.settings().unwrap();
+    let asr = doc
+        .settings
+        .iter()
+        .find(|s| s.key == "LOCALVOX_ASR_BACKEND")
+        .unwrap();
+    assert_eq!(asr.default_value.as_deref(), Some("gigaam"));
+    assert_eq!(asr.applies, "restart");
+    assert_eq!(
+        asr.options
+            .as_ref()
+            .unwrap()
+            .iter()
+            .map(|choice| choice.value.as_str())
+            .collect::<Vec<_>>(),
+        ["gigaam", "tone"]
+    );
+    let punctuation = doc
+        .settings
+        .iter()
+        .find(|s| s.key == "LOCALVOX_ASR_PUNCTUATION")
+        .unwrap();
+    assert_eq!(punctuation.kind, "bool");
+    assert_eq!(punctuation.default_value.as_deref(), Some("off"));
+    assert!(client
+        .save_settings([("LOCALVOX_ASR_BACKEND".into(), Some("unavailable".into()))].into())
+        .is_err());
+    let reply = client
+        .save_settings(
+            [
+                ("LOCALVOX_ASR_BACKEND".into(), Some("tone".into())),
+                ("LOCALVOX_ASR_PUNCTUATION".into(), Some("on".into())),
+            ]
+            .into(),
+        )
+        .unwrap();
+    assert_eq!(reply.need_restart.len(), 2);
+    let persisted = client.settings().unwrap();
+    assert_eq!(
+        persisted
+            .settings
+            .iter()
+            .find(|s| s.key == "LOCALVOX_ASR_BACKEND")
+            .unwrap()
+            .value
+            .as_deref(),
+        Some("tone")
+    );
+    assert_eq!(
+        persisted
+            .settings
+            .iter()
+            .find(|s| s.key == "LOCALVOX_ASR_PUNCTUATION")
+            .unwrap()
+            .value
+            .as_deref(),
+        Some("on")
+    );
+    client
+        .save_settings(
+            [
+                ("LOCALVOX_ASR_BACKEND".into(), None),
+                ("LOCALVOX_ASR_PUNCTUATION".into(), None),
+            ]
+            .into(),
+        )
+        .unwrap();
     let voice = doc
         .settings
         .iter()
@@ -319,7 +385,7 @@ fn settings_http_masks_unknown_values_and_reports_snapshot_restart_before_and_af
             .iter()
             .filter(|stage| stage.state == "skipped")
             .count(),
-        3
+        4 // punctuation is independently disabled along with refine/cleanup/summary
     );
     let keys = ["SUMMARY"].map(|s| format!("LOCALVOX_LIGHT_AUTOCOOK_{s}"));
     client

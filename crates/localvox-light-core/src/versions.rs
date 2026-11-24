@@ -213,7 +213,7 @@ impl VersionStore {
     /// A strict load for WRITING: a missing manifest is normal (an empty one), but a
     /// corrupted one is an error. Otherwise a write «from empty» would overwrite the
     /// existing versions and derivatives (P2/P3 — the primary data is immutable).
-    fn load_strict(&self) -> std::io::Result<VersionsManifest> {
+    pub(crate) fn load_strict(&self) -> std::io::Result<VersionsManifest> {
         let bytes = match fs::read(self.manifest_path()) {
             Ok(b) => b,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {

@@ -20,9 +20,15 @@ pub struct ModelPackage {
 }
 impl ModelPackage {
     pub fn resolve(model: lang::AsrModel) -> Result<Self> {
-        let onnx_file = (model.engine == lang::Engine::Onnx)
-            .then(|| find_model_file(&model.dir))
-            .transpose()?;
+        let onnx_file = match model.engine {
+            lang::Engine::Onnx => Some(find_model_file(&model.dir)?),
+            lang::Engine::Tone => {
+                let file = model.dir.join("model.onnx");
+                ensure!(file.is_file(), "T-one model not found: {}", file.display());
+                Some(file)
+            }
+            lang::Engine::Vosk => None,
+        };
         let name = onnx_file
             .as_deref()
             .unwrap_or(&model.dir)
@@ -30,7 +36,14 @@ impl ModelPackage {
             .unwrap_or_default()
             .to_string_lossy()
             .into_owned();
-        let engine = if onnx_file.is_some() {
+        let name = if model.engine == lang::Engine::Tone {
+            "T-one · greedy".to_string()
+        } else {
+            name
+        };
+        let engine = if model.engine == lang::Engine::Tone {
+            super::tone::ENGINE
+        } else if onnx_file.is_some() {
             "gigaam-v3-e2e-ctc"
         } else {
             "vosk"
@@ -51,8 +64,15 @@ impl ModelPackage {
                 "vocabulary".into(),
                 self.model
                     .dir
-                    .join(super::onnx::adapters::gigaam_v3_e2e_ctc::VOCAB_FILENAME),
+                    .join(if self.model.engine == lang::Engine::Tone {
+                        "vocab.json"
+                    } else {
+                        super::onnx::adapters::gigaam_v3_e2e_ctc::VOCAB_FILENAME
+                    }),
             );
+            if self.model.engine == lang::Engine::Tone {
+                files.insert("configuration".into(), self.model.dir.join("config.json"));
+            }
         } else {
             let mut pending = vec![self.model.dir.clone()];
             let mut visited = std::collections::BTreeSet::new();
@@ -85,6 +105,7 @@ impl ModelPackage {
 
     pub fn load(&self) -> Result<Box<dyn AsrEngine>> {
         match self.model.engine {
+            lang::Engine::Tone => Ok(Box::new(super::tone::TOneEngine::new(&self.model.dir)?)),
             lang::Engine::Onnx => {
                 let adapter = GigaamV3E2eCtc::from_model_dir(&self.model.dir)
                     .context("building the GigaAM v3 E2E CTC adapter")?;

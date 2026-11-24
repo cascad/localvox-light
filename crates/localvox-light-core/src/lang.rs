@@ -136,6 +136,8 @@ pub fn label(lang: &str) -> String {
 pub enum Engine {
     /// An ONNX model (GigaAM v3 and its kin).
     Onnx,
+    /// T-one raw-PCM recurrent ONNX, explicitly selected rather than sniffed as mel.
+    Tone,
     /// A Vosk model (a directory with `am/`, `conf/`).
     Vosk,
 }

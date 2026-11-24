@@ -54,6 +54,8 @@ pub struct SessionMeta {
     /// never permission to accept the session as an untracked legacy recording.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub capture_generation: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asr: Option<crate::transcription::Choice>,
     /// What to call each audio SOURCE when diarization has not named the voice: `0` is the
     /// microphone, `1` is the system sound.
     ///
@@ -232,7 +234,7 @@ pub fn save_meta_checked(meta_path: &Path, meta: &SessionMeta) -> anyhow::Result
             serde_json::from_slice::<serde_json::Value>(&b).map_err(std::io::Error::other)
         }),
     ) {
-        for field in ["lang", "lang_detected"] {
+        for field in ["lang", "lang_detected", "asr"] {
             if !obj.contains_key(field) {
                 if let Some(v) = on_disk.get(field) {
                     obj.insert(field.to_string(), v.clone());
@@ -667,6 +669,7 @@ pub fn create_session_dir(
     work_dir: &Path,
     label: Option<&str>,
 ) -> std::io::Result<(PathBuf, PathBuf)> {
+    let asr = crate::transcription::Choice::configured().map_err(std::io::Error::other)?;
     let stamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
     let base = match label.map(slug) {
         Some(s) if !s.is_empty() => format!("{stamp}_{s}"),
@@ -689,6 +692,7 @@ pub fn create_session_dir(
         // ENTIRE Russian archive "cooked wrong" — and it would be re-cooked with the English
         // model. The variable MUST affect only NEW recordings.
         lang: crate::lang::global(),
+        asr: Some(asr),
         ..Default::default()
     };
     save_meta_checked(&meta_path, &meta).map_err(std::io::Error::other)?;

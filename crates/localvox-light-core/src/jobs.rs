@@ -85,12 +85,13 @@ pub enum JobPhase {
     #[default]
     Prepare,
     Transcribe,
+    Punctuation,
     Text,
     Summary,
 }
 
 /// Increment when the daemon/worker phase contract becomes incompatible.
-pub const WORKER_PROTOCOL: &str = "localvox-worker/3";
+pub const WORKER_PROTOCOL: &str = "localvox-worker/4";
 
 /// OS-backed ownership, held from claim through artifact acceptance. A missing heartbeat is not
 /// evidence that a worker died. API repairs use the same lock before invalidating its outputs.
@@ -116,6 +117,7 @@ impl JobPhase {
         match self {
             Self::Prepare => "prepare",
             Self::Transcribe => "transcribe",
+            Self::Punctuation => "punctuation",
             Self::Text => "text",
             Self::Summary => "summary",
         }
@@ -128,6 +130,7 @@ impl std::str::FromStr for JobPhase {
         match value {
             "prepare" => Ok(Self::Prepare),
             "transcribe" => Ok(Self::Transcribe),
+            "punctuation" => Ok(Self::Punctuation),
             "text" => Ok(Self::Text),
             "summary" => Ok(Self::Summary),
             _ => Err(format!("unknown worker phase: {value}")),
@@ -150,6 +153,9 @@ pub struct Job {
     /// Clean the transcript up with an LLM as a new best version (`--refine`).
     #[serde(default)]
     pub refine: bool,
+    /// Fixed by the session, independently of live LLM switches.
+    #[serde(default)]
+    pub punctuation: bool,
     /// New automatic jobs follow the three live post-processing switches. Legacy
     /// queues and explicit derivative requests retain their original snapshot.
     #[serde(default)]
@@ -204,6 +210,7 @@ impl Job {
             summary: flags.0,
             cleanup: flags.1,
             refine: flags.2,
+            punctuation: false,
             follow_settings,
             state: JobState::Pending,
             attempts: 0,
@@ -236,7 +243,10 @@ pub fn verify_phase(session: &Path, job: &Job) -> anyhow::Result<()> {
         crate::artifacts::audio(session)?;
         return Ok(());
     }
-    let empty = if matches!(job.phase, JobPhase::Text | JobPhase::Summary) {
+    let empty = if matches!(
+        job.phase,
+        JobPhase::Punctuation | JobPhase::Text | JobPhase::Summary
+    ) {
         let transcription = processing::inspect(session, processing::TRANSCRIPT);
         if transcription.state == ArtifactState::Empty && transcription.source.is_none() {
             true
@@ -259,6 +269,7 @@ pub fn verify_phase(session: &Path, job: &Job) -> anyhow::Result<()> {
     let mut required = vec![];
     match job.phase {
         JobPhase::Transcribe => required.push(processing::TRANSCRIPT),
+        JobPhase::Punctuation => required.push(processing::PUNCTUATED),
         JobPhase::Text if !empty => {
             if job.refine {
                 required.push(processing::REFINED);
@@ -650,6 +661,14 @@ impl JobQueue {
         ) {
             return false;
         }
+        let session_dir = self
+            .path
+            .parent()
+            .unwrap_or(Path::new("."))
+            .join("sessions")
+            .join(session);
+        let punctuation = crate::transcription::Choice::for_session(&session_dir)
+            .is_ok_and(|choice| choice.punctuation);
         self.update_job(index, "полная переобработка", |job| {
             if job.kind == JobKind::Incremental {
                 job.kind = JobKind::Cook;
@@ -670,6 +689,7 @@ impl JobQueue {
             job.summary = summary;
             job.cleanup = cleanup;
             job.refine = refine;
+            job.punctuation = punctuation;
             job.force = true;
             job.follow_settings = true;
         })
@@ -754,6 +774,11 @@ impl JobQueue {
         self.file.next_id += 1;
         let mut job = Job::pending(id, session, kind, phase, flags, follow_settings);
         job.force = force;
+        if let Some(root) = self.path.parent() {
+            job.punctuation =
+                crate::transcription::Choice::for_session(&root.join("sessions").join(session))
+                    .is_ok_and(|choice| choice.punctuation);
+        }
         self.file.jobs.push(job);
         if self.save() {
             true
@@ -1006,23 +1031,53 @@ impl JobQueue {
                 (job.summary, job.cleanup, job.refine) = flags;
             }
         }
-        self.advance_phase(id, phase);
         let index = self.file.jobs.iter().position(|j| j.id == id).unwrap();
+        if let Err(error) = self.advance_phase(id, phase) {
+            self.file.jobs[index] = previous;
+            return Err(error);
+        }
         self.commit_jobs(vec![(index, previous)], "подтверждение фазы")?;
         Ok(())
     }
 
-    fn advance_phase(&mut self, id: u64, phase: JobPhase) {
+    fn advance_phase(&mut self, id: u64, phase: JobPhase) -> anyhow::Result<()> {
+        let Some(current) = self.file.jobs.iter().find(|j| j.id == id) else {
+            return Ok(());
+        };
+        if current.state != JobState::Running || current.phase != phase {
+            return Ok(());
+        }
+        let choice = if matches!(phase, JobPhase::Prepare | JobPhase::Transcribe)
+            && current.kind != JobKind::Incremental
+        {
+            let session = self
+                .path
+                .parent()
+                .unwrap_or(Path::new("."))
+                .join("sessions")
+                .join(&current.session);
+            Some(crate::transcription::Choice::for_session(&session)?)
+        } else {
+            None
+        };
         let Some(j) = self.file.jobs.iter_mut().find(|j| j.id == id) else {
-            return;
+            return Ok(());
         };
         if j.state != JobState::Running || j.phase != phase {
-            return;
+            return Ok(());
+        }
+        if let Some(choice) = choice {
+            j.punctuation = choice.punctuation;
         }
         let next = match phase {
             JobPhase::Prepare => Some(JobPhase::Transcribe),
-            JobPhase::Transcribe if j.refine || j.cleanup => Some(JobPhase::Text),
-            JobPhase::Transcribe | JobPhase::Text if j.summary => Some(JobPhase::Summary),
+            JobPhase::Transcribe if j.punctuation => Some(JobPhase::Punctuation),
+            JobPhase::Transcribe | JobPhase::Punctuation if j.refine || j.cleanup => {
+                Some(JobPhase::Text)
+            }
+            JobPhase::Transcribe | JobPhase::Punctuation | JobPhase::Text if j.summary => {
+                Some(JobPhase::Summary)
+            }
             _ => None,
         };
         if phase == JobPhase::Transcribe {
@@ -1041,6 +1096,7 @@ impl JobQueue {
             j.finished_at = Some(now_rfc3339());
             j.force = false;
         }
+        Ok(())
     }
 
     pub fn mark_done(&mut self, id: u64) {
@@ -1337,15 +1393,19 @@ impl Wanted {
         }
     }
 
-    fn nothing_wanted(&self) -> bool {
-        !self.summary && !self.cleanup
-    }
-
     /// Artifact → the recipe for THIS session (its language, its template).
     fn recipes(&self, session_dir: &Path) -> Vec<(&'static str, String)> {
         use crate::processing::{llm_recipe, llm_style, PROCESSED, SUMMARY};
         let lang = crate::lang::text(session_dir);
         let mut v = Vec::new();
+        if crate::transcription::Choice::for_session(session_dir)
+            .is_ok_and(|choice| choice.punctuation)
+        {
+            v.push((
+                crate::processing::PUNCTUATED,
+                "punctuation/session-choice".into(),
+            ));
+        }
         if self.summary {
             let style = llm_style(self.summary_template.as_deref(), &lang);
             v.push((SUMMARY, llm_recipe(SUMMARY, &style, &self.model)));
@@ -1363,9 +1423,6 @@ impl Wanted {
 /// in the log, not an empty space. A record with the same recipe is enough, whatever it
 /// ended with (done / nothing to do / unverified).
 pub fn sessions_needing_artifacts(work_dir: &Path, want: &Wanted) -> Vec<String> {
-    if want.nothing_wanted() {
-        return Vec::new();
-    }
     let root = work_dir.join("sessions");
     let Ok(entries) = fs::read_dir(&root) else {
         return Vec::new();
@@ -1382,6 +1439,10 @@ pub fn sessions_needing_artifacts(work_dir: &Path, want: &Wanted) -> Vec<String>
         };
         if Some(name.as_str()) == active.as_deref() {
             continue;
+        }
+        let wanted = want.recipes(&dir);
+        if wanted.is_empty() {
+            continue; // ASR-only sessions need no transcript read during artifact discovery.
         }
         // A session without a single line of speech does not deserve artifacts: the cook
         // has already found that out and written it into the log (Outcome::Nothing).
@@ -1411,8 +1472,7 @@ pub fn sessions_needing_artifacts(work_dir: &Path, want: &Wanted) -> Vec<String>
         //
         // A better prompt reaches the old archive when the HUMAN presses «переварить заново». It
         // does not happen behind his back, and it does not happen a hundred times.
-        if want
-            .recipes(&dir)
+        if wanted
             .iter()
             .any(|(art, _recipe)| !crate::processing::is_done(&dir, art))
         {
@@ -1491,7 +1551,9 @@ fn needs_cook(session_dir: &Path, quiescent_secs: u64) -> bool {
 /// every session in every daemon cycle.
 pub fn session_cook_recipe(session_dir: &Path) -> String {
     crate::versions::cook_recipe(
-        &crate::lang::label(&crate::lang::asr(session_dir)),
+        &crate::transcription::Choice::for_session(session_dir)
+            .map(|choice| choice.label(&crate::lang::asr(session_dir)))
+            .unwrap_or_else(|_| "invalid-asr-choice".into()),
         crate::versions::DEFAULT_MAX_WINDOW_SEC,
         crate::versions::DEFAULT_MIN_CUT_SEC,
         crate::versions::DEFAULT_SILENCE_MS,
@@ -2162,12 +2224,12 @@ mod tests {
         q.enqueue_cook("b", true, true, true);
         let a = q.start_phase(0, &[JobPhase::Prepare]).unwrap();
         assert!(q.start_phase(a.id, &[JobPhase::Prepare]).is_none());
-        q.advance_phase(a.id, JobPhase::Prepare);
+        q.advance_phase(a.id, JobPhase::Prepare).unwrap();
         let b = q.start_phase(1, &[JobPhase::Prepare]).unwrap();
         assert!(q.start_phase(a.id, &[JobPhase::Summary]).is_none());
         q.start_phase(a.id, &[JobPhase::Transcribe]).unwrap();
-        q.advance_phase(a.id, JobPhase::Transcribe);
-        q.advance_phase(b.id, JobPhase::Prepare);
+        q.advance_phase(a.id, JobPhase::Transcribe).unwrap();
+        q.advance_phase(b.id, JobPhase::Prepare).unwrap();
         q.start_phase(a.id, &[JobPhase::Text]).unwrap();
         q.start_phase(b.id, &[JobPhase::Transcribe]).unwrap();
         assert_eq!(
@@ -2180,10 +2242,91 @@ mod tests {
         q.mark_failed(a.id, "temporary", 3);
         let mut q = JobQueue::load(dir.path());
         assert_eq!(q.start_phase(a.id, &[JobPhase::Text]).unwrap().attempts, 2);
-        q.advance_phase(a.id, JobPhase::Text);
+        q.advance_phase(a.id, JobPhase::Text).unwrap();
         q.start_phase(a.id, &[JobPhase::Summary]).unwrap();
-        q.advance_phase(a.id, JobPhase::Summary);
+        q.advance_phase(a.id, JobPhase::Summary).unwrap();
         assert_eq!(q.jobs()[0].state, JobState::Done);
+    }
+
+    #[cfg(feature = "onnx")]
+    #[test]
+    fn punctuation_is_a_durable_verified_phase_and_retry_never_returns_to_asr() {
+        use crate::{
+            processing,
+            text_processing::{self, TextProcessor},
+            transcription::Choice,
+        };
+        struct Processor;
+        impl TextProcessor for Processor {
+            fn name(&self) -> &str {
+                "fixture"
+            }
+            fn process(&self, text: &str) -> anyhow::Result<String> {
+                Ok(format!("{text}."))
+            }
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let session = dir.path().join("sessions/a");
+        crate::artifacts::tests::fixture(&session);
+        fs::write(
+            session.join("meta.json"),
+            br#"{"started_at":"2026-11-24T00:00:00Z"}"#,
+        )
+        .unwrap();
+        Choice {
+            punctuation: true,
+            ..Default::default()
+        }
+        .save(&session)
+        .unwrap();
+        processing::record(
+            &session,
+            processing::TRANSCRIPT,
+            "fixture",
+            processing::Outcome::Ok,
+            None,
+            Some(1),
+        )
+        .unwrap();
+        let want = Wanted::new(false, false, None, "unused");
+        assert_eq!(sessions_needing_artifacts(dir.path(), &want), ["a"]);
+        let mut queue = JobQueue::load(dir.path());
+        assert!(queue.enqueue_cook("a", false, false, false));
+        assert!(queue.start(0).unwrap().punctuation);
+        queue.finish_phase(0, JobPhase::Prepare).unwrap();
+        queue.start(0).unwrap();
+        queue.finish_phase(0, JobPhase::Transcribe).unwrap();
+        assert_eq!(queue.start(0).unwrap().phase, JobPhase::Punctuation);
+        assert!(
+            queue.finish_phase(0, JobPhase::Punctuation).is_err(),
+            "no proof, no completion"
+        );
+        queue.mark_failed(0, "fixture model failure", 3);
+        drop(queue);
+        let mut queue = JobQueue::load(dir.path());
+        assert!(queue.pending_for(&[JobPhase::Transcribe]).is_empty());
+        assert_eq!(queue.start(0).unwrap().phase, JobPhase::Punctuation);
+        text_processing::pipeline::process_session_with(&session, || {
+            Ok(("a".repeat(64), || {
+                Ok(Box::new(Processor) as Box<dyn TextProcessor>)
+            }))
+        })
+        .unwrap();
+        queue.finish_phase(0, JobPhase::Punctuation).unwrap();
+        assert_eq!(queue.jobs()[0].state, JobState::Done);
+        assert!(sessions_needing_artifacts(dir.path(), &want).is_empty());
+        assert!(processing::is_done(&session, processing::TRANSCRIPT));
+        // A fresh acoustic result invalidates only the old derivative receipt.
+        processing::record(
+            &session,
+            processing::TRANSCRIPT,
+            "new raw",
+            processing::Outcome::Ok,
+            None,
+            Some(2),
+        )
+        .unwrap();
+        assert!(!processing::is_done(&session, processing::PUNCTUATED));
     }
 
     #[test]
@@ -2193,19 +2336,19 @@ mod tests {
         let mut q = JobQueue::load(dir.path());
         q.enqueue_recook("a", true, false, false);
         q.start(0).unwrap();
-        q.advance_phase(0, JobPhase::Prepare);
+        q.advance_phase(0, JobPhase::Prepare).unwrap();
         q.start(0).unwrap();
-        q.advance_phase(0, JobPhase::Transcribe);
+        q.advance_phase(0, JobPhase::Transcribe).unwrap();
         assert!(!q.jobs()[0].force);
         q.start_phase(0, &[JobPhase::Summary]).unwrap();
-        q.advance_phase(0, JobPhase::Text); // stale/wrong phase cannot complete this job
+        q.advance_phase(0, JobPhase::Text).unwrap(); // stale/wrong phase cannot complete this job
         assert_eq!(q.jobs()[0].state, JobState::Running);
         let mut q = JobQueue::load(dir.path());
         q.reclaim_abandoned(dir.path());
         assert_eq!(q.jobs()[0].phase, JobPhase::Summary);
         assert!(q.pending_for(&[JobPhase::Transcribe]).is_empty());
         q.start_phase(0, &[JobPhase::Summary]).unwrap();
-        q.advance_phase(0, JobPhase::Summary);
+        q.advance_phase(0, JobPhase::Summary).unwrap();
         assert_eq!(q.jobs()[0].state, JobState::Done);
     }
 
@@ -2221,13 +2364,37 @@ mod tests {
             JobPhase::Prepare
         );
         q.start(0).unwrap();
-        q.advance_phase(0, JobPhase::Prepare);
+        q.advance_phase(0, JobPhase::Prepare).unwrap();
         q.start(0).unwrap();
-        q.advance_phase(0, JobPhase::Transcribe);
+        q.advance_phase(0, JobPhase::Transcribe).unwrap();
         assert_eq!(q.jobs()[0].state, JobState::Done);
         q.enqueue_recook("a", true, true, true);
         assert_eq!(q.jobs()[0].phase, JobPhase::Prepare);
         assert!(q.jobs()[0].force);
+    }
+
+    #[test]
+    fn explicit_recook_refreshes_the_punctuation_plan_before_the_prepare_worker_starts() {
+        let dir = tempfile::tempdir().unwrap();
+        let session = dir.path().join("sessions/a");
+        fs::create_dir_all(&session).unwrap();
+        fs::write(session.join("meta.json"), b"{}").unwrap();
+        let mut queue = JobQueue::load(dir.path());
+        assert!(queue.enqueue_cook("a", false, false, false));
+        queue.mark_done(0);
+        for enabled in [true, false] {
+            crate::transcription::Choice {
+                punctuation: enabled,
+                ..Default::default()
+            }
+            .save(&session)
+            .unwrap();
+            assert!(queue.enqueue_recook("a", false, false, false));
+            assert_eq!(queue.jobs()[0].phase, JobPhase::Prepare);
+            assert_eq!(queue.jobs()[0].punctuation, enabled);
+            assert_eq!(JobQueue::load(dir.path()).jobs()[0].punctuation, enabled);
+            queue.mark_done(0);
+        }
     }
 
     /// The request is taken EXACTLY ONCE — otherwise the engine would restart the recording
