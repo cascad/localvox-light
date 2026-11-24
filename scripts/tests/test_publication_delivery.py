@@ -77,6 +77,9 @@ class PublicationContracts(unittest.TestCase):
                                          upload_url=owner.url + '/repos/example/localvox/upload{?name,label}')
                     status, result = 201, owner.current
                 elif path == '/releases/1' and self.command == 'PATCH':
+                    # Observed GitHub response: PATCH without tag_name detaches
+                    # the draft into an untagged-* release, rather than keeping it.
+                    owner.current['tag_name'] = value.get('tag_name', 'untagged-fixture')
                     owner.current.update(value)
                     result = owner.current
                 elif path == '/releases/1/assets': result = owner.assets
@@ -216,7 +219,8 @@ class PublicationContracts(unittest.TestCase):
         self.assertEqual(len(self.assets), 14)
         self.assertTrue(url.endswith(TAG))
         self.assertFalse(self.current['draft'])
-        self.assertEqual(self.calls[-1], ('PATCH', '/releases/1', {'draft': False, 'make_latest': 'true'}))
+        self.assertEqual(self.calls[-1], ('PATCH', '/releases/1',
+                                        {'tag_name': TAG, 'draft': False, 'make_latest': 'true'}))
 
     def test_partial_upload_is_reused_and_starter_asset_is_replaced(self):
         paths = self.files()

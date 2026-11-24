@@ -204,3 +204,22 @@ gates и доступные артефакты; bootstrap scripts также б�
 
 Hosted запуск нового publisher и публичная доступность v0.2.11 на момент этой
 записи ещё не проверены; 3.3 остаётся открытой до фактического результата.
+
+### Follow-up: точный контракт PATCH черновика
+
+Recovery [45380014004](https://github.com/cascad/localvox-light/actions/runs/45380014004)
+на f1bb7f5: **write-preflight success**, 17 HTTP tests passed; Actions token с
+Contents: write создал draft без `target_commitish`. Все готовые архивы получены
+без пересборки. Финальный gate отказал `GitHub returned an unexpected release draft`.
+Это отдельный дефект нового publisher, а не продолжение первоначального HTTP 403.
+
+На реальном API локально воспроизведено: PATCH draft без `tag_name` возвращает
+`tag_name: untagged-*`. Ответ и последующее чтение подтвердили сброс привязки.
+Стенд ранее делал обычный dict.update и ошибочно сохранял тег при его отсутствии.
+Теперь fixture воспроизводит этот ответ; оба PATCH явно передают `tag_name`,
+а write-preflight также явно сохраняет `draft: true`. Проверка после публикации
+тоже требует исходный tag. **17 HTTP tests passed** повторно.
+
+Исправленный запрос выполнен локально на реальном GitHub до следующего push:
+draft 456642180 восстановлен с v0.2.11, затем production `draft()` выполнил повторный
+PATCH и сохранил тот же ID/tag/draft. Публичной версии на этом шаге ещё нет.

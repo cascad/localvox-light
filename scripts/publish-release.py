@@ -145,7 +145,7 @@ def draft(api, tag, sha):
             raise RuntimeError('Existing draft does not belong to the verified release commit')
         # A previous draft alone is not evidence of this job token's write access.
         release = api.request('PATCH', '/releases/' + str(release['id']),
-                              {'body': release['body']})
+                              {'tag_name': tag, 'draft': True, 'body': release['body']})
     if not release['draft'] or release['tag_name'] != tag or marker not in (release.get('body') or ''):
         raise RuntimeError('GitHub returned an unexpected release draft')
     return release
@@ -200,8 +200,9 @@ def publish(api, release, paths):
             a['state'] != 'uploaded' or (a.get('digest'), a['size']) != expected.get(a['name'])
             for a in actual):
         raise RuntimeError('Uploaded release assets failed remote checksum/size verification')
-    result = api.request('PATCH', endpoint, {'draft': False, 'make_latest': 'true'})
-    if result['draft']:
+    result = api.request('PATCH', endpoint, {'tag_name': release['tag_name'],
+                                           'draft': False, 'make_latest': 'true'})
+    if result['draft'] or result['tag_name'] != release['tag_name']:
         raise RuntimeError('GitHub did not publish the release')
     return result['html_url']
 
