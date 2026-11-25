@@ -1,5 +1,8 @@
 """CI's installed-product checks, without inference or shared application data."""
 import importlib.util
+import hashlib
+import base64
+import io
 import json
 import os
 from pathlib import Path
@@ -11,6 +14,7 @@ import sys
 import tempfile
 import tomllib
 import unittest
+import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location('check_release_install', ROOT / 'scripts/check-release-install.py')
@@ -19,6 +23,47 @@ spec.loader.exec_module(smoke)
 
 
 class InstalledCheckContracts(unittest.TestCase):
+    @unittest.skipUnless(os.name == 'nt' and shutil.which('node') and shutil.which('tar.exe'), 'Windows mpv setup contract')
+    def test_mpv_setup_exports_the_actual_path_on_fresh_and_cached_runs(self):
+        with tempfile.TemporaryDirectory(prefix='mpv-ci-export-') as temporary:
+            root = Path(temporary) / 'project with spaces Ю'
+            (root / 'scripts').mkdir(parents=True)
+            (root / 'Cargo.toml').write_text('fixture', encoding='utf-8')
+            script = root / 'scripts/setup-mpv.mjs'
+            shutil.copy2(ROOT / 'scripts/setup-mpv.mjs', script)
+            payload = b'fixture binary; not executed'
+            stream = io.BytesIO()
+            with zipfile.ZipFile(stream, 'w') as archive:
+                archive.writestr('mpv.exe', payload)
+            data = stream.getvalue()
+            bootstrap = '''
+import { pathToFileURL } from 'node:url';
+const bytes=Buffer.from(process.env.FIXTURE_ZIP,'base64');
+globalThis.fetch=async (url)=>{
+  if (process.env.CACHED==='1') throw Error('cached setup must not access the network');
+  if (url==='https://api.github.com/repos/mpv-player/mpv/releases/tags/git-release')
+    return new Response(JSON.stringify({assets:[{name:'mpv-fixture-x86_64-w64-mingw32-full.zip',digest:'sha256:'+process.env.FIXTURE_SHA,browser_download_url:'https://fixture.invalid/mpv.zip'}]}));
+  if (url==='https://fixture.invalid/mpv.zip') return new Response(bytes);
+  throw Error('unexpected network request');
+};
+await import(pathToFileURL(process.argv[1]));
+'''
+            env = {k: v for k, v in os.environ.items() if k not in ('GH_TOKEN', 'GITHUB_TOKEN')}
+            exported = root / 'github-env'
+            env.update(GITHUB_ENV=str(exported), FIXTURE_ZIP=base64.b64encode(data).decode(), FIXTURE_SHA=hashlib.sha256(data).hexdigest())
+            for cached in (False, True):
+                if exported.exists(): exported.unlink()
+                env['CACHED'] = '1' if cached else '0'
+                result = subprocess.run([shutil.which('node'), '--input-type=module', '-e', bootstrap, str(script)], cwd=root, env=env, capture_output=True, text=True, encoding='utf-8', timeout=30)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                lines = exported.read_text(encoding='utf-8').splitlines()
+                self.assertEqual(len(lines), 1)
+                key, path = lines[0].split('=', 1)
+                self.assertEqual(key, 'LOCALVOX_MPV')
+                self.assertTrue(Path(path).is_absolute())
+                self.assertEqual(Path(path).read_bytes(), payload)
+                self.assertEqual(Path(path), root / 'target/tools/mpv/mpv.exe')
+
     def test_native_and_interface_workflows_install_the_shared_rustup_pin(self):
         source = '# общий компилятор · UTF-8\n' + (ROOT / 'rust-toolchain.toml').read_text(encoding='utf-8')
         toolchain = tomllib.loads(source)['toolchain']

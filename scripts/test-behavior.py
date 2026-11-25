@@ -178,6 +178,7 @@ def isolated_environment(output, jobs, installed=None, visual=False, temporary=N
                        INSTA_UPDATE='no', CARGO_BUILD_JOBS=str(jobs), RAYON_NUM_THREADS=str(jobs),
                        OMP_NUM_THREADS=str(jobs), PYTHONUTF8='1', PLAYWRIGHT_HTML_OPEN='never')
     environment['LOCALVOX_BEHAVIOR_PROFILE'] = 'visual' if visual else 'behavior'
+    environment['LOCALVOX_YTDLP_AUTO_UPDATE'] = 'off'
     environment['LOCALVOX_CROSS_OUTPUT'] = str(output / 'cross-clients')
     environment.setdefault('ORT_CACHE_DIR', str(ROOT / 'target/tools/ort-cache'))
     library = native_library(installed).parent

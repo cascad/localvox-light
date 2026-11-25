@@ -1,6 +1,6 @@
 // First-party build linked by https://mpv.io/installation/.
 import { createHash } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile, appendFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { resolve, dirname, join } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -12,11 +12,18 @@ try { await readFile(join(root, "Cargo.toml")); development = true; } catch { /*
 const directory = development ? join(root, "target", "tools", "mpv") : join(root, "tools", "mpv");
 await mkdir(directory, { recursive: true });
 const executable = join(directory, "mpv.exe");
+async function publishExecutable() {
+  // Cargo integration tests run from a crate directory, not the repository root.
+  // Publish the prepared path across Actions steps, including cache hits.
+  if (process.env.GITHUB_ENV) await appendFile(process.env.GITHUB_ENV, `LOCALVOX_MPV=${executable}\n`, "utf8");
+}
+let verified = false;
 try {
   const installed = JSON.parse(await readFile(join(directory, "installed.json"), "utf8"));
   const current = createHash("sha256").update(await readFile(executable)).digest("hex");
-  if (installed.executable_sha256 === current) { console.log(`mpv already installed: ${executable}`); process.exit(0); }
+  verified = installed.executable_sha256 === current;
 } catch { /* New installation or an incomplete previous attempt. */ }
+if (verified) { await publishExecutable(); console.log(`mpv already installed: ${executable}`); process.exit(0); }
 const headers = { "User-Agent": "localvox-development-setup" };
 if (process.env.GH_TOKEN) headers.Authorization = `Bearer ${process.env.GH_TOKEN}`;
 const response = await fetch("https://api.github.com/repos/mpv-player/mpv/releases/tags/git-release", { signal: AbortSignal.timeout(30_000), headers });
@@ -36,4 +43,5 @@ await writeFile(archive, bytes);
 execFileSync("tar.exe", ["-xf", archive, "-C", directory], { windowsHide: true, stdio: "inherit" });
 const executableDigest = createHash("sha256").update(await readFile(executable)).digest("hex");
 await writeFile(join(directory, "installed.json"), JSON.stringify({ source: asset.browser_download_url, sha256: digest, executable_sha256: executableDigest, installed_at: new Date().toISOString() }, null, 2));
+await publishExecutable();
 console.log(`Verified mpv installed: ${executable}`);

@@ -23,7 +23,7 @@ members = [
 default-members = ["crates/localvox-light"]
 
 [workspace.package]
-version = "0.2.11"
+version = "0.2.12"
 edition = "2021"
 
 [workspace.dependencies]

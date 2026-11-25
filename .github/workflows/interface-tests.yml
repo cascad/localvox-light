@@ -20,6 +20,8 @@ jobs:
       # OS fixtures spawn their own children/threads; keep runner contention bounded.
       RUST_TEST_THREADS: "2"
       CARGO_BUILD_JOBS: "2"
+      # URL fixtures own their executables; updater transport is tested separately.
+      LOCALVOX_YTDLP_AUTO_UPDATE: "off"
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6

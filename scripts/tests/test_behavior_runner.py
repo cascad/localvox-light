@@ -92,6 +92,7 @@ class RunnerContracts(unittest.TestCase):
         self.assertEqual(environment['INSTA_UPDATE'], 'no')
         self.assertEqual(environment['CARGO_BUILD_JOBS'], '1')
         self.assertEqual(environment['LOCALVOX_BEHAVIOR_PROFILE'], 'behavior')
+        self.assertEqual(environment['LOCALVOX_YTDLP_AUTO_UPDATE'], 'off')
 
     def test_manifest_covers_all_platform_neutral_groups_and_explicit_real_mpv(self):
         steps = runner.manifest()

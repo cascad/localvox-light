@@ -631,7 +631,7 @@ mod tests {
             });
             let fetch = Https(
                 ureq::AgentBuilder::new()
-                    .timeout(Duration::from_millis(50))
+                    .timeout(Duration::from_millis(if slow { 50 } else { 2000 }))
                     .build(),
             );
             let error = fetch.get(&url, if slow { 10 } else { 2 }).unwrap_err();

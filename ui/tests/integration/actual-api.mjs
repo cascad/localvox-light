@@ -38,12 +38,17 @@ try {
   await page.getByRole("button", { name: "Сводка", exact: true }).click();
   await expect(page.locator(".doc")).toContainText("Архитектура клиента согласована.");
   await page.getByRole("button", { name: "Ход", exact: true }).click();
+  await expect(page.getByTestId("timing-balance")).not.toBeVisible();
+  await page.locator(".processing-account summary").click();
   await expect(page.getByTestId("timing-balance")).toBeVisible();
   const clocks = await page.request.get(`/api/sessions/${sessions[0].name}/progress`, { headers: { Authorization: "Bearer synthetic-cross-token" } });
   const {timing} = await clocks.json();
   expect(Math.abs(timing.stages_sec + timing.between_sec - timing.processing_sec)).toBeLessThan(0.001);
   expect(Math.abs(timing.queue_sec + timing.processing_sec - timing.total_sec)).toBeLessThan(0.001);
   await expect(page.locator(".journal-row").filter({hasText:/запуск неизвестен|время неизвестно/})).toHaveCount(0);
+  const summaryStage = page.locator('[data-kind="stage"][data-journal-id$="/stage:summary"]');
+  await expect(summaryStage.locator(".journal-fold")).toHaveAttribute("aria-expanded", "false");
+  await summaryStage.locator(".journal-fold").click();
   await page.getByRole("button", { name: "+ 35 lines", exact: true }).click();
   await expect(page.getByText("Synthetic detail 35", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Реплики", exact: true }).click();
