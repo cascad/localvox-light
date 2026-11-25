@@ -5,7 +5,8 @@ use std::{collections::BTreeMap, path::PathBuf};
 const PACKAGED: &str = include_str!("../../../.env.defaults");
 pub const LLM_SERVERS: &str = "LOCALVOX_LLM_SERVER_URLS";
 
-pub(crate) fn bool_value(value: &str) -> bool {
+/// Shared parser for preset-backed switches, including worker entry points.
+pub fn bool_value(value: &str) -> bool {
     matches!(
         value.trim().to_ascii_lowercase().as_str(),
         "1" | "true" | "yes" | "on"

@@ -29,6 +29,28 @@ async function openJournalStage(page: Page, run = "r1", stage = "summary") {
 
 const outlineFixture = JSON.parse(readFileSync(fileURLToPath(new URL("../../../tests/fixtures/journal-outline.json", import.meta.url)), "utf8"));
 
+test("import failure stays in one collapsed detail while later stages remain readable",async({page})=>{
+  await workspace(page);
+  const reason="yt-dlp: HTTP Error 429: Too Many Requests / <upstream diagnostic> "+"detail ".repeat(300);
+  await page.route("**/progress",route=>route.fulfill({json:{running:false,source:{url:"https://example.org/video"},stages:[
+    {stage:"download",state:"failed",note:"Этап остановлен после ошибки"},
+    ...["extract","transcribe","punctuation","summary"].map(stage=>({stage,state:"blocked",note:"Не начат: ошибка на предыдущем этапе"}))
+  ],execution:{run:"r1",state:"failed",phase:"prepare",message:"Обработка остановлена после ошибки; продолжение — вручную",error:reason,next:[]}}}));
+  await page.getByRole("button",{name:"Ход",exact:true}).click();
+  const detail=page.locator(".failure-details");
+  await expect(detail.locator("pre")).not.toBeVisible();
+  await expect(page.getByText(reason,{exact:true})).toHaveCount(1);
+  await detail.locator("summary").click();
+  await expect(detail.locator("pre")).toBeVisible();
+  await expect(detail.locator("pre")).toHaveText(reason);
+  const headingBox=await detail.locator("summary").boundingBox();
+  const detailBox=await detail.locator("pre").boundingBox();
+  expect(detailBox!.y).toBeGreaterThanOrEqual(headingBox!.y+headingBox!.height);
+  await expect(detail.locator("upstream")).toHaveCount(0);
+  await expect(page.getByText("Расшифровка",{exact:true})).toBeVisible();
+  await page.locator(".app").screenshot({path:test.info().outputPath("import-failure.png"),animations:"disabled"});
+});
+
 test("processing journal separates recording work and final stages without losing nested clocks", async ({ page }) => {
   await workspace(page);
   await page.route("**/progress", route => route.fulfill({ json: outlineFixture.progress }));

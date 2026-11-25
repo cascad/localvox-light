@@ -14,10 +14,19 @@ use std::{
 
 pub fn ingest_new_session(input: &str, work_dir: &Path) -> Result<PathBuf> {
     let settings = load_settings_named(&["localvox-asr-settings.json", "settings.json"]);
-    let tools = MediaTools::resolve(&settings);
-    let ffmpeg = &tools.ffmpeg;
-
+    let mut tools = MediaTools::resolve(&settings);
     let is_url = input.starts_with("http://") || input.starts_with("https://");
+    if is_url {
+        let enabled = std::env::var("LOCALVOX_YTDLP_AUTO_UPDATE").unwrap_or_else(|_| {
+            localvox_light_core::presets::baked("LOCALVOX_YTDLP_AUTO_UPDATE").into()
+        });
+        tools.yt_dlp = localvox_light_ingest::managed_ytdlp::ensure(
+            &tools.yt_dlp,
+            localvox_light_core::presets::bool_value(&enabled),
+            |message| tracing::info!("{message}"),
+        )?;
+    }
+    let ffmpeg = &tools.ffmpeg;
     let (pcm_bytes, label) = if is_url {
         let temp = download_audio_with_progress(
             false,

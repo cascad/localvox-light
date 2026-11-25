@@ -240,6 +240,95 @@ fn ordinary_quit_and_cancel_never_request_daemon_shutdown() {
 }
 
 #[test]
+fn a_failed_recook_does_not_reopen_the_empty_confirmation_or_resubmit() {
+    let mut app = App::default();
+    app.current = Some("failed-link".into());
+    app.confirm(
+        "Повтор импорта",
+        Task::Recook("failed-link".into(), Scope::All),
+    );
+    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(app.effects.len(), 1);
+    assert!(app.form.is_none());
+    app.apply(Response {
+        id: 1,
+        epoch: app.epoch,
+        resource: Resource::Action,
+        result: Err("источник недоступен".into()),
+    });
+    assert!(app.form.is_none());
+    assert_eq!(
+        app.effects
+            .iter()
+            .filter(|(_, task)| matches!(task, Task::Recook(..)))
+            .count(),
+        1
+    );
+    assert!(app.console.text().contains("источник недоступен"));
+    assert_eq!(app.current.as_deref(), Some("failed-link"));
+    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(
+        app.effects
+            .iter()
+            .filter(|(_, task)| matches!(task, Task::Recook(..)))
+            .count(),
+        1
+    );
+    let mut app = App::default();
+    app.settings_edits
+        .insert("KEY".into(), Some("draft".into()));
+    app.confirm("Сохранить", Task::SaveSettings(app.settings_edits.clone()));
+    app.key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
+    app.apply(Response {
+        id: 1,
+        epoch: app.epoch,
+        resource: Resource::Action,
+        result: Err("storage unavailable".into()),
+    });
+    assert!(app.form.is_none());
+    assert_eq!(app.settings_edits["KEY"].as_deref(), Some("draft"));
+}
+
+#[test]
+fn structured_progress_failure_keeps_phase_and_only_rearms_for_recovery_or_a_new_attempt() {
+    let mut app = App::default();
+    app.current = Some("source".into());
+    let apply = |app: &mut App, id, run: &str, error: Option<&str>| {
+        app.apply(Response {
+            id,
+            epoch: app.epoch,
+            resource: Resource::Progress,
+            result: Ok(Data::Progress(localvox_light_client::Progress {
+                execution: Some(localvox_light_client::Execution {
+                    run: Some(run.into()),
+                    phase: Some("prepare".into()),
+                    error: error.map(str::to_owned),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            })),
+        })
+    };
+    apply(&mut app, 1, "attempt-one", Some("HTTP 429"));
+    assert_eq!(app.console.entries.len(), 1);
+    assert_eq!(
+        app.console.entries[0].context.phase.as_deref(),
+        Some("prepare")
+    );
+    app.key(KeyEvent::new(KeyCode::F(12), KeyModifiers::NONE));
+    app.key(KeyEvent::new(KeyCode::F(12), KeyModifiers::NONE));
+    apply(&mut app, 2, "attempt-one", Some("HTTP 429"));
+    assert_eq!(app.console.unread(), 0);
+    assert_eq!(app.console.entries.len(), 1);
+    apply(&mut app, 3, "attempt-two", Some("HTTP 429"));
+    assert_eq!(app.console.entries.len(), 2);
+    assert_eq!(app.console.unread(), 1);
+    apply(&mut app, 4, "attempt-two", None);
+    apply(&mut app, 5, "attempt-two", Some("HTTP 429"));
+    assert_eq!(app.console.entries.len(), 3);
+}
+
+#[test]
 fn full_exit_waits_and_does_not_reconnect_or_send_a_second_action() {
     let mut app = confirmed();
     app.tick(5200);

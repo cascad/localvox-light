@@ -206,12 +206,14 @@ fn settings_http_masks_unknown_values_and_reports_snapshot_restart_before_and_af
     assert_eq!(
         live,
         [
+            "LOCALVOX_YTDLP_AUTO_UPDATE",
             "LOCALVOX_LLM_SERVER_URLS",
             "LOCALVOX_LIGHT_INCREMENTAL_TRANSCRIBE",
             "LOCALVOX_LIGHT_AUTOCOOK_SUMMARY"
         ]
     );
     assert!(live.iter().all(|s| [
+        "LOCALVOX_YTDLP_AUTO_UPDATE",
         "LOCALVOX_LIGHT_AUTOCOOK_SUMMARY",
         "LOCALVOX_LIGHT_INCREMENTAL_TRANSCRIBE",
         "LOCALVOX_LIGHT_AUTOCOOK_CLEANUP",

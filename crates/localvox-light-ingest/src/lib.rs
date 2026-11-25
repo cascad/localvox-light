@@ -13,6 +13,7 @@
 //! * [`output`] — the choice of result paths for one / several sources.
 
 pub mod download;
+pub mod managed_ytdlp;
 pub mod output;
 pub mod progress;
 pub mod tools;

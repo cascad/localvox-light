@@ -1,5 +1,13 @@
 # Покрытие требований и состояние реализации
 
+Восстановление URL-импорта и автоматическое обслуживание yt-dlp, 2026-11-25 (delta, main ещё не sync):
+
+| Требование | Код / delta | Проверка |
+|---|---|---|
+| PIPE-023 | [delta](../changes/repair-import-recovery/specs/processing-pipeline/spec.md), [recook](../../crates/localvox-light-api/src/archive/commands.rs), [workflow](../../crates/localvox-light-core/src/workflow.rs) | [API: отказ трижды → повтор до аудио, тот же ID/бюджет; краткое состояние и отдельная причина](../changes/repair-import-recovery/evidence/implementation.md) |
+| RUN-008; TERM-009 | [delta](../changes/repair-import-recovery/specs/runtime-settings/spec.md), [формы](../../crates/localvox-light-terminal/src/app/forms.rs), [UI](../../ui/src/Progress.tsx) | [State, 13 Windows ConPTY и 87 browser: HTTP-отказ не открывает пустое подтверждение, причина не повторяется под зависимостями](../changes/repair-import-recovery/evidence/implementation.md); native Mac/Linux not-run |
+| SETUP-012 | [delta](../changes/repair-import-recovery/specs/installation-models/spec.md), [manager](../../crates/localvox-light-ingest/src/managed_ytdlp.rs), [worker](../../crates/localvox-light-asr/src/prepare.rs) | [14 updater/transport tests и реальный Windows yt-dlp 2026.11.23 с SHA/запуском](../changes/repair-import-recovery/evidence/implementation.md); native Mac/Linux not-run |
+
 Подтверждения TUI по Enter и s, 2026-11-25 (RUN-007 в delta, main ещё не sync):
 
 | Требование | Код / delta | Проверка |

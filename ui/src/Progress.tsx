@@ -145,6 +145,10 @@ export function ProgressChain({ session }: { session: Session }) {
           {prog.execution.retry_at && <><br />Повтор не раньше: {new Date(prog.execution.retry_at).toLocaleString("ru-RU")}.</>}
         </span>
       </div>}
+      {prog.execution?.error && <details className="note err failure-details" data-nocopy>
+        <summary>{["running", "queued", "retry_wait", "stalled"].includes(prog.execution.state) ? "Предыдущий отказ" : "Причина отказа"} · {prog.execution.phase ?? "этап неизвестен"}</summary>
+        <pre>{prog.execution.error}</pre>
+      </details>}
 
       <Journal session={session.name} execution={prog.execution} stages={rows} uncertain={!!error} now={clockNow} />
     </>

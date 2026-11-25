@@ -130,3 +130,6 @@ body { font-family: var(--mono); font-size: 12px; }
   .journal-toolbar { gap: 6px; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; animation: none !important; transition: none !important; } }
+.failure-details { display: block; }
+.failure-details summary { cursor: pointer; }
+.failure-details pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 16rem; overflow: auto; }

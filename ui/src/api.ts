@@ -358,6 +358,7 @@ export interface Progress {
     next: Stage[];
     retry_at?: string | null;
     last_signal_at?: string | null;
+    error?: string | null;
   };
   queue_error?: string | null;
   stages: StageStatus[];

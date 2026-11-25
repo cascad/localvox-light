@@ -68,6 +68,9 @@ impl App {
     }
     pub(super) fn restore_failed_form(&mut self, resource: Resource) {
         if let Some(draft) = self.pending_forms.remove(&resource) {
+            if draft.is_confirmation() && !draft.is_shutdown() {
+                return;
+            }
             if self.form.is_none() {
                 self.form = Some(draft);
             } else {

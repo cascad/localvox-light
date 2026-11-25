@@ -404,6 +404,7 @@ pub struct Execution {
     pub operation: Option<String>,
     pub state: String,
     pub message: String,
+    pub error: Option<String>,
     pub current: Option<String>,
     pub phase: Option<String>,
     pub since: Option<String>,

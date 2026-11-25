@@ -494,6 +494,68 @@ impl Archive {
 mod tests {
     use super::*;
 
+    #[test]
+    fn full_recook_restarts_a_failed_url_before_audio_without_a_new_session() {
+        let temp = tempfile::tempdir().unwrap();
+        let session = temp.path().join("sessions/failed-link");
+        fs::create_dir_all(&session).unwrap();
+        let meta = serde_json::json!({"source":{"url":"https://example.org/recording"}});
+        fs::write(session.join("meta.json"), meta.to_string()).unwrap();
+        let mut queue = localvox_light_core::jobs::JobQueue::load(temp.path());
+        assert!(queue.enqueue_ingest("failed-link", true, false, false));
+        let id = queue.jobs()[0].id;
+        for _ in 0..3 {
+            assert!(queue.start(id).is_some());
+            queue.mark_failed(id, "HTTP 429", 3);
+        }
+        assert_eq!(
+            queue.jobs()[0].state,
+            localvox_light_core::jobs::JobState::Failed
+        );
+        Archive::new(temp.path().into())
+            .recook("failed-link", RecookScope::All)
+            .unwrap();
+        let mut restored = localvox_light_core::jobs::JobQueue::load(temp.path());
+        assert_eq!(restored.jobs().len(), 1);
+        let job = &restored.jobs()[0];
+        assert_eq!(job.id, id);
+        assert_eq!(job.kind, localvox_light_core::jobs::JobKind::Ingest);
+        assert_eq!(job.phase, localvox_light_core::jobs::JobPhase::Prepare);
+        assert_eq!(job.attempts, 0);
+        assert!(job.force && job.last_error.is_none());
+        assert!(restored.start(id).is_some());
+        assert!(
+            Archive::new(temp.path().into())
+                .recook("failed-link", RecookScope::All)
+                .is_err(),
+            "live job must remain protected"
+        );
+    }
+
+    #[test]
+    fn full_recook_without_audio_or_http_source_is_non_destructive() {
+        for source in [
+            serde_json::Value::Null,
+            serde_json::json!({"url":"file:///private"}),
+            serde_json::json!({"url":false}),
+        ] {
+            let temp = tempfile::tempdir().unwrap();
+            let dir = temp.path().join("sessions/missing");
+            fs::create_dir_all(&dir).unwrap();
+            let meta = serde_json::json!({"source":source}).to_string();
+            fs::write(dir.join("meta.json"), &meta).unwrap();
+            fs::write(dir.join("summary.md"), "retained").unwrap();
+            assert!(Archive::new(temp.path().into())
+                .recook("missing", RecookScope::All)
+                .is_err());
+            assert_eq!(fs::read_to_string(dir.join("meta.json")).unwrap(), meta);
+            assert_eq!(
+                fs::read_to_string(dir.join("summary.md")).unwrap(),
+                "retained"
+            );
+        }
+    }
+
     fn retained_transcript(work: &Path) -> PathBuf {
         let session = work.join("sessions/retained");
         let store = VersionStore::open(&session).unwrap();

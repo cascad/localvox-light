@@ -262,6 +262,23 @@ impl App {
                 }
             }
             Data::Progress(p) => {
+                if let Some(execution) = &p.execution {
+                    let context = crate::diagnostics::Context {
+                        source: "Пайплайн".into(),
+                        operation: "Выполнение этапа".into(),
+                        session: self.current.clone(),
+                        phase: execution.phase.clone(),
+                    };
+                    let changed = self.progress.execution.as_ref().is_some_and(|old| {
+                        old.run != execution.run || old.operation != execution.operation
+                    });
+                    if execution.error.is_none() || changed {
+                        self.console.recover_operation(&context);
+                    }
+                    if let Some(error) = &execution.error {
+                        self.console.record(context, error, self.wall_ms);
+                    }
+                }
                 let queue_context = crate::diagnostics::Context {
                     source: "Пайплайн".into(),
                     operation: "Чтение очереди".into(),
@@ -274,6 +291,11 @@ impl App {
                     self.console.recover(&queue_context);
                 }
                 for stage in &p.stages {
+                    if stage.state == "failed"
+                        && p.execution.as_ref().is_some_and(|e| e.error.is_some())
+                    {
+                        continue;
+                    }
                     let context = crate::diagnostics::Context {
                         source: "Пайплайн".into(),
                         operation: "Выполнение этапа".into(),

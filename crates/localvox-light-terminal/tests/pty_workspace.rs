@@ -147,6 +147,17 @@ impl ApiFixture {
                         match path {
                             p if p.ends_with("/recook") => {
                                 reprocessed.lock().unwrap().push(request.url().to_owned());
+                                if activity_state.load(Ordering::Relaxed) == 10 {
+                                    request
+                                        .respond(
+                                            tiny_http::Response::from_string(
+                                                r#"{"error":"synthetic source is unavailable"}"#,
+                                            )
+                                            .with_status_code(400),
+                                        )
+                                        .unwrap();
+                                    continue;
+                                }
                                 serde_json::json!({"msg":"Запись поставлена на переварку"})
                             }
                             "/api/settings" => {
@@ -671,6 +682,46 @@ fn exercise_record_deletion(confirm_key: &[u8]) {
     assert_eq!(
         *api.recooked.lock().unwrap(),
         vec!["/api/sessions/20261031_demo/recook?scope=all"]
+    );
+    api.activity.store(10, Ordering::Relaxed);
+    writer.write_all(b"r").unwrap();
+    writer.flush().unwrap();
+    wait_for(
+        "Переварить запись с аудио",
+        &mut all,
+        &mut screen,
+        &rx,
+        &mut writer,
+        &mut queries,
+        deadline,
+    );
+    writer.write_all(b"\r").unwrap();
+    writer.flush().unwrap();
+    wait_for(
+        "Действие не выполнено",
+        &mut all,
+        &mut screen,
+        &rx,
+        &mut writer,
+        &mut queries,
+        deadline,
+    );
+    assert!(!screen.screen().contents().contains("Enter / s подтвердить"));
+    writer.write_all(b"\r\x1b[24~").unwrap();
+    writer.flush().unwrap();
+    wait_for(
+        "synthetic source is unavailable",
+        &mut all,
+        &mut screen,
+        &rx,
+        &mut writer,
+        &mut queries,
+        deadline,
+    );
+    assert_eq!(
+        api.recooked.lock().unwrap().len(),
+        2,
+        "Enter after an error must not resubmit the failed action"
     );
     writer.write_all(b"\x1b[21~").unwrap();
     writer.flush().unwrap();

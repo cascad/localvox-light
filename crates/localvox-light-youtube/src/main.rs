@@ -150,7 +150,7 @@ fn main() -> Result<()> {
     init_tracing(cli.debug, false);
 
     let settings = load_settings_named(&["localvox-youtube-settings.json", "settings.json"]);
-    let yt_dlp = resolve_yt_dlp(&settings, cli.yt_dlp.as_ref());
+    let mut yt_dlp = resolve_yt_dlp(&settings, cli.yt_dlp.as_ref());
     let ffmpeg = resolve_ffmpeg(&settings, cli.ffmpeg.as_ref());
     let ffmpeg_location = resolve_ffmpeg_location_for_ytdlp(&ffmpeg);
     let js_runtime = resolve_js_runtime(
@@ -160,6 +160,14 @@ fn main() -> Result<()> {
     );
 
     if !cli.urls.is_empty() {
+        let enabled = std::env::var("LOCALVOX_YTDLP_AUTO_UPDATE").unwrap_or_else(|_| {
+            localvox_light_core::presets::baked("LOCALVOX_YTDLP_AUTO_UPDATE").into()
+        });
+        yt_dlp = localvox_light_ingest::managed_ytdlp::ensure(
+            &yt_dlp,
+            localvox_light_core::presets::bool_value(&enabled),
+            |message| eprintln!("{message}"),
+        )?;
         verify_yt_dlp(&yt_dlp).context("checking the dependencies")?;
         verify_js_runtime_path_if_explicit(js_runtime.as_deref())
             .context("checking the dependencies")?;

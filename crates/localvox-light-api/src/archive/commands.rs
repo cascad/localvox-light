@@ -241,8 +241,25 @@ impl Archive {
         self.ensure_not_recording(session)?;
         match scope {
             RecookScope::All => {
-                let files = localvox_light_core::artifacts::audio(dir)
-                    .context("нет полного пригодного аудио для повторного распознавания")?;
+                // A failed URL import has no audio yet. Its durable Source is
+                // sufficient to restart prepare in the same session.
+                let source = fs::read(dir.join("meta.json"))
+                    .ok()
+                    .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+                    .and_then(|meta| {
+                        serde_json::from_value::<localvox_light_core::chunks::Source>(
+                            meta.get("source")?.clone(),
+                        )
+                        .ok()
+                    });
+                if source
+                    .is_some_and(|source| localvox_light_core::links::clean(&source.url).is_some())
+                {
+                    return Ok(());
+                }
+                let files = localvox_light_core::artifacts::audio(dir).context(
+                    "нет пригодного аудио или сохранённой HTTP(S)-ссылки для повторной обработки",
+                )?;
                 anyhow::ensure!(
                     !files.is_empty(),
                     "в сессии нет аудио для повторного распознавания"

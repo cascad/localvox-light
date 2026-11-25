@@ -590,7 +590,7 @@ fn confirmed_note_deletion_clamps_selection_and_fences_even_newer_stale_reads() 
 }
 
 #[test]
-fn rejected_or_unacknowledged_deletion_keeps_the_note_and_retry_context() {
+fn rejected_or_unacknowledged_deletion_keeps_the_note_until_a_new_explicit_action() {
     for result in [
         Err("HTTP 500: vault unavailable".into()),
         Ok(Data::Reply(Reply::default())),
@@ -605,6 +605,8 @@ fn rejected_or_unacknowledged_deletion_keeps_the_note_and_retry_context() {
             result,
         });
         assert_eq!(app.notes[0].notes.len(), 2);
+        assert!(app.form.is_none());
+        app.command(Action::DeleteNote);
         assert!(
             matches!(&app.form.as_ref().unwrap().kind,FormKind::Confirm(Task::DeleteNote(_,n)) if n.source=="selected.md")
         );
@@ -793,7 +795,7 @@ fn deleting_the_last_record_and_recreating_its_title_does_not_inherit_the_old_do
 }
 
 #[test]
-fn missing_delete_record_acknowledgement_preserves_the_record_and_confirmation() {
+fn missing_delete_record_acknowledgement_preserves_the_record_without_reopening_confirmation() {
     let mut app = deletable_recordings();
     app.key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
     app.key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
@@ -804,8 +806,10 @@ fn missing_delete_record_acknowledgement_preserves_the_record_and_confirmation()
         result: Ok(Data::Reply(Reply::default())),
     });
     assert_eq!(app.sessions.len(), 2);
-    assert!(app.form.is_some());
+    assert!(app.form.is_none());
     assert!(app.console.text().contains("не подтвердил"));
+    app.command(Action::DeleteSession);
+    assert!(app.form.is_some(), "a new explicit action may ask again");
 }
 #[test]
 fn failed_poll_keeps_document_focus_and_draft() {
@@ -967,6 +971,8 @@ fn settings_are_staged_and_failure_does_not_lose_changed_keys() {
     });
     assert_eq!(a.settings_edits["ONE"].as_deref(), Some("20"));
     a.effects.clear();
+    assert!(a.form.is_none());
+    a.command(Action::SaveSettings);
     a.submit_form().unwrap();
     a.apply(Response {
         id: 2,

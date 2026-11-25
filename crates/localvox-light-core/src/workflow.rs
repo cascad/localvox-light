@@ -176,6 +176,8 @@ pub struct Execution {
     pub operation: Option<String>,
     pub state: String,
     pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
     pub current: Option<Stage>,
     pub phase: Option<JobPhase>,
     pub since: Option<String>,
@@ -224,6 +226,7 @@ fn execution(
         operation: None,
         state: "untracked".into(),
         message: "Задания в очереди нет; автоматический запуск не подтверждён".into(),
+        error: job.and_then(|j| j.last_error.clone()),
         current: None,
         phase: job.map(|j| j.phase),
         since: None,
@@ -329,9 +332,6 @@ fn execution(
                 value.phase = None;
                 value.since = None;
             }
-        }
-        if let Some(reason) = &j.last_error {
-            value.message = format!("{} · {reason}", value.message);
         }
         if matches!(j.state, JobState::Pending | JobState::Running) {
             if let Some(coordinator) = coordinator {
@@ -657,16 +657,35 @@ pub fn view(session: &Path, job: Option<&Job>, from_link: bool, now: &str) -> Vi
                         }
                         .into(),
                     );
-                    if let Some(reason) = &job.last_error {
-                        row.note = Some(format!("Повтор после ошибки: {reason}"));
+                    if job.last_error.is_some() && row.state == StageState::Queued {
+                        row.note = Some(
+                            "Повтор после предыдущего отказа; причина — в подробностях ошибки"
+                                .into(),
+                        );
                     }
                 } else if job.state == JobState::Failed {
-                    row.state = if stage_phase(stage) == job.phase {
+                    let known_failure = events
+                        .iter()
+                        .rev()
+                        .find(|e| {
+                            e.state == StageState::Failed && stage_phase(e.stage) == job.phase
+                        })
+                        .map(|e| e.stage);
+                    row.state = if stage_phase(stage) == job.phase
+                        && known_failure.is_none_or(|failed| failed == stage)
+                    {
                         StageState::Failed
                     } else {
                         StageState::Blocked
                     };
-                    row.note = job.last_error.clone();
+                    row.note = Some(
+                        if row.state == StageState::Failed {
+                            "Этап остановлен после ошибки; причина — в подробностях ошибки"
+                        } else {
+                            "Не начат: ошибка на предыдущем этапе"
+                        }
+                        .into(),
+                    );
                 }
             }
         }
@@ -696,6 +715,35 @@ pub fn view(session: &Path, job: Option<&Job>, from_link: bool, now: &str) -> Vi
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn previous_failure_is_detail_not_running_status_or_every_dependency_note() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut queue = crate::jobs::JobQueue::load(temp.path());
+        queue.enqueue_cook("failed", true, false, false);
+        let raw = "yt-dlp: HTTP Error 429: Too Many Requests / full upstream diagnostic";
+        for state in [
+            crate::jobs::JobState::Failed,
+            crate::jobs::JobState::Pending,
+            crate::jobs::JobState::Running,
+        ] {
+            let mut job = queue.jobs()[0].clone();
+            job.state = state;
+            job.last_error = Some(raw.into());
+            let result = super::view(
+                &temp.path().join("sessions/failed"),
+                Some(&job),
+                true,
+                "2026-11-25T00:00:00Z",
+            );
+            assert_eq!(result.execution.error.as_deref(), Some(raw));
+            assert!(!result.execution.message.contains(raw));
+            assert!(result.stages.iter().all(|s| !s
+                .note
+                .as_deref()
+                .unwrap_or_default()
+                .contains(raw)));
+        }
+    }
     fn clock_event(stage: Stage, state: StageState, second: &str) -> progress::StageEvent {
         progress::StageEvent {
             stage,

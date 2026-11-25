@@ -48,7 +48,30 @@ pub fn ingest_into_session(session: &Path) -> Result<()> {
     // The tools are checked BEFORE the download: "yt-dlp is not installed" must be said at the
     // start, not after a minute of waiting for a network that was never going to be used.
     let settings = localvox_light_ingest::load_settings();
-    let tools = localvox_light_ingest::MediaTools::resolve(&settings);
+    let mut tools = localvox_light_ingest::MediaTools::resolve(&settings);
+    activity(
+        session,
+        Stage::Download,
+        "Проверка обновлений yt-dlp",
+        || -> Result<()> {
+            let enabled = std::env::var("LOCALVOX_YTDLP_AUTO_UPDATE").unwrap_or_else(|_| {
+                localvox_light_core::presets::baked("LOCALVOX_YTDLP_AUTO_UPDATE").into()
+            });
+            tools.yt_dlp = localvox_light_ingest::managed_ytdlp::ensure(
+                &tools.yt_dlp,
+                localvox_light_core::presets::bool_value(&enabled),
+                |message| {
+                    localvox_light_core::progress::mark(
+                        session,
+                        Stage::Download,
+                        localvox_light_core::progress::StageState::Running,
+                        Some(message),
+                    )
+                },
+            )?;
+            Ok(())
+        },
+    )?;
     let yt_dlp = &tools.yt_dlp;
     let ffmpeg = &tools.ffmpeg;
     activity(

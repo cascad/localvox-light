@@ -3435,8 +3435,10 @@ dependencies = [
  "localvox-light-process",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "tempfile",
  "tracing",
+ "ureq 2.12.1",
 ]
 
 [[package]]

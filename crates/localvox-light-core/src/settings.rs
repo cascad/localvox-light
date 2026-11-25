@@ -170,9 +170,17 @@ pub const CATALOGUE: &[Setting] = &[
         key: "LOCALVOX_LIGHT_YT_DLP",
         group: "Инструменты",
         label: "yt-dlp",
-        hint: "не задано — ищем рядом с exe, затем в PATH",
+        hint: "Резервный загрузчик. При автообновлении импорт использует проверенную копию LocalVox; этот файл не изменяется.",
         kind: Kind::Path,
         applies: Applies::Restart,
+    },
+    Setting {
+        key: "LOCALVOX_YTDLP_AUTO_UPDATE",
+        group: "Инструменты",
+        label: "Автообновление yt-dlp",
+        hint: "Перед импортом проверять официальный stable-релиз, не чаще раза в сутки. При недоступности обновления использовать рабочую копию.",
+        kind: Kind::Bool,
+        applies: Applies::Live,
     },
     Setting {
         key: "LOCALVOX_LIGHT_YT_FFMPEG",

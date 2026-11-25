@@ -13,3 +13,5 @@ tracing.workspace = true
 
 localvox-light-process = { path = "../localvox-light-process" }
 tempfile.workspace = true
+ureq.workspace = true
+sha2 = "0.10"
