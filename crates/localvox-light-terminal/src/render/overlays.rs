@@ -51,7 +51,7 @@ pub(super) fn draw(f: &mut Frame, a: &App, area: Rect, t: Theme) {
     if a.help {
         let rect = modal(area, 78, 26);
         f.render_widget(Clear, rect);
-        f.render_widget(Paragraph::new("УПРАВЛЕНИЕ\nSpace play/pause; p fragment; g/п time; Alt+Left/Right +/-15s\nF6 — стрелки плееру; повтор — к документу\n\nTab / Shift+Tab — фокус панели\nEsc — окно → детали → список → меню\n↑↓ — выбрать строку; Enter — открыть\nПалитра: n/p или т/з; Ctrl+n/p — вниз/вверх\nМеню/списки: h/Esc назад; l/Enter открыть\nСписок: j/k ↑↓; l/Enter открыть; / поиск; Ctrl+←/→ ширина\nАрхив и заметки: d/Delete удалить выбранное; s подтвердить\nВ поиске буквы и / — текст; Esc — сброс и выход\n1–5 — вкладки; y — блок/реплика; Ctrl+Y — всё; 3 → y — весь текст\n/ или точка в RU — поиск в выбранной панели; : / F2 — действия; n — создать; i — URL → Enter\nF8 — остановить запись; F9 — начать запись\nX — отменить обработку; r — переварить запись с аудио\nPgUp / PgDn, Home / End — чтение документа\n← / → или h/l — свернуть / раскрыть подробности\n\nВ форме: Tab — поле; Enter — новая строка\nCtrl+Enter — отправить; Esc — отменить\nПодтверждение без полей: s/ы; Esc — отменить\nПолный выход: Enter или s/ы\nОднострочные параметры: Enter — применить\nВставка остаётся текстом, команды не исполняются.\nI — сведения в «Ход»; A / s — все настройки / сохранить\n~ / ё — консоль ошибок; F12 — также из формы\n\nF10 / Ctrl+Q — выход; qq/йй за 0.5 с — вне ввода.\nДругая клавиша или вставка отменяет первое q.\nДемон и запись продолжают работать.\n\nЛюбая клавиша — закрыть справку").block(borders(a.preferences.ascii).title(" Помощь ").title_style(t.focus_style()).border_style(Style::default().fg(t.focus)).style(Style::default().bg(t.bg).fg(t.ink))).wrap(Wrap{trim:false}),rect);
+        f.render_widget(Paragraph::new("УПРАВЛЕНИЕ\nSpace play/pause; p fragment; g/п time; Alt+Left/Right +/-15s\nF6 — стрелки плееру; повтор — к документу\n\nTab / Shift+Tab — фокус панели\nEsc — окно → детали → список → меню\n↑↓ — выбрать строку; Enter — открыть\nПалитра: n/p или т/з; Ctrl+n/p — вниз/вверх\nМеню/списки: h/Esc назад; l/Enter открыть\nСписок: j/k ↑↓; l/Enter открыть; / поиск; Ctrl+←/→ ширина\nАрхив и заметки: d/Delete удалить выбранное; Enter / s подтвердить\nВ поиске буквы и / — текст; Esc — сброс и выход\n1–5 — вкладки; y — блок/реплика; Ctrl+Y — всё; 3 → y — весь текст\n/ или точка в RU — поиск в выбранной панели; : / F2 — действия; n — создать; i — URL → Enter\nF8 — остановить запись; F9 — начать запись\nX — отменить обработку; r — переварить запись с аудио\nPgUp / PgDn, Home / End — чтение документа\n← / → или h/l — свернуть / раскрыть подробности\n\nВ форме: Tab — поле; Enter — новая строка\nCtrl+Enter — отправить; Esc — отменить\nПодтверждение без полей: Enter или s/ы; Esc — отменить\nОднострочные параметры: Enter — применить\nВставка остаётся текстом, команды не исполняются.\nI — сведения в «Ход»; A / s — все настройки / сохранить\n~ / ё — консоль ошибок; F12 — также из формы\n\nF10 / Ctrl+Q — выход; qq/йй за 0.5 с — вне ввода.\nДругая клавиша или вставка отменяет первое q.\nДемон и запись продолжают работать.\n\nЛюбая клавиша — закрыть справку").block(borders(a.preferences.ascii).title(" Помощь ").title_style(t.focus_style()).border_style(Style::default().fg(t.focus)).style(Style::default().bg(t.bg).fg(t.ink))).wrap(Wrap{trim:false}),rect);
     }
     if let Some(form) = &a.form {
         let desired = if form.is_confirmation() {
@@ -86,7 +86,7 @@ pub(super) fn draw(f: &mut Frame, a: &App, area: Rect, t: Theme) {
         let inner = block.inner(rect);
         f.render_widget(block, rect);
         if form.is_confirmation() {
-            let shutdown = form.enter_confirms_shutdown();
+            let shutdown = form.is_shutdown();
             let mut lines = vec![
                 Line::from(Span::styled(
                     if shutdown {
@@ -106,11 +106,7 @@ pub(super) fn draw(f: &mut Frame, a: &App, area: Rect, t: Theme) {
                 )),
                 Line::from(""),
                 Line::from(Span::styled(
-                    if shutdown {
-                        "Enter / s подтвердить"
-                    } else {
-                        "s подтвердить"
-                    },
+                    "Enter / s подтвердить",
                     Style::default().fg(t.command).add_modifier(Modifier::BOLD),
                 )),
                 Line::from(Span::styled("Esc отменить", Style::default().fg(t.dim))),

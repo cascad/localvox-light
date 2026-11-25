@@ -1,5 +1,11 @@
 # Покрытие требований и состояние реализации
 
+Подтверждения TUI по Enter и s, 2026-11-25 (RUN-007 в delta, main ещё не sync):
+
+| Требование | Код / delta | Проверка |
+|---|---|---|
+| RUN-007 | [delta](../changes/confirm-actions-with-enter/specs/runtime-settings/spec.md), [общий обработчик](../../crates/localvox-light-terminal/src/app/input.rs) | [258 state/render/unit и 13 Windows ConPTY: все подтверждения, обе клавиши, исходная цель, Repeat/Paste/Esc и ввод текста](../changes/confirm-actions-with-enter/evidence/implementation.md); native Mac/Linux not-run |
+
 Иерархия журнала UI/TUI, 2026-11-24 (PIPE-022 в delta, main ещё не sync):
 
 | Требование | Код / delta | Проверка |

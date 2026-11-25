@@ -119,7 +119,6 @@ fn palette_repeat_and_delete_require_confirmation_for_the_original_session() {
     choose_palette(&mut app, "Удалить запись");
     app.current = Some("another".into());
     app.paste("нет");
-    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     assert!(app.form.is_some() && app.effects.is_empty());
     app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
     assert!(app.form.is_none() && app.effects.is_empty());
@@ -127,7 +126,7 @@ fn palette_repeat_and_delete_require_confirmation_for_the_original_session() {
     choose_palette(&mut app, "Удалить запись");
     app.current = Some("another".into());
     app.paste("ДА");
-    app.submit_form().unwrap();
+    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     assert!(matches!(&app.effects[0].1, Task::DeleteSession(session) if session == "original"));
 }
 
@@ -1423,13 +1422,12 @@ fn settings_filter_edits_the_visible_key_and_discard_is_local_and_explicit() {
     a.submit_form().unwrap();
     assert_eq!(a.settings_edits["SECOND"].as_deref(), Some("20"));
     a.command(Action::DiscardSettings);
-    a.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     assert!(a.form.is_some());
     a.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
     assert_eq!(a.settings_edits.len(), 1);
     a.command(Action::DiscardSettings);
     a.paste("ДА");
-    a.submit_form().unwrap();
+    a.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     assert!(a.settings_edits.is_empty() && a.effects.is_empty());
 }
 

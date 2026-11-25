@@ -414,6 +414,15 @@ fn real_terminal_accepts_paste_resize_and_restores_screen_on_quit() {
 
 #[test]
 fn record_deletion_from_list_confirms_the_pinned_target_and_stays_responsive() {
+    exercise_record_deletion(b"s");
+}
+
+#[test]
+fn enter_confirms_record_deletion_and_preserves_the_pinned_target() {
+    exercise_record_deletion(b"\r");
+}
+
+fn exercise_record_deletion(confirm_key: &[u8]) {
     let api = ApiFixture::new();
     api.deletion_mode.store(true, Ordering::Relaxed);
     api.recording.store(false, Ordering::Relaxed);
@@ -544,7 +553,8 @@ fn record_deletion_from_list_confirms_the_pinned_target_and_stays_responsive() {
         deadline,
     );
     assert!(api.deleted.lock().unwrap().is_empty());
-    writer.write_all(b"ss").unwrap();
+    writer.write_all(confirm_key).unwrap();
+    writer.write_all(confirm_key).unwrap();
     writer.flush().unwrap();
     wait_for(
         "Запись удалена",
@@ -1008,7 +1018,7 @@ fn exercise_terminal(vox: bool, full_exit: bool, confirm_key: &[u8]) {
     );
     if full_exit {
         // Real terminal events, no typed confirmation token: edit a Boolean,
-        // s opens a reviewable dialog, another s sends one actual HTTP request.
+        // s opens a reviewable dialog; the separate confirmation key sends one request.
         writer.write_all(b"jjjj\r").unwrap();
         writer.flush().unwrap();
         wait_for(
@@ -1055,7 +1065,7 @@ fn exercise_terminal(vox: bool, full_exit: bool, confirm_key: &[u8]) {
         );
         assert_eq!(api.settings_saves.load(Ordering::Relaxed), 0);
         assert!(!screen.screen().contents().contains("Введите"));
-        writer.write_all(b"s").unwrap();
+        writer.write_all(confirm_key).unwrap();
         writer.flush().unwrap();
         wait_for(
             "Сохранено",

@@ -255,9 +255,9 @@ pub(super) fn project(a: &App, t: Theme, _metadata: bool) -> Projection {
                     projection.lines.push(Line::from(
                         "Текст и реплики доступны отдельно · 5 Ход обработки",
                     ));
-                    projection
-                        .lines
-                        .push(Line::from("r — переварить запись с аудио · s подтвердить"));
+                    projection.lines.push(Line::from(
+                        "r — переварить запись с аудио · Enter / s подтвердить",
+                    ));
                 }
                 for (index, value) in a.summary.blocks.iter().enumerate() {
                     let text = if value.kind == "heading" {

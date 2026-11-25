@@ -95,7 +95,7 @@ impl Form {
             FormKind::Confirm(_) | FormKind::Shutdown | FormKind::DiscardSettings
         )
     }
-    pub fn enter_confirms_shutdown(&self) -> bool {
+    pub fn is_shutdown(&self) -> bool {
         matches!(
             self.kind,
             FormKind::Shutdown | FormKind::Confirm(Task::Shutdown)

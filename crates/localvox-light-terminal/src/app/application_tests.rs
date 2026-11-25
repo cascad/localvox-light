@@ -59,46 +59,74 @@ fn empty_confirmation_accepts_submit_keys_once_and_ignores_text_navigation_and_p
 }
 
 #[test]
-fn every_confirmation_is_empty_and_s_submits_the_pinned_task_once() {
-    for task in [
-        Task::DeleteSession("original".into()),
-        Task::DeleteAsk("ask".into()),
-        Task::Recook("original".into(), Scope::All),
-        Task::Retry("original".into()),
-        Task::Cancel("original".into()),
-        Task::SaveSettings([("KEY".into(), Some("value".into()))].into()),
-    ] {
-        let mut app = App::default();
-        app.current = Some("original".into());
-        app.confirm("Подтвердить действие для original", task.clone());
-        assert!(app.form.as_ref().unwrap().is_confirmation());
-        assert!(app.form.as_ref().unwrap().fields.is_empty());
-        app.current = Some("other".into());
-        app.paste("sДА\n");
-        for kind in [
-            crossterm::event::KeyEventKind::Repeat,
-            crossterm::event::KeyEventKind::Release,
+fn every_confirmation_is_empty_and_s_or_enter_submits_the_pinned_task_once() {
+    for code in [KeyCode::Char('s'), KeyCode::Char('ы'), KeyCode::Enter] {
+        for task in [
+            Task::DeleteSession("original".into()),
+            Task::DeleteAsk("ask".into()),
+            Task::DeleteNote(
+                "notes".into(),
+                localvox_light_client::StoredNote {
+                    raw: "original text".into(),
+                    source: "original.md".into(),
+                    ..Default::default()
+                },
+            ),
+            Task::Recook("original".into(), Scope::All),
+            Task::Retry("original".into()),
+            Task::Cancel("original".into()),
+            Task::SaveSettings([("KEY".into(), Some("value".into()))].into()),
+            Task::Confirm("original".into(), "artifact".into()),
         ] {
-            let mut event = KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE);
-            event.kind = kind;
-            app.key(event);
+            let mut app = App::default();
+            app.current = Some("original".into());
+            app.confirm("Подтвердить действие для original", task.clone());
+            assert!(app.form.as_ref().unwrap().is_confirmation());
+            assert!(app.form.as_ref().unwrap().fields.is_empty());
+            app.current = Some("other".into());
+            app.paste("sДА\n");
+            for kind in [
+                crossterm::event::KeyEventKind::Repeat,
+                crossterm::event::KeyEventKind::Release,
+            ] {
+                let mut event = KeyEvent::new(code, KeyModifiers::NONE);
+                event.kind = kind;
+                app.key(event);
+            }
+            app.key(KeyEvent::new(KeyCode::Char('S'), KeyModifiers::SHIFT));
+            assert!(app.effects.is_empty());
+            app.key(KeyEvent::new(code, KeyModifiers::NONE));
+            assert_eq!(app.effects.len(), 1);
+            assert_eq!(
+                crate::io::action_resource(&app.effects[0].1),
+                crate::io::action_resource(&task)
+            );
+            if let Task::DeleteSession(target)
+            | Task::Recook(target, _)
+            | Task::Retry(target)
+            | Task::Cancel(target) = &app.effects[0].1
+            {
+                assert_eq!(target, "original");
+            }
+            if let Task::DeleteNote(slot, note) = &app.effects[0].1 {
+                assert_eq!(slot, "notes");
+                assert_eq!(note.source, "original.md");
+                assert_eq!(note.raw, "original text");
+            }
+            app.key(KeyEvent::new(code, KeyModifiers::NONE));
+            assert_eq!(app.effects.len(), 1, "pending action must not repeat");
         }
-        app.key(KeyEvent::new(KeyCode::Char('S'), KeyModifiers::SHIFT));
-        app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-        assert!(app.effects.is_empty());
-        app.key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
-        assert_eq!(app.effects.len(), 1);
-        assert_eq!(
-            crate::io::action_resource(&app.effects[0].1),
-            crate::io::action_resource(&task)
-        );
-        if let Task::DeleteSession(target)
-        | Task::Recook(target, _)
-        | Task::Retry(target)
-        | Task::Cancel(target) = &app.effects[0].1
-        {
-            assert_eq!(target, "original");
-        }
+        let mut app = App::default();
+        app.settings_edits
+            .insert("KEY".into(), Some("draft".into()));
+        app.open("Отменить изменения", FormKind::DiscardSettings, &[]);
+        app.paste("s\n");
+        let mut repeat = KeyEvent::new(code, KeyModifiers::NONE);
+        repeat.kind = crossterm::event::KeyEventKind::Repeat;
+        app.key(repeat);
+        assert!(!app.settings_edits.is_empty());
+        app.key(KeyEvent::new(code, KeyModifiers::NONE));
+        assert!(app.settings_edits.is_empty() && app.form.is_none() && app.effects.is_empty());
     }
 }
 
@@ -111,7 +139,7 @@ fn enter_opening_shutdown_does_not_confirm_until_a_new_press() {
         .position(|(action, _)| *action == Action::Shutdown)
         .unwrap();
     app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-    assert!(app.form.as_ref().unwrap().enter_confirms_shutdown());
+    assert!(app.form.as_ref().unwrap().is_shutdown());
     assert!(app.effects.is_empty());
     for kind in [
         crossterm::event::KeyEventKind::Repeat,
@@ -158,6 +186,12 @@ fn lower_s_opens_settings_then_a_separate_press_confirms_and_text_forms_keep_s()
     app.key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
     assert_eq!(app.form.as_ref().unwrap().fields[0].value, "s");
     assert!(app.effects.is_empty());
+    let mut app = App::default();
+    app.open("Текст", FormKind::Note, &[("Текст", "")]);
+    app.key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
+    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(app.form.as_ref().unwrap().fields[0].value, "s\n");
+    assert!(app.effects.is_empty());
 }
 
 #[test]
@@ -185,7 +219,7 @@ fn settings_delete_and_discard_use_a_compact_confirmation_without_a_text_field()
             "a short confirmation must not fill the terminal: {text}"
         );
         assert!(
-            text.contains("s подтвердить") && text.contains("Esc отменить"),
+            text.contains("Enter / s подтвердить") && text.contains("Esc отменить"),
             "{text}"
         );
         assert!(
