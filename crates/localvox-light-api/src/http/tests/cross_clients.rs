@@ -175,8 +175,20 @@ fn shared_workspace_fixture() {
     let Some(root) = std::env::var_os("LOCALVOX_CROSS_ROOT").map(PathBuf::from) else {
         return;
     };
-    assert_eq!(std::env::current_dir().unwrap(), root);
-    assert_eq!(std::env::current_exe().unwrap().parent().unwrap(), root);
+    let root = root.canonicalize().unwrap();
+    assert_eq!(
+        std::env::current_dir().unwrap().canonicalize().unwrap(),
+        root
+    );
+    assert_eq!(
+        std::env::current_exe()
+            .unwrap()
+            .canonicalize()
+            .unwrap()
+            .parent()
+            .unwrap(),
+        root
+    );
     let output = PathBuf::from(std::env::var_os("LOCALVOX_CROSS_OUTPUT").unwrap());
     let panic_output = output.clone();
     let original_hook = std::panic::take_hook();

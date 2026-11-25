@@ -5,6 +5,12 @@
 с одним worker. При первом запуске Cargo соберёт тесты, следующие используют кеш.
 Для синтетических URL-сценариев автообновление yt-dlp отключено: они используют свои тестовые программы.
 По умолчанию проверяются текущие исходники и собранные из них клиенты.
+Перед сборками runner проверяет prerequisites. Python старее 3.11 останавливает
+прогон с отчётом blocked/not-run. Несовпадение версии установленного vox/TUI
+с workspace блокирует использующие его терминальные сценарии; исходники
+проверяются независимо, клиент не подменяется свежей сборкой.
+`BLOCKED` означает нехватку prerequisites, `FAIL` — фактический отказ или timeout;
+оба исхода возвращают ненулевой exit code.
 
 Windows:
 
@@ -17,6 +23,22 @@ macOS:
 ```sh
 python3 scripts/test-behavior.py
 ```
+
+Подготовка полного набора на Mac, один раз из корня репозитория:
+
+```sh
+brew install python@3.13 fish
+npm --prefix ui ci
+(cd ui && npx --no-install playwright install chromium)
+python3.13 scripts/test-behavior.py --installed-dir "$HOME/Applications/LocalVox"
+```
+
+Используй явное `python3.13`, если `python3` всё ещё указывает на 3.10.
+Команды пакетов: [Python](https://formulae.brew.sh/formula/python@3.13),
+[fish](https://formulae.brew.sh/formula/fish). `fish` нужен для проверки регистрации
+команды в этой оболочке, менять свою рабочую оболочку не требуется.
+Для `--installed-dir` сначала обнови установленный LocalVox до версии исходников;
+например, vox/TUI 0.2.11 не проверяются сценариями исходников 0.2.13.
 
 Linux:
 
@@ -44,6 +66,8 @@ python3 scripts/test-behavior.py
   `bash scripts/setup-vosk.sh` на Mac/Linux. Это библиотека, голосовая модель не скачивается.
   При `--installed-dir` готовая библиотека используется из комплекта; повторная загрузка не нужна.
 - GUI: в `ui` выполнить `npm ci` и `npx --no-install playwright install chromium` один раз.
+- Unix shell-registration: нужны `zsh` и `fish`. Без них этот отдельный шаг будет
+  blocked, остальные state/render проверки TUI выполняются.
 - mpv ≥0.38: Windows `npm --prefix ui run setup:mpv`, Mac `brew install mpv`,
   Linux — менеджер ОС. Готовый путь можно задать через `LOCALVOX_MPV`.
 - Системные зависимости сборки Linux — [development.md](development.md).
@@ -65,6 +89,8 @@ python3 scripts/test-behavior.py --group tui --group mpv --installed-dir "$HOME/
 
 - `report.md` — короткая таблица passed/failed/blocked/timeout/not-run.
 - `report.json` — ОС, commit, наличие правок, команды, время и exit codes.
+- В JSON также указаны Python/workspace version; строки проверок установленного
+  клиента содержат фактическую и ожидаемую версии.
 - Логи групп, browser PNG и traces — рядом.
 - **`AGENT_TASK.md` — готовое задание местному агенту.** Достаточно передать:
   «Прочитай этот файл и исправь отказы по указанным сценариям». Автоматической

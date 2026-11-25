@@ -15,22 +15,90 @@ impl Drop for OwnedChild {
         let _ = self.0.wait();
     }
 }
-fn wait_for(path: &Path, child: &mut Child) {
+fn spawn_logged(command: &mut Command, diagnostic: &Path) -> OwnedChild {
+    let log = fs::File::create(diagnostic).unwrap();
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000);
+    }
+    OwnedChild(
+        command
+            .stdout(log.try_clone().unwrap())
+            .stderr(log)
+            .spawn()
+            .unwrap(),
+    )
+}
+fn child_diagnostic(path: &Path) -> String {
+    match fs::read(path) {
+        Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
+        Err(error) => format!("Cannot read fixture log {}: {error}", path.display()),
+    }
+}
+fn wait_for(path: &Path, child: &mut Child, diagnostic: &Path) {
     let deadline = Instant::now() + Duration::from_secs(10);
     while !path.is_file() {
         assert!(
             child.try_wait().unwrap().is_none(),
-            "settings fixture exited before readiness"
+            "settings fixture exited before readiness: {:?}\n{}",
+            child.try_wait().unwrap(),
+            child_diagnostic(diagnostic)
         );
-        assert!(Instant::now() < deadline, "settings fixture timed out");
+        assert!(
+            Instant::now() < deadline,
+            "settings fixture timed out\n{}",
+            child_diagnostic(diagnostic)
+        );
         std::thread::sleep(Duration::from_millis(10));
     }
 }
 
 #[test]
+fn early_fixture_exit_preserves_the_child_error_in_the_parent_diagnostic() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().join("fixture-diagnostic-marker");
+    fs::create_dir(&root).unwrap();
+    let diagnostic = root.join("child.log");
+    let mut command = Command::new(std::env::current_exe().unwrap());
+    command
+        .args([
+            "--ignored",
+            "--exact",
+            "http::tests::settings::settings_fixture",
+            "--nocapture",
+        ])
+        .current_dir(&root)
+        .env("LOCALVOX_SETTINGS_FIXTURE", &root)
+        .stdin(Stdio::null());
+    // This executable was deliberately not copied into root: its ownership
+    // assertion must fail before any API or configuration is started.
+    let mut child = spawn_logged(&mut command, &diagnostic);
+    let error = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        wait_for(&root.join("address"), &mut child.0, &diagnostic);
+    }))
+    .expect_err("the unowned fixture must not become ready");
+    let message = error.downcast_ref::<String>().unwrap();
+    assert!(message.contains("settings fixture exited before readiness"));
+    assert!(message.contains("fixture-diagnostic-marker"), "{message}");
+    assert!(message.contains("panicked"), "{message}");
+}
+
+#[test]
 fn settings_http_masks_unknown_values_and_reports_snapshot_restart_before_and_after_save() {
     let directory = tempfile::tempdir().unwrap();
-    let exe = directory.path().join(if cfg!(windows) {
+    // Exercise an aliased temporary root deliberately, including on Linux CI.
+    #[cfg(unix)]
+    let alias_directory = tempfile::tempdir().unwrap();
+    #[cfg(unix)]
+    let fixture_root = {
+        let alias = alias_directory.path().join("owned-fixture");
+        std::os::unix::fs::symlink(directory.path(), &alias).unwrap();
+        alias
+    };
+    #[cfg(not(unix))]
+    let fixture_root = directory.path().to_path_buf();
+    let exe = fixture_root.join(if cfg!(windows) {
         "settings-test.exe"
     } else {
         "settings-test"
@@ -43,6 +111,7 @@ fn settings_http_masks_unknown_values_and_reports_snapshot_restart_before_and_af
         "LOCALVOX_LLM_MODEL=preset-model\nLOCALVOX_LIGHT_CHUNK_SEC=420\n",
     )
     .unwrap();
+    let diagnostic = directory.path().join("child.log");
     let mut command = Command::new(exe);
     command
         .args([
@@ -51,8 +120,8 @@ fn settings_http_masks_unknown_values_and_reports_snapshot_restart_before_and_af
             "http::tests::settings::settings_fixture",
             "--nocapture",
         ])
-        .current_dir(directory.path())
-        .env("LOCALVOX_SETTINGS_FIXTURE", directory.path())
+        .current_dir(&fixture_root)
+        .env("LOCALVOX_SETTINGS_FIXTURE", &fixture_root)
         .env("LOCALVOX_LLM_MODEL", "before")
         .env("LOCALVOX_LIGHT_LIVE_ASR", "off")
         .env(
@@ -63,20 +132,14 @@ fn settings_http_masks_unknown_values_and_reports_snapshot_restart_before_and_af
             "LOCALVOX_ASR_MODEL_DIR",
             directory.path().join("missing-gigaam"),
         )
+        .env_remove("LOCALVOX_LIGHT_LOOPBACK")
         .env_remove("LOCALVOX_LIGHT_MIC")
         .env_remove("LOCALVOX_LIGHT_LOOPBACK_DEVICE")
         .env_remove("LOCALVOX_LIGHT_INCREMENTAL_TRANSCRIBE")
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        command.creation_flags(0x08000000);
-    }
-    let mut child = OwnedChild(command.spawn().unwrap());
+        .stdin(Stdio::null());
+    let mut child = spawn_logged(&mut command, &diagnostic);
     let ready = directory.path().join("address");
-    wait_for(&ready, &mut child.0);
+    wait_for(&ready, &mut child.0, &diagnostic);
     let client = Client::new(
         fs::read_to_string(ready).unwrap().trim(),
         "synthetic-token".into(),
@@ -495,7 +558,7 @@ fn settings_http_masks_unknown_values_and_reports_snapshot_restart_before_and_af
         .is_err());
     fs::write(directory.path().join("stop"), "stop fixture only").unwrap();
     let result = directory.path().join("result.json");
-    wait_for(&result, &mut child.0);
+    wait_for(&result, &mut child.0, &diagnostic);
     let result: Value = serde_json::from_slice(&fs::read(result).unwrap()).unwrap();
     assert_eq!(
         result["model"], "after",
@@ -512,9 +575,13 @@ fn settings_fixture() {
     else {
         return;
     };
-    let exe = std::env::current_exe().unwrap();
+    let root = root.canonicalize().unwrap();
+    let exe = std::env::current_exe().unwrap().canonicalize().unwrap();
     assert_eq!(exe.parent().unwrap(), root);
-    assert_eq!(std::env::current_dir().unwrap(), root);
+    assert_eq!(
+        std::env::current_dir().unwrap().canonicalize().unwrap(),
+        root
+    );
     localvox_light_core::presets::apply_missing().unwrap();
     assert!(std::env::var_os("LOCALVOX_LIGHT_LOOPBACK").is_none());
     assert!(std::env::var_os("LOCALVOX_LIGHT_MIC").is_none());

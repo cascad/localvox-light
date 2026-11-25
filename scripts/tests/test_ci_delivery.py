@@ -23,6 +23,15 @@ spec.loader.exec_module(smoke)
 
 
 class InstalledCheckContracts(unittest.TestCase):
+    def test_macos_native_jobs_cover_archive_names_and_copied_settings_ownership(self):
+        workflow = (ROOT / '.github/workflows/build-binaries.yml').read_text(encoding='utf-8')
+        step = workflow.split('name: Native archive boundaries and aliased settings HTTP fixture', 1)[1].split('\n      - name:', 1)[0]
+        self.assertIn("if: runner.os == 'macOS'", step)
+        self.assertIn('set -euo pipefail', step)
+        self.assertIn('--lib archive:: -- --test-threads=1', step)
+        self.assertIn('--lib http::tests::settings:: -- --test-threads=1', step)
+        self.assertIn('DYLD_LIBRARY_PATH', step)
+
     @unittest.skipUnless(os.name == 'nt' and shutil.which('node') and shutil.which('tar.exe'), 'Windows mpv setup contract')
     def test_mpv_setup_exports_the_actual_path_on_fresh_and_cached_runs(self):
         with tempfile.TemporaryDirectory(prefix='mpv-ci-export-') as temporary:

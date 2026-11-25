@@ -1254,6 +1254,8 @@ mod tests {
         std::fs::create_dir_all(dir.path().join("sessions/20260711_ok")).unwrap();
         let a = Archive::new(dir.path().to_path_buf());
         assert!(a.session_dir("20260711_ok").is_ok());
+        std::fs::create_dir_all(dir.path().join("sessions/запись_日本")).unwrap();
+        assert!(a.session_dir("запись_日本").is_ok());
         for bad in [
             "C:",
             "C:evil",
@@ -1264,6 +1266,10 @@ mod tests {
             "a\\b",
             "..\\x",
             "\\\\srv\\share",
+            "20260711_ok/",
+            "20260711_ok/.",
+            "a:b",
+            "a\0b",
         ] {
             let err = a.session_dir(bad).unwrap_err().to_string();
             assert_eq!(err, "некорректное имя сессии", "not rejected: {bad:?}");

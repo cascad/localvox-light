@@ -19,6 +19,7 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 GROUPS = ('tui', 'recording', 'api', 'setup', 'mpv', 'gui')
 LOG_LIMIT = 8 * 1024 * 1024
+SHELL_CASE = 'command_path::profiles::tests::zsh_and_fish_execute_their_generated_blocks_once'
 
 
 @dataclass
@@ -29,9 +30,11 @@ class Step:
     cwd: str = '.'
     timeout: float = 900
     native: bool = False
+    requires: tuple[str, ...] = ()
+    installed_client: bool = False
 
 
-def manifest(jobs=1, output=None, visual=False):
+def manifest(jobs=1, output=None, visual=False, system=None):
     cargo = ['cargo', 'test', '--locked', '--jobs', str(jobs)]
     def rust(name, group, args, native=False, ignored=False, exact=False):
         return Step(name, group, cargo + args + ['--', '--test-threads=1'] +
@@ -56,6 +59,15 @@ def manifest(jobs=1, output=None, visual=False):
                                                    '-p', 'localvox-light-terminal', '--bins']))
     steps.append(rust('gui-and-tui-real-api', 'gui', ['-p', 'localvox-light-api', '--lib',
                                                    'http::tests::cross_clients::shared_workspace'], True, True, True))
+    for step in steps:
+        step.installed_client = step.name in ('tui-native-terminal', 'gui-and-tui-real-api')
+    if (system or platform.system()) != 'Windows':
+        # Keep ordinary state/render checks independent of optional system shells.
+        state = next(step for step in steps if step.name == 'tui-state-and-render')
+        state.command += ['--skip', SHELL_CASE]
+        shell = rust('shell-registration', 'tui', ['-p', 'localvox-light-terminal', '--lib', SHELL_CASE], exact=True)
+        shell.requires = ('zsh', 'fish')
+        steps.insert(steps.index(state) + 1, shell)
     for name, script in (('gui-browser', 'test:e2e'), ('gui-strictmode', 'test:e2e:dev')):
         args = ['npx', '--no-install', 'playwright', 'test']
         if script.endswith(':dev'): args += ['--config', 'playwright.dev.config.ts']
@@ -82,7 +94,7 @@ def stop_owned(process):
     process.wait(timeout=10)
 
 
-def run_step(step, output, environment):
+def run_step(step, output, environment, client_version=None):
     result = {**asdict(step), 'status': 'not-run', 'returncode': None,
               'duration_sec': 0, 'log': step.name + '.log', 'truncated': False}
     executable = shutil.which(step.command[0], path=environment.get('PATH'))
@@ -134,6 +146,15 @@ def run_step(step, output, environment):
             result['duration_sec'] = round(time.monotonic() - start, 3)
     if result['status'] == 'passed':
         summary = (output / result['log']).read_text(encoding='utf-8', errors='replace')
+        if client_version:
+            name, expected = client_version
+            match = re.fullmatch(re.escape(name) + r'\s+(\S+)\s*', summary)
+            actual = match[1] if match else None
+            result.update(actual_version=actual, expected_version=expected)
+            if actual != expected:
+                result.update(status='blocked', reason=(
+                    f'{name}: установлен {actual or "неизвестный формат версии"}, исходники {expected}. '
+                    'Обновите установленный комплект или уберите --installed-dir для проверки исходников.'))
         counts = re.findall(r'test result: ok\. (\d+) passed; \d+ failed; (\d+) ignored;', summary)
         if step.command[:2] == ['cargo', 'test']:
             result['passed_tests'] = sum(int(p) for p, _ in counts)
@@ -150,7 +171,49 @@ def run_step(step, output, environment):
         summary = (output / result['log']).read_text(encoding='utf-8', errors='replace')
         result['failed_cases'] = re.findall(r'^---- (.+) stdout ----$', summary, re.M)
     print(f"  {result['status']} · {result['duration_sec']:.1f}s · {result['log']}", flush=True)
+    if result['status'] == 'blocked': print('  ' + result['reason'], flush=True)
     return result
+
+
+def blocked_step(step, output, reason, status='blocked'):
+    result = {**asdict(step), 'status': status, 'reason': reason, 'returncode': None,
+              'duration_sec': 0, 'log': step.name + '.log'}
+    (output / result['log']).write_text(reason + '\n', encoding='utf-8')
+    print(f'  {status} · {step.name}: {reason}', flush=True)
+    return result
+
+
+def python_issue(version=None):
+    version = version or sys.version_info
+    if tuple(version[:2]) < (3, 11):
+        return ('Python 3.11+ required; current: ' + '.'.join(map(str, version[:3])) +
+                '. Запустите этот скрипт поддерживаемым Python; сборки ещё не запускались.')
+    return None
+
+
+def workspace_version():
+    # Imported only after the runtime preflight; Python 3.10 can still write its blocked report.
+    import tomllib
+    with (ROOT / 'Cargo.toml').open('rb') as stream:
+        return tomllib.load(stream)['workspace']['package']['version']
+
+
+def prerequisite(step, environment, installed=None, clients_ready=True):
+    if installed and step.installed_client and not clients_ready:
+        return 'Installed client version preflight failed; see installed-*-version logs. Source tests remain independent.'
+    missing = [tool for tool in step.requires if not shutil.which(tool, path=environment.get('PATH'))]
+    if missing:
+        return 'Required test tools missing: ' + ', '.join(missing) + '. See AGENT_TASK.md prerequisites.'
+    if step.native and not native_library(installed).is_file():
+        return 'Native Vosk library missing; see AGENT_TASK.md setup commands'
+    if (step.native and platform.system() == 'Darwin' and platform.machine() in ('x86_64', 'AMD64')
+            and not environment.get('ORT_LIB_PATH')):
+        return 'Intel Mac ONNX Runtime SDK missing: select an installed bundle or run scripts/build-onnxruntime-macos.py --jobs 1'
+    if step.group == 'mpv' and not find_mpv(installed):
+        return 'mpv ≥0.38 is required for real local IPC checks'
+    if step.group == 'gui' and not (ROOT / 'ui/node_modules/@playwright/test/package.json').is_file():
+        return 'GUI dependencies missing: cd ui → npm ci → npx --no-install playwright install chromium'
+    return None
 
 
 def native_library(installed=None):
@@ -204,7 +267,15 @@ def isolated_environment(output, jobs, installed=None, visual=False, temporary=N
     return environment
 
 
-def report(output, results, selected, installed, visual=False):
+def outcome(results):
+    states = {item['status'] for item in results}
+    if 'interrupted' in states: return 'INTERRUPTED'
+    if states & {'failed', 'timeout'}: return 'FAIL'
+    if 'blocked' in states: return 'BLOCKED'
+    return 'PASS' if states == {'passed'} else 'NOT-RUN'
+
+
+def report(output, results, selected, installed, visual=False, expected_version=None):
     try:
         commit = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=ROOT, capture_output=True,
                                 text=True, timeout=5).stdout.strip() or 'unknown'
@@ -215,7 +286,9 @@ def report(output, results, selected, installed, visual=False):
         commit = 'unknown'
         dirty = None
     document = {'schema': 1, 'created_at': datetime.now(timezone.utc).isoformat(),
+                'outcome': outcome(results),
                 'platform': platform.platform(), 'machine': platform.machine(), 'commit': commit,
+                'python_version': sys.version.split()[0], 'workspace_version': expected_version,
                 'working_tree_dirty': dirty,
                 'installed_tui': str(installed) if installed else None, 'selected_groups': selected,
                 'visual_snapshots': visual,
@@ -226,6 +299,7 @@ def report(output, results, selected, installed, visual=False):
     lines = ['# LocalVox · локальная проверка поведения', '',
              f"ОС: {document['platform']} · {document['machine']}", f'Commit: {commit}',
              f'Группы: {", ".join(selected)}',
+             f'Версия исходников: {expected_version or "не проверена: prerequisite недоступен"}',
              f'TUI в PTY: {installed or "бинарники из текущих исходников"}', '',
              '| Проверка | Статус | Секунды | Лог |', '|---|---|---:|---|']
     for item in results:
@@ -247,7 +321,9 @@ def report(output, results, selected, installed, visual=False):
             'Не трогай пользовательский архив/демон/модели. Не считай source tests проверкой установленной версии.',
             'После исправления повтори упавшую группу и полный выбранный набор. Сохрани новый отчёт.',
             'Аппаратные/model сценарии остаются not-run до отдельного фактического прогона.', '']
-    if not failures:
+    if not results:
+        task += ['Результатов нет; проверки not-run. Это не успешный прогон.']
+    elif not failures:
         task += ['В выбранных автоматических группах отказов нет. Исправления на основании этого отчёта не требуются.']
     for item in failures:
         task += [f"## {item['name']} · {item['status']}", item.get('reason', 'См. assertion/ошибку в логе.'),
@@ -257,12 +333,14 @@ def report(output, results, selected, installed, visual=False):
         if item.get('failed_cases'):
             task += ['Упавшие сценарии: ' + ', '.join(item['failed_cases']), '']
     task += ['', 'Подготовка при blocked: Rust toolchain из rust-toolchain.toml; Node из README;',
+             'Python 3.11+ обязателен; версия установленного vox/TUI должна совпадать с workspace.',
+             'Unix shell-registration: нужны zsh и fish; прочие TUI unit tests идут отдельно.',
              'native Vosk: scripts/setup-vosk.ps1 (Windows) или scripts/setup-vosk.sh (Unix);',
              'GUI: cd ui → npm ci → npx --no-install playwright install chromium;',
              'mpv: Windows npm --prefix ui run setup:mpv; macOS brew install mpv;',
              'Linux — mpv ≥0.38 из менеджера ОС либо LOCALVOX_MPV с готовым бинарником.']
     (output / 'AGENT_TASK.md').write_text('\n'.join(task) + '\n', encoding='utf-8')
-    return not failures
+    return document['outcome'] == 'PASS'
 
 
 def main():
@@ -287,33 +365,44 @@ def main():
     output = ROOT / 'target/behavior' / (datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S') + '-' + str(os.getpid()))
     output.mkdir(parents=True)
     installed = args.installed_dir.expanduser().resolve() if args.installed_dir else None
+    steps = [s for s in manifest(args.jobs, output, args.visual) if s.group in selected]
+    print('Отчёт: ' + str(output), flush=True)
+    if issue := python_issue():
+        results = [blocked_step(Step('python-runtime', 'prerequisites', [sys.executable, '--version']), output, issue)]
+        results += [blocked_step(step, output, issue, 'not-run') for step in steps]
+        report(output, results, selected, installed, args.visual)
+        print('BLOCKED · см. report.md и AGENT_TASK.md; нужен Python 3.11+', flush=True)
+        return 1
+    expected = workspace_version()
     # macOS/Unix IPC socket paths have a short OS limit. Keep runtime sockets in
     # a private short directory; reports remain in the checkout. No global /tmp cleanup.
     runtime_tmp = tempfile.TemporaryDirectory(prefix='lvb-', dir='/tmp') if os.name != 'nt' else None
     environment = isolated_environment(output, args.jobs, installed, args.visual,
                                        Path(runtime_tmp.name) if runtime_tmp else None)
-    print('Отчёт: ' + str(output), flush=True)
     print('PTY-клиенты: ' + (str(installed) if installed else 'из текущих исходников'), flush=True)
     results = []
-    steps = [s for s in manifest(args.jobs, output, args.visual) if s.group in selected]
-    if installed and 'tui' in selected:
-        for name in ('localvox-tui', 'vox'):
+    clients_ready = True
+    if installed and any(step.installed_client for step in steps):
+        for name in ('vox', 'localvox-tui'):
             file = installed / (name + ('.exe' if os.name == 'nt' else ''))
-            steps.insert(0, Step('installed-' + name + '-version', 'tui', [str(file), '--version'], cwd=str(output), timeout=20))
+            step = Step('installed-' + name + '-version', 'tui', [str(file), '--version'], cwd=str(output), timeout=20)
+            result = run_step(step, output, environment, client_version=(name, expected))
+            results.append(result)
+            if result['status'] == 'interrupted':
+                results += [blocked_step(pending, output, 'Stopped by user', 'not-run') for pending in steps]
+                report(output, results, selected, installed, args.visual, expected)
+                print('INTERRUPTED · см. report.md', flush=True)
+                return 1
+            clients_ready = clients_ready and result['status'] == 'passed'
+    reasons = {step.name: prerequisite(step, environment, installed, clients_ready) for step in steps}
+    issues = [(name, reason) for name, reason in reasons.items() if reason]
+    if issues:
+        print('Предварительная проверка · недоступные сценарии:', flush=True)
+        for name, reason in issues: print(f'  {name}: {reason}', flush=True)
     for index, step in enumerate(steps):
-        reason = None
-        if step.native and not native_library(installed).is_file(): reason = 'Native Vosk library missing; see AGENT_TASK.md setup commands'
-        if (step.native and platform.system() == 'Darwin' and platform.machine() in ('x86_64', 'AMD64')
-                and not environment.get('ORT_LIB_PATH')):
-            reason = 'Intel Mac ONNX Runtime SDK missing: select an installed bundle or run scripts/build-onnxruntime-macos.py --jobs 1'
-        if step.group == 'mpv' and not find_mpv(installed): reason = 'mpv ≥0.38 is required for real local IPC checks'
-        if step.group == 'gui' and not (ROOT / 'ui/node_modules/@playwright/test/package.json').is_file():
-            reason = 'GUI dependencies missing: npm --prefix ui ci; install Playwright Chromium'
+        reason = reasons[step.name]
         if reason:
-            result = {**asdict(step), 'status': 'blocked', 'reason': reason, 'returncode': None,
-                      'duration_sec': 0, 'log': step.name + '.log'}
-            (output / result['log']).write_text(reason + '\n', encoding='utf-8')
-            print(f'  blocked · {step.name}: {reason}', flush=True)
+            result = blocked_step(step, output, reason)
         else:
             result = run_step(step, output, environment)
         results.append(result)
@@ -322,8 +411,8 @@ def main():
                 results.append({**asdict(pending), 'status': 'not-run', 'reason': 'Stopped by user',
                                 'returncode': None, 'duration_sec': 0, 'log': pending.name + '.log'})
             break
-    success = report(output, results, selected, installed, args.visual)
-    print('PASS' if success else 'FAIL · см. report.md и AGENT_TASK.md', flush=True)
+    success = report(output, results, selected, installed, args.visual, expected)
+    print('PASS' if success else outcome(results) + ' · см. report.md и AGENT_TASK.md', flush=True)
     return 0 if success else 1
 
 

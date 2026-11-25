@@ -1,5 +1,11 @@
 # Покрытие требований и состояние реализации
 
+Native Mac behavior report и portable archive boundary, 2026-11-25 (ARCH-001 delta, main ещё не sync):
+
+| Требование | Код / delta | Проверка |
+|---|---|---|
+| ARCH-001 | [delta](../changes/repair-native-behavior-validation/specs/archive-playback/spec.md), [catalog](../../crates/localvox-light-api/src/archive/catalog.rs) | [Windows red/green и 36 archive tests; разбор Mac отчёта и границы native повторов](../changes/repair-native-behavior-validation/evidence/implementation.md); новый Mac/Linux test-run not-run |
+
 Восстановление URL-импорта и автоматическое обслуживание yt-dlp, 2026-11-25 (delta, main ещё не sync):
 
 | Требование | Код / delta | Проверка |

@@ -63,7 +63,27 @@ fn selected_asr_and_optional_punctuation_download_only_missing_selected_models()
         include_bytes!("../../../scripts/models.json"),
     );
     manifest(&source);
-    let config = Default::default();
+    let private_models = temp.path().join("models");
+    let config: std::collections::BTreeMap<_, _> = localvox_light_core::model_paths::components()
+        .iter()
+        .map(|component| {
+            (
+                component.env.clone(),
+                private_models
+                    .join(component.directory.file_name().unwrap())
+                    .display()
+                    .to_string(),
+            )
+        })
+        .collect();
+    let changes = config
+        .iter()
+        .map(|(key, value)| (key.clone(), Some(value.clone())))
+        .collect::<Vec<_>>();
+    put(
+        &destination.join(".env"),
+        localvox_light_core::env_file::apply("# isolated model fixtures\n", &changes).as_bytes(),
+    );
     let layout = install::layout(&config, &source, &destination);
     let mut selected = Selection {
         custom: true,

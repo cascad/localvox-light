@@ -45,6 +45,84 @@ class RunnerContracts(unittest.TestCase):
         self.assertNotEqual(result['returncode'], 0)
         self.assertLess(result['duration_sec'], 12)
 
+    def test_installed_versions_are_checked_before_behavior_without_replacing_the_client(self):
+        for text, status, actual in (('vox 0.2.13', 'passed', '0.2.13'),
+                                     ('vox 0.2.11', 'blocked', '0.2.11'),
+                                     ('not a vox version', 'blocked', None)):
+            with self.subTest(text=text):
+                result = runner.run_step(self.step(f'print({text!r})'), self.output,
+                                         dict(os.environ), client_version=('vox', '0.2.13'))
+                self.assertEqual(result['status'], status)
+                self.assertEqual(result['returncode'], 0)
+                self.assertEqual(result['actual_version'], actual)
+                self.assertEqual(result['expected_version'], '0.2.13')
+                self.assertEqual(result['command'][0], sys.executable)
+        installed = self.output / 'old bundle'
+        native = runner.Step('native', 'tui', ['cargo', 'test'], installed_client=True)
+        source = runner.Step('source', 'tui', ['cargo', 'test'])
+        self.assertIn('version preflight', runner.prerequisite(native, {}, installed, False))
+        self.assertIsNone(runner.prerequisite(source, {}, installed, False))
+
+    def test_external_shell_case_is_explicit_and_does_not_block_other_state_tests(self):
+        steps = runner.manifest(system='Darwin')
+        state = next(step for step in steps if step.name == 'tui-state-and-render')
+        shell = next(step for step in steps if step.name == 'shell-registration')
+        self.assertEqual(state.command[state.command.index('--skip') + 1], runner.SHELL_CASE)
+        self.assertIn(runner.SHELL_CASE, shell.command)
+        self.assertIn('--exact', shell.command)
+        self.assertEqual(shell.requires, ('zsh', 'fish'))
+        with patch.object(runner.shutil, 'which', side_effect=lambda name, **_: '/bin/zsh' if name == 'zsh' else None):
+            self.assertIn('fish', runner.prerequisite(shell, {}))
+            self.assertIsNone(runner.prerequisite(state, {}))
+        self.assertNotIn('shell-registration', [step.name for step in runner.manifest(system='Windows')])
+
+    def test_unsupported_python_writes_blocked_report_before_compilation_or_toml_import(self):
+        self.assertIn('3.11+', runner.python_issue((3, 10, 16)))
+        self.assertIsNone(runner.python_issue((3, 11, 0)))
+        with patch.object(runner, 'ROOT', self.output), \
+                patch.object(runner.sys, 'argv', ['test-behavior.py', '--group', 'tui']), \
+                patch.object(runner, 'python_issue', return_value=runner.python_issue((3, 10, 16))), \
+                patch.object(runner, 'workspace_version') as version, \
+                patch.object(runner, 'isolated_environment') as environment, \
+                patch.object(runner, 'run_step') as run:
+            self.assertEqual(runner.main(), 1)
+            run.assert_not_called()
+            version.assert_not_called()
+            environment.assert_not_called()
+        output = next((self.output / 'target/behavior').iterdir())
+        value = json.loads((output / 'report.json').read_text(encoding='utf-8'))
+        self.assertEqual(value['results'][0]['status'], 'blocked')
+        self.assertTrue(all(item['status'] == 'not-run' for item in value['results'][1:]))
+        self.assertIn('3.11+', (output / 'AGENT_TASK.md').read_text(encoding='utf-8'))
+
+    def test_missing_gui_dependencies_have_both_preparation_commands(self):
+        with patch.object(runner, 'ROOT', self.output):
+            reason = runner.prerequisite(runner.Step('gui-unit', 'gui', ['npm', 'test']), {})
+        self.assertIn('npm ci', reason)
+        self.assertIn('playwright install chromium', reason)
+
+    def test_blocked_failures_and_unexecuted_checks_remain_distinct_in_the_final_status(self):
+        for states, expected in ((['passed'], 'PASS'), (['passed', 'blocked'], 'BLOCKED'),
+                                 (['blocked', 'failed'], 'FAIL'), (['timeout'], 'FAIL'),
+                                 (['interrupted', 'not-run'], 'INTERRUPTED'),
+                                 (['passed', 'not-run'], 'NOT-RUN'), (['unknown'], 'NOT-RUN'), ([], 'NOT-RUN')):
+            self.assertEqual(runner.outcome([{'status': state} for state in states]), expected)
+
+    def test_interrupting_the_version_probe_does_not_start_a_second_client_or_build(self):
+        interrupted = {'name': 'installed-vox-version', 'group': 'tui', 'command': ['vox', '--version'],
+                       'cwd': '.', 'status': 'interrupted', 'duration_sec': 0, 'log': 'version.log'}
+        with patch.object(runner, 'ROOT', self.output), \
+                patch.object(runner.sys, 'argv', ['test-behavior.py', '--group', 'tui', '--installed-dir', str(self.output)]), \
+                patch.object(runner, 'workspace_version', return_value='0.2.13'), \
+                patch.object(runner, 'isolated_environment', return_value=dict(os.environ)), \
+                patch.object(runner, 'run_step', return_value=interrupted) as run:
+            self.assertEqual(runner.main(), 1)
+            self.assertEqual(run.call_count, 1)
+        output = next((self.output / 'target/behavior').iterdir())
+        value = json.loads((output / 'report.json').read_text(encoding='utf-8'))
+        self.assertEqual(value['outcome'], 'INTERRUPTED')
+        self.assertTrue(all(item['status'] == 'not-run' for item in value['results'][1:]))
+
     def test_missing_tool_has_a_log_and_actionable_agent_task_not_a_green_report(self):
         step = runner.Step('missing-cargo', 'tui', ['a-localvox-test-tool-that-does-not-exist'])
         result = runner.run_step(step, self.output, dict(os.environ))

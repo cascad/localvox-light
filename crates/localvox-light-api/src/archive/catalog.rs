@@ -120,10 +120,12 @@ impl Archive {
     pub fn session_dir(&self, session: &str) -> Result<PathBuf> {
         use std::path::Component;
         let mut comps = Path::new(session).components();
-        if !matches!(
-            (comps.next(), comps.next()),
-            (Some(Component::Normal(_)), None)
-        ) {
+        if session.contains(['/', '\\', ':', '\0'])
+            || !matches!(
+                (comps.next(), comps.next()),
+                (Some(Component::Normal(_)), None)
+            )
+        {
             bail!("некорректное имя сессии");
         }
         let dir = self.sessions_root().join(session);
