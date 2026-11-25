@@ -26,7 +26,7 @@ class InstalledCheckContracts(unittest.TestCase):
     @unittest.skipUnless(os.name == 'nt' and shutil.which('node') and shutil.which('tar.exe'), 'Windows mpv setup contract')
     def test_mpv_setup_exports_the_actual_path_on_fresh_and_cached_runs(self):
         with tempfile.TemporaryDirectory(prefix='mpv-ci-export-') as temporary:
-            root = Path(temporary) / 'project with spaces Ю'
+            root = Path(temporary) / 'project with spaces Ю 漢字'
             (root / 'scripts').mkdir(parents=True)
             (root / 'Cargo.toml').write_text('fixture', encoding='utf-8')
             script = root / 'scripts/setup-mpv.mjs'
@@ -54,7 +54,7 @@ await import(pathToFileURL(process.argv[1]));
             for cached in (False, True):
                 if exported.exists(): exported.unlink()
                 env['CACHED'] = '1' if cached else '0'
-                result = subprocess.run([shutil.which('node'), '--input-type=module', '-e', bootstrap, str(script)], cwd=root, env=env, capture_output=True, text=True, encoding='utf-8', timeout=30)
+                result = subprocess.run([shutil.which('node'), '--input-type=module', '-e', bootstrap, str(script)], cwd=root, env=env, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=30)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 lines = exported.read_text(encoding='utf-8').splitlines()
                 self.assertEqual(len(lines), 1)

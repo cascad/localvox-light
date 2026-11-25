@@ -39,8 +39,9 @@ const digest = createHash("sha256").update(bytes).digest("hex");
 if (`sha256:${digest}` !== asset.digest) throw new Error("mpv archive SHA-256 mismatch");
 const archive = join(directory, "mpv.zip");
 await writeFile(archive, bytes);
-// Native Windows archive support; no downloaded extraction helper or shell expansion.
-execFileSync("tar.exe", ["-xf", archive, "-C", directory], { windowsHide: true, stdio: "inherit" });
+// Windows tar uses ANSI argv on some hosts. Its archive name is ASCII; the
+// process working directory is passed separately through Windows' Unicode API.
+execFileSync("tar.exe", ["-xf", "mpv.zip"], { cwd: directory, windowsHide: true, stdio: "inherit" });
 const executableDigest = createHash("sha256").update(await readFile(executable)).digest("hex");
 await writeFile(join(directory, "installed.json"), JSON.stringify({ source: asset.browser_download_url, sha256: digest, executable_sha256: executableDigest, installed_at: new Date().toISOString() }, null, 2));
 await publishExecutable();
