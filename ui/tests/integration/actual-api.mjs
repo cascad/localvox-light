@@ -93,7 +93,11 @@ try {
   expect(await readFile(join(root, ".env"), "utf8")).not.toContain("PATH=");
   await page.getByRole("button", { name: "Отменить правки", exact: true }).click();
   await page.getByRole("button", { name: "Очистить токен доступа", exact: true }).click();
-  await expect(page.getByText("нет доступа — задайте токен", { exact: true })).toBeVisible();
+  // Let the archive poll also report the same auth state. Both panels own an
+  // independent message; the settings assertion must target its actual form.
+  await page.clock.runFor(5100);
+  await expect(page.locator(".side").getByText("нет доступа — задайте токен", { exact: true })).toBeVisible();
+  await expect(page.getByRole("main").getByText("нет доступа — задайте токен", { exact: true })).toBeVisible();
   await page.getByLabel("Новый токен доступа").fill("synthetic-cross-token");
   await page.getByRole("button", { name: "Подключиться", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Настройки", exact: true })).toBeVisible();
