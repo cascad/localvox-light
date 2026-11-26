@@ -1,6 +1,22 @@
 /// Windows: embed the icon into the exe plus a "tray-icon" resource for the system tray
-/// (`--tray`, WP-C3). On other systems — a no-op.
+/// (`--tray`, WP-C3). macOS: embed the daemon's capture usage descriptions.
 fn main() {
+    let manifest_dir = std::path::PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap());
+    let plist = manifest_dir.join("../../assets/macos/daemon-Info.plist");
+    println!("cargo:rerun-if-changed={}", plist.display());
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
+        let version = std::env::var("CARGO_PKG_VERSION").unwrap();
+        let contents = std::fs::read_to_string(&plist)
+            .expect("macOS capture usage descriptions")
+            .replace("@VERSION@", &version);
+        let output = std::path::PathBuf::from(std::env::var_os("OUT_DIR").unwrap())
+            .join("daemon-Info.plist");
+        std::fs::write(&output, contents).expect("write embedded daemon Info.plist");
+        println!(
+            "cargo:rustc-link-arg-bin=localvox-light=-Wl,-sectcreate,__TEXT,__info_plist,{}",
+            output.display()
+        );
+    }
     #[cfg(target_os = "windows")]
     {
         let icon = "../../assets/localvox.ico";

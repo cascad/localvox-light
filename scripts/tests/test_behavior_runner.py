@@ -76,6 +76,22 @@ class RunnerContracts(unittest.TestCase):
             self.assertIsNone(runner.prerequisite(state, {}))
         self.assertNotIn('shell-registration', [step.name for step in runner.manifest(system='Windows')])
 
+    def test_capture_checks_inspect_the_selected_daemon_and_run_http_on_every_platform(self):
+        installed = self.output / 'installed bundle'
+        steps = runner.manifest(system='Darwin', installed=installed)
+        metadata = next(step for step in steps if step.name == 'macos-capture-metadata')
+        self.assertEqual(metadata.command[-1], str(installed / 'localvox-light'))
+        self.assertTrue(metadata.installed_client)
+        self.assertFalse(any(step.name == 'recording-daemon-binary' for step in steps))
+        source = runner.manifest(system='Darwin')
+        self.assertTrue(any(step.name == 'recording-daemon-binary' for step in source))
+        for system in ('Windows', 'Darwin', 'Linux'):
+            steps = runner.manifest(system=system)
+            http = next(step for step in steps if step.name == 'capture-sources-http')
+            self.assertIn('--exact', http.command)
+            if system != 'Darwin':
+                self.assertFalse(any(step.name == 'macos-capture-metadata' for step in steps))
+
     def test_unsupported_python_writes_blocked_report_before_compilation_or_toml_import(self):
         self.assertIn('3.11+', runner.python_issue((3, 10, 16)))
         self.assertIsNone(runner.python_issue((3, 11, 0)))

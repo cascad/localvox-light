@@ -30,6 +30,8 @@ on:
       - "rust-toolchain.toml"
       - ".env.defaults"
       - "crates/**"
+      - "assets/macos/**"
+      - "scripts/check-macos-capture.py"
       - "src-tauri/**"
       - "ui/**"
       - ".github/workflows/build-binaries.yml"
@@ -304,6 +306,10 @@ jobs:
         run: |
           cargo test --release --locked -p localvox-light-terminal --target ${{ matrix.target }} --lib command_path::
 
+      - name: Verify actual macOS capture permission metadata
+        if: runner.os == 'macOS'
+        run: python3 scripts/check-macos-capture.py target/${{ matrix.target }}/release/localvox-light
+
       - name: macOS deletion and menu navigation terminal contracts (no audio devices)
         if: runner.os == 'macOS'
         shell: bash
@@ -337,6 +343,8 @@ jobs:
           export DYLD_LIBRARY_PATH="$PWD/vosk-lib:${ORT_LIB_PATH:-}:${DYLD_LIBRARY_PATH:-}"
           cargo test --release --locked -p localvox-light-api --target ${{ matrix.target }} --lib archive:: -- --test-threads=1
           cargo test --release --locked -p localvox-light-api --target ${{ matrix.target }} --lib http::tests::settings:: -- --test-threads=1
+          cargo test --release --locked -p localvox-light-core --target ${{ matrix.target }} --lib audio:: -- --test-threads=1
+          cargo test --release --locked -p localvox-light-api --target ${{ matrix.target }} --lib http::tests::workspace::capture_sources_use_real_http_and_never_trust_a_dead_engine_snapshot -- --exact --test-threads=1
 
       - name: Prepare Chromium for native Unix shared-client checks
         if: runner.os != 'Windows'

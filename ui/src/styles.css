@@ -96,6 +96,13 @@ button[disabled] { opacity: .4; cursor: not-allowed; }
    used to squeeze "Stop" past the right edge — recording ran with nothing to end
    it. Everything else yields first. */
 .bar > .grow { flex: 1 1 auto; min-width: 0; }
+.capture-sources { position: relative; flex: none; color: var(--dim); font: 12px var(--mono); }
+.capture-sources summary { cursor: pointer; display: flex; gap: 10px; }
+.capture-sources summary:hover { color: var(--ink); }
+.capture-source-details { position: absolute; top: calc(100% + 10px); left: 0; z-index: 30; width: min(420px, 75vw); max-height: 60vh; overflow: auto; padding: 10px 14px; background: var(--side); border: 1px solid var(--line); color: var(--dim); line-height: 1.6; overflow-wrap: anywhere; }
+.capture-source-details p { margin: 0 0 10px; }
+.capture-source-details p:last-child { margin-bottom: 0; }
+.capture-source-details strong { color: var(--ink); font-weight: 500; }
 .bar > button { flex: none; }
 .brand { font-weight: 600; letter-spacing: .02em; flex: none; }
 .brand span { color: var(--mute); font-weight: 400; }

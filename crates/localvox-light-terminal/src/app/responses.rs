@@ -177,6 +177,41 @@ impl App {
                 }
             }
             Data::Record(r) => {
+                for old in &self.record.capture_sources {
+                    if !r
+                        .capture_sources
+                        .iter()
+                        .any(|source| source.source_id == old.source_id)
+                    {
+                        self.console
+                            .recover_operation(&crate::diagnostics::Context {
+                                source: "Захват звука".into(),
+                                operation: old.name.clone(),
+                                session: None,
+                                phase: None,
+                            });
+                    }
+                }
+                for source in &r.capture_sources {
+                    let context = crate::diagnostics::Context {
+                        source: "Захват звука".into(),
+                        operation: source.name.clone(),
+                        session: None,
+                        phase: None,
+                    };
+                    if source.state == "error" {
+                        let same = self
+                            .record
+                            .capture_sources
+                            .iter()
+                            .any(|previous| previous == source);
+                        if !same {
+                            self.console.record(context, &source.detail, self.wall_ms);
+                        }
+                    } else if matches!(source.state.as_str(), "signal" | "disabled") {
+                        self.console.recover_operation(&context);
+                    }
+                }
                 if let Some(last) = r.voice.as_ref().and_then(|voice| voice.last.as_ref()) {
                     let context = crate::diagnostics::Context {
                         source: "Голосовой модуль".into(),

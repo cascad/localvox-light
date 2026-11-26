@@ -7,6 +7,39 @@ use localvox_light_core::{
 };
 
 #[test]
+fn capture_sources_use_real_http_and_never_trust_a_dead_engine_snapshot() {
+    use localvox_light_core::audio::status::CaptureMonitor;
+    let root = tempfile::tempdir().unwrap();
+    let lease = localvox_light_core::session::try_instance_lock(root.path())
+        .unwrap()
+        .unwrap();
+    let monitor = CaptureMonitor::new(root.path(), true).unwrap();
+    monitor.opened(0);
+    monitor.signal(0);
+    monitor.error(1, "system capture refused");
+    monitor.publish().unwrap();
+    let server = journal_http_fixture(root.path(), None);
+    let client = Client::new(&server.address, String::new()).unwrap();
+    let record = client.record().unwrap();
+    assert!(record.engine);
+    assert_eq!(record.capture_sources[0].state, "signal");
+    assert_eq!(record.capture_sources[1].state, "error");
+    assert!(record.capture_sources[1]
+        .detail
+        .contains("system capture refused"));
+    monitor.opened(1);
+    monitor.publish().unwrap();
+    assert_eq!(client.record().unwrap().capture_sources[1].state, "waiting");
+    drop(lease);
+    let dead = client.record().unwrap();
+    assert!(!dead.engine);
+    assert!(dead.capture_sources.is_empty());
+    let old: localvox_light_client::RecordState =
+        serde_json::from_value(json!({"engine":true,"recording":false})).unwrap();
+    assert!(old.capture_sources.is_empty());
+}
+
+#[test]
 fn producer_cursor_pages_preserve_stage_clocks_in_the_terminal_client() {
     use localvox_light_core::{
         journal,

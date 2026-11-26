@@ -235,6 +235,39 @@ pub fn draw(f: &mut Frame, a: &App) {
                     Style::default().fg(rec_color),
                 ),
                 Span::styled(
+                    a.record
+                        .capture_sources
+                        .iter()
+                        .map(|source| {
+                            let name = if source.source_id == 0 {
+                                "мик"
+                            } else {
+                                "звук"
+                            };
+                            let state = match source.state.as_str() {
+                                "signal" => {
+                                    if a.preferences.ascii {
+                                        "+"
+                                    } else {
+                                        "✓"
+                                    }
+                                }
+                                "error" => "!",
+                                "disabled" => {
+                                    if a.preferences.ascii {
+                                        "-"
+                                    } else {
+                                        "—"
+                                    }
+                                }
+                                _ => "?",
+                            };
+                            format!("   {name} {state}")
+                        })
+                        .collect::<String>(),
+                    Style::default().fg(t.dim),
+                ),
+                Span::styled(
                     if a.errors.contains_key(&Resource::Jobs) {
                         "   очередь недоступна".into()
                     } else {
@@ -1209,6 +1242,44 @@ fn context(f: &mut Frame, a: &App, area: Rect, t: Theme) {
 mod tests {
     use super::*;
     use ratatui::{backend::TestBackend, Terminal};
+
+    #[test]
+    fn source_indicators_are_in_the_header_and_waiting_detail_is_in_audio_settings() {
+        let mut app = App::default();
+        app.record.engine = true;
+        app.record.capture_sources = vec![
+            localvox_light_client::CaptureSource {
+                source_id: 0,
+                name: "Микрофон".into(),
+                state: "signal".into(),
+                detail: "Сигнал получен".into(),
+            },
+            localvox_light_client::CaptureSource {
+                source_id: 1,
+                name: "Системный звук".into(),
+                state: "waiting".into(),
+                detail: "Поток открыт; сигнал ещё не подтверждён".into(),
+            },
+        ];
+        app.view = View::Settings;
+        app.settings.settings = vec![localvox_light_client::Setting {
+            key: "LOCALVOX_LIGHT_LOOPBACK_DEVICE".into(),
+            label: "Выход системного звука".into(),
+            ..Default::default()
+        }];
+        let mut terminal = Terminal::new(TestBackend::new(140, 36)).unwrap();
+        terminal.draw(|frame| draw(frame, &app)).unwrap();
+        let screen: String = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        assert!(screen.contains("мик ✓"));
+        assert!(screen.contains("звук ?"));
+        assert!(screen.contains("сигнал ещё не подтверждён"));
+    }
 
     #[test]
     fn model_hints_are_local_to_the_relevant_section_and_never_open_a_modal() {

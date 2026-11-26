@@ -31,6 +31,14 @@ class InstalledCheckContracts(unittest.TestCase):
         self.assertIn('--lib archive:: -- --test-threads=1', step)
         self.assertIn('--lib http::tests::settings:: -- --test-threads=1', step)
         self.assertIn('DYLD_LIBRARY_PATH', step)
+        self.assertIn('--lib audio:: -- --test-threads=1', step)
+        self.assertIn('capture_sources_use_real_http_and_never_trust_a_dead_engine_snapshot -- --exact', step)
+
+    def test_macos_delivery_checks_the_actual_daemon_capture_metadata(self):
+        workflow = (ROOT / '.github/workflows/build-binaries.yml').read_text(encoding='utf-8')
+        step = workflow.split('name: Verify actual macOS capture permission metadata', 1)[1].split('\n      - name:', 1)[0]
+        self.assertIn("if: runner.os == 'macOS'", step)
+        self.assertIn('check-macos-capture.py target/${{ matrix.target }}/release/localvox-light', step)
 
     def test_shared_workspace_ci_checks_registration_browser_and_failure_artifacts(self):
         workflow = (ROOT / '.github/workflows/build-binaries.yml').read_text(encoding='utf-8')

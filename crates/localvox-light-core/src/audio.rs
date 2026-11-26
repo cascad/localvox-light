@@ -17,6 +17,9 @@ use crossbeam_channel::Sender;
 
 use crate::events::UiMsg;
 
+pub mod status;
+use status::CaptureMonitor;
+
 #[cfg(windows)]
 #[path = "audio/windows_host.rs"]
 mod windows_host;
@@ -635,6 +638,7 @@ pub fn mic_capture(
     level_ui: Option<Sender<UiMsg>>,
     reload_gen: Option<Arc<AtomicU64>>,
     reload_snapshot: u64,
+    monitor: Arc<CaptureMonitor>,
 ) -> Result<()> {
     // CPAL macOS loopback: output-only device → default_output_config + build_input_stream
     // (see examples/record_wav.rs).
@@ -661,6 +665,9 @@ pub fn mic_capture(
     let tx2 = tx.clone();
     let running2 = running.clone();
     let level2 = level_ui.clone();
+    let probe = status::StreamProbe::new();
+    let callback_probe = probe.clone();
+    let callback_error = probe.clone();
 
     let stream = device.build_input_stream(
         &config,
@@ -680,6 +687,7 @@ pub fn mic_capture(
             pcm_buf.extend_from_slice(&samples);
             while pcm_buf.len() >= CHUNK_FRAMES {
                 let chunk: Vec<i16> = pcm_buf.drain(..CHUNK_FRAMES).collect();
+                callback_probe.observe(&chunk);
                 if let Some(ref u) = level2 {
                     let level = pcm_level_i16(&chunk);
                     let _ = u.send(UiMsg::AudioLevel { source_id, level });
@@ -711,11 +719,16 @@ pub fn mic_capture(
                 }
             }
         },
-        |err| tracing::warn!("audio stream error: {err}"),
+        move |err| {
+            callback_error.failed(err.to_string());
+        },
         None,
     )?;
     stream.play()?;
+    monitor.opened(source_id);
+    let mut reported_signal = false;
     while running.load(Ordering::Relaxed) {
+        probe.poll(&monitor, source_id, &mut reported_signal)?;
         if let Some(ref rg) = reload_gen {
             if rg.load(Ordering::SeqCst) != reload_snapshot {
                 break;
@@ -737,6 +750,7 @@ pub fn loopback_capture(
     level_ui: Option<Sender<UiMsg>>,
     reload_gen: Option<Arc<AtomicU64>>,
     reload_snapshot: u64,
+    monitor: Arc<CaptureMonitor>,
 ) -> Result<()> {
     windows_host::prepare().context("COM init failed in loopback thread")?;
 
@@ -777,6 +791,8 @@ pub fn loopback_capture(
     audio_client
         .start_stream()
         .map_err(|e| anyhow::anyhow!("start_stream: {e:?}"))?;
+    monitor.opened(1);
+    let mut reported_signal = false;
 
     let blockalign = desired_format.get_blockalign() as usize;
     let chunk_bytes = CHUNK_FRAMES * blockalign;
@@ -815,6 +831,10 @@ pub fn loopback_capture(
                 let lo = sample_queue.pop_front().unwrap();
                 let hi = sample_queue.pop_front().unwrap();
                 pcm.push(i16::from_le_bytes([lo, hi]));
+            }
+            if !reported_signal && pcm_level_i16(&pcm) > 0.003 {
+                monitor.signal(1);
+                reported_signal = true;
             }
             if let Some(ref u) = level_ui {
                 let level = pcm_level_i16(&pcm);
@@ -916,8 +936,11 @@ pub fn loopback_capture(
     level_ui: Option<Sender<UiMsg>>,
     reload_gen: Option<Arc<AtomicU64>>,
     reload_snapshot: u64,
+    monitor: Arc<CaptureMonitor>,
 ) -> Result<()> {
     let device = resolve_loopback_input(device_query)?;
+    #[cfg(target_os = "macos")]
+    ensure_macos_output_only(device.supports_input())?;
     mic_capture(
         device,
         1,
@@ -926,12 +949,29 @@ pub fn loopback_capture(
         level_ui,
         reload_gen,
         reload_snapshot,
+        monitor,
     )
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn ensure_macos_output_only(supports_input: bool) -> Result<()> {
+    anyhow::ensure!(!supports_input,
+        "Выбранный выход совмещён со входом. Захват его системного звука пока не поддерживается; выберите отдельное устройство вывода. Микрофон продолжает работать отдельно.");
+    Ok(())
 }
 
 #[cfg(test)]
 mod device_choice_tests {
     use super::*;
+
+    #[test]
+    fn macos_system_source_never_opens_a_physical_microphone() {
+        assert!(ensure_macos_output_only(false).is_ok());
+        assert!(ensure_macos_output_only(true)
+            .unwrap_err()
+            .to_string()
+            .contains("совмещён"));
+    }
 
     /// Two devices with the same name must not produce two identical lines on screen — picking
     /// between them would be a coin toss. Measured on the owner's machine: Windows reports two

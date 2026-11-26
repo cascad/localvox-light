@@ -3,6 +3,8 @@ import importlib.util
 import json
 from pathlib import Path
 import subprocess
+import plistlib
+import struct
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -11,6 +13,44 @@ ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location('native_ort', ROOT / 'scripts/build-onnxruntime-macos.py')
 native = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(native)
+
+capture_spec = importlib.util.spec_from_file_location('capture_metadata', ROOT / 'scripts/check-macos-capture.py')
+capture = importlib.util.module_from_spec(capture_spec)
+capture_spec.loader.exec_module(capture)
+
+
+class MacCaptureMetadata(unittest.TestCase):
+    def test_desktop_and_daemon_explain_the_same_audio_permissions(self):
+        daemon = plistlib.loads((ROOT / 'assets/macos/daemon-Info.plist').read_bytes())
+        desktop = plistlib.loads((ROOT / 'src-tauri/Info.plist').read_bytes())
+        for key in ('NSMicrophoneUsageDescription', 'NSAudioCaptureUsageDescription'):
+            self.assertEqual(daemon[key], desktop[key])
+
+    def test_actual_macho_section_requires_both_capture_descriptions(self):
+        metadata = plistlib.loads((ROOT / 'assets/macos/daemon-Info.plist').read_bytes())
+        metadata['CFBundleVersion'] = '0.2.13'
+        with tempfile.TemporaryDirectory() as temporary:
+            binary = Path(temporary) / 'daemon'
+
+            def write_macho(properties):
+                payload = plistlib.dumps(properties)
+                command_size = 72 + 80
+                header = struct.pack('<IiiIIIII', 0xfeedfacf, 0x100000c, 0, 2, 1, command_size, 0, 0)
+                segment = struct.pack('<II16sQQQQiiII', 0x19, command_size, b'__TEXT', 0, 0, 0, 0, 0, 0, 1, 0)
+                section = struct.pack('<16s16sQQIIIIIIII', b'__info_plist', b'__TEXT', 0, len(payload), 32 + command_size, 0, 0, 0, 0, 0, 0, 0)
+                binary.write_bytes(header + segment + section + payload)
+
+            write_macho(metadata)
+            self.assertEqual(capture.inspect(binary)['CFBundleIdentifier'], 'ru.localvox.daemon')
+            for missing in ('NSAudioCaptureUsageDescription', 'NSMicrophoneUsageDescription'):
+                broken = dict(metadata)
+                del broken[missing]
+                write_macho(broken)
+                with self.assertRaisesRegex(ValueError, missing):
+                    capture.inspect(binary)
+            binary.write_bytes(struct.pack('<IiiIIIII', 0xfeedfacf, 0x100000c, 0, 2, 0, 0, 0, 0))
+            with self.assertRaisesRegex(ValueError, '__info_plist'):
+                capture.inspect(binary)
 
 
 class NativeRuntimeContracts(unittest.TestCase):

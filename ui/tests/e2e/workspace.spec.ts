@@ -18,6 +18,60 @@ async function captureVisual(locator: Locator, name: string, options: { timeout?
 const fixture = JSON.parse(readFileSync(fileURLToPath(new URL("../../../tests/fixtures/workspace.json", import.meta.url)), "utf8"));
 const journalFixture = JSON.parse(readFileSync(fileURLToPath(new URL("../../../tests/fixtures/journal.json", import.meta.url)), "utf8"));
 
+test("capture sources distinguish silence, failure, recovery and a dead engine without poll spam", async ({ page }) => {
+  await workspace(page, {record: true});
+  await expect(page.getByLabel("Источники записи")).toHaveCount(0);
+  let sources = [
+    {source_id:0,name:"Микрофон",state:"signal",detail:"Звуковой сигнал получен после открытия потока"},
+    {source_id:1,name:"Системный звук",state:"waiting",detail:"Поток открыт; сигнал ещё не подтверждён. Включите звук в другом приложении. macOS: доступ к микрофону и системному аудио выдаётся отдельно."},
+  ];
+  let engine = true;
+  await page.route("**/api/record", route => route.fulfill({json:{...fixture.record,recording:engine,engine,capture_sources:sources}}));
+  await page.clock.runFor(1200);
+  const summary = page.getByLabel("Источники записи");
+  await expect(summary).toContainText("мик ✓");
+  await expect(summary).toContainText("звук ?");
+  await summary.click();
+  await expect(page.getByText(sources[1].detail,{exact:true})).toBeVisible();
+  await summary.click();
+  const reason = "Ошибка устройства <tap refused>. Разрешите системное аудио в настройках macOS.";
+  sources = [sources[0],{...sources[1],state:"error",detail:reason}];
+  await page.clock.runFor(1200);
+  await expect(page.locator("[data-capture-unread]")).toHaveText("! 1");
+  await summary.click();
+  await expect(page.getByRole("region",{name:"Ошибки захвата — история"}).getByText(sources[1].detail,{exact:true})).toBeVisible();
+  await expect(page.locator("[data-capture-unread]")).toHaveCount(0);
+  await summary.click();
+  await page.clock.runFor(2500);
+  await expect(page.locator("[data-capture-unread]")).toHaveCount(0);
+  await summary.click();
+  await expect(page.getByRole("region",{name:"Ошибки захвата — история"}).locator("p")).toHaveCount(1);
+  sources = [sources[0],{...sources[1],state:"waiting",detail:"Поток открыт; сигнал ещё не подтверждён"}];
+  await page.clock.runFor(1200);
+  sources = [sources[0],{...sources[1],state:"error",detail:reason}];
+  await page.clock.runFor(1200);
+  await expect(page.locator("[data-capture-unread]")).toHaveCount(0);
+  await expect(page.getByRole("region",{name:"Ошибки захвата — история"}).locator("p")).toHaveCount(1);
+  sources = [sources[0],{...sources[1],state:"signal",detail:"Звуковой сигнал получен после открытия потока"}];
+  await page.clock.runFor(1200);
+  await expect(summary).toContainText("звук ✓");
+  await page.setViewportSize({width:480,height:900});
+  await expect(page.getByRole("button",{name:"Остановить",exact:true})).toBeInViewport();
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({path:test.info().outputPath("capture-sources-480.png"),animations:"disabled"});
+  sources = [sources[0],{...sources[1],state:"disabled",detail:"Выключен в настройках"}];
+  await page.clock.runFor(1200);
+  await expect(summary).toContainText("звук —");
+  engine = false;
+  await page.clock.runFor(1200);
+  await expect(summary).toHaveCount(0);
+  engine = true;
+  sources = [sources[0],{...sources[1],state:"error",detail:reason}];
+  await page.clock.runFor(1200);
+  await expect(page.locator("[data-capture-unread]")).toHaveText("! 1");
+  await expect(page.getByRole("button",{name:"Остановить",exact:true})).toBeInViewport();
+});
+
 async function openJournalStage(page: Page, run = "r1", stage = "summary") {
   const row = page.locator(`[data-journal-id="${run}/stage:${stage}"]`);
   await expect(row).toBeVisible();

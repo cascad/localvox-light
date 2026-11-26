@@ -90,12 +90,21 @@ pub struct ModelNotice {
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(default)]
 pub struct RecordState {
+    pub capture_sources: Vec<CaptureSource>,
     pub model_notices: Vec<ModelNotice>,
     pub engine: bool,
     pub recording: bool,
     pub session: Option<String>,
     pub preroll_sec: f64,
     pub voice: Option<VoiceStatus>,
+}
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct CaptureSource {
+    pub source_id: u8,
+    pub name: String,
+    pub state: String,
+    pub detail: String,
 }
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(default)]

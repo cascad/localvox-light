@@ -307,6 +307,7 @@ export interface ModelNotice {
 }
 
 export interface RecordState {
+  capture_sources?: CaptureSource[];
   model_notices?: ModelNotice[];
   engine: boolean;
   recording: boolean;
@@ -316,6 +317,12 @@ export interface RecordState {
   /** What the voice module is doing — a DIFFERENT thing from `recording`, and both can be true at
    *  once: a note can be dictated in the middle of a meeting. */
   voice?: VoiceStatus | null;
+}
+export interface CaptureSource {
+  source_id: number;
+  name: string;
+  state: string;
+  detail: string;
 }
 
 /** The chain a session goes through. Stages nobody has said anything about are ABSENT from

@@ -34,7 +34,7 @@ class Step:
     installed_client: bool = False
 
 
-def manifest(jobs=1, output=None, visual=False, system=None):
+def manifest(jobs=1, output=None, visual=False, system=None, installed=None):
     cargo = ['cargo', 'test', '--locked', '--jobs', str(jobs)]
     def rust(name, group, args, native=False, ignored=False, exact=False):
         return Step(name, group, cargo + args + ['--', '--test-threads=1'] +
@@ -50,6 +50,8 @@ def manifest(jobs=1, output=None, visual=False, system=None):
         rust('archive-api', 'api', ['-p', 'localvox-light-api', '--lib', 'archive::'], True),
         rust('asr-settings-http', 'api', ['-p', 'localvox-light-api', '--lib', 'http::tests::settings::settings_http_masks_unknown_values_and_reports_snapshot_restart_before_and_after_save'], True, exact=True),
         rust('journal-http', 'api', ['-p', 'localvox-light-api', '--test', 'journal_http_contract'], True),
+        rust('capture-sources-http', 'api', ['-p', 'localvox-light-api', '--lib',
+             'http::tests::workspace::capture_sources_use_real_http_and_never_trust_a_dead_engine_snapshot'], True, exact=True),
         rust('setup-commands', 'setup', ['-p', 'localvox-light', '--lib', '--bins', '--test', 'setup', '--test', 'install'], True),
         rust('setup-terminal-wizard', 'setup', ['-p', 'localvox-setup-ui']),
         Step('delivery-scripts', 'setup', [sys.executable, '-m', 'unittest', 'discover', '-s', 'scripts/tests', '-p', 'test_*delivery.py']),
@@ -61,6 +63,16 @@ def manifest(jobs=1, output=None, visual=False, system=None):
                                                    'http::tests::cross_clients::shared_workspace'], True, True, True))
     for step in steps:
         step.installed_client = step.name in ('tui-native-terminal', 'gui-and-tui-real-api')
+    if (system or platform.system()) == 'Darwin':
+        if installed:
+            daemon = Path(installed) / 'localvox-light'
+        else:
+            steps.append(Step('recording-daemon-binary', 'recording',
+                             ['cargo', 'build', '--locked', '--jobs', str(jobs), '-p', 'localvox-light', '--bin', 'localvox-light'], native=True))
+            daemon = Path(os.environ.get('CARGO_TARGET_DIR', ROOT / 'target')) / 'debug' / 'localvox-light'
+        steps.append(Step('macos-capture-metadata', 'recording',
+                          [sys.executable, str(ROOT / 'scripts/check-macos-capture.py'), str(daemon)],
+                          installed_client=bool(installed)))
     if (system or platform.system()) != 'Windows':
         # Keep ordinary state/render checks independent of optional system shells.
         state = next(step for step in steps if step.name == 'tui-state-and-render')
@@ -359,13 +371,13 @@ def main():
         ctypes.windll.kernel32.SetErrorMode(0x0001 | 0x0002 | 0x8000)
     selected = args.group or list(GROUPS)
     if args.list:
-        for step in manifest(args.jobs, visual=args.visual):
+        for step in manifest(args.jobs, visual=args.visual, installed=args.installed_dir):
             if step.group in selected: print(f'{step.group}: {step.name} → {" ".join(step.command)}')
         return 0
     output = ROOT / 'target/behavior' / (datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S') + '-' + str(os.getpid()))
     output.mkdir(parents=True)
     installed = args.installed_dir.expanduser().resolve() if args.installed_dir else None
-    steps = [s for s in manifest(args.jobs, output, args.visual) if s.group in selected]
+    steps = [s for s in manifest(args.jobs, output, args.visual, installed=installed) if s.group in selected]
     print('Отчёт: ' + str(output), flush=True)
     if issue := python_issue():
         results = [blocked_step(Step('python-runtime', 'prerequisites', [sys.executable, '--version']), output, issue)]

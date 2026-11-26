@@ -1,5 +1,11 @@
 # Покрытие требований и состояние реализации
 
+macOS capture feedback, 2026-11-26 (REC-004 delta, main ещё не sync):
+
+| Требование | Код / delta | Проверка |
+|---|---|---|
+| REC-004 | [delta](../changes/fix-macos-capture-feedback/specs/recording/spec.md), [capture monitor](../../crates/localvox-light-core/src/audio/status.rs), [engine](../../crates/localvox-light-core/src/engine.rs), [API](../../crates/localvox-light-api/src/archive/recording.rs) | [Windows audio/HTTP/TUI/browser/StrictMode и metadata parser](../changes/fix-macos-capture-feedback/evidence/implementation.md); native macOS consent/звук и Linux capture не проверены; duplex output tap на Mac не реализован |
+
 Native Mac behavior report и portable archive boundary, 2026-11-25–26 (ARCH-001 delta, main ещё не sync):
 
 | Требование | Код / delta | Проверка |

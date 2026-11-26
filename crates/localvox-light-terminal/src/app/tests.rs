@@ -1,6 +1,71 @@
 use super::*;
 
 #[test]
+fn capture_failures_are_source_specific_acknowledged_and_not_repeated_by_polls() {
+    let mut app = App::default();
+    let mut record = RecordState::default();
+    record.engine = true;
+    record.capture_sources = vec![
+        CaptureSource {
+            source_id: 0,
+            name: "Микрофон".into(),
+            state: "signal".into(),
+            detail: "Сигнал получен".into(),
+        },
+        CaptureSource {
+            source_id: 1,
+            name: "Системный звук".into(),
+            state: "error".into(),
+            detail: "Нет доступа к системному звуку".into(),
+        },
+    ];
+    let mut sequence = 0;
+    let mut apply = |app: &mut App, record: RecordState| {
+        sequence += 1;
+        app.apply(Response {
+            epoch: app.epoch,
+            id: sequence,
+            resource: Resource::Record,
+            result: Ok(Data::Record(record)),
+        });
+    };
+    apply(&mut app, record.clone());
+    assert_eq!(app.console.entries.len(), 1);
+    let error = app.console.entries.back().unwrap();
+    assert_eq!(error.context.source, "Захват звука");
+    assert_eq!(error.context.operation, "Системный звук");
+    assert_eq!(error.context.phase, None);
+    app.console.toggle();
+    app.console.toggle();
+    apply(&mut app, record.clone());
+    assert_eq!(app.console.entries.len(), 1);
+    assert_eq!(app.console.unread(), 0);
+    record.capture_sources[1].state = "waiting".into();
+    record.capture_sources[1].detail = "Сигнал ещё не подтверждён".into();
+    apply(&mut app, record.clone());
+    assert_eq!(app.record.capture_sources[0].state, "signal");
+    assert_eq!(app.record.capture_sources[1].state, "waiting");
+    assert_eq!(app.console.unread(), 0);
+    record.capture_sources[1].state = "error".into();
+    record.capture_sources[1].detail = "Нет доступа к системному звуку".into();
+    apply(&mut app, record.clone());
+    assert_eq!(
+        app.console.entries.len(),
+        1,
+        "reopening without signal is still the same failure"
+    );
+    assert_eq!(app.console.unread(), 0);
+    apply(&mut app, RecordState::default());
+    apply(&mut app, record);
+    assert_eq!(
+        app.console.entries.len(),
+        2,
+        "a new engine's failure is visible again"
+    );
+    assert_eq!(app.console.unread(), 1);
+}
+
+#[test]
 fn playback_errors_keep_the_session_without_claiming_the_current_pipeline_phase() {
     let mut app = App::default();
     app.current = Some("recording".into());

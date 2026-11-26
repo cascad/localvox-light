@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, type Jobs, type RecordState, type Session, type VoiceStatus } from "./api";
 import { mmss, shortTitle } from "./lib";
+import { CaptureSources } from "./CaptureSources";
 
 interface Props {
   state: RecordState | null;
@@ -130,6 +131,7 @@ export function RecordBar({
       <div className="brand">
         localvox <span>light</span>
       </div>
+      <CaptureSources sources={state?.engine ? state.capture_sources : undefined} />
 
       {recording ? (
         // ONE button. It is the same place, and it is where the hand already knows to go: you

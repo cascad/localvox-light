@@ -48,6 +48,13 @@ pub fn run_engine(
         ),
         Err(e) => anyhow::bail!("workspace directory lock: {e}"),
     };
+    let capture_monitor = audio::status::CaptureMonitor::new(
+        &work_dir,
+        audio_devices
+            .read()
+            .map_err(|e| anyhow::anyhow!("devices: {e}"))?
+            .loopback,
+    )?;
 
     if live_asr {
         session::remove_orphan_part_files(&work_dir);
@@ -398,6 +405,7 @@ pub fn run_engine(
     let mic_ui = ui_tx.clone();
     let devices_mic = Arc::clone(&audio_devices);
     let reload_mic = Arc::clone(&reload_gen);
+    let capture_mic = capture_monitor.clone();
     let mic_handle = thread::Builder::new()
         .name("mic-capture".into())
         .spawn(move || {
@@ -437,6 +445,7 @@ pub fn run_engine(
                         format!(" (запасные тоже: {})", fallbacks.join(", "))
                     };
                     let msg = format!("Микрофон недоступен: «{}»{extras}", cfg.mic);
+                    capture_mic.error(0, &msg);
                     if !ever_captured {
                         // a broken config at startup — an honest fatal error
                         if let Some(ref t) = mic_ui {
@@ -504,7 +513,9 @@ pub fn run_engine(
                     mic_ui.clone(),
                     Some(Arc::clone(&reload_mic)),
                     g,
+                    capture_mic.clone(),
                 ) {
+                    capture_mic.error(0, &format!("{e:#}"));
                     tracing::error!("Mic capture error: {e}");
                     eprintln!("localvox-light: microphone — capture error: {e:#}");
                     thread::sleep(Duration::from_millis(400));
@@ -520,6 +531,7 @@ pub fn run_engine(
     let lb_ui = ui_tx.clone();
     let devices_lb = Arc::clone(&audio_devices);
     let reload_lb = Arc::clone(&reload_gen);
+    let capture_lb = capture_monitor.clone();
     let loopback_handle = thread::Builder::new()
         .name("loopback-capture".into())
         .spawn(move || {
@@ -530,6 +542,7 @@ pub fn run_engine(
                     Err(_) => break,
                 };
                 if !cfg.loopback {
+                    capture_lb.disabled(1);
                     lb_fail_streak = 0;
                     let base = reload_lb.load(Ordering::SeqCst);
                     while lb_running.load(Ordering::Relaxed)
@@ -548,10 +561,12 @@ pub fn run_engine(
                     lb_ui.clone(),
                     Some(Arc::clone(&reload_lb)),
                     g,
+                    capture_lb.clone(),
                 ) {
                     Ok(()) => lb_fail_streak = 0,
                     Err(e) => {
                         let es = format!("{e:#}");
+                        capture_lb.error(1, &es);
                         if lb_fail_streak == 0 {
                             tracing::warn!("Loopback capture error: {es}");
                             eprintln!("localvox-light: loopback — capture error: {es}");
@@ -598,6 +613,7 @@ pub fn run_engine(
     let watch_devices = Arc::clone(&audio_devices);
     let watch_reload = Arc::clone(&reload_gen);
     let watch_ui = ui_tx.clone();
+    let watch_capture = capture_monitor.clone();
     let device_watch = thread::Builder::new()
         .name("device-watch".into())
         .spawn(move || {
@@ -605,6 +621,9 @@ pub fn run_engine(
             let mut last_render = crate::audio::default_render_id();
             let mut last_capture = crate::audio::default_capture_id();
             while watch_running.load(Ordering::Relaxed) {
+                if let Err(error) = watch_capture.publish() {
+                    tracing::warn!(%error, "cannot publish capture status");
+                }
                 thread::sleep(Duration::from_secs(2));
                 if !watch_running.load(Ordering::Relaxed) {
                     break;

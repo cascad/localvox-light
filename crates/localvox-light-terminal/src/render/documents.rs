@@ -62,6 +62,27 @@ pub(super) fn project(a: &App, t: Theme, _metadata: bool) -> Projection {
         selected: None,
     };
     let focused = a.focus == 2;
+    if a.view == View::Settings {
+        let source_id = a
+            .selected_setting()
+            .and_then(|setting| match setting.key.as_str() {
+                "LOCALVOX_LIGHT_MIC" => Some(0),
+                "LOCALVOX_LIGHT_LOOPBACK" | "LOCALVOX_LIGHT_LOOPBACK_DEVICE" => Some(1),
+                _ => None,
+            });
+        if let Some(source) = a
+            .record
+            .capture_sources
+            .iter()
+            .find(|s| Some(s.source_id) == source_id)
+        {
+            projection.lines.push(Line::from(Span::styled(
+                label(&format!("{} · {}", source.name, source.detail)),
+                Style::default().fg(t.dim),
+            )));
+            projection.lines.push(Line::from(""));
+        }
+    }
     for notice in &a.record.model_notices {
         let relevant = match a.view {
             View::Archive | View::Queue => notice.component == "gigaam",

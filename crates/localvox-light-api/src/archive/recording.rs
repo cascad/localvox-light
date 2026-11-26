@@ -12,6 +12,11 @@ impl Archive {
         let session = localvox_light_core::jobs::recording_session(&self.work_dir);
         let engine = engine_alive(&self.work_dir);
         RecordState {
+            capture_sources: if engine {
+                localvox_light_core::audio::status::read(&self.work_dir)
+            } else {
+                Vec::new()
+            },
             model_notices: localvox_light_core::doctor::model_notices(
                 &localvox_light_core::doctor::Layout::from_env(
                     localvox_light_core::model_paths::default_vosk().into(),
