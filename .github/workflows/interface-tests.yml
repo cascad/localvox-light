@@ -149,7 +149,11 @@ jobs:
           rustfmt --edition 2021 --check crates/localvox-light-search/src/semantic.rs
           cargo test --locked -p localvox-light --lib autocook::indexing_tests:: -- --ignored --skip indexing_fixture --test-threads=1 --nocapture
       - name: Both clients against one actual temporary API/archive
-        run: cargo test --locked -p localvox-light-api --lib -- --ignored --exact http::tests::cross_clients::shared_workspace --nocapture
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          cargo test --locked -p localvox-light-api --lib http::tests::shared_workspace_test_is_registered_on_this_platform -- --exact
+          cargo test --locked -p localvox-light-api --lib -- --ignored --exact http::tests::cross_clients::shared_workspace --nocapture
       - name: Real media backend (generated PCM, null audio output)
         run: cargo test --locked -p localvox-light-terminal --test media_playback -- --ignored --nocapture
       - name: Install FLAC test dependency on the CI runner

@@ -81,6 +81,12 @@ python3 scripts/test-behavior.py
 python3 scripts/test-behavior.py --group tui --group mpv --installed-dir "$HOME/Applications/LocalVox"
 ```
 
+Если остался только общий GUI/TUI/API сценарий, на Mac повторить группу GUI:
+
+```sh
+python3.13 scripts/test-behavior.py --group gui --installed-dir "$HOME/Applications/LocalVox"
+```
+
 `--list` покажет команды без запуска. Можно повторять `--group` для `tui`, `recording`,
 `api`, `setup`, `mpv`, `gui`; по умолчанию выбраны все. `setup` проверяет мастер,
 команды установки и delivery scripts на локальных fixtures. `--jobs 2` явно разрешает два worker.

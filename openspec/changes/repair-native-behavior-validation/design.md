@@ -31,8 +31,12 @@ dirty tree не считаются известными. См. proposal для �
   stdout/stderr в собственный временный файл; отказ готовности включает этот лог.
 - Model fixture задаёт явные component paths из manifest в discovery и конфигурации назначения.
   Production reuse остаётся прежним; готовый чужой HOME не влияет на ожидания теста.
-- Существующие macOS jobs после setup tests запускают archive/settings API tests,
+- Существующие Unix jobs после setup tests запускают archive/settings API tests,
   используя уже собранные native dependencies.
+- Shared fixture использует portable-pty/HTTP/Node без Windows-only API и
+  доступен на Windows/macOS/Linux. Нормальный API-тест ссылается на функцию
+  и проверяет её регистрацию через настоящий libtest --list. Unix CI устанавливает
+  Chromium и выполняет shared fixture с уже собранным release TUI.
 
 ## Risks / Trade-offs
 

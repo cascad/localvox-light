@@ -17,7 +17,7 @@ use std::{
 
 #[test]
 #[ignore = "requires built UI, localvox-tui and installed Playwright Chromium; private HTTP only"]
-fn shared_workspace() {
+pub(super) fn shared_workspace() {
     let root = tempfile::tempdir().unwrap();
     let test = std::env::current_exe().unwrap();
     let copied = root
@@ -223,6 +223,7 @@ fn shared_workspace_fixture() {
         })
         .unwrap();
     let mut terminal_command = CommandBuilder::new(std::env::var_os("LOCALVOX_CROSS_TUI").unwrap());
+    terminal_command.env("TERM", "xterm-256color");
     terminal_command.args(["--address", &server.address, "--ascii", "--no-color"]);
     terminal_command.cwd(&root);
     struct TerminalChild(Box<dyn portable_pty::Child + Send + Sync>);

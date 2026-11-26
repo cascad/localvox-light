@@ -1305,7 +1305,6 @@ fn percent_decode(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     mod application;
-    #[cfg(windows)]
     mod cross_clients;
     mod request_budget;
     mod settings;
@@ -1314,6 +1313,38 @@ mod tests {
     use std::path::Path;
     mod partial;
     mod workspace;
+
+    #[test]
+    fn shared_workspace_test_is_registered_on_this_platform() {
+        // This reference must compile on every platform: a cfg-only module gate
+        // must not silently remove the externally selected acceptance test.
+        let _: fn() = cross_clients::shared_workspace;
+        let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+        command.args([
+            "--ignored",
+            "--exact",
+            "http::tests::cross_clients::shared_workspace",
+            "--list",
+        ]);
+        let output = localvox_light_process::run(
+            command,
+            None,
+            localvox_light_process::Limits::new(std::time::Duration::from_secs(10)),
+            || false,
+            |_, _| {},
+        )
+        .unwrap();
+        assert!(output.termination.success(), "{:?}", output.termination);
+        let listing = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(
+            listing
+                .lines()
+                .filter(|line| line.ends_with(": test"))
+                .collect::<Vec<_>>(),
+            ["http::tests::cross_clients::shared_workspace: test"],
+            "{listing}"
+        );
+    }
 
     fn archive(dir: &Path) -> Archive {
         let session = dir.join("sessions/20260711_http");

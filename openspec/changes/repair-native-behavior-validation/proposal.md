@@ -21,6 +21,8 @@ GUI dependencies. В одном отчёте смешались Python 3.10, о�
   производственное повторное использование уже установленных моделей.
 - Native API regressions добавлены к существующим macOS build jobs; инструкции
   US-067 и evidence отражают prerequisites и пределы проверок.
+- После повторного Mac прогона: shared UI/TUI/API fixture компилируется на всех
+  поддерживаемых ОС; проверяются его регистрация и выполнение в Unix CI.
 
 ## Capabilities
 

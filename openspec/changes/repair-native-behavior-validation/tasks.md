@@ -14,3 +14,4 @@
 
 - [x] 3.1 Включить archive/settings API regressions в существующие macOS build jobs и проверить delivery workflow contracts.
 - [x] 3.2 Зафиксировать разбор исходного Mac отчёта, локальные проверки и точную команду повторного Mac прогона; strict specs/change, check-openspec, diff, коммит. Не выдавать Windows/статическое ревью за Mac test-run.
+- [x] 3.3 По повторному Mac отчёту убрать Windows-only gate shared UI/TUI/API fixture, проверить реальное обнаружение и выполнение теста, добавить Unix CI-покрытие и записать новые результаты без переписывания прежних. Windows test-run и pending Mac/Linux прогоны разделены в evidence/shared-registration-followup.md.

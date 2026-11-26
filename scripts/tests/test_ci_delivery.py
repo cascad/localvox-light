@@ -23,14 +23,35 @@ spec.loader.exec_module(smoke)
 
 
 class InstalledCheckContracts(unittest.TestCase):
-    def test_macos_native_jobs_cover_archive_names_and_copied_settings_ownership(self):
+    def test_unix_native_jobs_cover_archive_names_and_copied_settings_ownership(self):
         workflow = (ROOT / '.github/workflows/build-binaries.yml').read_text(encoding='utf-8')
         step = workflow.split('name: Native archive boundaries and aliased settings HTTP fixture', 1)[1].split('\n      - name:', 1)[0]
-        self.assertIn("if: runner.os == 'macOS'", step)
+        self.assertIn("if: runner.os != 'Windows'", step)
         self.assertIn('set -euo pipefail', step)
         self.assertIn('--lib archive:: -- --test-threads=1', step)
         self.assertIn('--lib http::tests::settings:: -- --test-threads=1', step)
         self.assertIn('DYLD_LIBRARY_PATH', step)
+
+    def test_shared_workspace_ci_checks_registration_browser_and_failure_artifacts(self):
+        workflow = (ROOT / '.github/workflows/build-binaries.yml').read_text(encoding='utf-8')
+        browser = workflow.split('name: Prepare Chromium for native Unix shared-client checks', 1)[1].split('\n      - name:', 1)[0]
+        self.assertIn("if: runner.os != 'Windows'", browser)
+        self.assertIn('working-directory: ui', browser)
+        self.assertIn('playwright install --with-deps chromium', browser)
+        shared = workflow.split('name: Both clients against native Unix API and archive', 1)[1].split('\n      - name:', 1)[0]
+        self.assertIn("if: runner.os != 'Windows'", shared)
+        self.assertIn('shared_workspace_test_is_registered_on_this_platform -- --exact', shared)
+        self.assertIn('http::tests::cross_clients::shared_workspace -- --ignored --exact', shared)
+        self.assertIn('LOCALVOX_BEHAVIOR_BIN_DIR=', shared)
+        self.assertIn('LOCALVOX_YTDLP_AUTO_UPDATE=off', shared)
+        self.assertIn('LD_LIBRARY_PATH=', shared)
+        self.assertIn('DYLD_LIBRARY_PATH=', shared)
+        self.assertIn('if: failure()', workflow.split('name: Upload native shared-client failure evidence', 1)[1])
+        windows = (ROOT / '.github/workflows/interface-tests.yml').read_text(encoding='utf-8')
+        windows = windows.split('name: Both clients against one actual temporary API/archive', 1)[1].split('\n      - name:', 1)[0]
+        self.assertIn('shared_workspace_test_is_registered_on_this_platform -- --exact', windows)
+        self.assertIn('http::tests::cross_clients::shared_workspace --nocapture', windows)
+        self.assertIn("$PSNativeCommandUseErrorActionPreference = $true", windows)
 
     @unittest.skipUnless(os.name == 'nt' and shutil.which('node') and shutil.which('tar.exe'), 'Windows mpv setup contract')
     def test_mpv_setup_exports_the_actual_path_on_fresh_and_cached_runs(self):
