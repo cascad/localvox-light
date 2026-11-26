@@ -99,6 +99,17 @@ button[disabled] { opacity: .4; cursor: not-allowed; }
 .capture-sources { position: relative; flex: none; color: var(--dim); font: 12px var(--mono); }
 .capture-sources summary { cursor: pointer; display: flex; gap: 10px; }
 .capture-sources summary:hover { color: var(--ink); }
+.capture-input { display: inline-flex; align-items: center; gap: 4px; }
+.capture-meter { display: inline-flex; align-items: end; gap: 1px; width: 28px; height: 12px; position: relative; }
+.capture-meter i { width: 3px; height: 3px; background: var(--line); }
+.capture-meter i:nth-child(2) { height: 4px; }
+.capture-meter i:nth-child(3) { height: 6px; }
+.capture-meter i:nth-child(4) { height: 8px; }
+.capture-meter i:nth-child(5) { height: 10px; }
+.capture-meter i:nth-child(6) { height: 12px; }
+.capture-meter i[data-lit="true"] { background: var(--ok); }
+.capture-meter i:nth-child(6)[data-lit="true"] { background: var(--busy); }
+.capture-meter b { position: absolute; right: 0; bottom: 0; font-size: 10px; }
 .capture-source-details { position: absolute; top: calc(100% + 10px); left: 0; z-index: 30; width: min(420px, 75vw); max-height: 60vh; overflow: auto; padding: 10px 14px; background: var(--side); border: 1px solid var(--line); color: var(--dim); line-height: 1.6; overflow-wrap: anywhere; }
 .capture-source-details p { margin: 0 0 10px; }
 .capture-source-details p:last-child { margin-bottom: 0; }

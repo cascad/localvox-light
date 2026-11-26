@@ -37,7 +37,7 @@ crossterm = "0.28"
 # stop, logging out — and unhandled they kill the process outright, losing the chunk being written
 # and orphaning a running cook.
 ctrlc = { version = "3", features = ["termination"] }
-cpal = "0.17"
+cpal = "0.18.2"
 dotenvy = "0.15"
 hound = "3"
 indicatif = "0.17"

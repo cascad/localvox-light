@@ -14,7 +14,7 @@ fn capture_sources_use_real_http_and_never_trust_a_dead_engine_snapshot() {
         .unwrap()
         .unwrap();
     let monitor = CaptureMonitor::new(root.path(), true).unwrap();
-    monitor.opened(0);
+    monitor.open_device(0, Some("Test microphone".into()));
     monitor.signal(0);
     monitor.error(1, "system capture refused");
     monitor.publish().unwrap();
@@ -22,6 +22,12 @@ fn capture_sources_use_real_http_and_never_trust_a_dead_engine_snapshot() {
     let client = Client::new(&server.address, String::new()).unwrap();
     let record = client.record().unwrap();
     assert!(record.engine);
+    assert!(record.live_levels);
+    assert_eq!(client.capture_levels().unwrap(), [None; 2]);
+    assert_eq!(
+        record.capture_sources[0].device.as_deref(),
+        Some("Test microphone")
+    );
     assert_eq!(record.capture_sources[0].state, "signal");
     assert_eq!(record.capture_sources[1].state, "error");
     assert!(record.capture_sources[1]
@@ -33,10 +39,13 @@ fn capture_sources_use_real_http_and_never_trust_a_dead_engine_snapshot() {
     drop(lease);
     let dead = client.record().unwrap();
     assert!(!dead.engine);
+    assert!(!dead.live_levels);
+    assert_eq!(client.capture_levels().unwrap(), [None; 2]);
     assert!(dead.capture_sources.is_empty());
     let old: localvox_light_client::RecordState =
         serde_json::from_value(json!({"engine":true,"recording":false})).unwrap();
     assert!(old.capture_sources.is_empty());
+    assert!(!old.live_levels);
 }
 
 #[test]

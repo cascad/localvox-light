@@ -7,12 +7,14 @@ fn capture_failures_are_source_specific_acknowledged_and_not_repeated_by_polls()
     record.engine = true;
     record.capture_sources = vec![
         CaptureSource {
+            device: None,
             source_id: 0,
             name: "Микрофон".into(),
             state: "signal".into(),
             detail: "Сигнал получен".into(),
         },
         CaptureSource {
+            device: None,
             source_id: 1,
             name: "Системный звук".into(),
             state: "error".into(),

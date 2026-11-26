@@ -90,6 +90,7 @@ pub struct ModelNotice {
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(default)]
 pub struct RecordState {
+    pub live_levels: bool,
     pub capture_sources: Vec<CaptureSource>,
     pub model_notices: Vec<ModelNotice>,
     pub engine: bool,
@@ -101,6 +102,7 @@ pub struct RecordState {
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct CaptureSource {
+    pub device: Option<String>,
     pub source_id: u8,
     pub name: String,
     pub state: String,

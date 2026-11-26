@@ -358,6 +358,7 @@ fn mix(a: &[u8], b: &[u8]) -> Vec<u8> {
 /// never tell.
 #[derive(serde::Serialize)]
 pub struct RecordState {
+    pub live_levels: bool,
     pub capture_sources: Vec<localvox_light_core::audio::status::CaptureSource>,
     pub model_notices: Vec<localvox_light_core::doctor::ModelNotice>,
     /// Is the engine alive at all (it holds a lock on the work directory for its lifetime).

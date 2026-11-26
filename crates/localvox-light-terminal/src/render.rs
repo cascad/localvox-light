@@ -177,6 +177,51 @@ fn panel<'a>(title: &str, focused: bool, t: Theme) -> Block<'a> {
         })
         .border_style(Style::default().fg(if focused { t.focus } else { t.line }))
 }
+fn capture_meter(app: &App, theme: Theme, id: u8) -> Span<'static> {
+    let Some(source) = app
+        .record
+        .capture_sources
+        .iter()
+        .find(|s| s.source_id == id)
+    else {
+        return Span::raw("");
+    };
+    let label = if id == 0 { "мик" } else { "звук" };
+    let ascii = app.preferences.ascii;
+    let (indicator, color) = match source.state.as_str() {
+        "error" => ("!".to_owned(), theme.error),
+        "disabled" => ((if ascii { "-" } else { "—" }).to_owned(), theme.dim),
+        "signal" | "waiting" if app.record.live_levels => {
+            let level =
+                app.capture_levels[id as usize].filter(|_| app.now_ms < app.levels_valid_until);
+            let steps = level.unwrap_or(0).min(6) as usize;
+            let bars: String = (if ascii {
+                "######"
+            } else {
+                "▁▂▃▄▆█"
+            })
+            .chars()
+            .take(steps)
+            .collect();
+            let empty = (if ascii { "." } else { "·" }).repeat(6 - steps);
+            let suffix = if level.is_none() { '?' } else { ' ' };
+            let color = match steps {
+                0 => theme.dim,
+                6 => theme.busy,
+                _ => theme.ok,
+            };
+            (format!("{bars}{empty}{suffix}"), color)
+        }
+        "signal" => ((if ascii { "+" } else { "✓" }).to_owned(), theme.dim),
+        _ => ("?".to_owned(), theme.dim),
+    };
+    let width = if app.record.live_levels { 7 } else { 1 };
+    Span::styled(
+        format!("  {label} {indicator:<width$}"),
+        Style::default().fg(color),
+    )
+}
+
 pub fn draw(f: &mut Frame, a: &App) {
     let t = Theme::for_app(a);
     let area = f.area();
@@ -234,39 +279,8 @@ pub fn draw(f: &mut Frame, a: &App) {
                     format!("{} {record}", if a.preferences.ascii { "*" } else { "●" }),
                     Style::default().fg(rec_color),
                 ),
-                Span::styled(
-                    a.record
-                        .capture_sources
-                        .iter()
-                        .map(|source| {
-                            let name = if source.source_id == 0 {
-                                "мик"
-                            } else {
-                                "звук"
-                            };
-                            let state = match source.state.as_str() {
-                                "signal" => {
-                                    if a.preferences.ascii {
-                                        "+"
-                                    } else {
-                                        "✓"
-                                    }
-                                }
-                                "error" => "!",
-                                "disabled" => {
-                                    if a.preferences.ascii {
-                                        "-"
-                                    } else {
-                                        "—"
-                                    }
-                                }
-                                _ => "?",
-                            };
-                            format!("   {name} {state}")
-                        })
-                        .collect::<String>(),
-                    Style::default().fg(t.dim),
-                ),
+                capture_meter(a, t, 0),
+                capture_meter(a, t, 1),
                 Span::styled(
                     if a.errors.contains_key(&Resource::Jobs) {
                         "   очередь недоступна".into()
@@ -1250,12 +1264,14 @@ mod tests {
         app.record.capture_sources = vec![
             localvox_light_client::CaptureSource {
                 source_id: 0,
+                device: None,
                 name: "Микрофон".into(),
                 state: "signal".into(),
                 detail: "Сигнал получен".into(),
             },
             localvox_light_client::CaptureSource {
                 source_id: 1,
+                device: Some("Built-in Output".into()),
                 name: "Системный звук".into(),
                 state: "waiting".into(),
                 detail: "Поток открыт; сигнал ещё не подтверждён".into(),
@@ -1278,6 +1294,17 @@ mod tests {
             .collect();
         assert!(screen.contains("мик ✓"));
         assert!(screen.contains("звук ?"));
+        assert!(screen.contains("Built-in Output"));
+        app.record.live_levels = true;
+        app.levels_valid_until = 750;
+        app.capture_levels = [Some(4), Some(0)];
+        let theme = Theme::for_app(&app);
+        assert!(capture_meter(&app, theme, 0).content.contains("▁▂▃▄··"));
+        assert!(capture_meter(&app, theme, 1).content.contains("······ "));
+        app.now_ms = 751;
+        assert!(capture_meter(&app, theme, 0).content.contains("······?"));
+        app.record.capture_sources[1].state = "error".into();
+        assert!(capture_meter(&app, theme, 1).content.contains("звук !"));
         assert!(screen.contains("сигнал ещё не подтверждён"));
     }
 

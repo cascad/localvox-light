@@ -301,6 +301,9 @@ impl Client {
     pub fn record(&self) -> Result<RecordState> {
         self.get(&["api", "record"], &[])
     }
+    pub fn capture_levels(&self) -> Result<[Option<u8>; 2]> {
+        self.get(&["api", "record", "levels"], &[])
+    }
     pub fn jobs(&self) -> Result<Jobs> {
         self.get(&["api", "jobs"], &[])
     }

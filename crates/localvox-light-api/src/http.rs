@@ -860,6 +860,7 @@ pub fn respond(
             // the app would offer a "record" button while the engine is not even alive — and
             // the press would go nowhere.
             (Method::Get, "/api/record") => Ok(serde_json::to_value(archive.record_state())?),
+            (Method::Get, "/api/record/levels") => Ok(json!(archive.capture_levels())),
             // Start recording. Nothing reaches the disk before this — but the last minutes
             // are held in memory and go INTO the session, so a conversation that began
             // before the button is not lost.

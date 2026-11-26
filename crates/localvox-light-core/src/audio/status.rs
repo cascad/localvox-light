@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex,
     },
 };
@@ -16,6 +16,7 @@ const FILE: &str = ".capture-status.json";
 #[derive(Clone)]
 pub(super) struct StreamProbe {
     signal: Arc<AtomicBool>,
+    peak: Arc<AtomicU64>,
     errors: crossbeam_channel::Sender<String>,
     received: crossbeam_channel::Receiver<String>,
 }
@@ -25,14 +26,25 @@ impl StreamProbe {
         let (errors, received) = crossbeam_channel::bounded(1);
         Self {
             signal: Arc::new(AtomicBool::new(false)),
+            peak: Arc::new(AtomicU64::new(0)),
             errors,
             received,
         }
     }
-    pub fn observe(&self, samples: &[i16]) {
-        if super::pcm_level_i16(samples) > 0.003 {
+    pub fn observe(&self, samples: &[i16]) -> f32 {
+        let rms = super::pcm_rms(samples);
+        let level = (rms * 12.0).min(1.0);
+        if level > 0.003 {
             self.signal.store(true, Ordering::Relaxed);
         }
+        // One callback writer per stream. The control loop only reads this word.
+        let word = super::levels::accumulate(
+            self.peak.load(Ordering::Relaxed),
+            super::levels::bucket(),
+            rms,
+        );
+        self.peak.store(word, Ordering::Relaxed);
+        level
     }
     pub fn failed(&self, error: String) {
         let _ = self.errors.try_send(error);
@@ -40,6 +52,9 @@ impl StreamProbe {
     pub fn poll(&self, monitor: &CaptureMonitor, source: u8, reported: &mut bool) -> Result<()> {
         if let Ok(error) = self.received.try_recv() {
             anyhow::bail!("audio stream: {error}");
+        }
+        if let Some(page) = &monitor.levels {
+            page.set(source, self.peak.load(Ordering::Relaxed));
         }
         if !*reported && self.signal.load(Ordering::Relaxed) {
             monitor.signal(source);
@@ -55,9 +70,12 @@ pub struct CaptureSource {
     pub name: String,
     pub state: String,
     pub detail: String,
+    #[serde(default)]
+    pub device: Option<String>,
 }
 
 pub struct CaptureMonitor {
+    levels: Option<super::levels::Levels>,
     path: PathBuf,
     sources: Mutex<Vec<CaptureSource>>,
     dirty: AtomicBool,
@@ -72,10 +90,12 @@ impl CaptureMonitor {
                 name: "Микрофон".into(),
                 state: "starting".into(),
                 detail: "Открываем микрофон".into(),
+                device: None,
             },
             CaptureSource {
                 source_id: 1,
                 name: "Системный звук".into(),
+                device: None,
                 state: if loopback { "starting" } else { "disabled" }.into(),
                 detail: if loopback {
                     "Открываем системный звук"
@@ -86,6 +106,9 @@ impl CaptureMonitor {
             },
         ];
         let monitor = Arc::new(Self {
+            levels: super::levels::Levels::create(workspace)
+                .map_err(|err| tracing::warn!(%err, "capture meters unavailable"))
+                .ok(),
             path: workspace.join(FILE),
             sources: Mutex::new(sources),
             dirty: AtomicBool::new(false),
@@ -97,16 +120,27 @@ impl CaptureMonitor {
         Ok(monitor)
     }
 
-    fn update(&self, source_id: u8, state: &str, detail: String) {
+    fn update(&self, source_id: u8, state: &str, detail: String, device: Option<String>) {
         let Ok(mut sources) = self.sources.lock() else {
             return;
         };
         let Some(source) = sources.iter_mut().find(|s| s.source_id == source_id) else {
             return;
         };
-        if source.state == state && source.detail == detail {
+        // A signal belongs to the open stream. Opening, failure or disable
+        // starts a new reading and invalidates the preceding endpoint.
+        let device = if state == "signal" {
+            source.device.clone()
+        } else {
+            if let Some(page) = &self.levels {
+                page.set(source_id, 0);
+            }
+            device
+        };
+        if source.state == state && source.detail == detail && source.device == device {
             return;
         }
+        source.device = device;
         source.state = state.into();
         source.detail = detail;
         self.dirty.store(true, Ordering::Release);
@@ -131,6 +165,10 @@ impl CaptureMonitor {
     }
 
     pub fn opened(&self, source_id: u8) {
+        self.open_device(source_id, None);
+    }
+
+    pub fn open_device(&self, source_id: u8, device: Option<String>) {
         let detail = if source_id == 1 {
             format!(
                 "Поток открыт; сигнал ещё не подтверждён. Включите звук в другом приложении.{}",
@@ -139,7 +177,7 @@ impl CaptureMonitor {
         } else {
             "Поток открыт; сигнал ещё не подтверждён. Скажите несколько слов.".into()
         };
-        self.update(source_id, "waiting", detail);
+        self.update(source_id, "waiting", detail, device);
     }
 
     pub fn signal(&self, source_id: u8) {
@@ -147,6 +185,7 @@ impl CaptureMonitor {
             source_id,
             "signal",
             "Звуковой сигнал получен после открытия потока".into(),
+            None,
         );
     }
 
@@ -155,11 +194,12 @@ impl CaptureMonitor {
             source_id,
             "error",
             format!("{error}{}", if source_id == 1 { access_hint() } else { "" }),
+            None,
         );
     }
 
     pub fn disabled(&self, source_id: u8) {
-        self.update(source_id, "disabled", "Выключен в настройках".into());
+        self.update(source_id, "disabled", "Выключен в настройках".into(), None);
     }
 }
 
@@ -201,6 +241,12 @@ mod tests {
         callback.observe(&[4096; 512]);
         probe.poll(&monitor, 1, &mut reported).unwrap();
         assert!(reported);
+        assert_eq!(crate::audio::levels::read(root.path()), [None, Some(4)]);
+        // Independent readers do not consume the same peak.
+        assert_eq!(crate::audio::levels::read(root.path()), [None, Some(4)]);
+        monitor.open_device(1, Some("Built-in Output".into()));
+        assert_eq!(crate::audio::levels::read(root.path()), [None; 2]);
+        monitor.signal(1);
         assert_eq!(
             read(root.path())[1].state,
             "starting",
@@ -208,6 +254,10 @@ mod tests {
         );
         monitor.publish().unwrap();
         assert_eq!(read(root.path())[1].state, "signal");
+        assert_eq!(
+            read(root.path())[1].device.as_deref(),
+            Some("Built-in Output")
+        );
         callback.failed("device disconnected".into());
         callback.failed("duplicate failure does not block the callback".into());
         assert!(probe

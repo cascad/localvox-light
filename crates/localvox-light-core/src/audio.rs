@@ -17,6 +17,7 @@ use crossbeam_channel::Sender;
 
 use crate::events::UiMsg;
 
+pub mod levels;
 pub mod status;
 use status::CaptureMonitor;
 
@@ -77,12 +78,16 @@ pub struct PcmChunk {
 
 /// RMS → 0..1 for an 8-block meter (as in client-reliable: `rms/32768*12`, min 1.0).
 pub fn pcm_level_i16(samples: &[i16]) -> f32 {
+    (pcm_rms(samples) * 12.0).min(1.0)
+}
+
+fn pcm_rms(samples: &[i16]) -> f32 {
     if samples.is_empty() {
         return 0.0;
     }
     let rms: f64 =
         (samples.iter().map(|&s| (s as f64).powi(2)).sum::<f64>() / samples.len() as f64).sqrt();
-    (rms / 32768.0 * 12.0).min(1.0) as f32
+    (rms / 32768.0) as f32
 }
 
 /// Display line for a device (name + manufacturer + id) — as in client-reliable.
@@ -236,7 +241,7 @@ pub fn macos_loopback_empty_hint() -> Option<String> {
     let host = cpal::default_host();
     match host.output_devices() {
         Err(e) => Some(format!(
-            "cpal could not enumerate outputs: {e}. Usually this is not about the \"device name\" but about the environment (sandbox, no GUI session) or access restrictions. To record system audio on macOS 14.6+, the terminal/IDE often needs the \"Microphone\" permission (Settings → Privacy & Security)."
+            "Не удалось получить выходы CoreAudio: {e}. Для системного звука нужны macOS 14.6+ и доступ в «Запись экрана и системного аудио»."
         )),
         Ok(iter) => {
             let n = iter.count();
@@ -430,13 +435,13 @@ pub fn default_render_id() -> Option<String> {
 
 #[cfg(not(windows))]
 pub fn default_render_id() -> Option<String> {
-    cpal::default_host().default_output_device()?.name().ok()
+    device_id_save_token(&cpal::default_host().default_output_device()?)
 }
 
 /// Identity of the current default microphone — it moves for the same reasons (a headset is one
 /// device: reconnect it and both the mic and the speakers change under you).
 pub fn default_capture_id() -> Option<String> {
-    default_host().ok()?.default_input_device()?.name().ok()
+    device_id_save_token(&default_host().ok()?.default_input_device()?)
 }
 
 pub fn resolve_mic(query: &str) -> Result<cpal::Device> {
@@ -670,7 +675,7 @@ pub fn mic_capture(
     let callback_error = probe.clone();
 
     let stream = device.build_input_stream(
-        &config,
+        config,
         move |data: &[f32], _: &cpal::InputCallbackInfo| {
             if !running2.load(Ordering::Relaxed) {
                 return;
@@ -687,9 +692,8 @@ pub fn mic_capture(
             pcm_buf.extend_from_slice(&samples);
             while pcm_buf.len() >= CHUNK_FRAMES {
                 let chunk: Vec<i16> = pcm_buf.drain(..CHUNK_FRAMES).collect();
-                callback_probe.observe(&chunk);
+                let level = callback_probe.observe(&chunk);
                 if let Some(ref u) = level2 {
-                    let level = pcm_level_i16(&chunk);
                     let _ = u.send(UiMsg::AudioLevel { source_id, level });
                 }
                 // WE SEND, WE DO NOT TRY. There used to be a `try_send` here, and on a full
@@ -725,7 +729,10 @@ pub fn mic_capture(
         None,
     )?;
     stream.play()?;
-    monitor.opened(source_id);
+    monitor.open_device(
+        source_id,
+        device.description().ok().map(|d| d.name().to_owned()),
+    );
     let mut reported_signal = false;
     while running.load(Ordering::Relaxed) {
         probe.poll(&monitor, source_id, &mut reported_signal)?;
@@ -791,7 +798,8 @@ pub fn loopback_capture(
     audio_client
         .start_stream()
         .map_err(|e| anyhow::anyhow!("start_stream: {e:?}"))?;
-    monitor.opened(1);
+    monitor.open_device(1, device.get_friendlyname().ok());
+    let probe = status::StreamProbe::new();
     let mut reported_signal = false;
 
     let blockalign = desired_format.get_blockalign() as usize;
@@ -832,12 +840,8 @@ pub fn loopback_capture(
                 let hi = sample_queue.pop_front().unwrap();
                 pcm.push(i16::from_le_bytes([lo, hi]));
             }
-            if !reported_signal && pcm_level_i16(&pcm) > 0.003 {
-                monitor.signal(1);
-                reported_signal = true;
-            }
+            let level = probe.observe(&pcm);
             if let Some(ref u) = level_ui {
-                let level = pcm_level_i16(&pcm);
                 let _ = u.send(UiMsg::AudioLevel {
                     source_id: 1,
                     level,
@@ -856,6 +860,7 @@ pub fn loopback_capture(
                 break; // the receiver is gone
             }
         }
+        probe.poll(&monitor, 1, &mut reported_signal)?;
         // Nothing is playing in the system — top the track up with silence so that its time
         // matches the world's. Otherwise the pause simply falls out of the recording.
         let expected = (started.elapsed().as_secs_f64() * f64::from(SAMPLE_RATE)) as u64;
@@ -939,8 +944,13 @@ pub fn loopback_capture(
     monitor: Arc<CaptureMonitor>,
 ) -> Result<()> {
     let device = resolve_loopback_input(device_query)?;
+    let output = device
+        .description()
+        .map(|d| d.name().to_owned())
+        .unwrap_or_else(|_| device_query.to_owned());
+    let context = || format!("Системный выход «{output}»");
     #[cfg(target_os = "macos")]
-    ensure_macos_output_only(device.supports_input())?;
+    ensure_macos_output_only(device.supports_input()).with_context(context)?;
     mic_capture(
         device,
         1,
@@ -951,6 +961,7 @@ pub fn loopback_capture(
         reload_snapshot,
         monitor,
     )
+    .with_context(context)
 }
 
 #[cfg(any(target_os = "macos", test))]

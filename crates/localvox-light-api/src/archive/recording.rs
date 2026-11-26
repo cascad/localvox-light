@@ -12,6 +12,7 @@ impl Archive {
         let session = localvox_light_core::jobs::recording_session(&self.work_dir);
         let engine = engine_alive(&self.work_dir);
         RecordState {
+            live_levels: engine,
             capture_sources: if engine {
                 localvox_light_core::audio::status::read(&self.work_dir)
             } else {
@@ -34,6 +35,14 @@ impl Archive {
             voice: engine
                 .then(|| localvox_light_core::voice_note::read(&self.work_dir))
                 .flatten(),
+        }
+    }
+
+    pub fn capture_levels(&self) -> [Option<u8>; 2] {
+        if engine_alive(&self.work_dir) {
+            localvox_light_core::audio::levels::read(&self.work_dir)
+        } else {
+            [None; 2]
         }
     }
 

@@ -80,6 +80,11 @@ impl App {
                 d
             }
             Err(e) => {
+                if r.resource == Resource::CaptureLevels {
+                    self.capture_levels = [None; 2];
+                    self.levels_retry_at = self.now_ms + 3000;
+                    return;
+                }
                 let context = self
                     .action_diagnostics
                     .remove(&r.resource)
@@ -229,6 +234,10 @@ impl App {
                     self.pending_record = None;
                 }
                 self.record = r;
+            }
+            Data::CaptureLevels(levels) => {
+                self.capture_levels = levels;
+                self.levels_valid_until = self.now_ms + 750;
             }
             Data::Jobs(j) => self.jobs = j,
             Data::Queue(q) => {

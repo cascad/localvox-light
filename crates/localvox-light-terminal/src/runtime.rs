@@ -54,6 +54,7 @@ pub fn run(mut client: Client, mut app: App) -> Result<()> {
         let mut input = input::source()?;
         let mut last_poll = Instant::now();
         let mut last_record = Instant::now();
+        let mut last_levels = Instant::now();
         let mut dirty = true;
         let mut last_draw = Instant::now();
         let mut last_animation = None;
@@ -124,9 +125,12 @@ pub fn run(mut client: Client, mut app: App) -> Result<()> {
             }
             if let Some(network) = network.as_mut() {
                 for response in network.rx.try_iter().collect::<Vec<_>>() {
-                    dirty = true;
+                    let meter = response.resource == Resource::CaptureLevels;
+                    let previous = app.capture_levels;
+                    let was_stale = app.now_ms >= app.levels_valid_until;
                     network.finished(response.resource, response.epoch);
                     app.apply(response);
+                    dirty |= !meter || previous != app.capture_levels || was_stale;
                 }
                 network.set_epoch(app.epoch);
                 for (resource, task) in std::mem::take(&mut app.effects) {
@@ -146,6 +150,19 @@ pub fn run(mut client: Client, mut app: App) -> Result<()> {
                 if app.shutdown_started.is_none() && last_poll.elapsed() >= Duration::from_secs(3) {
                     app.refresh();
                     last_poll = Instant::now();
+                }
+                if app.record.engine
+                    && app.record.live_levels
+                    && app.shutdown_started.is_none()
+                    && app.now_ms >= app.levels_retry_at
+                    && last_levels.elapsed() >= Duration::from_millis(250)
+                {
+                    network.submit(
+                        app.epoch,
+                        Resource::CaptureLevels,
+                        Task::Read(Resource::CaptureLevels, String::new()),
+                    );
+                    last_levels = Instant::now();
                 }
             } else {
                 let rejected = !app.effects.is_empty();

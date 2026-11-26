@@ -92,3 +92,27 @@ Native macOS сборка с секцией metadata, первый систем�
 - [Apple: CoreAudio taps](https://developer.apple.com/documentation/coreaudio/capturing-system-audio-with-core-audio-taps) — usage description и системный consent.
 - [CPAL: известная тишина при отсутствии AudioCapture access](https://github.com/RustAudio/cpal/pull/1257) — предложенные helpers ещё не приняты; частный TCC API не добавлен.
 - [Tauri: расширение Info.plist](https://v2.tauri.app/distribute/macos-application-bundle/) — metadata desktop bundle.
+
+## Живой уровень и исправление CoreAudio, 2026-11-26
+
+В CPAL 0.17.3 подтверждён отключённый tap autostart. В поставляемом через
+Cargo.lock CPAL 0.18.2 включён autostart и проверяется результат создания tap.
+Это известная причина тишины. Версия ОС, разрешения и маршрут конкретного Mac
+пользователя в этой проверке не измерялись.
+
+Проверено на Windows в изолированных fixtures:
+
+- Core audio: 12 passed, 2 ignored. PCM через callback → два независимых чтения
+  уровня, сброс при переоткрытии, известная тишина, срок годности и скачок часов.
+- Весь API: 102 passed, 8 ignored. Включая реальный HTTP для уровней, имени
+  устройства, остановленного движка и обратной совместимости.
+- Весь TUI: 262 passed, 3 ignored. Отдельные шкалы, срок годности, ошибка
+  источника и его имя в настройках.
+- GUI build, 20 unit. Два сценария источников в Chromium дважды на production
+  build и один раз под StrictMode. Проверены независимые уровни до записи,
+  пауза, зависший запрос, восстановление, Stop на экране 480 px.
+- Windows daemon и TUI собраны с `--locked`. Strict change и 15 main specs,
+  checker и diff проверены.
+
+Проверка выхода в наушниках и настоящего системного диалога macOS остаётся
+в задаче 3.2. Аппаратный звук Windows и Linux также не измерялся.

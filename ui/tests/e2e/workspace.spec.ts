@@ -72,6 +72,45 @@ test("capture sources distinguish silence, failure, recovery and a dead engine w
   await expect(page.getByRole("button",{name:"Остановить",exact:true})).toBeInViewport();
 });
 
+test("capture meters show each live input before recording, expire and keep Stop visible", async ({ page }) => {
+  await workspace(page, {record:true});
+  let recording = false;
+  const sources = [
+    { source_id:0, name:"Микрофон", state:"signal", device:"USB Mic", detail:"Поток открыт" },
+    { source_id:1, name:"Системный звук", state:"waiting", device:"Built-in Output", detail:"Включите звук в другом приложении" },
+  ];
+  let levels: (number | null)[] = [0,5];
+  await page.route("**/api/record", route => route.fulfill({ json:{...fixture.record,engine:true,recording,live_levels:true,capture_sources:sources} }));
+  await page.route("**/api/record/levels", route => route.fulfill({ json:levels }));
+  await page.clock.runFor(1200);
+  const meter = (name: string) => page.getByRole("img",{name});
+  await expect(meter("Системный звук · Уровень 5 из 6").locator('[data-lit="true"]')).toHaveCount(5);
+  await expect(meter("Микрофон · Тишина")).toBeVisible();
+  await page.getByLabel("Источники записи").click();
+  await expect(page.getByText(/Built-in Output/)).toBeVisible();
+  await page.getByLabel("Источники записи").click();
+  levels = [3,0];
+  recording = true;
+  await page.clock.runFor(1200);
+  await expect(meter("Микрофон · Уровень 3 из 6")).toBeVisible();
+  await expect(meter("Системный звук · Тишина")).toBeVisible();
+  await page.setViewportSize({width:480,height:900});
+  await expect(page.getByRole("button",{name:"Остановить",exact:true})).toBeInViewport();
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({path:test.info().outputPath("live-levels.png"),animations:"disabled"});
+  let resume!: () => void;
+  const stalled = new Promise<void>(resolve => { resume = resolve; });
+  await page.route("**/api/record/levels", async route => {
+    await stalled;
+    await route.fulfill({json:[0,0]});
+  });
+  await page.clock.runFor(1100);
+  await expect(meter("Микрофон · Нет свежего измерения")).toBeVisible();
+  resume();
+  await page.clock.runFor(400);
+  await expect(meter("Микрофон · Тишина")).toBeVisible();
+});
+
 async function openJournalStage(page: Page, run = "r1", stage = "summary") {
   const row = page.locator(`[data-journal-id="${run}/stage:${stage}"]`);
   await expect(row).toBeVisible();

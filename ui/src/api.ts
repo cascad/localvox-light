@@ -307,6 +307,7 @@ export interface ModelNotice {
 }
 
 export interface RecordState {
+  live_levels?: boolean;
   capture_sources?: CaptureSource[];
   model_notices?: ModelNotice[];
   engine: boolean;
@@ -319,6 +320,7 @@ export interface RecordState {
   voice?: VoiceStatus | null;
 }
 export interface CaptureSource {
+  device?: string | null;
   source_id: number;
   name: string;
   state: string;
@@ -572,6 +574,7 @@ export const api = {
     }),
 
   record: (signal?: AbortSignal) => call<RecordState>("/api/record", { signal }),
+  captureLevels: (signal: AbortSignal) => call<(number | null)[]>("/api/record/levels", { signal, cache: "no-store", timeoutMs: 2000 }),
   startRecording: (title: string) => post<{ msg: string }>("/api/record/start", { title }),
   stopRecording: () => post<{ session: string }>("/api/record/stop"),
   // Granular re-cook: the scope follows the tab the person is on. `summary` — only the summary;

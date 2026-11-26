@@ -11,6 +11,7 @@ use std::sync::{
 pub enum Resource {
     Sessions,
     Record,
+    CaptureLevels,
     Jobs,
     Queue,
     Summary,
@@ -42,6 +43,7 @@ impl Resource {
             self,
             Self::Sessions
                 | Self::Record
+                | Self::CaptureLevels
                 | Self::Jobs
                 | Self::Queue
                 | Self::Action
@@ -103,6 +105,7 @@ pub enum Data {
     Shutdown,
     Sessions(Vec<Session>),
     Record(RecordState),
+    CaptureLevels([Option<u8>; 2]),
     Jobs(Jobs),
     Queue(Vec<QueueItem>),
     Summary(Summary),
@@ -282,6 +285,15 @@ pub fn perform(c: &Client, task: Task) -> anyhow::Result<Data> {
         Task::Read(r, s) => match r {
             Resource::Sessions => Data::Sessions(c.sessions()?),
             Resource::Record => Data::Record(c.record()?),
+            Resource::CaptureLevels => {
+                let start = std::time::Instant::now();
+                let levels = c.capture_levels()?;
+                Data::CaptureLevels(if start.elapsed().as_millis() < 750 {
+                    levels
+                } else {
+                    [None; 2]
+                })
+            }
             Resource::Jobs => Data::Jobs(c.jobs()?),
             Resource::Queue => Data::Queue(c.queue()?),
             Resource::Summary => Data::Summary(c.summary(&s)?),

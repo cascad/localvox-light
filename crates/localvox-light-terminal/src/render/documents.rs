@@ -77,7 +77,11 @@ pub(super) fn project(a: &App, t: Theme, _metadata: bool) -> Projection {
             .find(|s| Some(s.source_id) == source_id)
         {
             projection.lines.push(Line::from(Span::styled(
-                label(&format!("{} · {}", source.name, source.detail)),
+                label(&format!(
+                    "{} · {}",
+                    source.device.as_deref().unwrap_or(&source.name),
+                    source.detail
+                )),
                 Style::default().fg(t.dim),
             )));
             projection.lines.push(Line::from(""));

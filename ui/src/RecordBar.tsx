@@ -131,7 +131,7 @@ export function RecordBar({
       <div className="brand">
         localvox <span>light</span>
       </div>
-      <CaptureSources sources={state?.engine ? state.capture_sources : undefined} />
+      <CaptureSources sources={state?.engine ? state.capture_sources : undefined} live={state?.live_levels} />
 
       {recording ? (
         // ONE button. It is the same place, and it is where the hand already knows to go: you
