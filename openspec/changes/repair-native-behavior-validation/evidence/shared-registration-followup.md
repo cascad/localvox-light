@@ -55,3 +55,34 @@ versions probes, GUI/browser, native PTY, archive/settings, installation и
 Аппаратные capture/model сценарии этим не проверялись.
 
 Команда повторения группы — [behavior testing](../../../../docs/behavior-testing.md).
+
+## Фактический повтор владельца — Mac, 2026-11-26
+
+Владелец прислал вывод отчёта `20261126T130946-76010` для команды:
+
+```sh
+python3.13 scripts/test-behavior.py --group gui --installed-dir "$HOME/Applications/LocalVox"
+```
+
+Итог **PASS**, все 8 шагов выполнены:
+
+| Шаг | Результат | Длительность |
+|---|---|---|
+| installed-vox-version | passed | 0.0 s |
+| installed-localvox-tui-version | passed | 0.0 s |
+| gui-unit | passed | 1.1 s |
+| gui-build | passed | 2.0 s |
+| gui-terminal-binary | passed | 0.7 s |
+| gui-and-tui-real-api | passed | 18.4 s |
+| gui-browser | passed | 43.7 s |
+| gui-strictmode | passed | 6.1 s |
+
+Это фактическое выполнение shared GUI/TUI/API сценария на Mac, которого
+не было в предыдущем отчёте с 0 tests. Вместе с 20 passed шагами полного
+отчёта `20261126T092746-13608` подтверждены все шаги набора на Mac в двух
+последовательных прогонах; единый новый полный прогон не утверждается.
+
+Источник — предоставленный владельцем вывод терминала. Полные report.json,
+логи и точный source SHA/dirty state этого повтора не получены. Тесты работы
+с микрофоном/loopback, ASR/LLM quality/performance и новый Linux native запуск
+по-прежнему не подтверждены этим результатом.
