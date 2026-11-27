@@ -4,14 +4,14 @@
 
 | Требование | Код / delta | Проверка |
 |---|---|---|
-| TERM-010 | [delta](../changes/surface-terminal-record-controls/specs/terminal-workspace/spec.md), [шапка](../../crates/localvox-light-terminal/src/render.rs), [навигация](../../crates/localvox-light-terminal/src/app/input.rs) | [Windows state/render, снимки и ConPTY](../changes/surface-terminal-record-controls/evidence/implementation.md) |
+| TERM-010 | [delta](../changes/surface-terminal-record-controls/specs/terminal-workspace/spec.md), [шапка](../../crates/localvox-light-terminal/src/render.rs), [подсказки](../../crates/localvox-light-terminal/src/render/footer.rs), [навигация](../../crates/localvox-light-terminal/src/app/input.rs) | [Windows state/render, снимки и ConPTY](../changes/surface-terminal-record-controls/evidence/implementation.md) |
 | REC-004, CFG-007 | [аудиопотоки](../../crates/localvox-light-core/src/audio.rs), [API настроек](../../crates/localvox-light-api/src/http/tests/settings.rs) | [T-one → GigaAM и повторное сохранение параметров при зарегистрированном захвате](../changes/surface-terminal-record-controls/evidence/implementation.md). Реальный маршрут звонка на Mac требует проверки. |
 
 macOS capture feedback, 2026-11-26 (REC-004 delta, main ещё не sync):
 
 | Требование | Код / delta | Проверка |
 |---|---|---|
-| REC-004 | [delta](../changes/fix-macos-capture-feedback/specs/recording/spec.md), [capture monitor](../../crates/localvox-light-core/src/audio/status.rs), [engine](../../crates/localvox-light-core/src/engine.rs), [API](../../crates/localvox-light-api/src/archive/recording.rs) | [Windows audio/HTTP/TUI/browser, живые шкалы, StrictMode и metadata parser](../changes/fix-macos-capture-feedback/evidence/implementation.md); native macOS consent/звук и Linux capture не проверены; duplex output tap на Mac не реализован |
+| REC-004 | [delta](../changes/fix-macos-capture-feedback/specs/recording/spec.md), [capture monitor](../../crates/localvox-light-core/src/audio/status.rs), [engine](../../crates/localvox-light-core/src/engine.rs), [API](../../crates/localvox-light-api/src/archive/recording.rs) | [Windows audio/HTTP/TUI/browser, живые шкалы, восстановимый сбой буфера, StrictMode и metadata parser](../changes/fix-macos-capture-feedback/evidence/implementation.md); native macOS consent/звук и Linux capture не проверены; duplex output tap на Mac не реализован |
 
 Native Mac behavior report и portable archive boundary, 2026-11-25–26 (ARCH-001 delta, main ещё не sync):
 

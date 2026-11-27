@@ -219,10 +219,7 @@ fn active_pane_border_and_overlay_titles_use_focus_in_all_color_modes() {
                 word(&buffer, "Разделы", 0).fg,
                 if focus == 0 { t.focus } else { t.label }
             );
-            assert_eq!(
-                word(&buffer, "Аудио", 0).fg,
-                if focus == 3 { t.focus } else { t.label }
-            );
+            assert_eq!(buffer[(rows[1].x + 2, rows[1].y)].symbol(), "─");
             app.palette = true;
             let buffer = screen(&app);
             let (x, y) = position(&buffer, "Действия · Enter / Esc", 0);
@@ -247,10 +244,13 @@ fn resizing_moves_the_actual_pane_boundary_in_every_theme_and_updates_document_m
         };
         a.command(crate::app::Action::WidenList);
         let buffer = screen(&a);
-        assert_eq!(buffer[(31, 6)].symbol(), "┌");
+        assert_eq!(buffer[(31, workspace_rows(buffer.area)[2].y)].symbol(), "┌");
         assert_eq!(document_dimensions(&a).0, 88);
         a.command(crate::app::Action::ResetListWidth);
-        assert_eq!(screen(&a)[(27, 6)].symbol(), "┌");
+        assert_eq!(
+            screen(&a)[(27, workspace_rows(buffer.area)[2].y)].symbol(),
+            "┌"
+        );
         assert_eq!(document_dimensions(&a).0, 92);
     }
 }

@@ -3,10 +3,10 @@ use super::*;
 
 pub(super) fn workspace_rows(area: Rect) -> [Rect; 4] {
     let rows = Layout::vertical([
-        Constraint::Length(2),
+        Constraint::Length(1),
         Constraint::Length(4),
         Constraint::Min(1),
-        Constraint::Length(2),
+        Constraint::Length(3),
     ])
     .split(area);
     [rows[0], rows[1], rows[2], rows[3]]

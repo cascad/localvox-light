@@ -1,29 +1,34 @@
 use super::*;
 
 pub(super) fn player_bar(f: &mut Frame, a: &App, area: Rect, t: Theme) {
-    let block = panel(
-        if a.focus == 3 {
-            "Аудио · ←/→ перемотка · F6 к документу"
-        } else {
-            "Аудио · F6: стрелки плееру"
-        },
-        a.focus == 3,
-        t,
-    )
-    .borders(Borders::ALL);
+    let block = borders(t.ascii).border_style(if a.focus == 3 {
+        t.focus_style()
+    } else {
+        Style::default().fg(t.line)
+    });
     let inner = block.inner(area);
     f.render_widget(block, area);
-    let keys = if a.focus == 3 {
-        "←/→ ±5с · Home/End · g время · Space ▶/‖"
-    } else if area.width < 95 {
-        "Space ▶/‖ · p фрагмент · g время · Alt+←/→ ±15с"
+    let keys: &[&str] = if a.focus == 3 {
+        &[
+            "F6 к документу",
+            "←/→ ±5с",
+            "Home/End",
+            "g время",
+            "Space ▶/‖",
+        ]
     } else {
-        "Space ▶/‖ · p фрагмент · g время · Alt+←/→ ±15с · F6: стрелки плееру"
+        &[
+            "F6 стрелки плееру",
+            "Space ▶/‖",
+            "p фрагмент",
+            "g время",
+            "Alt+←/→ ±15с",
+        ]
     };
     f.render_widget(
         Paragraph::new(vec![
             player_line(a, t, inner.width),
-            Line::from(Span::styled(keys, Style::default().fg(t.dim))),
+            footer::hints(inner.width, t, keys),
         ]),
         inner,
     );

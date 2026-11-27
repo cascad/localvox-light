@@ -1166,7 +1166,7 @@ fn exercise_terminal(vox: bool, full_exit: bool, confirm_key: &[u8]) {
     writer.flush().unwrap();
     wait_until(
         "wider list boundary",
-        |_, s| s.cell(6, 31).is_some_and(|c| c.contents() == "+"),
+        |_, s| s.cell(5, 31).is_some_and(|c| c.contents() == "+"),
         &mut all,
         &mut screen,
         &rx,
@@ -1178,7 +1178,7 @@ fn exercise_terminal(vox: bool, full_exit: bool, confirm_key: &[u8]) {
     writer.flush().unwrap();
     wait_until(
         "restored list boundary",
-        |_, s| s.cell(6, 27).is_some_and(|c| c.contents() == "+"),
+        |_, s| s.cell(5, 27).is_some_and(|c| c.contents() == "+"),
         &mut all,
         &mut screen,
         &rx,
@@ -1502,7 +1502,7 @@ fn unauthorized_start_can_reconnect_through_the_masked_form_without_replaying_st
         .contains("! 1"));
     writer.write_all(b"\x1b[24~").unwrap(); // F12 works even in the archive filter
     writer.flush().unwrap();
-    see!("F8 stop");
+    see!("F10 выход");
     writer.write_all(b"\x1b[1;5C").unwrap();
     writer.flush().unwrap();
     see!("Ширина списка: 31");
@@ -1529,7 +1529,7 @@ fn unauthorized_start_can_reconnect_through_the_masked_form_without_replaying_st
     writer.flush().unwrap();
     see!("Архитектура и следующие шаги");
     assert_eq!(
-        screen.screen().cell(6, 31).unwrap().contents(),
+        screen.screen().cell(5, 31).unwrap().contents(),
         "+",
         "list width must survive reconnect"
     );
@@ -1846,7 +1846,7 @@ fn real_terminal_animates_server_activity_filters_names_and_accepts_russian_comm
         "one document page",
         |_, screen| {
             screen
-                .contents_between(9, 28, 9, 40)
+                .contents_between(8, 28, 8, 40)
                 .starts_with("Строка 023")
         },
         &mut all,
@@ -1867,11 +1867,7 @@ fn real_terminal_animates_server_activity_filters_names_and_accepts_russian_comm
     screen.set_size(24, 80);
     wait_until(
         "compact footer",
-        |_, screen| {
-            screen
-                .contents_between(23, 1, 23, 12)
-                .starts_with("F8 stop")
-        },
+        |_, screen| screen.contents_between(23, 0, 23, 80).contains("F10 выход"),
         &mut all,
         &mut screen,
         &rx,
@@ -1885,7 +1881,7 @@ fn real_terminal_animates_server_activity_filters_names_and_accepts_russian_comm
         "resized document page",
         |_, screen| {
             screen
-                .contents_between(9, 1, 9, 13)
+                .contents_between(8, 1, 8, 13)
                 .starts_with("Строка 036")
         },
         &mut all,

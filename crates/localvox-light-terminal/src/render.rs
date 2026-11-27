@@ -8,6 +8,7 @@ mod playback;
 use playback::player_bar;
 mod lists;
 use lists::{items, list_block, nav};
+mod footer;
 mod geometry;
 pub(crate) use geometry::{document_dimensions, list_metrics};
 use geometry::{document_rows, left_rows, workspace_columns, workspace_rows};
@@ -232,7 +233,7 @@ pub fn draw(f: &mut Frame, a: &App) {
     if area.width < 35 || area.height < 10 {
         f.render_widget(
             Paragraph::new(
-                "LocalVox\nОкно слишком мало\nF8 — остановить запись\nq / F10 — закрыть клиент",
+                "LocalVox\nОкно слишком мало\nF8 — остановить запись\nqq / F10 — закрыть клиент",
             )
             .wrap(Wrap { trim: false }),
             area,
@@ -240,7 +241,7 @@ pub fn draw(f: &mut Frame, a: &App) {
         return;
     }
     let rows = workspace_rows(area);
-    let stop_hint = " F8 остановить запись ·";
+    let stop_hint = "F8 остановить запись";
     let (record, rec_color, record_key) = match a.pending_record {
         Some(true) => ("запускаем запись…", t.busy, stop_hint),
         Some(false) => ("останавливаем запись…", t.busy, ""),
@@ -248,98 +249,60 @@ pub fn draw(f: &mut Frame, a: &App) {
             ("состояние записи неизвестно", t.busy, "")
         }
         None if a.record.recording => ("ИДЁТ ЗАПИСЬ", t.error, stop_hint),
-        None if a.record.engine => ("готов к записи", t.dim, " F9 начать запись ·"),
+        None if a.record.engine => ("готов к записи", t.dim, "F9 начать запись"),
         None => ("движок недоступен", t.dim, ""),
     };
     f.render_widget(
-        Paragraph::new(vec![
-            Line::from(vec![
-                Span::styled(
-                    " localvox ",
-                    Style::default().fg(t.ink).add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(
-                    if a.console.unread() > 0 {
-                        format!("   ! {} · ~", a.console.unread())
-                    } else {
-                        String::new()
-                    },
-                    Style::default().fg(t.error),
-                ),
-                Span::styled(
-                    if area.width < 95 { " " } else { "   " },
-                    Style::default().fg(t.dim),
-                ),
-                Span::styled(
-                    format!("{} {record}", if a.preferences.ascii { "*" } else { "●" }),
-                    Style::default().fg(rec_color),
-                ),
-                capture_meter(a, t, 0),
-                capture_meter(a, t, 1),
-                Span::styled(
-                    if a.errors.contains_key(&Resource::Jobs) {
-                        "   очередь недоступна".into()
-                    } else {
-                        format!(
-                            "   очередь {} · сбои этапов {}{}{}",
-                            a.jobs.pending,
-                            a.jobs.failed,
-                            if a.jobs.cancelling > 0 {
-                                format!(" · остановка {}", a.jobs.cancelling)
-                            } else {
-                                String::new()
-                            },
-                            if a.jobs.cancelled > 0 {
-                                format!(" · отменено {}", a.jobs.cancelled)
-                            } else {
-                                String::new()
-                            }
-                        )
-                    },
-                    Style::default().fg(if a.errors.contains_key(&Resource::Jobs) {
-                        t.error
-                    } else {
-                        t.dim
-                    }),
-                ),
-            ]),
-            Line::from(vec![
-                Span::styled(record_key, Style::default().fg(t.command)),
-                Span::styled(
+        Paragraph::new(Line::from(vec![
+            Span::styled(
+                " localvox ",
+                Style::default().fg(t.ink).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                if a.console.unread() > 0 {
+                    format!("   ! {} · ~", a.console.unread())
+                } else {
+                    String::new()
+                },
+                Style::default().fg(t.error),
+            ),
+            Span::styled(
+                if area.width < 95 { " " } else { "   " },
+                Style::default().fg(t.dim),
+            ),
+            Span::styled(
+                format!("{} {record}", if a.preferences.ascii { "*" } else { "●" }),
+                Style::default().fg(rec_color),
+            ),
+            capture_meter(a, t, 0),
+            capture_meter(a, t, 1),
+            Span::styled(
+                if a.errors.contains_key(&Resource::Jobs) {
+                    "   очередь недоступна".into()
+                } else {
                     format!(
-                        " {}   {}",
-                        if a.view == View::Archive && a.focus == 1 {
-                            if a.archive_filter_editing {
-                                "ввод имени · ↑↓ выбор · Esc сброс"
-                            } else {
-                                "j/k ↑↓ · / поиск · F2 действия"
-                            }
+                        "   очередь {} · сбои этапов {}{}{}",
+                        a.jobs.pending,
+                        a.jobs.failed,
+                        if a.jobs.cancelling > 0 {
+                            format!(" · остановка {}", a.jobs.cancelling)
                         } else {
-                            "i добавить YouTube / URL"
+                            String::new()
                         },
-                        a.record
-                            .voice
-                            .as_ref()
-                            .map(|v| {
-                                let detail = if let Some(capturing) = &v.capturing {
-                                    format!("диктую → {}: {}", capturing.slot, capturing.text)
-                                } else if let Some(last) = &v.last {
-                                    if last.error.is_some() {
-                                        format!("сбой заметки → {} · ~ консоль", last.slot)
-                                    } else {
-                                        format!("сохранено → {}: {}", last.slot, last.text)
-                                    }
-                                } else {
-                                    format!("голос: {}", v.detail)
-                                };
-                                safe_label(&detail).replace(['\n', '\t'], " ")
-                            })
-                            .unwrap_or_default()
-                    ),
-                    Style::default().fg(t.dim),
-                ),
-            ]),
-        ]),
+                        if a.jobs.cancelled > 0 {
+                            format!(" · отменено {}", a.jobs.cancelled)
+                        } else {
+                            String::new()
+                        }
+                    )
+                },
+                Style::default().fg(if a.errors.contains_key(&Resource::Jobs) {
+                    t.error
+                } else {
+                    t.dim
+                }),
+            ),
+        ])),
         rows[0],
     );
     player_bar(f, a, rows[1], t);
@@ -362,49 +325,7 @@ pub fn draw(f: &mut Frame, a: &App) {
             context(f, a, cols[2], t);
         }
     }
-    let status = a.status.clone();
-    let copy_hint = match (a.view, a.tab) {
-        (View::Archive, Tab::Summary) => "y блок · Ctrl+Y всё",
-        (View::Archive, Tab::Transcript) => "y реплика · Ctrl+Y всё",
-        _ => "y/Ctrl+Y копия",
-    };
-    let back_hint = match a.focus {
-        3 => "Esc документ",
-        2 => "Esc список",
-        1 if a.view == View::Archive && a.archive_filter_editing => "Esc сброс",
-        1 => "Esc меню",
-        _ => "Enter/l раздел",
-    };
-    let keys = if area.width < 95 {
-        Line::from(if a.view == View::Archive && a.focus == 1 {
-            format!(" F8 stop  F10 выход  Enter открыть  {back_hint}  F2 действия")
-        } else {
-            format!(" F8 stop  qq/F10 выход  {copy_hint}  {back_hint}  : действия")
-        })
-    } else {
-        Line::from(vec![
-            Span::styled(" Tab", Style::default().fg(t.command)),
-            Span::raw(" фокус   "),
-            Span::styled("1–5", Style::default().fg(t.argument)),
-            Span::raw(" вкладка   "),
-            Span::styled(":", Style::default().fg(t.command)),
-            Span::raw(if a.view == View::Archive && a.focus == 1 {
-                format!(" / F2 действия   Enter открыть   {back_hint}   F8 stop   F10 выход")
-            } else {
-                format!(" действия   {copy_hint}   {back_hint}   F8 stop   qq/F10 выход")
-            }),
-        ])
-    };
-    f.render_widget(
-        Paragraph::new(vec![
-            Line::from(Span::styled(
-                format!(" {}", safe_label(&status)),
-                Style::default().fg(t.dim),
-            )),
-            keys,
-        ]),
-        rows[3],
-    );
+    footer::draw(f, a, rows[3], t, record_key);
     overlays::draw(f, a, area, t);
 }
 fn modal(a: Rect, w: u16, h: u16) -> Rect {
@@ -1159,13 +1080,13 @@ fn context(f: &mut Frame, a: &App, area: Rect, t: Theme) {
         let hints = if a.view == View::Settings {
             "Enter изменить\ns сохранить\nA основные / все\n/ найти настройку\n\n~ консоль ошибок"
         } else if a.view == View::Notes {
-            "Enter открыть заметки\nj/k выбор\nd / Delete удалить\nEnter / s подтвердить\nn новая заметка\ny копировать заметку\nEsc назад\n\n~ консоль ошибок\n: все действия"
+            "Enter открыть заметки\nj/k выбор\nd / Delete удалить\nEnter / s подтвердить\nn новая заметка\ny копировать заметку\nEsc назад\n\n~ консоль ошибок"
         } else if a.view == View::Archive && a.tab == Tab::Summary {
-            "y копировать блок сводки\nCtrl+Y вся сводка\n3 весь текст\nI сведения о записи\nr переварить запись\nEsc назад к списку\n\nSpace play / pause\np слушать источник\ng перейти ко времени\nF6 стрелки плееру\n\n~ консоль ошибок\n: все действия"
+            "y копировать блок сводки\nCtrl+Y вся сводка\n3 весь текст\nI сведения о записи\nr переварить запись\nEsc назад к списку\n\n~ консоль ошибок"
         } else if a.view == View::Archive && a.tab == Tab::Transcript {
-            "y копировать реплику\nCtrl+Y весь документ\n3 весь текст\nr переварить запись\nEsc назад к списку\n\nSpace play / pause\np слушать фрагмент\ng перейти ко времени\nF6 стрелки плееру\n\n~ консоль ошибок\n: все действия"
+            "y копировать реплику\nCtrl+Y весь документ\n3 весь текст\nr переварить запись\nEsc назад к списку\n\n~ консоль ошибок"
         } else {
-            "I сведения о записи\n3 текст · y / Ctrl+Y копия\n5 ход обработки\ni добавить YouTube / URL\nr переварить запись\n\nSpace play / pause\np слушать фрагмент\ng перейти ко времени\nF6 стрелки плееру\n\n~ консоль ошибок\n: все действия"
+            "I сведения о записи\n3 текст · y / Ctrl+Y копия\n5 ход обработки\ni добавить YouTube / URL\nr переварить запись\n\n~ консоль ошибок"
         };
         let mut lines = hints
             .lines()
@@ -1681,7 +1602,9 @@ mod tests {
             })
             .collect::<Vec<_>>()
             .join("\n");
-        assert!(plain.contains("‖") && plain.contains("Home/End") && plain.contains("F8"));
+        assert!(
+            plain.contains("‖") && plain.contains("Home/End") && plain.contains("F6 к документу")
+        );
         insta::assert_debug_snapshot!(format!("player_{width}_{height}"), buffer);
     }
 
@@ -2353,7 +2276,9 @@ mod tests {
     fn layout_keeps_stop_and_client_exit_at_all_sizes() {
         for (w, h) in [(160, 48), (120, 36), (80, 24), (30, 8)] {
             let mut term = Terminal::new(TestBackend::new(w, h)).unwrap();
-            let a = App::default();
+            let mut a = App::default();
+            a.record.engine = true;
+            a.record.recording = true;
             term.draw(|f| draw(f, &a)).unwrap();
             let buffer = term.backend().buffer();
             let text = buffer

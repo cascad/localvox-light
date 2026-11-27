@@ -1,4 +1,4 @@
-//! Engine-owned capture evidence; audio callbacks never touch this store.
+//! Engine-owned capture evidence. Audio callbacks only update atomics or enqueue fatal errors.
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -15,16 +15,20 @@ const FILE: &str = ".capture-status.json";
 /// access, no waiting for an error queue, and no invented signal from silence.
 #[derive(Clone)]
 pub(super) struct StreamProbe {
+    monitor: Arc<CaptureMonitor>,
+    source: u8,
     signal: Arc<AtomicBool>,
     peak: Arc<AtomicU64>,
-    errors: crossbeam_channel::Sender<String>,
-    received: crossbeam_channel::Receiver<String>,
+    errors: crossbeam_channel::Sender<cpal::Error>,
+    received: crossbeam_channel::Receiver<cpal::Error>,
 }
 
 impl StreamProbe {
-    pub fn new() -> Self {
+    pub fn new(monitor: Arc<CaptureMonitor>, source: u8) -> Self {
         let (errors, received) = crossbeam_channel::bounded(1);
         Self {
+            monitor,
+            source,
             signal: Arc::new(AtomicBool::new(false)),
             peak: Arc::new(AtomicU64::new(0)),
             errors,
@@ -46,18 +50,23 @@ impl StreamProbe {
         self.peak.store(word, Ordering::Relaxed);
         level
     }
-    pub fn failed(&self, error: String) {
-        let _ = self.errors.try_send(error);
+    pub fn stream_error(&self, error: cpal::Error) {
+        if error.kind() == cpal::ErrorKind::Xrun {
+            self.monitor.buffer_xruns[self.source as usize].fetch_add(1, Ordering::Relaxed);
+            self.monitor.dirty.store(true, Ordering::Release);
+        } else {
+            let _ = self.errors.try_send(error);
+        }
     }
-    pub fn poll(&self, monitor: &CaptureMonitor, source: u8, reported: &mut bool) -> Result<()> {
+    pub fn poll(&self, reported: &mut bool) -> Result<()> {
         if let Ok(error) = self.received.try_recv() {
             anyhow::bail!("audio stream: {error}");
         }
-        if let Some(page) = &monitor.levels {
-            page.set(source, self.peak.load(Ordering::Relaxed));
+        if let Some(page) = &self.monitor.levels {
+            page.set(self.source, self.peak.load(Ordering::Relaxed));
         }
         if !*reported && self.signal.load(Ordering::Relaxed) {
-            monitor.signal(source);
+            self.monitor.signal(self.source);
             *reported = true;
         }
         Ok(())
@@ -75,6 +84,7 @@ pub struct CaptureSource {
 }
 
 pub struct CaptureMonitor {
+    buffer_xruns: [AtomicU64; 2],
     levels: Option<super::levels::Levels>,
     path: PathBuf,
     sources: Mutex<Vec<CaptureSource>>,
@@ -106,6 +116,7 @@ impl CaptureMonitor {
             },
         ];
         let monitor = Arc::new(Self {
+            buffer_xruns: Default::default(),
             levels: super::levels::Levels::create(workspace)
                 .map_err(|err| tracing::warn!(%err, "capture meters unavailable"))
                 .ok(),
@@ -156,7 +167,16 @@ impl CaptureMonitor {
             .sources
             .lock()
             .map_err(|e| anyhow::anyhow!("capture status: {e}"))
-            .and_then(|sources| Ok(serde_json::to_vec(&*sources)?))
+            .map(|sources| sources.clone())
+            .and_then(|mut sources| {
+                for source in &mut sources {
+                    let count = self.buffer_xruns[source.source_id as usize].load(Ordering::Relaxed);
+                    if count > 0 && matches!(source.state.as_str(), "waiting" | "signal") {
+                        source.detail.push_str(&format!(" · Сбоев аудиобуфера с запуска движка: {count}. Возможен краткий пропуск звука."));
+                    }
+                }
+                Ok(serde_json::to_vec(&sources)?)
+            })
             .and_then(|bytes| crate::artifacts::atomic_write(&self.path, &bytes));
         if result.is_err() {
             self.dirty.store(true, Ordering::Release);
@@ -228,18 +248,18 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let monitor = CaptureMonitor::new(root.path(), true).unwrap();
         monitor.opened(1);
-        let probe = StreamProbe::new();
+        let probe = StreamProbe::new(monitor.clone(), 1);
         let callback = probe.clone();
         let mut reported = false;
         callback.observe(&[0; 512]);
         callback.observe(&[1; 512]);
-        probe.poll(&monitor, 1, &mut reported).unwrap();
+        probe.poll(&mut reported).unwrap();
         assert!(
             !reported,
             "silence and rounding noise are not proof of sound"
         );
         callback.observe(&[4096; 512]);
-        probe.poll(&monitor, 1, &mut reported).unwrap();
+        probe.poll(&mut reported).unwrap();
         assert!(reported);
         assert_eq!(crate::audio::levels::read(root.path()), [None, Some(4)]);
         // Independent readers do not consume the same peak.
@@ -258,13 +278,44 @@ mod tests {
             read(root.path())[1].device.as_deref(),
             Some("Built-in Output")
         );
-        callback.failed("device disconnected".into());
-        callback.failed("duplicate failure does not block the callback".into());
+        callback.stream_error(cpal::Error::with_message(
+            cpal::ErrorKind::DeviceNotAvailable,
+            "device disconnected",
+        ));
+        callback.stream_error(cpal::ErrorKind::StreamInvalidated.into());
         assert!(probe
-            .poll(&monitor, 1, &mut reported)
+            .poll(&mut reported)
             .unwrap_err()
             .to_string()
             .contains("device disconnected"));
+    }
+
+    #[test]
+    fn xruns_are_counted_without_losing_the_stream_signal_or_a_fatal_error() {
+        let root = tempfile::tempdir().unwrap();
+        let monitor = CaptureMonitor::new(root.path(), true).unwrap();
+        monitor.open_device(0, Some("Mic".into()));
+        let probe = StreamProbe::new(monitor.clone(), 0);
+        let mut reported = false;
+        probe.stream_error(cpal::ErrorKind::Xrun.into());
+        probe.poll(&mut reported).unwrap();
+        monitor.publish().unwrap();
+        let sources = read(root.path());
+        assert_eq!(sources[0].state, "waiting");
+        assert!(sources[0].detail.contains("движка: 1"));
+        assert!(!sources[1].detail.contains("аудиобуфера"));
+        probe.observe(&[4096; 512]);
+        probe.stream_error(cpal::ErrorKind::Xrun.into());
+        probe.poll(&mut reported).unwrap();
+        monitor.publish().unwrap();
+        let source = &read(root.path())[0];
+        assert_eq!(source.state, "signal");
+        assert_eq!(source.device.as_deref(), Some("Mic"));
+        assert!(source.detail.contains("движка: 2"));
+        assert_eq!(source.detail.matches("аудиобуфера").count(), 1);
+        probe.stream_error(cpal::ErrorKind::Xrun.into());
+        probe.stream_error(cpal::ErrorKind::DeviceNotAvailable.into());
+        assert!(probe.poll(&mut reported).is_err());
     }
 
     #[test]

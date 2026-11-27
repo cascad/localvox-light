@@ -670,7 +670,7 @@ pub fn mic_capture(
     let tx2 = tx.clone();
     let running2 = running.clone();
     let level2 = level_ui.clone();
-    let probe = status::StreamProbe::new();
+    let probe = status::StreamProbe::new(monitor.clone(), source_id);
     let callback_probe = probe.clone();
     let callback_error = probe.clone();
 
@@ -724,7 +724,7 @@ pub fn mic_capture(
             }
         },
         move |err| {
-            callback_error.failed(err.to_string());
+            callback_error.stream_error(err);
         },
         None,
     )?;
@@ -735,7 +735,7 @@ pub fn mic_capture(
     );
     let mut reported_signal = false;
     while running.load(Ordering::Relaxed) {
-        probe.poll(&monitor, source_id, &mut reported_signal)?;
+        probe.poll(&mut reported_signal)?;
         if let Some(ref rg) = reload_gen {
             if rg.load(Ordering::SeqCst) != reload_snapshot {
                 break;
@@ -799,7 +799,7 @@ pub fn loopback_capture(
         .start_stream()
         .map_err(|e| anyhow::anyhow!("start_stream: {e:?}"))?;
     monitor.open_device(1, device.get_friendlyname().ok());
-    let probe = status::StreamProbe::new();
+    let probe = status::StreamProbe::new(monitor.clone(), 1);
     let mut reported_signal = false;
 
     let blockalign = desired_format.get_blockalign() as usize;
@@ -860,7 +860,7 @@ pub fn loopback_capture(
                 break; // the receiver is gone
             }
         }
-        probe.poll(&monitor, 1, &mut reported_signal)?;
+        probe.poll(&mut reported_signal)?;
         // Nothing is playing in the system — top the track up with silence so that its time
         // matches the world's. Otherwise the pause simply falls out of the recording.
         let expected = (started.elapsed().as_secs_f64() * f64::from(SAMPLE_RATE)) as u64;

@@ -28,7 +28,7 @@ fn body_top(a: &App) -> String {
     terminal.draw(|f| crate::render::draw(f, a)).unwrap();
     let x = if w < 95 { 1 } else { 28 };
     (x..w.min(x + 15))
-        .map(|col| terminal.backend().buffer()[(col, 9)].symbol())
+        .map(|col| terminal.backend().buffer()[(col, 8)].symbol())
         .collect()
 }
 #[test]

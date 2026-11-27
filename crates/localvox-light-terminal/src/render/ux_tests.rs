@@ -2,56 +2,55 @@ use super::playback::player_line;
 use super::*;
 
 #[test]
-fn record_header_distinguishes_ready_active_pending_and_unknown() {
+fn record_state_is_in_the_header_and_shortcuts_are_grouped_by_scope() {
     for width in [35, 80, 140] {
         let mut app = App::default();
         app.record.engine = true;
         let mut terminal = Terminal::new(TestBackend::new(width, 24)).unwrap();
-        for (recording, pending, expected, shortcut) in [
-            (false, None, "готов к записи", Some("F9 начать запись")),
-            (
-                false,
-                Some(true),
-                "запускаем запись",
-                Some("F8 остановить запись"),
-            ),
-            (true, None, "ИДЁТ ЗАПИСЬ", Some("F8 остановить запись")),
-            (true, Some(false), "останавливаем запись", None),
+        for (recording, pending, unknown, expected, shortcut) in [
+            (false, None, false, "готов к записи", Some("F9")),
+            (false, Some(true), false, "запускаем запись", Some("F8")),
+            (true, None, false, "ИДЁТ ЗАПИСЬ", Some("F8")),
+            (true, Some(false), false, "останавливаем запись", None),
+            (false, None, true, "состояние записи", None),
         ] {
             app.record.recording = recording;
             app.pending_record = pending;
-            terminal.draw(|f| draw(f, &app)).unwrap();
-            let header: String = terminal
-                .backend()
-                .buffer()
-                .content
-                .iter()
-                .take(2 * usize::from(width))
-                .map(|c| c.symbol())
-                .collect();
-            assert!(header.contains(expected), "{header}");
-            assert_eq!(
-                header.contains("F9 начать запись"),
-                shortcut == Some("F9 начать запись")
-            );
-            assert_eq!(
-                header.contains("F8 остановить запись"),
-                shortcut == Some("F8 остановить запись")
-            );
+            if unknown {
+                app.errors.insert(Resource::Record, "offline".into());
+            }
+            for focus in [1, 3] {
+                app.focus = focus;
+                terminal.draw(|f| draw(f, &app)).unwrap();
+                let rows: Vec<String> = terminal
+                    .backend()
+                    .buffer()
+                    .content
+                    .chunks(usize::from(width))
+                    .map(|row| row.iter().map(|cell| cell.symbol()).collect())
+                    .collect();
+                assert!(rows[0].contains(expected));
+                assert!(rows[1].chars().all(|c| "┌─┐".contains(c)), "{}", rows[1]);
+                let screen = rows.join("\n");
+                assert_eq!(screen.matches("F6").count(), 1);
+                assert!(rows[3].contains(if focus == 3 {
+                    "F6 к документу"
+                } else {
+                    "F6 стрелки плееру"
+                }));
+                for key in ["F8", "F9"] {
+                    assert_eq!(
+                        screen.matches(key).count(),
+                        usize::from(shortcut == Some(key))
+                    );
+                    assert_eq!(rows[23].contains(key), shortcut == Some(key));
+                }
+                if focus == 1 && width >= 80 {
+                    assert!(rows[22].contains("j/k") && rows[22].contains("/ поиск"));
+                    assert!(rows[23].contains("F2/: действия"));
+                }
+            }
         }
-        app.pending_record = None;
-        app.errors.insert(Resource::Record, "offline".into());
-        terminal.draw(|f| draw(f, &app)).unwrap();
-        let header: String = terminal
-            .backend()
-            .buffer()
-            .content
-            .iter()
-            .take(2 * usize::from(width))
-            .map(|c| c.symbol())
-            .collect();
-        assert!(header.contains("состояние записи"));
-        assert!(!header.contains("ИДЁТ ЗАПИСЬ") && !header.contains("F9"));
     }
 }
 
