@@ -183,6 +183,16 @@ impl ApiFixture {
                                 std::thread::sleep(Duration::from_millis(150));
                                 serde_json::json!({"completed":true})
                             }
+                            "/api/record/start" => {
+                                let mut body = String::new();
+                                request.as_reader().read_to_string(&mut body).unwrap();
+                                assert_eq!(
+                                    serde_json::from_str::<serde_json::Value>(&body).unwrap(),
+                                    serde_json::json!({"title":"call"})
+                                );
+                                assert!(!active.swap(true, Ordering::Relaxed));
+                                serde_json::json!({"msg":"Запрос принят"})
+                            }
                             "/api/record/stop" => {
                                 stopped.fetch_add(1, Ordering::Relaxed);
                                 active.store(false, Ordering::Relaxed);
@@ -989,6 +999,7 @@ fn vox_full_exit_also_accepts_a_separate_enter() {
 
 fn exercise_terminal(vox: bool, full_exit: bool, confirm_key: &[u8]) {
     let api = ApiFixture::new();
+    api.recording.store(false, Ordering::Relaxed);
     let pty = native_pty_system();
     let pair = pty
         .openpty(PtySize {
@@ -1249,7 +1260,7 @@ fn exercise_terminal(vox: bool, full_exit: bool, confirm_key: &[u8]) {
     writer.write_all(b"`").unwrap();
     writer.flush().unwrap();
     wait_for(
-        "F8 stop",
+        "F9 начать запись",
         &mut all,
         &mut screen,
         &rx,
@@ -1302,6 +1313,29 @@ fn exercise_terminal(vox: bool, full_exit: bool, confirm_key: &[u8]) {
         &mut queries,
         deadline,
     );
+    writer.write_all(b"call\r").unwrap();
+    writer.flush().unwrap();
+    wait_for(
+        "F8 остановить запись",
+        &mut all,
+        &mut screen,
+        &rx,
+        &mut writer,
+        &mut queries,
+        deadline,
+    );
+    // Stop must remain available even with another modal open.
+    writer.write_all(b"i").unwrap();
+    writer.flush().unwrap();
+    wait_for(
+        "Импорт",
+        &mut all,
+        &mut screen,
+        &rx,
+        &mut writer,
+        &mut queries,
+        deadline,
+    );
     writer.write_all(b"\x1b[19~").unwrap();
     writer.flush().unwrap();
     while api.stops.load(Ordering::Relaxed) == 0 {
@@ -1320,7 +1354,7 @@ fn exercise_terminal(vox: bool, full_exit: bool, confirm_key: &[u8]) {
     // A new server-side recording must survive closing this client.
     api.recording.store(true, Ordering::Relaxed);
     wait_for(
-        "ИДЁТ ЗАПИСЬ",
+        "F8 остановить запись",
         &mut all,
         &mut screen,
         &rx,
@@ -1334,7 +1368,7 @@ fn exercise_terminal(vox: bool, full_exit: bool, confirm_key: &[u8]) {
         writer.flush().unwrap();
         wait_until(
             "closed editor",
-            |_, s| !s.contents().contains("Название"),
+            |_, s| !s.contents().contains("Импорт"),
             &mut all,
             &mut screen,
             &rx,

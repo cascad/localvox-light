@@ -235,7 +235,10 @@ impl App {
             Action::StopRecording => {
                 self.pending_record = Some(false);
                 self.pending_record_at = self.now_ms;
-                self.action(Task::Stop);
+                // If Start is in flight, its acknowledgement dispatches this Stop.
+                if !self.pending_actions.contains(&Resource::Control) {
+                    self.action(Task::Stop);
+                }
             }
             Action::Search => {
                 let query = self.search_query.clone();

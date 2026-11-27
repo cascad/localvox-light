@@ -1,5 +1,12 @@
 # Покрытие требований и состояние реализации
 
+Управление записью и выбор настроек, 2026-11-27 (delta):
+
+| Требование | Код / delta | Проверка |
+|---|---|---|
+| TERM-010 | [delta](../changes/surface-terminal-record-controls/specs/terminal-workspace/spec.md), [шапка](../../crates/localvox-light-terminal/src/render.rs), [навигация](../../crates/localvox-light-terminal/src/app/input.rs) | [Windows state/render, снимки и ConPTY](../changes/surface-terminal-record-controls/evidence/implementation.md) |
+| REC-004, CFG-007 | [аудиопотоки](../../crates/localvox-light-core/src/audio.rs), [API настроек](../../crates/localvox-light-api/src/http/tests/settings.rs) | [T-one → GigaAM и повторное сохранение параметров при зарегистрированном захвате](../changes/surface-terminal-record-controls/evidence/implementation.md). Реальный маршрут звонка на Mac требует проверки. |
+
 macOS capture feedback, 2026-11-26 (REC-004 delta, main ещё не sync):
 
 | Требование | Код / delta | Проверка |

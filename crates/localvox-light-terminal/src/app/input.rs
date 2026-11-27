@@ -1,5 +1,18 @@
 use super::*;
 
+/// Shared by menus with a highlighted row, after applying the user's keymap.
+fn menu_key(key: KeyEvent) -> KeyCode {
+    match (key.modifiers, key.code) {
+        (KeyModifiers::NONE, KeyCode::Char('j' | 'n' | 'N')) => KeyCode::Down,
+        (KeyModifiers::NONE, KeyCode::Char('k' | 'p' | 'P')) => KeyCode::Up,
+        (KeyModifiers::CONTROL, KeyCode::Char('n' | 'N')) => KeyCode::Down,
+        (KeyModifiers::CONTROL, KeyCode::Char('p' | 'P')) => KeyCode::Up,
+        (KeyModifiers::NONE, KeyCode::Char('h')) => KeyCode::Esc,
+        (KeyModifiers::NONE, KeyCode::Char('l')) => KeyCode::Enter,
+        _ => key.code,
+    }
+}
+
 impl App {
     pub fn llm_servers(&self) -> Vec<String> {
         let setting = self
@@ -40,7 +53,7 @@ impl App {
             options, selected, ..
         } = &mut form.kind
         {
-            match key.code {
+            match menu_key(key) {
                 KeyCode::Esc => self.form = None,
                 KeyCode::Up | KeyCode::BackTab => *selected = selected.saturating_sub(1),
                 KeyCode::Down | KeyCode::Tab => {
@@ -208,7 +221,12 @@ impl App {
         if self.archive_filter_key(key) {
             return;
         }
-        if self.form.is_none() {
+        if self.form.is_none()
+            || self
+                .form
+                .as_ref()
+                .is_some_and(|f| matches!(f.kind, FormKind::SettingChoice { .. }))
+        {
             key = shortcut;
         }
         if self.console_key(key) {
@@ -303,21 +321,7 @@ impl App {
             return;
         }
         if self.palette {
-            if key.modifiers.is_empty() || key.modifiers == KeyModifiers::CONTROL {
-                key.code = match key.code {
-                    KeyCode::Char('n' | 'N') => KeyCode::Down,
-                    KeyCode::Char('p' | 'P') => KeyCode::Up,
-                    other => other,
-                };
-            }
-            if key.modifiers.is_empty() {
-                key.code = match key.code {
-                    KeyCode::Char('h') => KeyCode::Esc,
-                    KeyCode::Char('l') => KeyCode::Enter,
-                    other => other,
-                };
-            }
-            match key.code {
+            match menu_key(key) {
                 KeyCode::Esc => self.palette = false,
                 KeyCode::Home => self.palette_index = 0,
                 KeyCode::End => self.palette_index = COMMANDS.len() - 1,
@@ -332,10 +336,8 @@ impl App {
                         .palette_index
                         .saturating_sub(self.palette_window(self.viewport.1).0)
                 }
-                KeyCode::Down | KeyCode::Char('j') => {
-                    self.palette_index = (self.palette_index + 1) % COMMANDS.len()
-                }
-                KeyCode::Up | KeyCode::Char('k') => {
+                KeyCode::Down => self.palette_index = (self.palette_index + 1) % COMMANDS.len(),
+                KeyCode::Up => {
                     self.palette_index = (self.palette_index + COMMANDS.len() - 1) % COMMANDS.len()
                 }
                 KeyCode::Enter => self.command(COMMANDS[self.palette_index].0),

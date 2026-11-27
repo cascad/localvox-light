@@ -1124,8 +1124,8 @@ pub fn register_capture(controls: CaptureControls) {
     let _ = CAPTURE.set(controls);
 }
 
-/// Re-point capture at the devices named in the environment RIGHT NOW, and tell the streams to
-/// re-open. Returns false when there is nothing registered — a CLI run, or a build without the
+/// Re-open capture only if the requested devices or enablement changed.
+/// Returns false when there is nothing registered — a CLI run, or a build without the
 /// engine — so the caller can say «после перезапуска» instead of promising a switch that no one
 /// will perform.
 pub fn reload_capture_from_env() -> bool {
@@ -1135,6 +1135,7 @@ pub fn reload_capture_from_env() -> bool {
     let Ok(mut cfg) = c.devices.write() else {
         return false;
     };
+    let previous = cfg.clone();
     if let Ok(v) = std::env::var("LOCALVOX_LIGHT_MIC") {
         cfg.mic = v;
     }
@@ -1144,7 +1145,9 @@ pub fn reload_capture_from_env() -> bool {
     if let Some(v) = crate::cli::env_truthy("LOCALVOX_LIGHT_LOOPBACK") {
         cfg.loopback = v;
     }
-    drop(cfg);
+    if *cfg == previous {
+        return true;
+    }
     // The supervisors watch this counter; bumping it makes them close the current streams and
     // open new ones from the config above.
     c.reload_gen

@@ -230,7 +230,9 @@ impl App {
                         self.console.recover_operation(&context);
                     }
                 }
-                if self.pending_record == Some(r.recording) {
+                if self.pending_record == Some(r.recording)
+                    && (r.recording || !self.pending_actions.contains(&Resource::Control))
+                {
                     self.pending_record = None;
                 }
                 self.record = r;
@@ -526,6 +528,14 @@ impl App {
                 }
             }
             Data::Reply(mut r) => {
+                if self.pending_record == Some(false)
+                    && completed_form
+                        .as_ref()
+                        .is_some_and(|f| matches!(f.kind, FormKind::Start))
+                {
+                    self.pending_record_at = self.now_ms;
+                    self.action(Task::Stop);
+                }
                 if let Some(Form {
                     kind: FormKind::Confirm(Task::DeleteSession(target)),
                     ..

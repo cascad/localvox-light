@@ -451,6 +451,8 @@ impl App {
         }
         if self.shutdown_started.is_none()
             && self.pending_record.is_some()
+            && !(self.pending_record == Some(false)
+                && self.pending_actions.contains(&Resource::Control))
             && now_ms.saturating_sub(self.pending_record_at) > 10_000
         {
             self.pending_record = None;

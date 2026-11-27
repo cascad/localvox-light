@@ -433,6 +433,59 @@ fn time_picker_rejects_text_and_out_of_range_positions_without_dispatching() {
     );
 }
 #[test]
+fn settings_choice_uses_menu_navigation_in_both_layouts_and_preserves_text_editing() {
+    let mut app = App::default();
+    app.view = View::Settings;
+    app.settings.settings = vec![Setting {
+        key: "LOCALVOX_LIGHT_AUTOCOOK_SUMMARY".into(),
+        kind: "bool".into(),
+        ..Default::default()
+    }];
+    app.command(Action::EditSetting);
+    let selected = |app: &App| match &app.form.as_ref().unwrap().kind {
+        FormKind::SettingChoice { selected, .. } => *selected,
+        _ => panic!("expected the choice list"),
+    };
+    for (down, up, mods) in [
+        (KeyCode::Down, KeyCode::Up, KeyModifiers::NONE),
+        (KeyCode::Char('j'), KeyCode::Char('k'), KeyModifiers::NONE),
+        (KeyCode::Char('о'), KeyCode::Char('л'), KeyModifiers::NONE),
+        (KeyCode::Char('n'), KeyCode::Char('p'), KeyModifiers::NONE),
+        (
+            KeyCode::Char('т'),
+            KeyCode::Char('з'),
+            KeyModifiers::CONTROL,
+        ),
+        (
+            KeyCode::Char('n'),
+            KeyCode::Char('p'),
+            KeyModifiers::CONTROL,
+        ),
+    ] {
+        key(&mut app, KeyCode::Home);
+        app.key(KeyEvent::new(down, mods));
+        assert_eq!(selected(&app), 1);
+        app.key(KeyEvent::new(up, mods));
+        assert_eq!(selected(&app), 0);
+    }
+    key(&mut app, KeyCode::End);
+    key(&mut app, KeyCode::Char('р')); // h / Esc
+    assert!(app.form.is_none() && app.settings_edits.is_empty());
+    app.command(Action::EditSetting);
+    key(&mut app, KeyCode::End);
+    key(&mut app, KeyCode::Char('д')); // l / Enter
+    assert_eq!(
+        app.settings_edits["LOCALVOX_LIGHT_AUTOCOOK_SUMMARY"].as_deref(),
+        Some("off")
+    );
+    app.command(Action::StartRecording);
+    for c in "hjklтз".chars() {
+        key(&mut app, KeyCode::Char(c));
+    }
+    assert_eq!(app.form.unwrap().fields[0].value, "hjklтз");
+}
+
+#[test]
 fn settings_choose_values_without_turning_hints_into_defaults() {
     let mut app = App::default();
     app.view = View::Settings;

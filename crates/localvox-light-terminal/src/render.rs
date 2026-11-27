@@ -240,21 +240,16 @@ pub fn draw(f: &mut Frame, a: &App) {
         return;
     }
     let rows = workspace_rows(area);
-    let record = if a.pending_record.is_some() {
-        "ожидаем подтверждение"
-    } else if a.record.recording {
-        "ИДЁТ ЗАПИСЬ"
-    } else if a.record.engine {
-        "готов к записи"
-    } else {
-        "движок недоступен"
-    };
-    let rec_color = if a.record.recording {
-        t.error
-    } else if a.pending_record.is_some() {
-        t.busy
-    } else {
-        t.dim
+    let stop_hint = " F8 остановить запись ·";
+    let (record, rec_color, record_key) = match a.pending_record {
+        Some(true) => ("запускаем запись…", t.busy, stop_hint),
+        Some(false) => ("останавливаем запись…", t.busy, ""),
+        None if a.errors.contains_key(&Resource::Record) => {
+            ("состояние записи неизвестно", t.busy, "")
+        }
+        None if a.record.recording => ("ИДЁТ ЗАПИСЬ", t.error, stop_hint),
+        None if a.record.engine => ("готов к записи", t.dim, " F9 начать запись ·"),
+        None => ("движок недоступен", t.dim, ""),
     };
     f.render_widget(
         Paragraph::new(vec![
@@ -308,39 +303,42 @@ pub fn draw(f: &mut Frame, a: &App) {
                     }),
                 ),
             ]),
-            Line::from(Span::styled(
-                format!(
-                    " {}   {}",
-                    if a.view == View::Archive && a.focus == 1 {
-                        if a.archive_filter_editing {
-                            "ввод имени · ↑↓ выбор · Esc сброс"
-                        } else {
-                            "j/k ↑↓ · / поиск · F2 действия"
-                        }
-                    } else {
-                        "i добавить YouTube / URL"
-                    },
-                    a.record
-                        .voice
-                        .as_ref()
-                        .map(|v| {
-                            let detail = if let Some(capturing) = &v.capturing {
-                                format!("диктую → {}: {}", capturing.slot, capturing.text)
-                            } else if let Some(last) = &v.last {
-                                if last.error.is_some() {
-                                    format!("сбой заметки → {} · ~ консоль", last.slot)
-                                } else {
-                                    format!("сохранено → {}: {}", last.slot, last.text)
-                                }
+            Line::from(vec![
+                Span::styled(record_key, Style::default().fg(t.command)),
+                Span::styled(
+                    format!(
+                        " {}   {}",
+                        if a.view == View::Archive && a.focus == 1 {
+                            if a.archive_filter_editing {
+                                "ввод имени · ↑↓ выбор · Esc сброс"
                             } else {
-                                format!("голос: {}", v.detail)
-                            };
-                            safe_label(&detail).replace(['\n', '\t'], " ")
-                        })
-                        .unwrap_or_default()
+                                "j/k ↑↓ · / поиск · F2 действия"
+                            }
+                        } else {
+                            "i добавить YouTube / URL"
+                        },
+                        a.record
+                            .voice
+                            .as_ref()
+                            .map(|v| {
+                                let detail = if let Some(capturing) = &v.capturing {
+                                    format!("диктую → {}: {}", capturing.slot, capturing.text)
+                                } else if let Some(last) = &v.last {
+                                    if last.error.is_some() {
+                                        format!("сбой заметки → {} · ~ консоль", last.slot)
+                                    } else {
+                                        format!("сохранено → {}: {}", last.slot, last.text)
+                                    }
+                                } else {
+                                    format!("голос: {}", v.detail)
+                                };
+                                safe_label(&detail).replace(['\n', '\t'], " ")
+                            })
+                            .unwrap_or_default()
+                    ),
+                    Style::default().fg(t.dim),
                 ),
-                Style::default().fg(t.dim),
-            )),
+            ]),
         ]),
         rows[0],
     );

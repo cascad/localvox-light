@@ -403,6 +403,54 @@ fn failed_mutation_restores_the_original_session_draft() {
     assert!(matches!(&a.effects[0].1,Task::Lang(s,_) if s=="A"));
 }
 #[test]
+fn stop_during_start_survives_old_record_state_until_start_is_acknowledged() {
+    let mut app = App::default();
+    app.record.engine = true;
+    app.command(Action::StartRecording);
+    app.submit_form().unwrap();
+    app.command(Action::StopRecording);
+    app.command(Action::StopRecording);
+    app.apply(Response {
+        id: 1,
+        epoch: 0,
+        resource: Resource::Record,
+        result: Ok(Data::Record(app.record.clone())),
+    });
+    app.tick(10_001);
+    assert_eq!(app.pending_record, Some(false));
+    assert!(!app
+        .effects
+        .iter()
+        .any(|(_, task)| matches!(task, Task::Stop)));
+    app.apply(Response {
+        id: 2,
+        epoch: 0,
+        resource: Resource::Control,
+        result: Ok(Data::Reply(Reply::default())),
+    });
+    assert_eq!(
+        app.effects
+            .iter()
+            .filter(|(_, task)| matches!(task, Task::Stop))
+            .count(),
+        1
+    );
+    app.apply(Response {
+        id: 3,
+        epoch: 0,
+        resource: Resource::Control,
+        result: Ok(Data::Reply(Reply::default())),
+    });
+    app.apply(Response {
+        id: 4,
+        epoch: 0,
+        resource: Resource::Record,
+        result: Ok(Data::Record(app.record.clone())),
+    });
+    assert_eq!(app.pending_record, None);
+}
+
+#[test]
 fn stop_is_independent_of_a_pending_model_action() {
     let mut a = App::default();
     a.pending_actions.insert(Resource::Action);

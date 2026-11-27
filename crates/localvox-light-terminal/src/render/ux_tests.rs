@@ -2,6 +2,60 @@ use super::playback::player_line;
 use super::*;
 
 #[test]
+fn record_header_distinguishes_ready_active_pending_and_unknown() {
+    for width in [35, 80, 140] {
+        let mut app = App::default();
+        app.record.engine = true;
+        let mut terminal = Terminal::new(TestBackend::new(width, 24)).unwrap();
+        for (recording, pending, expected, shortcut) in [
+            (false, None, "готов к записи", Some("F9 начать запись")),
+            (
+                false,
+                Some(true),
+                "запускаем запись",
+                Some("F8 остановить запись"),
+            ),
+            (true, None, "ИДЁТ ЗАПИСЬ", Some("F8 остановить запись")),
+            (true, Some(false), "останавливаем запись", None),
+        ] {
+            app.record.recording = recording;
+            app.pending_record = pending;
+            terminal.draw(|f| draw(f, &app)).unwrap();
+            let header: String = terminal
+                .backend()
+                .buffer()
+                .content
+                .iter()
+                .take(2 * usize::from(width))
+                .map(|c| c.symbol())
+                .collect();
+            assert!(header.contains(expected), "{header}");
+            assert_eq!(
+                header.contains("F9 начать запись"),
+                shortcut == Some("F9 начать запись")
+            );
+            assert_eq!(
+                header.contains("F8 остановить запись"),
+                shortcut == Some("F8 остановить запись")
+            );
+        }
+        app.pending_record = None;
+        app.errors.insert(Resource::Record, "offline".into());
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        let header: String = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .take(2 * usize::from(width))
+            .map(|c| c.symbol())
+            .collect();
+        assert!(header.contains("состояние записи"));
+        assert!(!header.contains("ИДЁТ ЗАПИСЬ") && !header.contains("F9"));
+    }
+}
+
+#[test]
 fn palette_shows_the_visible_range_and_both_scroll_boundaries_on_short_screens() {
     for height in [12, 36] {
         let mut app = App::default();

@@ -534,12 +534,8 @@ fn settings_http_masks_unknown_values_and_reports_snapshot_restart_before_and_af
             Duration::from_secs(3),
         )
         .unwrap();
-    for (value, expected) in [(Some("off"), false), (Some("on"), true), (None, true)] {
-        let reply = client
-            .save_settings([("LOCALVOX_LIGHT_LOOPBACK".into(), value.map(str::to_owned))].into())
-            .unwrap();
-        assert!(reply.need_restart.is_empty());
-        let state: Value = client
+    let capture_state = || -> Value {
+        client
             .request(
                 "GET",
                 &["fixture", "capture-state"],
@@ -547,9 +543,31 @@ fn settings_http_masks_unknown_values_and_reports_snapshot_restart_before_and_af
                 None,
                 Duration::from_secs(3),
             )
+            .unwrap()
+    };
+    let mut previous = capture_state();
+    for (value, expected) in [(Some("off"), false), (Some("on"), true), (None, true)] {
+        let reply = client
+            .save_settings([("LOCALVOX_LIGHT_LOOPBACK".into(), value.map(str::to_owned))].into())
             .unwrap();
+        assert!(reply.need_restart.is_empty());
+        let state = capture_state();
         assert_eq!(state["loopback"], expected);
-        assert!(state["reloads"].as_u64().unwrap() > 0);
+        assert_eq!(
+            state["reloads"].as_u64().unwrap(),
+            previous["reloads"].as_u64().unwrap() + u64::from(previous["loopback"] != expected)
+        );
+        previous = state;
+    }
+    for backend in ["tone", "gigaam"] {
+        client
+            .save_settings([("LOCALVOX_ASR_BACKEND".into(), Some(backend.into()))].into())
+            .unwrap();
+        assert_eq!(
+            capture_state(),
+            previous,
+            "STT switch must preserve the open capture streams"
+        );
     }
     fs::remove_file(&env_path).unwrap();
     fs::create_dir(&env_path).unwrap();

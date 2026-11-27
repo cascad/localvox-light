@@ -130,16 +130,21 @@ pub(super) fn draw(f: &mut Frame, a: &App, area: Rect, t: Theme) {
                 .map(|(label, _)| ListItem::new(label.clone()))
                 .collect::<Vec<_>>();
             let mut state = ListState::default().with_selected(Some(*selected));
+            let hint_height = u16::from(inner.height > 2);
+            let choices_area = Rect {
+                height: inner.height - hint_height,
+                ..inner
+            };
             f.render_stateful_widget(
                 List::new(choices)
                     .highlight_style(selection_style(t))
                     .highlight_symbol("> "),
-                inner,
+                choices_area,
                 &mut state,
             );
-            if inner.height > 2 {
+            if hint_height > 0 {
                 f.render_widget(
-                    Paragraph::new("↑↓ выбрать · Enter в черновик · Esc отменить")
+                    Paragraph::new("↑↓ j/k n/p · Enter/l выбрать · Esc/h назад")
                         .style(Style::default().fg(t.dim)),
                     Rect::new(inner.x, inner.bottom() - 1, inner.width, 1),
                 );
